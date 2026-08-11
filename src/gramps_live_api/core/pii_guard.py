@@ -515,6 +515,17 @@ _ABSOLUTE_PATH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 _ONE_BACKSLASH = chr(92)
 _MATCHES_A_BACKSLASH = _ONE_BACKSLASH * 2
 
+# What an escape may NOT decode to. Every one of these OPENS OR CLOSES a
+# construct that a rule below reads: JSON's string delimiter, its object
+# braces and its key separator, XML's angle brackets, and the backslash a
+# Windows path is built from.
+#
+# The separator is deliberately ABSENT. It sits inside a construct and never
+# begins one -- a solidus cannot open a tag without an angle bracket and means
+# nothing at all to the JSON scorer -- so decoding it manufactures nothing,
+# and it is the spelling the escaped-solidus branch exists for.
+_STRUCTURE_CHARACTERS = frozenset('"{}:<>' + _ONE_BACKSLASH)
+
 _JSON_ESCAPE = re.compile(
     # The escaped backslash comes FIRST so that a backslash-then-solidus pair
     # is consumed as one escape rather than read as an escaped separator.
@@ -554,6 +565,21 @@ def _decoded(text: str) -> str:
       that decodes to a line break would silently renumber every finding below
       it. Nothing is lost -- a control character is not part of a path or a
       member name.
+    * **An escape decoding to a STRUCTURE character is left alone**, for a
+      reason rather than by a list -- see ``_STRUCTURE_CHARACTERS``. A
+      ``\\uXXXX`` escape can only occur INSIDE a string literal, so a delimiter
+      it decodes to is content of that string and is provably not a delimiter
+      of the document around it. Producing one is not decoding; it is
+      MANUFACTURING structure the source does not contain. Without this, prose
+      inside one string value that quotes four member names decodes into four
+      apparent structural keys and scores as an export -- a finding on a
+      document that merely *describes* the format the guard looks for, which is
+      a finding nobody can act on and therefore one contributors route around.
+
+    A false positive is not the cheap side of this trade. Decoding still does
+    the job it was adopted for: the escaped solidus above, and a member name
+    spelled with escaped letters, both still reach the rules as what they parse
+    to.
     """
 
     def one(match: re.Match[str]) -> str:
@@ -563,7 +589,9 @@ def _decoded(text: str) -> str:
         if escape.endswith(_SEPARATOR):
             return _SEPARATOR
         character = chr(int(escape[2:], 16))
-        return character if character.isprintable() else escape
+        if not character.isprintable() or character in _STRUCTURE_CHARACTERS:
+            return escape
+        return character
 
     return _JSON_ESCAPE.sub(one, text)
 

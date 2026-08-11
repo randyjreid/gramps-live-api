@@ -22,6 +22,7 @@ from tests.fixtures.synthetic import (
     json_escaped,
     named_home_path,
     posix_path,
+    prose_describing_json_keys_with_escaped_quotes,
     unc_path,
     unicode_escaped_key,
     windows_path,
@@ -297,6 +298,28 @@ def test_a_document_describing_an_escape_is_not_a_finding() -> None:
     prose = "JSON writes a solidus as backslash-solidus, and a letter as backslash-u-hex."
 
     assert scan_text(prose, source="docs/notes.md") == [], "prose about escapes is prose"
+
+
+def test_an_escape_cannot_manufacture_structure_the_document_does_not_have() -> None:
+    """Decoding must read a document, never rewrite it into a different one.
+
+    ⚠️ **The test above does not cover this and never did.** Its payload names
+    escapes in ENGLISH -- "backslash-solidus" -- so it contains no escape
+    sequence at all and has never once exercised the decoder. A test whose name
+    promises a guarantee its body does not check is why this arrived as a
+    review finding rather than as a red suite.
+
+    An escape can only occur INSIDE a string literal, so a delimiter it decodes
+    to is content of that string and can never be a delimiter of the document
+    around it. Producing one is not decoding; it is manufacturing structure the
+    source does not contain -- here, four apparent structural keys out of prose
+    that merely describes the format the guard looks for.
+    """
+    findings = scan_text(prose_describing_json_keys_with_escaped_quotes(), source="docs/notes.md")
+
+    assert findings == [], (
+        f"a document describing the format was read as a document in it, got {findings}"
+    )
 
 
 def test_an_escape_cannot_renumber_the_findings_below_it() -> None:

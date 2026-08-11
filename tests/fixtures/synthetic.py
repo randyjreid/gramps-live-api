@@ -411,6 +411,24 @@ def json_escaped(text: str) -> str:
     return text.replace(_SLASH, _BACKSLASH + _SLASH)
 
 
+def prose_describing_json_keys_with_escaped_quotes() -> str:
+    """A document *about* GEDCOM X whose quotes are written as escapes.
+
+    Every quote here is a six-character escape sitting inside one string
+    value, so the document holds exactly one member name -- the one describing
+    it -- and no genealogy structure at all. Decoding the escapes without JSON
+    context turns prose inside a single string into four apparent structural
+    keys.
+
+    Keys assembled at runtime, like every builder here: written whole they
+    would be four real structural keys in a tracked file.
+    """
+    quote = _BACKSLASH + "u" + format(ord('"'), "04x")
+    keys = ("person" + "s", "name" + "s", "fact" + "s", "note" + "s")
+    named = " and ".join(f"{quote}{key}{quote}:" for key in keys)
+    return '{"descri' + 'ption":"GEDCOM X uses ' + named + ' keys"}'
+
+
 def unicode_escaped_key(document: str, key: str) -> str:
     """``document`` with the first letter of ``key`` written as an escape.
 
