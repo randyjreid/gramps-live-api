@@ -200,6 +200,25 @@ def gedcom_x_biography_and_address() -> str:
     return json.dumps(document, separators=(",", ":")) + "\n"
 
 
+def gedcom_x_note_only() -> str:
+    """A whole life in one GEDCOM X note, and nothing else.
+
+    The payload the XML side has always caught as prose. Two keys: one
+    structural, one prose.
+    """
+    return json.dumps({"no" + "tes": [{"te" + "xt": _BIOGRAPHY}]}, separators=(",", ":")) + "\n"
+
+
+def gedcom_x_short_note() -> str:
+    """A note too short to be prose, in the format's own container.
+
+    The false-positive side of weighing JSON prose as prose. A caption under a
+    note key is a caption; the length floor is what says so, and the XML side
+    has had one since the floor was measured.
+    """
+    return json.dumps({"no" + "tes": [{"te" + "xt": "OK"}]}, separators=(",", ":")) + "\n"
+
+
 def gramps_biography_and_address() -> str:
     """The same life as Gramps XML, which has always been caught."""
     return _element(

@@ -912,9 +912,14 @@ filled surname also score 2, because all three are one name-fact. CONTRIBUTING
 records why buying that last point is not affordable.
 """
 
-_GRAMPS_IDENTITY_WEIGHT = 2
-_GRAMPS_PROSE_WEIGHT = 4
-_GRAMPS_STRUCTURE_WEIGHT = 1
+# READ FROM THE TABLE, never restated beside it. These were three literals
+# holding the same numbers the table holds, which is a second place for a
+# weight to live and therefore a second place for it to drift.
+_GRAMPS_IDENTITY_WEIGHT = _CATEGORY_WEIGHT["identity"]
+_GRAMPS_PROSE_WEIGHT = _CATEGORY_WEIGHT["prose"]
+
+# Not a category: the namespace names the format rather than carrying a
+# person, so it has no row and no spellings. See the warning below.
 _GRAMPS_NAMESPACE_WEIGHT = 2
 
 # The same two axes again, for the format the guard had no property for at
@@ -926,23 +931,32 @@ _GRAMPS_NAMESPACE_WEIGHT = 2
 # imprecise: the payload was refused as a text file because text is not a safe
 # type, and passed clean as Markdown, Python or YAML, which are the three
 # commonest types in this repository.
-_GEDCOM_X_IDENTITY_KEY = re.compile(
-    r"\"(?:" + "|".join(_json_keys_of("identity")) + r")\"\s*:\s*\"[^\"]+\"",
-    re.IGNORECASE,
+_CARRYING_CATEGORIES = tuple(
+    category for category, _, _, _ in _VOCABULARY if category != "structure"
 )
-"""Compiled from the table: an identity key with a filled string value."""
 
-_GEDCOM_X_CARRIED_KEY = re.compile(
-    r"\"(?:" + "|".join(_json_keys_of("address", "contact", "prose")) + r")\"\s*:\s*\"[^\"]+\"",
-    re.IGNORECASE,
-)
-"""The other carrying categories, in their JSON spellings.
+_GEDCOM_X_FILLED_KEY = {
+    category: re.compile(
+        r"\"(?:" + "|".join(_json_keys_of(category)) + r")\"\s*:\s*\"([^\"]+)\"",
+        re.IGNORECASE,
+    )
+    for category in _CARRYING_CATEGORIES
+    if _json_keys_of(category)
+}
+"""One compiled pattern PER CATEGORY, keyed by it. Compiled from the table.
 
-⚠️ These count ONLY when the document says it is GEDCOM X -- see the gate
-in the scorer. Their words are ordinary: without it, a configuration file
-holding a caption under a text key scores four and is reported. That is the
-difference between this vocabulary and a rule nobody could live with, and it
-is the same corroboration the Gramps namespace already provides.
+⚠️ **A single pattern for several categories cannot be scored by category.**
+That is not a subtlety, it is what happened: address, contact and prose were
+compiled into one alternation and the scorer multiplied the lot by the address
+weight, so prose scored two where the table says four -- a whole life in one
+note passed in a safe-typed file while the identical prose as XML was caught.
+Contact was flattened in the very same expression and is *right by
+coincidence*, because contact and address both weigh two.
+
+A dict keyed by category cannot lose one that way: the key that selects the
+pattern is the key that selects the weight. A row is dropped here only by
+having no JSON spelling at all, which is a fact about the table rather than
+about this compilation, and the per-row test asserts that too.
 """
 _DOUBLE_QUOTE = chr(34)
 
@@ -1089,34 +1103,67 @@ def _genealogy_record_density(text: str) -> int | None:
     return None
 
 
+def _filled_key_weight(category: str, value: str) -> int:
+    """What one filled key of ``category`` is worth, given what it holds.
+
+    Prose is the one category whose weight depends on its content, and it
+    depends on it THE SAME WAY IN BOTH FORMATS -- the floor is a property of
+    prose, not of the XML spelling of it. Stating it on one side only is the
+    same partial application as stating a weight on one side only, one level
+    down; raising the JSON weight without carrying this across reports a
+    two-character caption under a note key as a family tree.
+
+    There is no positioned-label branch on this side and there cannot be: a
+    JSON key carries no attributes, so the floor is the whole discriminator.
+    """
+    if category != "prose":
+        return _CATEGORY_WEIGHT[category]
+    if len(value) < _GRAMPS_PROSE_LENGTH:
+        return _GRAMPS_IDENTITY_WEIGHT
+    return _GRAMPS_PROSE_WEIGHT
+
+
 def _gedcom_x_identity_score(text: str) -> tuple[int, int] | None:
     """Score GEDCOM X the way Gramps XML is scored: identity over structure.
 
     A key with a non-empty string value is filled and carries weight; a key
     named in prose has no colon-and-value after it and carries none, which is
     what lets a specification about the format through.
+
+    ⚠️ **Scored PER CATEGORY, from the table, in one loop.** The categories
+    used to be summed in a hand-written expression with one term per group,
+    and a group holding three categories was charged one category's weight.
+    An expression with a term per category is a place to forget a category;
+    a loop over the compiled table is not.
     """
-    identity = [match.start() for match in _GEDCOM_X_IDENTITY_KEY.finditer(text)]
-    identity += _gedcom_x_name_part_offsets(text)
     structural = [match.start() for match in _GEDCOM_X_STRUCTURAL_KEY.finditer(text)]
 
-    # THE GATE, and it is load-bearing. The address, contact and prose keys are
-    # ordinary English words, so they count only once the document has said it
-    # is GEDCOM X. Without this, {"text": "Click here to continue"} in any
-    # configuration file scores four and is reported.
-    carried = (
-        [match.start() for match in _GEDCOM_X_CARRIED_KEY.finditer(text)] if structural else []
-    )
+    score = _CATEGORY_WEIGHT["structure"] * len(structural)
+    offsets = list(structural)
 
-    score = (
-        _CATEGORY_WEIGHT["identity"] * len(identity)
-        + _CATEGORY_WEIGHT["structure"] * len(structural)
-        + _CATEGORY_WEIGHT["address"] * len(carried)
-    )
-    if score < _GRAMPS_SCORE_THRESHOLD:
+    for category, pattern in _GEDCOM_X_FILLED_KEY.items():
+        # THE GATE, and it is load-bearing. The address, contact and prose keys
+        # are ordinary English words, so they count only once the document has
+        # said it is GEDCOM X. Without this, a caption under a text key in any
+        # configuration file scores four and is reported.
+        #
+        # Identity is exempt, as it always was: its spellings are not ordinary
+        # words, and the gate exists for the ones that are.
+        if category != "identity" and not structural:
+            continue
+        for match in pattern.finditer(text):
+            score += _filled_key_weight(category, match.group(1))
+            offsets.append(match.start())
+
+    # The one deliberate exception to the table -- a SHAPE rather than a key,
+    # so it has no row to compile. See the note above the vocabulary.
+    for start in _gedcom_x_name_part_offsets(text):
+        score += _CATEGORY_WEIGHT["identity"]
+        offsets.append(start)
+
+    if score < _GRAMPS_SCORE_THRESHOLD or not offsets:
         return None
-    first = min(identity + structural + carried)
-    return score, first
+    return score, min(offsets)
 
 
 _CDATA = re.compile(r"<!\[CDATA\[(.*?)\]\]>", re.DOTALL)

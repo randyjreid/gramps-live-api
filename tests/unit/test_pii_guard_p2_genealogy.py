@@ -11,9 +11,18 @@ this project recorded first.
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
-from gramps_live_api.core.pii_guard import scan_blob, scan_paths, scan_text
+from gramps_live_api.core.pii_guard import (
+    _CATEGORY_WEIGHT,
+    _VOCABULARY,
+    _gedcom_x_identity_score,
+    _gramps_identity_score,
+    scan_blob,
+    scan_paths,
+    scan_text,
+)
 from tests.fixtures.expectations import rules
 from tests.fixtures.synthetic import (
     _level,
@@ -23,6 +32,8 @@ from tests.fixtures.synthetic import (
     gedcom_x_json,
     gedcom_x_name_parts,
     gedcom_x_name_parts_with_qualifiers,
+    gedcom_x_note_only,
+    gedcom_x_short_note,
     gramps_address_block,
     gramps_attributed_identity,
     gramps_biography_and_address,
@@ -43,6 +54,57 @@ from tests.fixtures.synthetic import (
     utf16le_gedcom_bytes,
     worded_diagram,
 )
+
+# ---------------------------------------------------------------------------
+# Probes for the per-row table test below. Assembled, like every fixture here:
+# a structural key written whole in this file would be a genuine finding.
+# ---------------------------------------------------------------------------
+
+_PROBE_PAYLOAD = "Elowen Ashenmoor, born 2 April 1893 in Thornwick."
+"""Long enough to clear the prose floor, so a prose row scores prose weight.
+
+Every other category ignores what it holds, so one payload serves all of them
+and the probes stay comparable across rows.
+"""
+
+_PROBE_COPIES = (4, 5)
+"""Four clears the threshold even at the smallest weight; five is one more."""
+
+
+def _gramps_probe(spelling: str, copies: int) -> str:
+    return "".join(
+        "<" + spelling + ">" + _PROBE_PAYLOAD + "</" + spelling + ">" for _ in range(copies)
+    )
+
+
+def _gedcom_x_probe(spelling: str, copies: int) -> str:
+    """A GEDCOM X document holding ``copies`` filled keys of one spelling.
+
+    The structural key opens the corroboration gate for the categories that
+    need one. It is taken from the table rather than written, and it scores
+    identically in both probes, so it cancels out of the difference.
+    """
+    gate = next(
+        (shared + json_only)[0]
+        for category, shared, _, json_only in _VOCABULARY
+        if category == "structure"
+    )
+    keys = ",".join('"' + spelling + '":"' + _PROBE_PAYLOAD + '"' for _ in range(copies))
+    return '{"' + gate + '":[{' + keys + "}]}"
+
+
+def _observed_weight(
+    scorer: Callable[[str], tuple[int, int] | None],
+    probe: Callable[[str, int], str],
+    spelling: str,
+) -> int:
+    """What one filled key or element of ``spelling`` is actually worth."""
+    low, high = (scorer(probe(spelling, copies)) for copies in _PROBE_COPIES)
+    assert low is not None and high is not None, (
+        f"{spelling!r} does not clear the threshold even in quantity, so the compiled "
+        "scorer scores it at nothing -- the category is lost, not mis-weighted"
+    )
+    return int(high[0]) - int(low[0])
 
 
 def test_gedcom_content_is_a_finding() -> None:
@@ -499,6 +561,75 @@ def test_a_populated_address_is_a_finding() -> None:
     findings = scan_text(gramps_address_block(), source="notes.md")
 
     assert rules(findings) == ["P2"], f"an address locates a person, got {findings}"
+
+
+def test_json_prose_is_weighed_as_prose_and_not_as_an_address() -> None:
+    """The compiled table disagreeing with itself.
+
+    Compilation collapsed prose, address and contact into one pattern and
+    charged them all the address weight, so a whole life in one note scored
+    three where the table says five -- and passed, in a safe-typed file, while
+    the identical prose as XML was caught. That is the per-format divergence
+    the shared table was built to end, reappearing inside the thing that ended
+    it.
+    """
+    findings = scan_text(gedcom_x_note_only(), source="tree.md")
+
+    assert rules(findings) == ["P2"], f"a life in a note is a life, got {findings}"
+
+
+def test_a_short_json_note_is_not_a_biography() -> None:
+    """The half of the F5 fix that stops it manufacturing a false positive.
+
+    Raising the weight to four without carrying the RULES across reports a
+    two-character caption under a note key as a family tree. The floor is not
+    a property of the XML spelling; it is a property of prose, and it was
+    stated in only one of the two formats -- the same partial application one
+    level down from the weight.
+
+    There is no positioned-label branch here, and there cannot be: a JSON key
+    carries no attributes. The floor is the whole discriminator on this side.
+    """
+    assert scan_text(gedcom_x_short_note(), source="tree.md") == [], (
+        "a caption in a note key is a caption"
+    )
+
+
+def test_the_compiled_scorer_agrees_with_the_vocabulary_for_every_row() -> None:
+    """⭐ **Every row of the table, both formats, against the weight it declares.**
+
+    The other tests here check the rows somebody thought to check. This one
+    checks the rows, full stop -- so a category cannot be lost in compilation
+    and go unnoticed because the weight it was wrongly given happened to be
+    right. That is not hypothetical: prose was charged the address weight, and
+    CONTACT was charged it in the same expression and scores correctly *by
+    coincidence*, because contact and address both weigh two. Change either
+    number and a second silent defect appears with no test to see it.
+
+    Measured by DIFFERENCE, four copies against five, so the constant a probe
+    needs to clear the threshold cancels and what remains is the weight of
+    exactly one filled key or element. A spelling that scores nothing fails
+    the threshold instead and is reported by name.
+    """
+    disagreements = []
+
+    for category, shared, xml_only, json_only in _VOCABULARY:
+        expected = _CATEGORY_WEIGHT[category]
+        for spelling in shared + xml_only:
+            observed = _observed_weight(_gramps_identity_score, _gramps_probe, spelling)
+            if observed != expected:
+                disagreements.append(f"Gramps <{spelling}> is {category}: {observed} != {expected}")
+        for spelling in shared + json_only:
+            observed = _observed_weight(_gedcom_x_identity_score, _gedcom_x_probe, spelling)
+            if observed != expected:
+                disagreements.append(
+                    f"GEDCOM X {spelling!r} is {category}: {observed} != {expected}"
+                )
+
+    assert disagreements == [], (
+        "the compiled scorers disagree with the vocabulary table they are compiled from: "
+        f"{disagreements}"
+    )
 
 
 def test_one_life_is_judged_the_same_in_both_formats() -> None:
