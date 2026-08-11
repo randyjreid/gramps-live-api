@@ -345,6 +345,7 @@ them.**
 | **A short `text` element inside an `<svg>` scores nothing, positioned or not** — so a name in an unpositioned label inside a drawing is not counted. | Added in the Codex round-1 fix, which changed the short-prose discriminator from *"the element carries an attribute"* to *"the element sits inside a drawing"*. The old question was the wrong one and let data out whatever the answer: ordinary `xml:space` counted as proof of a positioned chart label and returned an exact name-date-place payload clean. Both obvious repairs enumerate — a list of positioning attributes fails open on the next one nobody listed, and the list pointed backwards fails by admitting whatever is new — so the axis changed instead. `<svg>` is accepted as an enumeration on the same grounds as `FILESYSTEM_ROOTS`: closed, externally specified, and the only markup in general use whose `text` elements are positioned labels. **What this costs in the other direction is not a residual but a deliberate false positive:** a chart fragment pasted *without* its `<svg>` wrapper is now reported, asserted by test. Of the two directions, failing closed is the one this module's stated posture requires. A Gramps-generated SVG chart was already exempt under the old rule, because its labels are positioned; this widens that exemption to unpositioned labels in the same drawing and does not create it. |
 | **A bare tilde home path — an account name with nothing under it — standing in free prose**, with no path-bearing identifier or call around it. | Added in the Codex round-1 fix, which closed the same shape *in a path-bearing position* and stopped there deliberately. The obvious repair is to make the trailing component optional in the tilde pattern, and that pattern is shape with nothing corroborating it: every approximation, version constraint and duration written with a tilde becomes an account name, which is a fail-open traded for a false positive across ordinary prose. Position is the corroboration shape lacks, so the two detectors share one spelling of a home path and require different amounts of it — asserted by test in both directions. The deny-list is the backstop here, as it is for the other P1 residuals. |
 | **A path or a member name spelled with `\uXXXX` escapes for its STRUCTURE characters** — the quote, the braces, the colon, the angle brackets, the backslash. | Added in the Codex round-1 fix. Decoding these manufactured structure the source did not contain: prose inside one string value that quoted four member names decoded into four apparent structural keys and was reported as an export. An escape can only occur *inside* a string literal, so a delimiter it decodes to is content of that string and provably not a delimiter of the document — producing one is not reading the document, it is writing a different one. **What is still decoded:** the escaped solidus (`\/`), which is the spelling that actually occurs and the one the fix was adopted for, and escaped letters in a member name. **What is lost:** a drive-letter path whose colon and backslashes are themselves written as escapes — a spelling no test and no observed document uses. A false positive on a document that merely *describes* the format is not the cheap side of this trade — it is a finding nobody can act on, so contributors learn to route around the gate. |
+| **A JSON string literal whose only closing delimiter is an escaped one** — an unterminated string. It is measured as nothing rather than as a filled key. | Added with the logical-length fix. Reading a literal correctly means finding its true end, and a document with no unescaped end has none. It previously matched *because of* the defect being fixed: the capture stopped at the wrong delimiter and scored whatever preceded it, which was two characters of a truncated payload. A genuinely truncated document — no closing delimiter at all — matched under neither spelling, so what is lost is the narrow case where the *only* one is escaped. **The obvious repair is a fallback to the old pattern, and it is refused on the standing grounds:** two matchers with two ideas of where a string ends is how the vocabulary came to differ between formats in the first place. Direction is fail-open by 2 points, below the threshold on its own. Asserted by test. |
 | **A file URI that ends at a remote authority.** | Narrower than it sounds, and measured: a remote authority *with a path* is already caught. Only the form with no path component at all escapes -- a bare host and nothing else, which names a machine but carries no user, no share and no file. The UNC spelling of the same thing is caught. |
 | **GEDCOM records wrapped in HTML tags.** A record inside a span or a table cell counts zero. | The decoration stripper handles whitespace, quote markers, diff markers, bullets, pipes and list markers — the ways text arrives in a Markdown repository. Hand-tagged HTML is not one of them, and widening the class to cover it buys a case nobody here will write at the cost of the surface that class has already been re-argued over twice. |
 | **The detail inside a failure message cannot be revealed, not even locally.** The flag that reveals matched values does not reveal it. | The redacting wrapper renders when the failure is raised, so what reaches the printing site is already finished text and a flag has nothing left to un-redact. Making it work means the failure carrying the wrapped value intact all the way to that site -- **a second route to a wrapped value, running through the paths that are exercised least.** That is what was refused when the ordering comparison was declined, for the same reason: the wrapper is worth having only while there is exactly one audited way to the value, and error handling is the worst place to add a second. **Kept:** the message names the kind of error in clear and carries the detail redacted, both asserted by test, so an operator learns what failed and where. **Lost:** diagnosing one of these means reproducing the failure, not re-reading the message. |
@@ -400,8 +401,9 @@ Two axes, one mechanism:
 - **Real versus mentioned.** Only a *filled* element counts — an open tag, text of its own, a
   closing tag — or one carrying a quoted attribute, since a handle is export syntax. A backticked
   `` `<person>` `` in a mapping table is a word about the format and scores nothing.
-- **Weighted by meaning.** A filled prose container (`<note>`, `<text>`, ≥ 20 characters) scores 4;
-  a filled name part 2; anything else real 1; the namespace 2. **The threshold is 4.**
+- **Weighted by meaning.** A filled prose container (`<note>`, `<text>`, ≥ 20 characters **of what the
+  content denotes** — see the recorded decision on serialized text below) scores 4; a filled name part
+  2; anything else real 1; the namespace 2. **The threshold is 4.**
 
 ⚠️ **Every component has a row, and each one is load-bearing.** This table is what the round-9
 failure bought — a change measured on one of its two parts predicted 9 findings and produced 45.
@@ -473,6 +475,76 @@ fails three tests including the one asserting **this repository** is clean. The 
 such gate because Gramps element names are format-specific spellings, while `text`, `street` and
 `url` are words any configuration file may use. **The gate is what separates a genealogy vocabulary
 from a list of common English keys.**
+
+### Recorded decision: serialized text versus the logical value
+
+**The prose floor counts characters of MEANING, not characters of source, and it does so in both
+formats.** Read the two length functions in `pii_guard.py` before changing anything near it.
+
+This is the sixth finding of one class: *a rule reasoning about text as it is written when the thing
+it means to judge is what that text says.* The first five were fixed correctly and in isolation, and
+the class did not move — escaped separators judged in raw spelling; escaped GEDCOM X keys judged in
+raw spelling; `"` decoding into structure the source did not contain; a prose capture ending at
+an escaped delimiter; and a floor measuring an escape's six characters instead of the one it denotes.
+
+**Both directions are real, and they are one defect.** A value containing a quoted phrase measured as
+one character, so a whole life scored as a caption and passed. A four-character caption written as
+four escapes measured twenty-four, so ordinary content was reported as a family tree. One lets data
+out, the other reports a caption, and both are the floor reading the serialization.
+
+**The rule is a property of prose, so it is stated for both serializations or it is not stated.**
+Gramps XML has the identical defect with character references — `&amp;&amp;&amp;&amp;` is four
+characters written as twenty — in the false-positive direction only, since a reference is always
+longer than what it denotes and cannot terminate the content capture the way a raw `<` can. Landing
+the fix in JSON alone would leave the same rule stated in one format and unstated in the other, which
+is the divergence the shared vocabulary table exists to end. It went in with the JSON half.
+
+#### Two layers, and they ask different questions
+
+| Layer | The question it can answer | Where |
+| --- | --- | --- |
+| `_decoded`, at the funnel | *Is this escape safe to decode **without knowing its context**?* | `scan_text` |
+| `_json_logical_length` / `_xml_logical_length`, at the value | *This is provably inside a string literal or inside element content, so what does it **say**?* | the two floor call sites |
+
+`_decoded` refuses to decode structure-producing escapes because at the funnel it **cannot know**
+whether it is inside a string literal. The value extractor knows **by construction** — it matched a
+key, a colon and an opening quote, or an open tag and its close, to get there. That is the whole
+reason these functions are allowed to decode what `_decoded` refuses, and why they are **not**
+interchangeable with it.
+
+⚠️ **Both return an `int`, and that is the guardrail rather than a style choice. Do not "simplify"
+either into returning the decoded string.** Decoded text handed back as a string makes `<` and
+`&lt;` a way to manufacture the structure the source does not contain — the exact finding
+`_STRUCTURE_CHARACTERS` exists to prevent, re-created one level down. A function that cannot return a
+string cannot be misused that way by the next person who needs a length.
+
+**Imprecision errs LONG — toward the finding, never away from it** — and every case is named: an
+unrecognised escape, a surrogate pair, an entity needing a DTD, a malformed reference, and a numeric
+reference naming no character at all. Each counts as the source spells it. The XML entity set is the
+five the specification defines and needs no DTD to resolve, accepted on the grounds `FILESYSTEM_ROOTS`
+and `_DRAWING` are: closed, externally specified, and it does not grow.
+
+#### Why not parse the JSON — declined on the merits, not deferred
+
+The obvious answer to a class this persistent is to stop pattern-matching and classify the *parsed*
+object. **It was weighed with five findings on the board and declined**, and the next person to
+propose it should meet the measurement rather than re-derive it:
+
+- **It adds a path, it does not replace one.** Partial pastes, JSON inside a Markdown fence, JSONL,
+  JSON-with-comments and truncated documents do not parse — and those are what a leak actually looks
+  like. *Nobody commits a well-formed export by accident; they paste a fragment.* So the parser
+  covers the case that does not leak and leaves the regex path carrying the case that does, while the
+  module grows a second classifier. **Two classifiers with two vocabularies is the documented
+  mechanism by which the formats diverged in the first place.**
+- **It closes nothing on the XML side**, and the class spans both formats — as the sixth finding
+  proved.
+- Residual row 1 already says it for the type gate: *parsing would not show it is not genealogy.*
+
+**Deleting the floor was weighed too, and declined.** It draws findings because it was *measured
+wrong*, not because it is the wrong idea — which is the test for a deletion candidate, and it fails
+it. JSON has no container to ask *"is this a label?"* of, the way the XML side asks `_DRAWING`, so on
+that side the floor is the whole discriminator. Removing it reports a two-character caption under a
+note key as a family tree.
 
 **On the fixture module's headroom: it is a rule being enforced, not a margin being consumed.** The
 worry was that the next Gramps fixture anyone adds would be the element that tips this file over.
