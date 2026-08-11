@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gramps-live-api"
+version = "0.0.0"
+description = "Loopback HTTP API over a live, already-open Gramps family tree, plus a thin MCP client."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-2.0-only"
+license-files = ["LICENSE"]
+classifiers = [
+  "Development Status :: 1 - Planning",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Sociology :: Genealogy",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.11",
+  "pytest>=8.0",
+  "ruff>=0.6",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "SIM", "UP", "W"]
+
+[tool.mypy]
+python_version = "3.10"
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+warn_unused_configs = true
+strict_equality = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
