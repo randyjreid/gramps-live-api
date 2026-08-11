@@ -29,6 +29,7 @@ from tests.fixtures.synthetic import (
     gedcom_document,
     gedcom_walkthrough,
     gedcom_x_biography_and_address,
+    gedcom_x_contact_only,
     gedcom_x_json,
     gedcom_x_name_parts,
     gedcom_x_name_parts_with_qualifiers,
@@ -781,6 +782,26 @@ def test_coordinates_outside_a_drawing_buy_no_exemption() -> None:
 
     assert rules(findings) == ["P2"], (
         f"there is no drawing here, so there are no drawing labels, got {findings}"
+    )
+
+
+def test_a_contact_address_is_identity_in_the_json_format_too() -> None:
+    """The contact row, proved from the side nothing was watching.
+
+    Found by the mutation matrix, not by reading: emptying the contact row
+    failed exactly one test, and that test is Gramps XML. The row could have
+    been emptied on the JSON side and only half the suite would have noticed
+    -- which is precisely how the vocabulary came to differ between formats in
+    the first place, and why the address row already has this counterpart.
+
+    It is the same row whose weight is correct *by coincidence*, contact and
+    address both weighing two. Unwatched and accidentally right is not a
+    combination to leave standing.
+    """
+    findings = scan_text(gedcom_x_contact_only(), source="tree.md")
+
+    assert rules(findings) == ["P2"], (
+        f"a way to reach a person names them in either spelling, got {findings}"
     )
 
 

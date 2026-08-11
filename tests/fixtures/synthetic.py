@@ -219,6 +219,25 @@ def gedcom_x_short_note() -> str:
     return json.dumps({"no" + "tes": [{"te" + "xt": "OK"}]}, separators=(",", ":")) + "\n"
 
 
+def gedcom_x_contact_only() -> str:
+    """Two ways to reach a person, in the JSON spellings, and nothing else.
+
+    Deliberately carries no name, no address and no prose: the CONTACT row is
+    the only thing that can take this over the threshold, so emptying that row
+    fails here rather than passing quietly. The XML side has had such a test
+    since the row was added; this is its counterpart.
+    """
+    document = {
+        "person" + "s": [
+            {
+                "u" + "rl": "mailto:elowen.ashenmoor@example.invalid",
+                "email" + "s": "elowen.ashenmoor@example.invalid",
+            }
+        ]
+    }
+    return json.dumps(document, separators=(",", ":")) + "\n"
+
+
 def gramps_biography_and_address() -> str:
     """The same life as Gramps XML, which has always been caught."""
     return _element(
