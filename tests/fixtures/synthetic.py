@@ -546,3 +546,105 @@ def unicode_escaped_key(document: str, key: str) -> str:
     """
     escaped = _BACKSLASH + "u" + format(ord(key[0]), "04x") + key[1:]
     return document.replace('"' + key + '"', '"' + escaped + '"')
+
+
+# ---------------------------------------------------------------------------
+# Serialized spelling versus logical value.
+#
+# One logical string has many legal serializations, and they are different
+# lengths. Everything below builds the SAME value in several spellings, so a
+# rule that measures the spelling instead of the value disagrees with itself.
+# ---------------------------------------------------------------------------
+
+
+def json_string_spellings(value: str) -> dict[str, str]:
+    """Legal JSON string bodies for ``value``, keyed by how they are spelled.
+
+    Every entry parses to ``value`` exactly. Their lengths differ by up to six
+    to one, which is the whole point: a floor measuring the body rather than
+    what it denotes gets a different answer from each of them.
+
+    A bare quote is absent deliberately -- it is not legal inside a JSON string
+    literal, so the two escaped spellings are the entire set for that
+    character, and they still have to agree with each other.
+    """
+    escapable = '"' + _BACKSLASH + _SLASH
+    spellings: dict[str, str] = {}
+    if not any(character in '"' + _BACKSLASH for character in value):
+        spellings["as written"] = value
+    spellings["as a unicode escape"] = "".join(
+        _BACKSLASH + "u" + format(ord(character), "04x") for character in value
+    )
+    if all(character in escapable for character in value):
+        spellings["as a short escape"] = "".join(_BACKSLASH + character for character in value)
+    return spellings
+
+
+def xml_content_spellings(value: str) -> dict[str, str]:
+    """Legal XML element content for ``value``, keyed by how it is spelled.
+
+    The mirror of ``json_string_spellings`` for the other format. A bare ``<``
+    or ``&`` is absent for the same reason a bare quote is absent there: not
+    legal as content, so the references are the whole set for those characters.
+    """
+    predefined = {"&": "amp", "<": "lt", ">": "gt", '"': "quot", "'": "apos"}
+    spellings: dict[str, str] = {}
+    if not any(character in "<&" for character in value):
+        spellings["as written"] = value
+    if all(character in predefined for character in value):
+        spellings["as a named reference"] = "".join(
+            "&" + predefined[character] + ";" for character in value
+        )
+    spellings["as a decimal reference"] = "".join("&#" + str(ord(c)) + ";" for c in value)
+    spellings["as a hex reference"] = "".join("&#x" + format(ord(c), "x") + ";" for c in value)
+    return spellings
+
+
+def gedcom_x_notes_holding(body: str, *, copies: int = 2) -> str:
+    """``copies`` GEDCOM X notes whose string body is written exactly as given.
+
+    Built by hand rather than through ``json.dumps``, because the body is a
+    *serialization* already and re-encoding it would escape its backslashes.
+    Keys assembled, like every builder here.
+    """
+    notes = ",".join("{" + '"te' + 'xt":"' + body + '"}' for _ in range(copies))
+    return '{"no' + 'tes":[' + notes + "]}"
+
+
+def gramps_notes_holding(body: str, *, copies: int = 2) -> str:
+    """``copies`` Gramps prose elements whose content is written exactly as given."""
+    return "".join(_element("te" + "xt", body=body) for _ in range(copies))
+
+
+def gedcom_x_biography_behind_an_escaped_quote() -> str:
+    """A whole life in a note, with the note's own text quoted.
+
+    An escaped quote is ordinary JSON and ordinary writing -- somebody quoting
+    the register entry they transcribed. A capture that stops at the first
+    quote it sees, rather than at the first UNESCAPED one, measures this whole
+    biography as two characters.
+    """
+    quoted = _BACKSLASH + '"' + _BIOGRAPHY + _BACKSLASH + '"'
+    return '{"no' + 'tes":[{"te' + 'xt":"' + quoted + '"}]}'
+
+
+def gedcom_x_caption_spelled_with_escapes() -> str:
+    """A four-character caption whose every character is a six-character escape.
+
+    The other direction of the same defect: nothing here is prose, but the
+    serialization is twenty-four characters long and a floor measuring it
+    reports an ordinary caption as a family tree.
+    """
+    caption = "".join(_BACKSLASH + "u" + format(ord("<"), "04x") for _ in range(4))
+    return '{"person' + 's":[],"no' + 'te":"' + caption + '"}'
+
+
+def gramps_caption_spelled_with_character_references() -> str:
+    """The XML spelling of the same shape: a short caption written long.
+
+    A character reference is always longer than the character it stands for,
+    so this is the false-positive direction only -- but it is the identical
+    rule reading the identical serialization, in the format the floor was
+    originally measured in.
+    """
+    return _element("te" + "xt", body="&amp;" * 4)

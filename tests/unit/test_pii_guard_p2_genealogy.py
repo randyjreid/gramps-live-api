@@ -29,33 +29,41 @@ from tests.fixtures.synthetic import (
     gedcom_document,
     gedcom_walkthrough,
     gedcom_x_biography_and_address,
+    gedcom_x_biography_behind_an_escaped_quote,
+    gedcom_x_caption_spelled_with_escapes,
     gedcom_x_contact_only,
     gedcom_x_json,
     gedcom_x_name_parts,
     gedcom_x_name_parts_with_qualifiers,
     gedcom_x_note_only,
+    gedcom_x_notes_holding,
     gedcom_x_short_note,
     gramps_address_block,
     gramps_attributed_identity,
     gramps_biography_and_address,
     gramps_biography_in_cdata,
+    gramps_caption_spelled_with_character_references,
     gramps_contact_url,
     gramps_importer_spec,
     gramps_name_block,
     gramps_namespace_fragment,
     gramps_namespace_url,
     gramps_note_biography,
+    gramps_notes_holding,
     gramps_person_fragment,
     gramps_reference_fragment,
     gramps_short_notes,
     gramps_short_notes_with_attributes,
     gramps_xml_document,
+    json_string_spellings,
     labelled_diagram,
     positioned_notes_outside_a_drawing,
+    prose_describing_json_keys_with_escaped_quotes,
     sqlite_bytes,
     unclassifiable_bytes,
     utf16le_gedcom_bytes,
     worded_diagram,
+    xml_content_spellings,
 )
 
 # ---------------------------------------------------------------------------
@@ -814,6 +822,198 @@ def test_a_worded_chart_label_is_not_a_biography() -> None:
     """
     assert scan_text(worded_diagram(), source="docs/chart.md") == [], (
         "a chart with worded labels is a chart"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Serialized spelling versus logical value.
+#
+# The fifth and sixth findings of one class: a rule reasoning about text as it
+# is WRITTEN when the thing it means to judge is what that text SAYS. Both
+# directions, both formats, and they are one defect rather than four.
+# ---------------------------------------------------------------------------
+
+
+def test_a_biography_behind_an_escaped_quote_is_still_a_biography() -> None:
+    """The fail-open half. A capture that stops at the first quote it sees.
+
+    A JSON string ends at its first UNESCAPED quote, and an escaped one is
+    ordinary writing -- somebody quoting the register entry they transcribed.
+    Reading the escaped quote as the end measures a whole life as two
+    characters, which is below the floor, so the exact payload the prose
+    weighting exists to reject scores identity weight and passes.
+    """
+    findings = scan_text(gedcom_x_biography_behind_an_escaped_quote(), source="tree.md")
+
+    assert rules(findings) == ["P2"], (
+        f"a quotation mark inside a life does not end the life, got {findings}"
+    )
+
+
+def test_a_caption_spelled_with_escapes_is_still_a_caption() -> None:
+    """The false-positive half, in JSON, asserted as AGREEMENT between spellings.
+
+    Twenty-four characters of serialization for a four-character caption. The
+    floor is meant to separate a caption from a biography, and it cannot do
+    that while it measures how the caption is written.
+    """
+    escaped = rules(scan_text(gedcom_x_caption_spelled_with_escapes(), source="tree.md"))
+    literal = rules(scan_text('{"person' + 's":[],"no' + 'te":"<<<<"}', source="tree.md"))
+
+    assert escaped == literal == [], (
+        f"one caption, two spellings, two verdicts: escaped says {escaped}, literal says {literal}"
+    )
+
+
+def test_a_caption_spelled_with_character_references_is_still_a_caption() -> None:
+    """⬅ The sixth instance, and the reason this fix is not a JSON fix.
+
+    The floor measuring the logical value is a property of the RULE, not of
+    JSON. Stated in one format and not the other it is the same partial
+    application that has cost this module four rounds -- so the XML side, whose
+    character references are serialization exactly as JSON escapes are, is
+    carried across in the same change.
+
+    Direction, recorded: false positive only. A character reference is always
+    longer than the character it denotes, and a reference cannot terminate the
+    content capture -- only a raw ``<`` can, and a raw ``<`` is not legal
+    content. So there is no XML counterpart of the fail-open above.
+    """
+    referenced = rules(
+        scan_text(gramps_caption_spelled_with_character_references(), source="notes.md")
+    )
+    literal = rules(scan_text("<te" + "xt>&&&&</te" + "xt>", source="notes.md"))
+
+    assert referenced == literal == [], (
+        f"one caption, two spellings, two verdicts: referenced says {referenced}, "
+        f"literal says {literal}"
+    )
+
+
+_SPELLING_CHARACTERS = (
+    ("a quote", '"'),
+    ("an angle bracket", "<"),
+    ("a separator", "/"),
+    ("an ampersand", "&"),
+    ("a plain letter", "a"),
+)
+"""One character per row, chosen for how differently the two formats spell it.
+
+A quote cannot be written bare inside a JSON string and an angle bracket cannot
+be written bare as XML content, so for those the escaped forms are the WHOLE
+set -- they still have to agree with each other, which is the property stated
+without needing a literal to compare against.
+"""
+
+_BELOW_THE_FLOOR, _ABOVE_THE_FLOOR = 4, 24
+
+
+def test_prose_is_measured_on_the_logical_value_whatever_its_spelling() -> None:
+    """⭐ **One value, every legal spelling, both formats, one score.**
+
+    The two findings above are one defect seen from two sides, so this asserts
+    the property underneath them rather than the two instances: a serialization
+    is not its value, and the floor judges the value. Every spelling of one
+    string is a different LENGTH -- up to six characters of source for one
+    character of meaning -- so a floor reading the source disagrees with itself
+    across this table, in whichever direction the spelling happens to run.
+
+    Both sides of the floor are driven, and the two must DIFFER. Without that
+    second half a scorer that returned a constant would satisfy the first half
+    perfectly, and the floor could be deleted with this test still green.
+
+    Asserted on the scorers rather than on ``scan_text`` so the property is
+    isolated from P1 -- a table of separators and quotes is exactly the shape
+    the path rules read, and a test that fails for the other property's reason
+    is not telling anyone what broke.
+    """
+    disagreements = []
+
+    for described, character in _SPELLING_CHARACTERS:
+        for format_name, spellings_of, document_holding, scorer in (
+            ("GEDCOM X", json_string_spellings, gedcom_x_notes_holding, _gedcom_x_identity_score),
+            ("Gramps XML", xml_content_spellings, gramps_notes_holding, _gramps_identity_score),
+        ):
+            scored: dict[int, dict[str, int | None]] = {}
+            for length in (_BELOW_THE_FLOOR, _ABOVE_THE_FLOOR):
+                scored[length] = {}
+                for spelling, body in spellings_of(character * length).items():
+                    result = scorer(document_holding(body))
+                    scored[length][spelling] = None if result is None else result[0]
+
+                observed = set(scored[length].values())
+                if len(observed) != 1:
+                    disagreements.append(
+                        f"{format_name} {described} x{length}: one value, "
+                        f"{len(observed)} verdicts -- {scored[length]}"
+                    )
+
+            below = set(scored[_BELOW_THE_FLOOR].values())
+            above = set(scored[_ABOVE_THE_FLOOR].values())
+            if below == above:
+                disagreements.append(
+                    f"{format_name} {described}: the floor did not move between "
+                    f"{_BELOW_THE_FLOOR} and {_ABOVE_THE_FLOOR} characters -- {below}; "
+                    "the spellings agree because nothing is being measured"
+                )
+
+    assert disagreements == [], (
+        "the prose floor is reading the serialization rather than the value it denotes: "
+        f"{disagreements}"
+    )
+
+
+def test_measuring_a_value_never_decodes_it_into_the_document() -> None:
+    """The guardrail on the fix, which matters as much as the fix.
+
+    Decoding for LENGTH is safe only while the decoded text stays a number. The
+    moment it is handed back as a string, an escape can manufacture the
+    structure ``_STRUCTURE_CHARACTERS`` exists to refuse -- and the JSON and XML
+    spellings of that hazard are the same hazard.
+
+    Both halves of the accepted residual are asserted here, from inside a value
+    that IS now measured: the escaped drive path stays uncaught, and prose
+    naming four member names stays clean rather than decoding into four
+    apparent structural keys.
+    """
+    backslash = chr(92)
+    escaped_path = (
+        "C" + backslash + "u003a" + backslash + "u005c" + "Users" + backslash + "u005c" + "elowen"
+    )
+
+    inside_a_measured_value = scan_text(
+        gedcom_x_notes_holding(escaped_path, copies=1), source="notes.md"
+    )
+
+    assert "P1" not in rules(inside_a_measured_value), (
+        "measuring a value must not decode it into a path the document does not "
+        f"contain, got {inside_a_measured_value}"
+    )
+    assert (
+        scan_text(prose_describing_json_keys_with_escaped_quotes(), source="docs/notes.md") == []
+    ), "measuring a value must not manufacture the structure the source lacks"
+
+
+def test_an_unterminated_json_string_is_not_measured() -> None:
+    """⚠️ The ACCEPTED residual of this fix, recorded as a test rather than prose.
+
+    Reading a string literal correctly means finding its true end, and a
+    document whose only closing quote is an escaped one has no true end. It
+    scores nothing where it previously scored a filled key -- but that previous
+    match was itself the defect: it captured two characters of a truncated
+    payload because it stopped at the wrong quote.
+
+    A genuinely truncated document -- no closing quote at all -- matched under
+    neither spelling, so what is lost is narrow. The obvious repair is a
+    fallback to the old pattern, and it is refused for the reason two paths are
+    always refused here: two matchers with two ideas of where a string ends is
+    how the vocabulary came to differ between formats in the first place.
+    """
+    unterminated = '{"no' + 'tes":[{"te' + 'xt":"' + _PROBE_PAYLOAD + chr(92) + '"}]}'
+
+    assert _gedcom_x_identity_score(unterminated) is None, (
+        "recorded residual: a string with no unescaped end is not measured; "
+        "if this now scores, the residual table needs the row removed"
     )
 
 
