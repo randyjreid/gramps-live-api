@@ -246,6 +246,33 @@ def gramps_short_notes() -> str:
     )
 
 
+def gramps_short_notes_with_attributes() -> str:
+    """The same three short notes, wearing an ordinary XML attribute.
+
+    ``xml:space`` says how to treat whitespace and nothing whatever about
+    position. Any attribute at all used to be read as evidence of a positioned
+    chart label, so adding this to an exact name-date-place payload returned
+    it clean.
+    """
+    return "".join(
+        _element("note", body=_element("text", attributes='xml:space="preserve"', body=value))
+        for value in ("Elowen Ashenmoor", "2 April 1893", "Thornwick")
+    )
+
+
+def positioned_notes_outside_a_drawing() -> str:
+    """Short notes carrying coordinates, with no drawing around them.
+
+    The cost of judging by container instead of by attribute, made visible.
+    Nothing here is a chart -- there is no drawing -- so the coordinates buy
+    no exemption and a name, a date and a place are reported.
+    """
+    return "".join(
+        _element("note", body=_element("text", attributes=f'x="0" y="{offset}"', body=value))
+        for offset, value in ((0, "Elowen Ashenmoor"), (9, "2 April 1893"), (18, "Thornwick"))
+    )
+
+
 def gramps_contact_url() -> str:
     """A live e-mail address, which identifies a person as directly as a home path."""
     return _element(

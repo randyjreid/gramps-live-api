@@ -47,8 +47,10 @@ from tests.fixtures.synthetic import (
     gramps_person_fragment,
     gramps_reference_fragment,
     gramps_short_notes,
+    gramps_short_notes_with_attributes,
     gramps_xml_document,
     labelled_diagram,
+    positioned_notes_outside_a_drawing,
     sqlite_bytes,
     unclassifiable_bytes,
     utf16le_gedcom_bytes,
@@ -741,6 +743,45 @@ def test_a_contact_address_is_identity() -> None:
     findings = scan_text(gramps_contact_url() + surname, source="notes.md")
 
     assert rules(findings) == ["P2"], f"a way to reach a person names them, got {findings}"
+
+
+def test_an_ordinary_attribute_does_not_turn_a_note_into_a_chart_label() -> None:
+    """The exemption asked the wrong question, so any answer let data out.
+
+    The discriminator is meant to separate a positioned drawing label from a
+    note body, and it accepted ANY attribute as proof of the first. Adding
+    ``xml:space``, which says how to treat whitespace and nothing about
+    position, returned an exact name-date-place payload clean.
+
+    Both obvious repairs are enumerations and both fail. Listing positioning
+    attributes fails open on the next one nobody listed; listing
+    non-positioning attributes is the same list pointed backwards and fails by
+    admitting whatever is new. So the question changes instead: what makes a
+    label a label is the DRAWING it sits in, which is a thing the document
+    says outright.
+    """
+    findings = scan_text(gramps_short_notes_with_attributes(), source="notes.md")
+
+    assert rules(findings) == ["P2"], (
+        f"three facts about one person do not stop being that person, got {findings}"
+    )
+
+
+def test_coordinates_outside_a_drawing_buy_no_exemption() -> None:
+    """The price of the container axis, asserted rather than left to be found.
+
+    This is the trade and it is deliberate: the old question failed OPEN, and
+    data escaped; the new one fails CLOSED, and a chart fragment pasted without
+    its drawing is reported. The module refuses what it cannot prove safe, so
+    of the two directions this is the one that matches it -- and a `text`
+    element holding somebody's name is arguably a finding whatever coordinates
+    it wears.
+    """
+    findings = scan_text(positioned_notes_outside_a_drawing(), source="notes.md")
+
+    assert rules(findings) == ["P2"], (
+        f"there is no drawing here, so there are no drawing labels, got {findings}"
+    )
 
 
 def test_a_worded_chart_label_is_not_a_biography() -> None:

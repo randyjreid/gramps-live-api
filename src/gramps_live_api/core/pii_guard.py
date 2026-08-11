@@ -864,16 +864,20 @@ _GRAMPS_STRUCTURE_ELEMENTS = _elements_of("structure")
 _GRAMPS_ALL_ELEMENTS = tuple(dict.fromkeys(_GRAMPS_CATEGORY_OF))
 
 _GRAMPS_FILLED_ELEMENT = re.compile(
-    r"<(" + "|".join(_GRAMPS_ALL_ELEMENTS) + r")\b([^>]*)>"
+    r"<(" + "|".join(_GRAMPS_ALL_ELEMENTS) + r")\b[^>]*>"
     r"((?:<!\[CDATA\[.*?\]\]>|[^<])+)</\1\s*>",
     re.IGNORECASE | re.DOTALL,
 )
 """An element with content of its own: this is data rather than a mention.
 
-Three groups: the tag, its attributes -- which the short-prose discriminator
-reads -- and the content. The content alternative admits a CDATA section,
-because CDATA is how XML carries prose containing markup and reading its
-opening delimiter as markup let a wrapped biography score one instead of five.
+Two groups: the tag and the content. The content alternative admits a CDATA
+section, because CDATA is how XML carries prose containing markup and reading
+its opening delimiter as markup let a wrapped biography score one instead of
+five.
+
+The attributes used to be captured as a third group, for a short-prose
+discriminator that read them. Nothing reads them now -- see ``_DRAWING`` -- and
+a captured group nobody consumes is machinery pretending to be a rule.
 """
 
 _GRAMPS_ATTRIBUTED_ELEMENT = re.compile(
@@ -902,9 +906,17 @@ propose a shorter floor can see what it costs instead of rediscovering it:
 
 Shortening the floor to 8 catches the real payloads and reports every chart
 with a worded label -- the original false positive, returning. So the floor
-stays at 20 and short content is instead credited by WHAT IT IS: a bare `text`
-element is a note body, while a positioned one carrying x=/y= attributes is a
-drawing. The discriminator, not the length, is what separates them.
+stays at 20 and short content is instead credited by WHAT IT IS: a `text`
+element is a note body unless it sits inside a drawing, where it is a label.
+The discriminator, not the length, is what separates them.
+
+⚠️ **That discriminator used to read the element's ATTRIBUTES, and the wording
+here said so for several rounds. It was wrong** -- see ``_DRAWING``. Any
+attribute at all counted as proof of a positioned label, so an ordinary
+``xml:space`` returned an exact name, date and place payload clean. The
+question is now the container. Do not put it back: a list of positioning
+attributes fails open on the next one nobody listed, and the list pointed
+backwards fails by admitting whatever is new.
 
 One short note scores 2 and still escapes. That is not a gap in this rule; it
 is the measured ceiling of the whole property -- one filled name part and one
@@ -1168,7 +1180,30 @@ def _gedcom_x_identity_score(text: str) -> tuple[int, int] | None:
 
 _CDATA = re.compile(r"<!\[CDATA\[(.*?)\]\]>", re.DOTALL)
 
-_ATTRIBUTE = re.compile(r"\w+\s*=\s*[\"']")
+_DRAWING = re.compile(r"<svg\b[^>]*>.*?</svg\s*>", re.IGNORECASE | re.DOTALL)
+"""A drawing, inside which a short text element is a label and not a note.
+
+⚠️ **This replaced "the element carries an attribute", which asked the wrong
+question and so let data out whatever the answer.** The discriminator has to
+separate a positioned chart label from a note body, and ANY attribute counted
+as proof of the first -- so adding ``xml:space``, which says how to treat
+whitespace and nothing about position, returned an exact name, date and place
+payload clean.
+
+**Both obvious repairs are enumerations and both fail.** A list of positioning
+attributes fails open on the next one nobody listed. A list of non-positioning
+attributes is the same list pointed backwards and fails by admitting whatever
+is new. This is an enumeration too, and it is accepted on the grounds
+``FILESYSTEM_ROOTS`` is accepted on: SVG is closed and externally specified,
+and it is the only markup in general use whose text elements are positioned
+labels.
+
+**The direction of failure is what decides it.** The attribute question failed
+OPEN and data escaped. The container question fails CLOSED: a chart fragment
+pasted without its drawing is reported, which is the posture this module
+states -- refuse what cannot be proved safe. Recorded in CONTRIBUTING, both
+directions, and asserted by test in both directions.
+"""
 
 
 def _unwrapped(content: str) -> str:
@@ -1181,9 +1216,8 @@ def _unwrapped(content: str) -> str:
     return _CDATA.sub(r"\1", content).strip()
 
 
-def _carries_an_attribute(attributes: str) -> bool:
-    """Whether an element's opening tag carries a quoted attribute."""
-    return _ATTRIBUTE.search(attributes) is not None
+def _inside_a_drawing(position: int, drawings: Sequence[tuple[int, int]]) -> bool:
+    return any(start <= position < end for start, end in drawings)
 
 
 def _gramps_identity_score(text: str) -> tuple[int, int] | None:
@@ -1197,20 +1231,23 @@ def _gramps_identity_score(text: str) -> tuple[int, int] | None:
     score = 0
     first: int | None = None
     filled: list[tuple[int, int]] = []
+    drawings = [match.span() for match in _DRAWING.finditer(text)]
 
     for match in _GRAMPS_FILLED_ELEMENT.finditer(text):
         tag = match.group(1).lower()
-        attributes = match.group(2)
-        content = _unwrapped(match.group(3))
+        content = _unwrapped(match.group(2))
         filled.append(match.span())
         if tag in _GRAMPS_PROSE_ELEMENTS:
             if len(content) < _GRAMPS_PROSE_LENGTH:
-                # SHORT prose: see the discriminator recorded beside the floor.
-                # A bare container is a note body and scores identity weight; a
-                # positioned one is a chart label and scores nothing. Either
-                # way the span stays recorded, so the attributed pass below
-                # cannot pick a label up instead.
-                if _carries_an_attribute(attributes):
+                # SHORT prose: see the discriminator recorded beside the floor
+                # and the reasoning recorded beside _DRAWING. A note body
+                # scores identity weight; a label inside a drawing scores
+                # nothing, whether or not it is positioned -- inside a drawing
+                # a text element IS a label, which is the point of asking about
+                # the container rather than about the attributes. Either way
+                # the span stays recorded, so the attributed pass below cannot
+                # pick a label up instead.
+                if _inside_a_drawing(match.start(), drawings):
                     continue
                 score += _GRAMPS_IDENTITY_WEIGHT
             else:
