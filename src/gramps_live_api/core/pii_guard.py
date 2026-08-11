@@ -922,7 +922,110 @@ One short note scores 2 and still escapes. That is not a gap in this rule; it
 is the measured ceiling of the whole property -- one filled name part and one
 filled surname also score 2, because all three are one name-fact. CONTRIBUTING
 records why buying that last point is not affordable.
+
+⚠️ **The number above counts CHARACTERS OF MEANING, and the two functions below
+are what make that true.** Measured against the serialization instead, it is
+not a floor at all: it moves with whichever spelling the document happens to
+use. Both formats, one rule -- see the block beneath.
 """
+
+# ---------------------------------------------------------------------------
+# THE FLOOR MEASURES WHAT THE TEXT SAYS, NOT HOW IT IS WRITTEN.
+#
+# One rule, stated once, for both formats -- because it is a property of PROSE
+# and not of a serialization. Stating it on one side only is the partial
+# application this module has now paid for five times: the identical value
+# spelled two ways got two verdicts, in whichever direction the spelling ran.
+# A JSON escape and an XML character reference are the same device, and they
+# broke the same floor.
+#
+# ⚠️ **BOTH RETURN AN int, AND THAT IS THE GUARDRAIL RATHER THAN A STYLE
+# CHOICE.** Decoding is safe here only because the caller has already proved it
+# is inside a string literal or inside element content -- see ``_decoded``,
+# which refuses the same escapes precisely because at the funnel it CANNOT
+# prove that. Hand the decoded text back as a string and ``<`` and
+# ``&lt;`` become a way to manufacture the structure the source does not
+# contain, which is the finding ``_STRUCTURE_CHARACTERS`` exists to prevent. A
+# function that cannot return a string cannot be misused that way by the next
+# person to need one.
+#
+# Neither ever materialises the decoded text: each counts what the escapes
+# collapse to and subtracts. IMPRECISION ERRS LONG -- toward the finding, never
+# away from it -- and every case of it is named in the two docstrings.
+# ---------------------------------------------------------------------------
+
+_JSON_ESCAPE_IN_A_STRING = re.compile(
+    _MATCHES_A_BACKSLASH
+    + "u[0-9A-Fa-f]{4}|"
+    + _MATCHES_A_BACKSLASH
+    + r"[\""
+    + _MATCHES_A_BACKSLASH
+    + r"/bfnrt]"
+)
+
+_XML_PREDEFINED_ENTITIES = ("amp", "lt", "gt", "quot", "apos")
+"""The five XML 1.0 defines, and the only five that need no DTD to resolve.
+
+Closed and externally specified, so this enumeration is accepted on exactly the
+grounds ``FILESYSTEM_ROOTS`` and ``_DRAWING`` are: it does not grow. Anything
+else -- ``&nbsp;``, an entity a document declares for itself -- would need real
+entity resolution, which is not built and is not wanted. It counts as written,
+which errs long.
+"""
+
+_XML_CHARACTER_REFERENCE = re.compile(
+    "&(?:" + "|".join(_XML_PREDEFINED_ENTITIES) + r"|#([0-9]+)|#[xX]([0-9A-Fa-f]+));"
+)
+
+_LARGEST_CODE_POINT = 0x10FFFF
+
+
+def _json_logical_length(value: str) -> int:
+    """How many characters the body of a JSON string literal DENOTES.
+
+    Six characters of source for one character of meaning, at the extreme, so
+    a caption of four angle brackets written as escapes measured twenty-four
+    and was reported as a biography.
+
+    Errs long, in two named places: an unrecognised escape (``\\U``) is not an
+    escape at all and counts as the two characters it is, and a surrogate PAIR
+    counts two where a parser would yield one. Both leave the value looking
+    longer than it is, which is the side that reports rather than the side
+    that misses.
+    """
+    length = len(value)
+    for match in _JSON_ESCAPE_IN_A_STRING.finditer(value):
+        length -= len(match.group()) - 1
+    return length
+
+
+def _xml_logical_length(content: str) -> int:
+    """How many characters XML element content DENOTES.
+
+    The mirror of the above for the other format, and the reason this fix is
+    not a JSON fix: the floor is a property of prose, so a rule stated for one
+    serialization and not the other is the divergence this module keeps paying
+    for. ``&amp;&amp;&amp;&amp;`` is four characters written as twenty.
+
+    Errs long wherever it cannot be sure: an entity needing a DTD, a malformed
+    reference, and a numeric reference naming no character at all are each
+    counted as the source spells them. Only a reference that provably denotes
+    exactly one character is collapsed to one.
+    """
+    length = len(content)
+    for match in _XML_CHARACTER_REFERENCE.finditer(content):
+        decimal, hexadecimal = match.group(1), match.group(2)
+        digits = decimal or hexadecimal
+        if digits is not None:
+            base = 10 if decimal is not None else 16
+            # A numeric reference is only a character if it NAMES one. Out of
+            # range it names nothing, and counting nothing as one character
+            # would shorten the value -- the one direction this must not err in.
+            if int(digits, base) > _LARGEST_CODE_POINT:
+                continue
+        length -= len(match.group()) - 1
+    return length
+
 
 # READ FROM THE TABLE, never restated beside it. These were three literals
 # holding the same numbers the table holds, which is a second place for a
@@ -947,9 +1050,34 @@ _CARRYING_CATEGORIES = tuple(
     category for category, _, _, _ in _VOCABULARY if category != "structure"
 )
 
+_JSON_STRING_BODY = r"(?:[^\"" + _MATCHES_A_BACKSLASH + "]|" + _MATCHES_A_BACKSLASH + r".)+"
+"""The body of a JSON string literal: anything, or an escape, up to the end.
+
+⚠️ **A string literal ends at its first UNESCAPED quote, and reading it as
+``[^"]+`` ends it at the first quote of any kind.** A note whose text is a
+quotation -- somebody transcribing a register entry -- therefore measured as
+one backslash, so a whole biography scored as a two-character caption and
+passed. The escape alternative is what makes the end of the string the end of
+the string.
+
+Kept as ``+`` deliberately: *filled* still means non-empty, which is the
+distinction that lets a specification NAMING these keys through.
+
+**What this gives up** is a literal whose only closing quote is an escaped one
+-- an unterminated string, which now matches nothing where it used to match
+whatever preceded the wrong quote. That old match was itself the defect above.
+Recorded in CONTRIBUTING and asserted by test; the tempting repair is a
+fallback to the old pattern, and two matchers with two ideas of where a string
+ends is how the vocabulary came to differ between formats in the first place.
+"""
+
 _GEDCOM_X_FILLED_KEY = {
     category: re.compile(
-        r"\"(?:" + "|".join(_json_keys_of(category)) + r")\"\s*:\s*\"([^\"]+)\"",
+        r"\"(?:"
+        + "|".join(_json_keys_of(category))
+        + r")\"\s*:\s*\"("
+        + _JSON_STRING_BODY
+        + r")\"",
         re.IGNORECASE,
     )
     for category in _CARRYING_CATEGORIES
@@ -1127,10 +1255,13 @@ def _filled_key_weight(category: str, value: str) -> int:
 
     There is no positioned-label branch on this side and there cannot be: a
     JSON key carries no attributes, so the floor is the whole discriminator.
+
+    ``value`` arrives as the SERIALIZATION of the string, so it is measured by
+    what it denotes -- see the block above the two length functions.
     """
     if category != "prose":
         return _CATEGORY_WEIGHT[category]
-    if len(value) < _GRAMPS_PROSE_LENGTH:
+    if _json_logical_length(value) < _GRAMPS_PROSE_LENGTH:
         return _GRAMPS_IDENTITY_WEIGHT
     return _GRAMPS_PROSE_WEIGHT
 
@@ -1238,7 +1369,10 @@ def _gramps_identity_score(text: str) -> tuple[int, int] | None:
         content = _unwrapped(match.group(2))
         filled.append(match.span())
         if tag in _GRAMPS_PROSE_ELEMENTS:
-            if len(content) < _GRAMPS_PROSE_LENGTH:
+            # Measured by what the content DENOTES, exactly as the JSON side
+            # measures its values -- the floor is a property of prose, not of a
+            # serialization. See the block above the two length functions.
+            if _xml_logical_length(content) < _GRAMPS_PROSE_LENGTH:
                 # SHORT prose: see the discriminator recorded beside the floor
                 # and the reasoning recorded beside _DRAWING. A note body
                 # scores identity weight; a label inside a drawing scores
