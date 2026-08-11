@@ -16,6 +16,7 @@ from __future__ import annotations
 from gramps_live_api.core.pii_guard import scan_text
 from tests.fixtures.expectations import rules
 from tests.fixtures.synthetic import (
+    bare_named_home_path,
     extended_unc_path,
     extended_windows_path,
     gedcom_x_json,
@@ -257,6 +258,38 @@ def test_expanding_a_named_home_directory_is_a_finding() -> None:
     findings = scan_text(f'expanduser("{named_home_path("private-user", "trees")}")')
 
     assert rules(findings) == ["P1"], f"the account name is in the source, got {findings}"
+
+
+def test_a_bare_named_home_directory_is_a_finding_where_a_path_belongs() -> None:
+    """``~login`` is a whole home path; the account name IS the payload.
+
+    The tilde detector requires a separator and a component under it, so the
+    shortest spelling -- the one carrying nothing BUT the account name -- was
+    the one it could not see. Every construction here puts it somewhere that
+    already means "what follows is a filesystem path", which is where the
+    corroboration comes from.
+    """
+    account = bare_named_home_path("private-user")
+    constructions = (f"cd {account}", f"home = {account}", f'expanduser("{account}")')
+
+    missed = [line for line in constructions if not scan_text(line, source="notes.md")]
+
+    assert missed == [], f"a bare home path publishes an account name; missed {missed}"
+
+
+def test_a_tilde_in_ordinary_prose_is_not_a_home_directory() -> None:
+    """Why the fix went through POSITION and not through shape.
+
+    The obvious repair is to make the trailing component optional in the tilde
+    pattern. That pattern is shape alone, with nothing to corroborate it, so
+    the repair reports every approximation, version constraint and duration in
+    the repository -- a fail-open traded for a false positive on ordinary
+    prose. The position is what supplies the corroboration the shape lacks, so
+    the shape detector is left exactly as it was and this asserts that.
+    """
+    prose = "The scan takes ~30 seconds over ~2.5 MB, on ~1.0 of overhead."
+
+    assert scan_text(prose, source="notes.md") == [], "an approximation is not an account name"
 
 
 def test_a_json_escaped_path_is_the_path_it_decodes_to() -> None:

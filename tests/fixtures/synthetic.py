@@ -393,13 +393,23 @@ def extended_windows_path(*parts: str, drive: str = "C") -> str:
     return (_BACKSLASH * 2) + "?" + _BACKSLASH + drive + ":" + _BACKSLASH + _BACKSLASH.join(parts)
 
 
+def bare_named_home_path(account: str) -> str:
+    """A home directory named by its account and nothing else.
+
+    A complete, valid home path on its own -- and the whole payload, because
+    the account name is what identifies a person. Nothing follows it, which is
+    exactly why the shape detector could not see one.
+    """
+    return "~" + account
+
+
 def named_home_path(account: str, *parts: str) -> str:
     """The tilde spelling of a home directory: an account name, then a path.
 
     Assembled like everything else here. The account name is the payload: it
     identifies a person exactly as the home directory it stands for does.
     """
-    return "~" + account + _SLASH + _SLASH.join(parts)
+    return bare_named_home_path(account) + _SLASH + _SLASH.join(parts)
 
 
 def json_escaped(text: str) -> str:

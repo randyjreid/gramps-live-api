@@ -421,6 +421,26 @@ FILESYSTEM_ROOTS = frozenset(
     }
 )
 
+# The tilde spelling of a home directory, written ONCE and read by two
+# detectors below. It used to be spelled inside the shape detector alone, so
+# the position detector -- which already means "what follows is a filesystem
+# path" -- did not know it, and a change-directory command naming an account
+# matched nothing.
+#
+# That sentence is deliberately not the example. Its first draft wrote the
+# command out, and the guard reported this file at this line -- the same trap
+# the comment three lines below already records, sprung again by the very fix
+# that reads it. Describe the construction; do not spell it.
+#
+# ⚠️ **A home path is complete at the account name.** What follows it is
+# optional, and that optionality is why this is a shared constant rather than
+# a widened pattern: the two detectors need DIFFERENT amounts of it. Shape
+# alone must still require a component underneath, because `~30` in "takes ~30
+# seconds" is otherwise an account name and every approximation in the
+# repository becomes a finding. A position supplies the corroboration that
+# shape lacks, so there it stands alone.
+_HOME_PATH = "~[A-Za-z0-9._-]+"
+
 # Identifiers and calls that mean "what follows is a filesystem path". This is
 # root cause D's move applied to P1: position, not shape. It is what catches a
 # username assigned to a home-directory variable, whose shape says nothing at
@@ -440,13 +460,20 @@ _PATH_POSITION = re.compile(
       | \b cd \s+
     )
     ["']?
-    (?P<found>"""
+    (?P<found>
+        # A home path, whose account name is the whole payload and needs
+        # nothing under it, OR a leading-separator path.
+        (?:"""
+    + _HOME_PATH
+    + r""" | """
     + _SEPARATOR
     + _COMPONENT
-    + r"""+ (?:"""
+    + r"""+ )
+      (?:"""
     + _SEPARATOR
     + _COMPONENT
-    + r"""*)* )
+    + r"""*)*
+    )
     """,
     re.IGNORECASE | re.VERBOSE,
 )
@@ -491,10 +518,15 @@ _ABSOLUTE_PATH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # The lookbehind keeps a web path out of it: "/~account/page" under a host
     # is served, not stored, and the URL guard elsewhere makes the same
     # distinction for the same reason.
+    #
+    # The trailing component stays REQUIRED here and is not required by the
+    # position detector above -- see _HOME_PATH. This is shape with nothing
+    # corroborating it, and a bare tilde-word is "~30 seconds" as often as it
+    # is an account.
     (
         "named home directory",
         re.compile(
-            "(?<![" + r"\w" + _SEPARATOR + "~])~[A-Za-z0-9._-]+" + _SEPARATOR + _COMPONENT + "+"
+            "(?<![" + r"\w" + _SEPARATOR + "~])" + _HOME_PATH + _SEPARATOR + _COMPONENT + "+"
         ),
     ),
     # A file URL IS a filesystem path; it just arrives wearing a scheme. The
