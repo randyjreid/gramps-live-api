@@ -46,6 +46,30 @@ jobs:
           # not just the tip, and a shallow clone cannot resolve the range.
           fetch-depth: 0
 
+      # UNCONDITIONAL, and it guards every arm below alike -- the branch push,
+      # the pull request and the tag -- not the one it was written for. Each of
+      # them resolves a range against history that has to actually be here.
+      #
+      # fetch-depth: 0 above supplies that history and a comment says it is
+      # required, but a comment is not a check. git rev-list on a shallow clone
+      # SUCCEEDS and returns only the commits that were fetched, so a checkout
+      # that quietly stopped being complete would scan a truncated history and
+      # report clean over the rest -- the same fail-open the range scans exist
+      # to close, one level down.
+      #
+      # Fails closed on anything that is not exactly "false": an empty answer, a
+      # non-zero exit, a word from a future Git. Written the other way round --
+      # fail when the answer is "true" -- it would be a list of the known-bad
+      # answers, and it would admit every answer nobody has thought of yet.
+      - name: Refuse a checkout whose history is incomplete
+        run: |
+          set -euo pipefail
+          shallow="$(git rev-parse --is-shallow-repository)"
+          if [ "$shallow" != "false" ]; then
+            echo "::error::the checkout is not provably complete (git says '${shallow}'); refusing to report a clean scan"
+            exit 1
+          fi
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -68,17 +92,13 @@ jobs:
       # variable is expanded after parsing, so its contents can never be read
       # as syntax.
       #
-      # A TAG push takes the tip scan, not a range, and the reason is what a
-      # tag is: it makes a commit's tree referenceable under a new public name.
-      # The tree is what the tag publishes, and the tip scan reads exactly that
-      # and is never empty. A tag at the default-branch commit has an all-zero
-      # before-SHA and a tag ref name, so the fallback resolved a range of NO
-      # commits -- the guard refused it, correctly, and this job failed on
-      # every ordinary tag push.
-      #
-      # This does NOT rely on those commits having been scanned when they were
-      # pushed to a branch. That assumption was examined and falsified earlier
-      # in this project; the tip scan stands on its own.
+      # A TAG push is NOT a branch push and takes neither of these two ranges.
+      # It resolves no baseline at all -- see the last step of this job for why
+      # a tag cannot be given one, and what it scans instead. A tag at the
+      # default-branch commit has an all-zero before-SHA and a tag ref name, so
+      # routing it here resolved a range of NO commits: the guard refused it,
+      # correctly, and this job failed on every ordinary tag push. That is what
+      # the ref_type test below is for.
       - name: Determine the pushed range
         id: pushed
         if: github.event_name == 'push' && github.ref_type == 'branch'
@@ -167,10 +187,37 @@ jobs:
       # that is neither a push nor a pull request. Written as the complement
       # rather than as a list, so adding a trigger cannot silently leave an
       # event scanning nothing.
-      - name: Scan the tip for personal data
+      #
+      # EVERYTHING REACHABLE, not the tip. A tag publishes its target commit and
+      # every ancestor, not merely the target's tree: content added in commit A
+      # and deleted in commit B is absent from B's tree and still publicly
+      # reachable through a tag on B. This step used to scan the tip, so that
+      # tag came back clean over a family tree nobody had looked at.
+      #
+      # No baseline is computed, because a tag push carries none that can be
+      # trusted -- a tag on history never pushed to any branch, a tag pushed
+      # before its branch, a re-pointed tag, and the all-zero before-SHA all
+      # defeat one, and a gate that cannot determine its scope must not report
+      # clean. Whole history is always correct and is never empty, which is the
+      # property the tip scan was originally chosen for. It costs a walk of the
+      # history, which a tag push can afford.
+      #
+      # The same reasoning covers the other arm. An event that is neither a push
+      # nor a pull request publishes whatever is reachable from its checkout
+      # too, and there is no event data to narrow it with, so it takes the same
+      # scan rather than a tip scan justified by nothing.
+      #
+      # This is a widening, never a narrowing: the guard scans tracked content
+      # AND the range, so everything the tip scan read is still read.
+      - name: Scan every reachable commit for personal data
         if: >-
           (github.event_name == 'push' && github.ref_type != 'branch') ||
           (github.event_name != 'push' && github.event_name != 'pull_request')
         env:
           PYTHONPATH: src
-        run: python -m gramps_live_api.core.pii_guard .
+          # A literal, like PYTHONPATH: no event data reaches this step, so
+          # there is nothing to compute and nothing to interpolate. It still
+          # travels through env: and is quoted at the point of use, so the step
+          # reads the same as the two above it.
+          RANGE: HEAD
+        run: python -m gramps_live_api.core.pii_guard --range "$RANGE" .

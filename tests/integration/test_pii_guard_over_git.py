@@ -531,6 +531,25 @@ def test_the_scanned_revision_range_must_be_resolvable(repository: Path) -> None
         scan_repository(repository, revision_range="0" * 40 + "..HEAD")
 
 
+def test_an_unresolvable_whole_history_range_is_refused_not_reported_clean(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A gate that cannot determine its scope must not report clean.
+
+    CI scans a tag push as everything reachable from the checkout, so the one
+    way that scope can fail to resolve is a HEAD that names no commit. The twin
+    above asserts that the resolution raises; this asserts what the job
+    actually reads -- the exit code and the words -- because a raise that were
+    ever caught and reported as nothing-found would still satisfy the twin.
+    """
+    exit_code = main(["--range", "HEAD", str(repository)])
+    output = capsys.readouterr().out
+
+    assert exit_code == 2, "a range that cannot be resolved must never exit as a clean scan"
+    assert "scan aborted" in output
+    assert "0 finding(s)" not in output
+
+
 def test_a_genealogy_document_hidden_in_a_symlink_blob_is_a_finding(repository: Path) -> None:
     """The fail-open on the primary threat.
 
