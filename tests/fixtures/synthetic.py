@@ -147,6 +147,39 @@ def gedcom_x_name_parts() -> str:
     return json.dumps({"na" + "meForms": [{"pa" + "rts": parts}]}, separators=(",", ":")) + "\n"
 
 
+def gedcom_x_name_parts_with_qualifiers() -> str:
+    """The same name in parts, each part carrying a qualifier.
+
+    A qualifier says which part is primary and is entirely ordinary GEDCOM X.
+    It nests an object inside the part, which is all it takes to defeat a
+    matcher that keeps itself inside one object by refusing to cross a brace.
+
+    Nested under the full document shape the reviewer used, so the structural
+    keys are present and the part pairing is the only thing deciding the
+    verdict. Keys assembled, like every builder here.
+    """
+    type_key, value_key = "ty" + "pe", "val" + "ue"
+    qualifiers = "qualifi" + "ers"
+    parts = [
+        {
+            type_key: "http://gedcomx.org/Given",
+            value_key: "Quorvane",
+            qualifiers: [{"name": "http://gedcomx.org/Primary"}],
+        },
+        {
+            type_key: "http://gedcomx.org/Surname",
+            value_key: "Ashenmoor",
+            qualifiers: [{"name": "http://gedcomx.org/Primary"}],
+        },
+    ]
+    document = {
+        "person" + "s": [
+            {"name" + "s": [{"name" + "Forms": [{"pa" + "rts": parts}]}]},
+        ]
+    }
+    return json.dumps(document, separators=(",", ":")) + "\n"
+
+
 _BIOGRAPHY = "Elowen Ashenmoor, born 2 April 1893 in Thornwick, wheelwright, died 1961."
 
 

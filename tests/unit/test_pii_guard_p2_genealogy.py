@@ -22,6 +22,7 @@ from tests.fixtures.synthetic import (
     gedcom_x_biography_and_address,
     gedcom_x_json,
     gedcom_x_name_parts,
+    gedcom_x_name_parts_with_qualifiers,
     gramps_address_block,
     gramps_attributed_identity,
     gramps_biography_and_address,
@@ -452,6 +453,40 @@ def test_a_name_expressed_as_parts_is_a_finding() -> None:
     findings = scan_blob(gedcom_x_name_parts().encode(), "tree.md")
 
     assert rules(findings) == ["P2"], f"a name in parts is still a name, got {findings}"
+
+
+def test_a_name_in_parts_is_a_finding_when_the_parts_carry_qualifiers() -> None:
+    """The pairing was right; the way it stayed inside one object was not.
+
+    A name part is an object carrying a type beside a value, and the matcher
+    kept itself inside one object by refusing to cross a brace. A qualifier --
+    ordinary GEDCOM X, saying which part is primary -- nests an object inside
+    the part, so the part stopped being a part the moment it acquired one.
+    Given name and surname both escaped, on a valid document, leaving three
+    structural keys and a score below the bar.
+
+    This is NOT the recorded single-name-part ceiling: there are two parts
+    here, which is the case that has always scored four.
+    """
+    findings = scan_text(gedcom_x_name_parts_with_qualifiers(), source="tree.md")
+
+    assert rules(findings) == ["P2"], (
+        f"a name part does not stop being one when it is qualified, got {findings}"
+    )
+
+
+def test_nesting_cannot_smuggle_a_pairing_that_is_not_in_one_object() -> None:
+    """The other direction, and the reason the pairing must survive the fix.
+
+    Eliding a nested object must not merge it into its parent: a type in a
+    child and a value in the parent are not a name part, and a fix that
+    flattened the document would report every schema with a nested type.
+    """
+    split = '{"val' + 'ue":"on","child":{"ty' + 'pe":"string"}}'
+
+    assert scan_text(split, source="settings.md") == [], (
+        "a type in a child object is not paired with a value in its parent"
+    )
 
 
 def test_a_populated_address_is_a_finding() -> None:

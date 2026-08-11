@@ -944,32 +944,84 @@ holding a caption under a text key scores four and is reported. That is the
 difference between this vocabulary and a rule nobody could live with, and it
 is the same corroboration the Gramps namespace already provides.
 """
-_GEDCOM_X_NAME_PART = re.compile(
-    "".join(
-        (
-            r"\{[^{}]*\"ty",
-            r"pe\"\s*:[^{}]*\"val",
-            r"ue\"\s*:[^{}]*\}",
-            r"|\{[^{}]*\"val",
-            r"ue\"\s*:[^{}]*\"ty",
-            r"pe\"\s*:[^{}]*\}",
-        )
-    ),
-    re.IGNORECASE,
-)
-"""One GEDCOM X name part: an object carrying BOTH a type and a value.
+_DOUBLE_QUOTE = chr(34)
 
-⚠️ **The PAIRING is the property. Do not simplify this to matching a value key
-alone.** A value key by itself is in every configuration file and every JSON
-schema -- measured, and it is the difference between zero false positives here
-and reporting settings files. A type URI beside a value inside one object is
-the name-part shape, and nothing in ordinary configuration writes it.
+_GEDCOM_X_TYPE_KEY = re.compile(r"\"ty" + r"pe\"\s*:", re.IGNORECASE)
+_GEDCOM_X_VALUE_KEY = re.compile(r"\"val" + r"ue\"\s*:", re.IGNORECASE)
 
-Two parts are a given name and a surname, which scores the same 4 that
-``<first>`` plus ``<surname>`` scores on the Gramps side. One part stays below
-the bar, exactly as a lone surname does -- the ceiling recorded in round 10 is
-unchanged and no threshold moved for this.
-"""
+
+def _shallow_json_objects(text: str) -> Iterator[tuple[int, str]]:
+    """Each brace-balanced object in ``text``, with nested objects ELIDED.
+
+    ⚠️ **Eliding is what keeps a pairing honest.** A child's keys never reach
+    its parent's text, so a type in a child and a value in the parent are not
+    read as one object. Flattening instead would report every schema that
+    nests a type -- the exact false positive the pairing exists to avoid.
+
+    Written because the previous matcher kept itself inside one object by
+    refusing to cross a brace, which is a hand-rolled balancer and fails on
+    the first nested object it meets. Depth is not the axis: widening it to
+    admit one nested level is the same defect one document along.
+
+    String literals are respected, so a brace inside a value cannot unbalance
+    the scan. An unterminated object yields nothing, which is what the
+    previous matcher did with a truncated document too.
+    """
+    stack: list[tuple[int, list[str]]] = []
+    in_string = False
+    escaped = False
+
+    for index, character in enumerate(text):
+        if in_string:
+            if stack:
+                stack[-1][1].append(character)
+            if escaped:
+                escaped = False
+            elif character == _ONE_BACKSLASH:
+                escaped = True
+            elif character == _DOUBLE_QUOTE:
+                in_string = False
+            continue
+        if character == _DOUBLE_QUOTE:
+            in_string = True
+        if character == "{":
+            stack.append((index, []))
+            continue
+        if character == "}":
+            if stack:
+                start, buffer = stack.pop()
+                yield start, "".join(buffer)
+            continue
+        if stack:
+            stack[-1][1].append(character)
+
+
+def _gedcom_x_name_part_offsets(text: str) -> list[int]:
+    """Where each GEDCOM X name part starts: an object carrying a type AND a value.
+
+    ⚠️ **The PAIRING is the property. Do not simplify this to matching a value
+    key alone.** A value key by itself is in every configuration file and every
+    JSON schema -- measured, and it is the difference between zero false
+    positives here and reporting settings files. A type URI beside a value
+    inside one object is the name-part shape, and nothing in ordinary
+    configuration writes it.
+
+    Two parts are a given name and a surname, which scores the same 4 that
+    ``<first>`` plus ``<surname>`` scores on the Gramps side. One part stays
+    below the bar, exactly as a lone surname does -- the ceiling recorded in
+    round 10 is unchanged and no threshold moved for this.
+
+    Asked of the object's SHALLOW text, so a part keeps its pairing whatever it
+    nests. A qualifier -- ordinary GEDCOM X saying which part is primary --
+    used to end the match, and a given name and a surname both escaped a valid
+    document because of it.
+    """
+    return [
+        start
+        for start, shallow in _shallow_json_objects(text)
+        if _GEDCOM_X_TYPE_KEY.search(shallow) and _GEDCOM_X_VALUE_KEY.search(shallow)
+    ]
+
 
 _GEDCOM_X_STRUCTURAL_KEY = re.compile(
     "".join(
@@ -1044,16 +1096,17 @@ def _gedcom_x_identity_score(text: str) -> tuple[int, int] | None:
     named in prose has no colon-and-value after it and carries none, which is
     what lets a specification about the format through.
     """
-    identity = list(_GEDCOM_X_IDENTITY_KEY.finditer(text)) + list(
-        _GEDCOM_X_NAME_PART.finditer(text)
-    )
-    structural = list(_GEDCOM_X_STRUCTURAL_KEY.finditer(text))
+    identity = [match.start() for match in _GEDCOM_X_IDENTITY_KEY.finditer(text)]
+    identity += _gedcom_x_name_part_offsets(text)
+    structural = [match.start() for match in _GEDCOM_X_STRUCTURAL_KEY.finditer(text)]
 
     # THE GATE, and it is load-bearing. The address, contact and prose keys are
     # ordinary English words, so they count only once the document has said it
     # is GEDCOM X. Without this, {"text": "Click here to continue"} in any
     # configuration file scores four and is reported.
-    carried = list(_GEDCOM_X_CARRIED_KEY.finditer(text)) if structural else []
+    carried = (
+        [match.start() for match in _GEDCOM_X_CARRIED_KEY.finditer(text)] if structural else []
+    )
 
     score = (
         _CATEGORY_WEIGHT["identity"] * len(identity)
@@ -1062,7 +1115,7 @@ def _gedcom_x_identity_score(text: str) -> tuple[int, int] | None:
     )
     if score < _GRAMPS_SCORE_THRESHOLD:
         return None
-    first = min(match.start() for match in identity + structural + carried)
+    first = min(identity + structural + carried)
     return score, first
 
 
