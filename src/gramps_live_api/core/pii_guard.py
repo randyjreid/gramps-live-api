@@ -939,17 +939,80 @@ _GRAMPS_PROSE_ELEMENTS = _elements_of("prose")
 _GRAMPS_STRUCTURE_ELEMENTS = _elements_of("structure")
 _GRAMPS_ALL_ELEMENTS = tuple(dict.fromkeys(_GRAMPS_CATEGORY_OF))
 
+# ---------------------------------------------------------------------------
+# WHAT MAY SIT BETWEEN AN ELEMENT'S TAGS BESIDES CHARACTER DATA.
+#
+# XML 1.0's content production:
+#
+#     content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
+#
+# Closed and externally specified, so this enumeration is accepted on exactly
+# the grounds ``FILESYSTEM_ROOTS``, ``_XML_PREDEFINED_ENTITIES`` and
+# ``_XML_CHARACTER_RANGES`` are: it does not grow.
+#
+# ⚠️ **ONE TABLE, TWO DERIVED PATTERNS, because the alternative is what broke
+# it.** A CDATA section was taught to the element pattern as a special case and
+# nothing else was -- so a comment, which is the same production doing the same
+# job, ended the element instead of sitting inside it, and a filled note
+# carrying a whole identity scored nothing at all. Teaching the comment and not
+# the processing instruction would be that defect a third time; the production
+# says which members there are, so the table holds them all.
+#
+# The delimiters used to be spelled twice, once here and once in the length
+# measurement, with a comment beside them saying that changing either meant
+# changing both. That is the duplication, not a mitigation of it. They are
+# spelled once now.
+#
+# CDATA IS FIRST AND THE ORDER IS LOAD-BEARING: a comment delimiter written
+# inside a CDATA section is text, and an alternation reaching it first would
+# split the section at it.
+# ---------------------------------------------------------------------------
+
+_MARKUP_IN_CONTENT: tuple[tuple[str, str, bool], ...] = (
+    # opener, closer, and whether what it encloses is character data.
+    ("<!" + "[CDATA[", "]]" + ">", True),
+    ("<!" + "--", "--" + ">", False),
+    ("<" + "?", "?" + ">", False),
+)
+
+_ENCLOSES_CHARACTER_DATA = tuple(denotes for _, _, denotes in _MARKUP_IN_CONTENT)
+
+
+def _enclosed(opener: str, closer: str, *, captured: bool) -> str:
+    """One such node, capturing what it encloses or deliberately not."""
+    return re.escape(opener) + ("(.*?)" if captured else "(?:.*?)") + re.escape(closer)
+
+
+# NON-CAPTURING, which is not a style choice: the element pattern below reads
+# its tag back through a backreference and the scorer reads its two groups by
+# number, so a group added here would silently shift both.
+_NOT_ENDING_AN_ELEMENT = "|".join(
+    _enclosed(opener, closer, captured=False) for opener, closer, _ in _MARKUP_IN_CONTENT
+)
+
+_MARKUP_NODE = re.compile(
+    "|".join(_enclosed(opener, closer, captured=True) for opener, closer, _ in _MARKUP_IN_CONTENT),
+    re.DOTALL,
+)
+"""The same table, capturing, for the measurement -- see ``_xml_logical_length``.
+
+Which alternative matched says which row it is, and the row says whether what
+it encloses denotes anything.
+"""
+
 _GRAMPS_FILLED_ELEMENT = re.compile(
     r"<(" + "|".join(_GRAMPS_ALL_ELEMENTS) + r")\b[^>]*>"
-    r"((?:<!\[CDATA\[.*?\]\]>|[^<])+)</\1\s*>",
+    r"((?:" + _NOT_ENDING_AN_ELEMENT + r"|[^<])+)</\1\s*>",
     re.IGNORECASE | re.DOTALL,
 )
 """An element with content of its own: this is data rather than a mention.
 
-Two groups: the tag and the content. The content alternative admits a CDATA
-section, because CDATA is how XML carries prose containing markup and reading
-its opening delimiter as markup let a wrapped biography score one instead of
-five.
+Two groups: the tag and the content. The content alternative admits every
+member of the table above, because none of them ends an element -- a CDATA
+section is how XML carries prose containing markup, and a comment or a
+processing instruction is something a person leaves in the middle of a note.
+Reading any of them as markup meant the pattern could not reach its own closing
+tag, so the element was not merely mis-scored, it was invisible.
 
 The attributes used to be captured as a third group, for a short-prose
 discriminator that read them. Nothing reads them now -- see ``_DRAWING`` -- and
@@ -1086,17 +1149,6 @@ Unicode's opinion of them is not XML's, and XML's is what a measurement of XML
 has to follow.
 """
 
-_CDATA = re.compile(r"<!\[CDATA\[(.*?)\]\]>", re.DOTALL)
-"""A section whose content XML reads as itself.
-
-⚠️ **The delimiters are spelled a second time inside
-``_GRAMPS_FILLED_ELEMENT``, and composing that pattern from this one is NOT the
-repair it looks like.** This pattern captures, so interpolating it would insert
-a group and shift the ``\\1`` backreference and the ``group(1)``/``group(2)``
-the scorer reads. Two spellings of a fixed, externally specified delimiter is
-the lesser hazard; changing either means changing both.
-"""
-
 
 def _json_logical_length(value: str) -> int:
     """How many characters the body of a JSON string literal DENOTES.
@@ -1159,11 +1211,12 @@ def _xml_logical_length(content: str) -> int:
     only when it names a character XML permits. Everywhere else the source
     length stands.** Two spellings of one cause, and they arrived together.
 
-    WHERE. Inside a CDATA section XML collapses nothing, so the section
-    contributes the characters it contains -- its delimiters denote nothing and
-    its content denotes itself. This used to unwrap the section and then read
-    the whole string as markup, which counted a reference written literally as
-    the character it would have named somewhere else.
+    WHERE. Segmented on ``_MARKUP_IN_CONTENT``, so each part of the content is
+    measured as the thing it is. Inside a CDATA section XML collapses nothing,
+    so the section contributes the characters it contains -- its delimiters
+    denote nothing and its content denotes itself. This used to unwrap the
+    section and then read the whole string as markup, which counted a reference
+    written literally as the character it would have named somewhere else.
 
     WHAT. A numeric reference naming a code point XML forbids names no
     character at all; see ``_XML_CHARACTER_RANGES``. This used to check the
@@ -1175,7 +1228,23 @@ def _xml_logical_length(content: str) -> int:
 
     Segmenting also settles a reference straddling a boundary -- unwrapping
     first splices ``&am`` and ``p;`` into a match that the source does not
-    contain. It counts as written, which errs long.
+    contain. It counts as written, which errs long. It settles the same
+    question inside a comment, where a reference denotes nothing whatever and
+    collapsing one would shorten the character data around it.
+
+    ⚠️ **A COMMENT AND A PROCESSING INSTRUCTION CONTRIBUTE NOTHING, delimiters
+    and content alike, and that is a definition rather than an imprecision
+    erring short.** The quantity being measured is characters of character
+    data; XML says a comment holds none, so it is outside the measurement by
+    construction. The decision was taken against the alternative -- measuring
+    what a comment says, on the grounds that a name in a committed comment is
+    published -- and the alternative was measured and declined. See
+    CONTRIBUTING.md: it reports ordinary documentary comments, keeps a false
+    positive this reading removes, and does not reach the far commoner case of
+    a comment that is not inside a prose element at all. What it concedes is
+    the ceiling already recorded, no wider: a prose element holding only a
+    comment is worth what a bare short note is worth, one escapes and two do
+    not, and the deny-list is the recorded backstop.
 
     ⚠️ **A parser is the repair this will keep suggesting, and it is refused
     on grounds that are not effort.** The guard scans FRAGMENTS of arbitrary
@@ -1187,10 +1256,12 @@ def _xml_logical_length(content: str) -> int:
     """
     length = 0
     position = 0
-    for section in _CDATA.finditer(content):
-        length += _references_collapsed(content[position : section.start()])
-        length += len(section.group(1))
-        position = section.end()
+    for node in _MARKUP_NODE.finditer(content):
+        length += _references_collapsed(content[position : node.start()])
+        row = next(index for index, group in enumerate(node.groups()) if group is not None)
+        if _ENCLOSES_CHARACTER_DATA[row]:
+            length += len(node.group(row + 1))
+        position = node.end()
     return length + _references_collapsed(content[position:])
 
 

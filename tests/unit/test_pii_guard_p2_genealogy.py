@@ -70,6 +70,7 @@ from tests.fixtures.synthetic import (
     utf16le_gedcom_bytes,
     worded_diagram,
     xml_content_spellings,
+    xml_markup_denoting_nothing,
     xml_markup_in_content,
 )
 
@@ -797,11 +798,7 @@ def test_a_prose_element_holding_only_markup_is_worth_a_short_note() -> None:
     """
     identity = "Elowen Ashenmoor, born 2 April 1893 in Thornwick"
 
-    for spelling, markup in xml_markup_in_content(identity).items():
-        if spelling == "a CDATA section":
-            # CDATA is character data. It denotes what it contains, and the
-            # element holding one is prose in the ordinary way.
-            continue
+    for spelling, markup in xml_markup_denoting_nothing(identity).items():
         one = scan_text(gramps_prose_holding_only(markup), source="notes.md")
         two = scan_text(gramps_prose_holding_only(markup, copies=2), source="notes.md")
 
@@ -816,8 +813,14 @@ def test_a_label_in_a_drawing_stays_a_label_when_it_carries_a_comment() -> None:
     it up instead and charged it prose weight -- and that pass has no drawing
     exemption, so an ordinary chart label with a developer's comment beside it
     was reported. One cause, both directions, one fix.
+
+    Markup denoting nothing only. A CDATA section beside the label would be
+    thirty-odd characters of real text in it, and an element holding that much
+    text is prose by the floor -- correctly, and at head as well as here.
     """
-    for spelling, markup in xml_markup_in_content("computed from the quarterly rollup").items():
+    for spelling, markup in xml_markup_denoting_nothing(
+        "computed from the quarterly rollup"
+    ).items():
         findings = scan_text(labelled_diagram_holding(markup), source="chart.md")
 
         assert findings == [], f"a label inside its drawing is a label, {spelling}: {findings}"

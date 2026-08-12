@@ -674,8 +674,19 @@ def xml_markup_in_content(body: str) -> dict[str, str]:
     this module's recurring defect: agreed, then applied in some of the places
     it holds.
     """
+    return {"a CDATA section": inside_a_cdata_section(body), **xml_markup_denoting_nothing(body)}
+
+
+def xml_markup_denoting_nothing(body: str) -> dict[str, str]:
+    """The members of that table whose content is not character data.
+
+    A CDATA section is absent, and its absence is the whole distinction: it
+    denotes what it contains, so an element holding one holds that many
+    characters of prose. A comment and a processing instruction denote no
+    characters at all, which is why the two tables are not interchangeable and
+    why the tests that ask *what the content is worth* take this one.
+    """
     return {
-        "a CDATA section": inside_a_cdata_section(body),
         "a comment": inside_a_comment(body),
         "a processing instruction": inside_a_processing_instruction(body),
     }
