@@ -1488,7 +1488,12 @@ _GRAMPS_XML_NAMESPACE = "gramps-project" + ".org" + _SEPARATOR + "xml"
 # It is short on purpose. Adding to it is meant to be a deliberate, reviewed
 # act; see CONTRIBUTING.md.
 SAFE_EXTENSIONS = frozenset({".md", ".py", ".toml", ".yml"})
-SAFE_BASENAMES = frozenset({".gitignore", "LICENSE"})
+# "uv.lock" is a BASENAME rather than a ".lock" extension on purpose: nothing
+# about that extension is safe, and admitting it would admit a class this
+# project has no property for. One generated file, named. Being here exempts it
+# from the type gate and from nothing else -- P1, P2 and the deny-list all
+# still run over its contents. See CONTRIBUTING.md.
+SAFE_BASENAMES = frozenset({".gitignore", "LICENSE", "uv.lock"})
 
 _HOW_TO_ALLOW_A_TYPE = (
     "if this type belongs in the repository, add it to SAFE_EXTENSIONS or "

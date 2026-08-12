@@ -172,6 +172,15 @@ Keep the list short. `.txt` and `.json` are deliberately absent: they are exactl
 renamed export hides under, and admitting them puts the work back on signature matching, which is
 the losing side of that race.
 
+**Recorded addition: `uv.lock` (issue #11).** The owner's ruling is that the lockfile is tracked, and
+`.lock` is on no safe list, so committing it made the guard refuse it — the gate working, not a bug.
+It is added to `SAFE_BASENAMES` as **one named file**, not to `SAFE_EXTENSIONS` as an extension:
+nothing about `.lock` is safe, and a class admits every future lockfile including ones that carry
+local source paths. The reason this named file cannot carry a family tree is that it is not authored
+— `uv` generates it from `pyproject.toml`, and it holds package names, versions and registry hashes.
+**Being on the list exempts it from the type gate and from nothing else:** its contents still go
+through P1, P2 and the deny-list, and were measured clean when it was added.
+
 ### The rule that outranks both
 
 **The committed pattern set contains no personal information.** No real names, no surnames, no
