@@ -16,6 +16,7 @@ from pathlib import Path
 
 from gramps_live_api.core.pii_guard import (
     _CATEGORY_WEIGHT,
+    _GRAMPS_PROSE_LENGTH,
     _VOCABULARY,
     _gedcom_x_identity_score,
     _gramps_identity_score,
@@ -1068,6 +1069,88 @@ def test_content_xml_treats_literally_is_measured_literally() -> None:
     assert len(observed) > 1, (
         f"every control reached the same verdict {observed}; the floor is not being "
         "driven from both sides, so the agreement above proves nothing"
+    )
+
+
+_XML_CHARACTER_BOUNDARIES = (
+    # Both sides of every edge of the XML 1.0 Char production, transcribed from
+    # the specification rather than derived from the implementation -- a table
+    # that recomputed the rule would agree with a wrong rule.
+    #
+    #   Char ::= #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD]
+    #                                            | [#x10000-#x10FFFF]
+    ("the control below tab", 0x8, False),
+    ("tab", 0x9, True),
+    ("line feed", 0xA, True),
+    ("the control between line feed and carriage return", 0xB, False),
+    ("carriage return", 0xD, True),
+    ("the last control below space", 0x1F, False),
+    ("space, opening the main range", 0x20, True),
+    ("the last character below the surrogates", 0xD7FF, True),
+    ("the first surrogate", 0xD800, False),
+    ("the last surrogate", 0xDFFF, False),
+    ("the first character above the surrogates", 0xE000, True),
+    ("the last character below the noncharacters", 0xFFFD, True),
+    ("the first noncharacter", 0xFFFE, False),
+    ("the second noncharacter", 0xFFFF, False),
+    ("the first supplementary character", 0x10000, True),
+    ("the largest code point", 0x10FFFF, True),
+    ("one past the largest code point", 0x110000, False),
+)
+"""Every edge of the production, from both sides, with what XML says of each.
+
+⚠️ **The plane-one noncharacters are absent deliberately.** XML 1.0 permits
+``U+1FFFE`` and its kin -- the production excludes only the two in the basic
+plane -- so a row asserting otherwise would be asserting Unicode's opinion in
+the place XML's is what matters.
+"""
+
+
+def test_a_reference_names_a_character_or_it_names_nothing() -> None:
+    """⬅ The measurement decoded what XML does not: the wrong CHARACTER.
+
+    The same defect as above seen from its other side. The check tested one
+    edge of the production -- is this above the largest code point -- and every
+    other edge fell through it, so NUL, a control, a surrogate and a
+    noncharacter each collapsed to one character apiece. XML forbids all four
+    outright: they name nothing, and counting nothing as one character shortens
+    the value.
+
+    ⚠️ **The function's docstring already stated the contract this violates**:
+    *only a reference that provably denotes exactly one character is collapsed
+    to one*. A stated rule that nothing asserted is its own defect class, and
+    the reason this is a test and not a comment.
+
+    Every probe is exactly the floor in SOURCE characters, so the two controls
+    are the whole assertion: a reference XML permits collapses and lands with
+    the shorter control, and one it forbids stays put and lands with the longer
+    one. No weight is written down, and a rule that always collapsed or never
+    collapsed fails half the table either way.
+    """
+    stays = _gramps_identity_score(gramps_notes_holding(_INERT * _GRAMPS_PROSE_LENGTH))
+    collapses = _gramps_identity_score(gramps_notes_holding(_INERT * (_GRAMPS_PROSE_LENGTH - 1)))
+    assert stays != collapses, "the premise of this test: the floor separates these two controls"
+
+    disagreements = []
+
+    for described, code_point, permitted in _XML_CHARACTER_BOUNDARIES:
+        for spelling, reference in (
+            ("decimal", "&#" + str(code_point) + ";"),
+            ("hex", "&#x" + format(code_point, "x") + ";"),
+        ):
+            body = _INERT * (_GRAMPS_PROSE_LENGTH - len(reference)) + reference
+            measured = _gramps_identity_score(gramps_notes_holding(body))
+            expected = collapses if permitted else stays
+            if measured != expected:
+                disagreements.append(
+                    f"U+{code_point:04X} ({described}) as a {spelling} reference: XML "
+                    f"{'permits' if permitted else 'forbids'} it, so it should have "
+                    f"scored {expected} and scored {measured}"
+                )
+
+    assert disagreements == [], (
+        "a numeric reference is being collapsed on the strength of naming a code "
+        f"point rather than a character XML permits: {disagreements}"
     )
 
 
