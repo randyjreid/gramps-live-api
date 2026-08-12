@@ -651,6 +651,70 @@ def inside_a_cdata_section(body: str) -> str:
     return "<![" + "CDATA[" + body + "]" + "]>"
 
 
+def inside_a_comment(body: str) -> str:
+    """``body`` in an XML comment, which is markup rather than character data."""
+    return "<!--" + body + "-->"
+
+
+def inside_a_processing_instruction(body: str) -> str:
+    """``body`` in a processing instruction, which is markup like a comment."""
+    return "<" + "?transcriber " + body + "?>"
+
+
+def xml_markup_in_content(body: str) -> dict[str, str]:
+    """``body`` as each kind of markup XML lets sit between an element's tags.
+
+    The ``content`` production is ``CharData? ((element | Reference | CDSect |
+    PI | Comment) CharData?)*``. Of the members that are not elements or
+    references, these three are what a document actually writes -- and all
+    three interrupt character data without ending the element.
+
+    Returned as a table so the tests walk every member rather than naming the
+    one a reviewer happened to construct. A rule proved for one of these is
+    this module's recurring defect: agreed, then applied in some of the places
+    it holds.
+    """
+    return {
+        "a CDATA section": inside_a_cdata_section(body),
+        "a comment": inside_a_comment(body),
+        "a processing instruction": inside_a_processing_instruction(body),
+    }
+
+
+def gramps_note_interrupted_by(markup: str = "") -> str:
+    """A filled prose element carrying a life, with ``markup`` inside its text.
+
+    ``markup`` empty is the uninterrupted control, so the assertion can be
+    AGREEMENT between the spellings rather than "the interrupted one is
+    caught". The second is satisfied by a special case for whichever
+    interruption was named; the first is only satisfied by stating the rule.
+    """
+    head, tail = _BIOGRAPHY.split(" in ", 1)
+    return _element("te" + "xt", body=head + " " + markup + " in " + tail)
+
+
+def gramps_prose_holding_only(markup: str, *, copies: int = 1) -> str:
+    """``copies`` prose elements whose entire content is ``markup``.
+
+    No character data at all: the element is filled, and what fills it denotes
+    nothing. What this is worth is the decision recorded in CONTRIBUTING --
+    the same as any other short note, which is why ``copies`` is a parameter.
+    """
+    return _element("te" + "xt", body=markup) * copies
+
+
+def labelled_diagram_holding(markup: str) -> str:
+    """A chart whose one short label also carries ``markup``.
+
+    The false-positive side. A label is a label whatever markup sits beside it,
+    and it is inside its drawing, which is the container the discriminator asks
+    about.
+    """
+    return _element(
+        "svg", body=_element("te" + "xt", attributes='x="0" y="9"', body="0.5" + markup)
+    )
+
+
 def gedcom_x_notes_holding(body: str, *, copies: int = 2) -> str:
     """``copies`` GEDCOM X notes whose string body is written exactly as given.
 

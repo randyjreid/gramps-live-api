@@ -50,15 +50,19 @@ from tests.fixtures.synthetic import (
     gramps_namespace_fragment,
     gramps_namespace_url,
     gramps_note_biography,
+    gramps_note_interrupted_by,
     gramps_notes_holding,
     gramps_person_fragment,
+    gramps_prose_holding_only,
     gramps_reference_fragment,
     gramps_short_notes,
     gramps_short_notes_with_attributes,
     gramps_xml_document,
     inside_a_cdata_section,
+    inside_a_comment,
     json_string_spellings,
     labelled_diagram,
+    labelled_diagram_holding,
     positioned_notes_outside_a_drawing,
     prose_describing_json_keys_with_escaped_quotes,
     sqlite_bytes,
@@ -66,6 +70,7 @@ from tests.fixtures.synthetic import (
     utf16le_gedcom_bytes,
     worded_diagram,
     xml_content_spellings,
+    xml_markup_in_content,
 )
 
 # ---------------------------------------------------------------------------
@@ -718,6 +723,104 @@ def test_a_biography_in_cdata_is_still_a_biography() -> None:
     findings = scan_text(gramps_biography_in_cdata(), source="notes.md")
 
     assert rules(findings) == ["P2"], f"a wrapper is not a disguise, got {findings}"
+
+
+def test_markup_inside_a_prose_element_does_not_end_the_element() -> None:
+    """Every kind of markup XML lets sit between an element's tags.
+
+    A filled prose element carrying a whole identity scored NOTHING once an
+    XML comment sat inside it: the content alternation admitted a CDATA
+    section and refused anything else beginning with an angle bracket, so the
+    pattern could not reach its own closing tag. CDATA had been taught as a
+    special case; the other members of the same production had not, which is
+    this module's recurring defect rather than a new one.
+
+    Asserted as AGREEMENT with the uninterrupted spelling, over the whole
+    table. "The commented one is caught" is satisfied by a special case for
+    comments -- the same shape as the defect.
+    """
+    control = _gramps_identity_score(gramps_note_interrupted_by())
+    assert control is not None, "the premise: uninterrupted, this element carries a life"
+
+    disagreed = [
+        f"{spelling}: {_gramps_identity_score(gramps_note_interrupted_by(markup))}"
+        for spelling, markup in xml_markup_in_content("transcribed from the register").items()
+        if _gramps_identity_score(gramps_note_interrupted_by(markup)) != control
+    ]
+
+    assert disagreed == [], (
+        f"markup between two runs of character data changed the verdict: {disagreed}"
+    )
+
+
+def test_a_comment_holding_the_closing_tag_does_not_end_the_element() -> None:
+    """A comment's text is not markup, and the element ends where XML ends it.
+
+    The pattern reads the closing tag literally, so a comment quoting one used
+    to be the end of the element -- or, before an interruption was admitted at
+    all, the reason there was no element. Reading the comment as a node is what
+    makes the real closing tag the real closing tag.
+    """
+    quoting = inside_a_comment("the closing " + "</te" + "xt>" + " goes here")
+    findings = scan_text(gramps_note_interrupted_by(quoting), source="notes.md")
+
+    assert rules(findings) == ["P2"], (
+        f"a closing tag inside a comment is text, not the end of the element, got {findings}"
+    )
+
+
+def test_a_comment_cannot_shorten_the_prose_it_sits_in() -> None:
+    """The measurement errs long, and markup must not be a way around that.
+
+    Measured over the RAW content, a reference written inside a comment would
+    collapse where XML reads nothing, shortening the value and dropping the
+    element below the floor. That is the one direction this measurement must
+    not err in, and it is the pair of defects the last round fixed for CDATA.
+    """
+    references = inside_a_comment(" " + "&amp;" * 10 + " ")
+    findings = scan_text(gramps_note_interrupted_by(references), source="notes.md")
+
+    assert rules(findings) == ["P2"], (
+        f"a comment shortened the character data around it, got {findings}"
+    )
+
+
+def test_a_prose_element_holding_only_markup_is_worth_a_short_note() -> None:
+    """The recorded decision, asserted in both directions.
+
+    A comment contains no character data, so the measured quantity excludes it
+    by definition. What that concedes is exactly what a bare short note
+    concedes and nothing more: one scores identity weight and escapes, two
+    reach the threshold and are caught. The ceiling is the one already recorded
+    in the acceptance document, not a new one -- and asserting only the second
+    half would pass on a rule that measured the comment's own text.
+    """
+    identity = "Elowen Ashenmoor, born 2 April 1893 in Thornwick"
+
+    for spelling, markup in xml_markup_in_content(identity).items():
+        if spelling == "a CDATA section":
+            # CDATA is character data. It denotes what it contains, and the
+            # element holding one is prose in the ordinary way.
+            continue
+        one = scan_text(gramps_prose_holding_only(markup), source="notes.md")
+        two = scan_text(gramps_prose_holding_only(markup, copies=2), source="notes.md")
+
+        assert one == [], f"{spelling} alone is worth a short note, got {one}"
+        assert rules(two) == ["P2"], f"two of {spelling} reach the threshold, got {two}"
+
+
+def test_a_label_in_a_drawing_stays_a_label_when_it_carries_a_comment() -> None:
+    """The false positive the same cause produced, in the other direction.
+
+    With the element invisible to the filled pass, the attributed pass picked
+    it up instead and charged it prose weight -- and that pass has no drawing
+    exemption, so an ordinary chart label with a developer's comment beside it
+    was reported. One cause, both directions, one fix.
+    """
+    for spelling, markup in xml_markup_in_content("computed from the quarterly rollup").items():
+        findings = scan_text(labelled_diagram_holding(markup), source="chart.md")
+
+        assert findings == [], f"a label inside its drawing is a label, {spelling}: {findings}"
 
 
 def test_three_short_notes_are_a_whole_identity() -> None:
