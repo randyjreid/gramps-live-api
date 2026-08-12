@@ -1022,6 +1022,17 @@ _XML_CHARACTER_REFERENCE = re.compile(
 
 _LARGEST_CODE_POINT = 0x10FFFF
 
+_CDATA = re.compile(r"<!\[CDATA\[(.*?)\]\]>", re.DOTALL)
+"""A section whose content XML reads as itself.
+
+⚠️ **The delimiters are spelled a second time inside
+``_GRAMPS_FILLED_ELEMENT``, and composing that pattern from this one is NOT the
+repair it looks like.** This pattern captures, so interpolating it would insert
+a group and shift the ``\\1`` backreference and the ``group(1)``/``group(2)``
+the scorer reads. Two spellings of a fixed, externally specified delimiter is
+the lesser hazard; changing either means changing both.
+"""
+
 
 def _json_logical_length(value: str) -> int:
     """How many characters the body of a JSON string literal DENOTES.
@@ -1042,21 +1053,16 @@ def _json_logical_length(value: str) -> int:
     return length
 
 
-def _xml_logical_length(content: str) -> int:
-    """How many characters XML element content DENOTES.
-
-    The mirror of the above for the other format, and the reason this fix is
-    not a JSON fix: the floor is a property of prose, so a rule stated for one
-    serialization and not the other is the divergence this module keeps paying
-    for. ``&amp;&amp;&amp;&amp;`` is four characters written as twenty.
+def _references_collapsed(text: str) -> int:
+    """How many characters ``text`` denotes, where XML is reading references.
 
     Errs long wherever it cannot be sure: an entity needing a DTD, a malformed
     reference, and a numeric reference naming no character at all are each
     counted as the source spells them. Only a reference that provably denotes
     exactly one character is collapsed to one.
     """
-    length = len(content)
-    for match in _XML_CHARACTER_REFERENCE.finditer(content):
+    length = len(text)
+    for match in _XML_CHARACTER_REFERENCE.finditer(text):
         decimal, hexadecimal = match.group(1), match.group(2)
         digits = decimal or hexadecimal
         if digits is not None:
@@ -1068,6 +1074,44 @@ def _xml_logical_length(content: str) -> int:
                 continue
         length -= len(match.group()) - 1
     return length
+
+
+def _xml_logical_length(content: str) -> int:
+    """How many characters XML element content DENOTES.
+
+    The mirror of the above for the other format, and the reason this fix is
+    not a JSON fix: the floor is a property of prose, so a rule stated for one
+    serialization and not the other is the divergence this module keeps paying
+    for. ``&amp;&amp;&amp;&amp;`` is four characters written as twenty.
+
+    **One rule: a reference is collapsed only where XML would collapse it.**
+    Inside a CDATA section XML collapses nothing, so the section contributes
+    the characters it contains -- its delimiters denote nothing and its content
+    denotes itself. This used to unwrap the section and then read the whole
+    string as markup, which counted a reference written literally as the
+    character it would have named somewhere else, and shortened the value. That
+    was the third instance of this module's recurring shape: a rule already
+    agreed, applied in only some of the places it holds.
+
+    Segmenting also settles a reference straddling a boundary -- unwrapping
+    first splices ``&am`` and ``p;`` into a match that the source does not
+    contain. It counts as written, which errs long.
+
+    ⚠️ **A parser is the repair this will keep suggesting, and it is refused
+    on grounds that are not effort.** The guard scans FRAGMENTS of arbitrary
+    files, not well-formed documents, and a parser refuses a fragment -- which
+    means no measurement at all, failing in the direction that misses rather
+    than the one that reports. A parser also returns strings, which is the one
+    thing the block above forbids, and it brings entity-expansion hazards this
+    function categorically does not have.
+    """
+    length = 0
+    position = 0
+    for section in _CDATA.finditer(content):
+        length += _references_collapsed(content[position : section.start()])
+        length += len(section.group(1))
+        position = section.end()
+    return length + _references_collapsed(content[position:])
 
 
 # READ FROM THE TABLE, never restated beside it. These were three literals
@@ -1352,8 +1396,6 @@ def _gedcom_x_identity_score(text: str) -> tuple[int, int] | None:
     return score, min(offsets)
 
 
-_CDATA = re.compile(r"<!\[CDATA\[(.*?)\]\]>", re.DOTALL)
-
 _DRAWING = re.compile(r"<svg\b[^>]*>.*?</svg\s*>", re.IGNORECASE | re.DOTALL)
 """A drawing, inside which a short text element is a label and not a note.
 
@@ -1380,16 +1422,6 @@ directions, and asserted by test in both directions.
 """
 
 
-def _unwrapped(content: str) -> str:
-    """Content with any CDATA wrapper removed.
-
-    CDATA is how XML carries prose containing markup or an ampersand, which is
-    what a biography contains. Reading the opening delimiter as markup meant
-    the identical life scored five unwrapped and one wrapped.
-    """
-    return _CDATA.sub(r"\1", content).strip()
-
-
 def _inside_a_drawing(position: int, drawings: Sequence[tuple[int, int]]) -> bool:
     return any(start <= position < end for start, end in drawings)
 
@@ -1409,7 +1441,10 @@ def _gramps_identity_score(text: str) -> tuple[int, int] | None:
 
     for match in _GRAMPS_FILLED_ELEMENT.finditer(text):
         tag = match.group(1).lower()
-        content = _unwrapped(match.group(2))
+        # The RAW content, deliberately: only the measurement can tell which
+        # parts of it XML reads and which it takes literally, and unwrapping
+        # here threw that away before the question was asked.
+        content = match.group(2).strip()
         filled.append(match.span())
         if tag in _GRAMPS_PROSE_ELEMENTS:
             # Measured by what the content DENOTES, exactly as the JSON side
