@@ -24,7 +24,7 @@ construction; do not spell it.
 > under a real filesystem root with ≥2 components, any leading slash in a path-bearing position, and
 > the tilde home form. Applies to file *contents*, committed *filenames*, and symlink *targets*.
 
-`tests/unit/test_pii_guard_p1_paths.py` -- **35 tests**, the whole file, including the
+`tests/unit/test_pii_guard_p1_paths.py` -- **37 tests**, the whole file, including the
 false-positive controls that keep routes, links, markup and approximations out of it.
 
 | Detector | Named by |
@@ -56,7 +56,7 @@ deliberately does *not* apply.
 this criterion is universally quantified over all genealogy data, which is the unbounded spec this
 document exists to replace.
 
-`tests/unit/test_pii_guard_p2_genealogy.py` -- **61 tests**. The crux of each mechanism:
+`tests/unit/test_pii_guard_p2_genealogy.py` -- **66 tests**. The crux of each mechanism:
 
 | Mechanism | Named by |
 | --- | --- |
@@ -221,11 +221,13 @@ time.
 
 The outstanding set was adjudicated against B1–B7, item by item, and dispositioned four ways:
 
-- **three items violated a criterion and were fixed** — issue #3 item 2, a repeated separator
+- **four items violated a criterion and were fixed** — issue #3 item 2, a repeated separator
   defeating the rooted-path detector, which satisfied every term B1 states and was matched by none of
-  them; and two against B2 in the final bot round, where the prose measurement collapsed a character
+  them; two against B2 in the final bot round, where the prose measurement collapsed a character
   reference in a place XML reads nothing and for a character XML forbids, each shortening a value and
-  dropping a prose element below the floor;
+  dropping a prose element below the floor; and one more against B2 in the round after it, where an
+  XML comment inside a filled prose element stopped the content pattern reaching its own closing
+  tag, so an element carrying a whole identity was not mis-scored but invisible;
 - **three were already resolved** by commits on this branch;
 - **the remainder were accepted with a recorded rationale**, in CONTRIBUTING.md, or **filed** as the
   issues named above.
