@@ -1,0 +1,223 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gates:
+    name: gates (python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format
+        run: ruff format --check .
+
+      - name: Types
+        run: mypy src
+
+      - name: Tests
+        run: pytest
+
+  pii-guard:
+    name: pii-guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The whole history: the guard scans the commits a push publishes,
+          # not just the tip, and a shallow clone cannot resolve the range.
+          fetch-depth: 0
+
+      # UNCONDITIONAL, and it guards every arm below alike -- the branch push,
+      # the pull request and the tag -- not the one it was written for. Each of
+      # them resolves a range against history that has to actually be here.
+      #
+      # fetch-depth: 0 above supplies that history and a comment says it is
+      # required, but a comment is not a check. git rev-list on a shallow clone
+      # SUCCEEDS and returns only the commits that were fetched, so a checkout
+      # that quietly stopped being complete would scan a truncated history and
+      # report clean over the rest -- the same fail-open the range scans exist
+      # to close, one level down.
+      #
+      # Fails closed on anything that is not exactly "false": an empty answer, a
+      # non-zero exit, a word from a future Git. Written the other way round --
+      # fail when the answer is "true" -- it would be a list of the known-bad
+      # answers, and it would admit every answer nobody has thought of yet.
+      - name: Refuse a checkout whose history is incomplete
+        run: |
+          set -euo pipefail
+          shallow="$(git rev-parse --is-shallow-repository)"
+          if [ "$shallow" != "false" ]; then
+            echo "::error::the checkout is not provably complete (git says '${shallow}'); refusing to report a clean scan"
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # A push publishes every commit in it, not only the last one. Content
+      # added in commit A and deleted in commit B is gone from the tip and
+      # still reachable, so the range is what gets scanned.
+      #
+      # Every branch below ends in a range or in a failure. There is no path
+      # that scans nothing: the guard itself also refuses a range covering no
+      # commits, so a mistake here fails the job rather than passing it.
+      #
+      # ⚠️ Every value from the event arrives through env: and is used as a
+      # QUOTED SHELL VARIABLE. None is substituted into the script text.
+      #
+      # An expression is replaced before Bash parses the body, so a value
+      # containing a quote ends the quoting and the rest of the line becomes
+      # code. A ref name is the reachable case -- Git permits an apostrophe in
+      # a branch name -- and a branch name is not trusted input. A shell
+      # variable is expanded after parsing, so its contents can never be read
+      # as syntax.
+      #
+      # A TAG push is NOT a branch push and takes neither of these two ranges.
+      # It resolves no baseline at all -- see the last step of this job for why
+      # a tag cannot be given one, and what it scans instead. A tag at the
+      # default-branch commit has an all-zero before-SHA and a tag ref name, so
+      # routing it here resolved a range of NO commits: the guard refused it,
+      # correctly, and this job failed on every ordinary tag push. That is what
+      # the ref_type test below is for.
+      - name: Determine the pushed range
+        id: pushed
+        if: github.event_name == 'push' && github.ref_type == 'branch'
+        env:
+          BEFORE: ${{ github.event.before }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REF_NAME: ${{ github.ref_name }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          empty='0000000000000000000000000000000000000000'
+
+          if [ -n "$BEFORE" ] && [ "$BEFORE" != "$empty" ] \
+             && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            echo "range=${BEFORE}..${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # No usable "before": this branch is new to the remote.
+          if [ "$REF_NAME" = "$DEFAULT_BRANCH" ]; then
+            # The default branch itself is new -- the repository was just
+            # created. Everything reachable is new, so scan all of it.
+            # Falling back to origin/<default>..HEAD here is what produced an
+            # EMPTY range and a clean report over nothing.
+            echo "range=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git cat-file -e "origin/${DEFAULT_BRANCH}^{commit}" 2>/dev/null; then
+            echo "range=origin/${DEFAULT_BRANCH}..${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "::error::cannot resolve the pushed commit range; refusing to report a clean scan"
+          exit 1
+
+      # This used to be a fork-only step, on the reasoning that a
+      # same-repository pull request needs no range because every commit in it
+      # arrived by a push and that push was range-scanned. Two things were
+      # wrong with it: the tip of a pull request is a generated merge commit,
+      # so content added and later removed on the branch is absent from it and
+      # was never scanned by this event at all; and a check that leans on a
+      # different event having run is not a check, it is an assumption.
+      - name: Determine the pull request range
+        id: pull_request
+        # EVERY pull request, not only a fork's. A same-repository pull request
+        # used to run the tip scan alone, so a branch that added genealogy data
+        # in one commit and removed it in a later one came back clean: the
+        # merge tip no longer held it, and the tip was all that was scanned.
+        #
+        # Scanning base..HEAD also means this check stands on its own. It does
+        # not depend on the push check having run over those commits earlier.
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            echo "::error::cannot resolve the pull request base; refusing to report a clean scan"
+            exit 1
+          fi
+          echo "range=$(git merge-base "$BASE_SHA" HEAD)..HEAD" >> "$GITHUB_OUTPUT"
+
+      # Deliberately no install step: installing would write build artefacts
+      # into the checkout, and this job's whole point is to scan exactly what
+      # the repository contains. The guard depends on nothing but the standard
+      # library and Git.
+      - name: Scan the pushed history for personal data
+        if: github.event_name == 'push' && github.ref_type == 'branch'
+        env:
+          PYTHONPATH: src
+          # Computed by the step above from event data, so it reaches the shell
+          # the same way that data did: through the environment, never through
+          # the script text.
+          RANGE: ${{ steps.pushed.outputs.range }}
+        run: python -m gramps_live_api.core.pii_guard --range "$RANGE" .
+
+      - name: Scan the pull request history for personal data
+        if: github.event_name == 'pull_request'
+        env:
+          PYTHONPATH: src
+          RANGE: ${{ steps.pull_request.outputs.range }}
+        run: python -m gramps_live_api.core.pii_guard --range "$RANGE" .
+
+      # Everything the two range scans do not cover: a tag push, and any event
+      # that is neither a push nor a pull request. Written as the complement
+      # rather than as a list, so adding a trigger cannot silently leave an
+      # event scanning nothing.
+      #
+      # EVERYTHING REACHABLE, not the tip. A tag publishes its target commit and
+      # every ancestor, not merely the target's tree: content added in commit A
+      # and deleted in commit B is absent from B's tree and still publicly
+      # reachable through a tag on B. This step used to scan the tip, so that
+      # tag came back clean over a family tree nobody had looked at.
+      #
+      # No baseline is computed, because a tag push carries none that can be
+      # trusted -- a tag on history never pushed to any branch, a tag pushed
+      # before its branch, a re-pointed tag, and the all-zero before-SHA all
+      # defeat one, and a gate that cannot determine its scope must not report
+      # clean. Whole history is always correct and is never empty, which is the
+      # property the tip scan was originally chosen for. It costs a walk of the
+      # history, which a tag push can afford.
+      #
+      # The same reasoning covers the other arm. An event that is neither a push
+      # nor a pull request publishes whatever is reachable from its checkout
+      # too, and there is no event data to narrow it with, so it takes the same
+      # scan rather than a tip scan justified by nothing.
+      #
+      # This is a widening, never a narrowing: the guard scans tracked content
+      # AND the range, so everything the tip scan read is still read.
+      - name: Scan every reachable commit for personal data
+        if: >-
+          (github.event_name == 'push' && github.ref_type != 'branch') ||
+          (github.event_name != 'push' && github.event_name != 'pull_request')
+        env:
+          PYTHONPATH: src
+          # A literal, like PYTHONPATH: no event data reaches this step, so
+          # there is nothing to compute and nothing to interpolate. It still
+          # travels through env: and is quoted at the point of use, so the step
+          # reads the same as the two above it.
+          RANGE: HEAD
+        run: python -m gramps_live_api.core.pii_guard --range "$RANGE" .

@@ -165,7 +165,10 @@ venv.bak/
 .ropeproject
 
 # mkdocs documentation
-/site
+#   The stock template anchored this to the repository root with a leading
+#   slash. That is an absolute path, and an ignore file is committed content
+#   like any other, so the guard reports it. Matching by directory instead.
+site/
 
 # mypy
 .mypy_cache/
@@ -216,3 +219,84 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------------------
+# gramps-live-api: keep personal data out of a public repository.
+#
+# This is a *public* repository owned by a private person. Nothing below may
+# ever be committed. The PII guard (src/gramps_live_api/core/pii_guard.py) is
+# the enforcement; this block is the first line of defence.
+# ---------------------------------------------------------------------------
+
+# Genealogy artefacts -- family tree exports in any of their many formats.
+*.ged
+*.gedcom
+*.gramps
+*.gpkg
+*.grdb
+*.ftm
+*.paf
+*.gno
+*.gw
+
+# Database files -- a Gramps tree on disk is one of these.
+*.db
+*.db3
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.bsddb
+
+# Media -- scans, photographs and documents attached to people.
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.tif
+*.tiff
+*.bmp
+*.heic
+*.pdf
+*.mp3
+*.mp4
+*.mov
+*.wav
+
+# Anything named like a credential.
+*token*
+*secret*
+*credential*
+.env
+.env.*
+
+# ...but every pattern above is matched against every path, and source files
+# are routinely named after the thing they handle: a test module called
+# test_..._credentials.py matches *credential*. Nothing warns you -- the file
+# is simply absent from the clone CI builds, and the suite that passes there is
+# quietly smaller than the one that passed locally. Never hide the source trees.
+# Enforced by tests/integration/test_repository_hygiene.py.
+!src/**/*.py
+!tests/**/*.py
+!.github/**/*.yml
+!*.md
+
+# ---------------------------------------------------------------------------
+# THIS BLOCK MUST STAY LAST IN THE FILE.
+#
+# The local-only personal deny-list: the one file in this project that holds
+# real names. Never committed. See CONTRIBUTING.md for how to create one.
+#
+# Git applies the LAST matching rule, so a negation written after this one
+# re-includes the variant it matches. That is not hypothetical: the four
+# negations above silently re-admitted .pii-denylist.md, src/.pii-denylist.py,
+# tests/.pii-denylist.py and .github/.pii-denylist.yml -- a backup full of
+# personal literals, stageable with an ordinary `git add`.
+#
+# Verify with the exit code of `git check-ignore -q`, never by reading this
+# file and never from `check-ignore -v` output, which prints the matching line
+# even when that line is a negation. Enforced by
+# tests/integration/test_pii_guard_over_a_tree.py.
+# ---------------------------------------------------------------------------
+.pii-denylist*
