@@ -195,20 +195,30 @@ date, name or place from any real tree.
    round-trips, and renders a preview.
 3. A range or span whose end precedes its start is not well-formed, and the error names **both**
    fields. Positive control: end equal to start *is* well-formed.
-4. **Contested facts are not collapsed.** The model holds at least two mutually exclusive candidate
-   values, each carrying its own citation, and a round-trip preserves every candidate together with
-   the citation attached to it. Asserted by test in both directions.
+4. **Contested facts are not collapsed.** Two mutually exclusive candidate values, each with its own
+   citation, survive a round-trip with **every candidate still paired to the citation that supports
+   it**. No test satisfies this by discarding a candidate, and none by detaching one from its
+   citation. Asserted in both directions.
 
-   ⚠️ **Open question for #21's plan gate — *how*, given D1.** Gramps' `Date` expresses a single
-   date and carries no per-candidate provenance, so this criterion and D1 cannot both be satisfied
-   by a bare `Date`. **Reconcile them in the plan, with a recommendation, before this becomes an
-   exit condition.**
+   **The criterion names the property, deliberately not where it lives.** Whether the candidates sit
+   inside one date value or across several operations is the plan gate's choice below; the round-trip
+   assertion is written against whichever locus that plan picks. An earlier wording required *the
+   model* to hold both candidates, which silently ruled out one of the two answers the note then went
+   on to permit.
 
-   *"Our own candidate aggregate whose individual values are Gramps `Date` objects"* is an
-   acceptable answer and does not violate D1 — D1 governs how a **date value** is represented, not
-   what may hold several of them. So is *"a contested fact is expressed as separate operations
-   rather than inside one date"*, if the plan argues for it. What is **not** acceptable is
-   discovering the conflict during the build, which is what this note exists to prevent.
+   ⚠️ **Open question for #21's plan gate — *where*, given D1.** Gramps' `Date` expresses a single
+   date and carries no per-candidate provenance, so a bare `Date` cannot hold this property alone.
+   **Answer it in the plan, with a recommendation, before this becomes an exit condition.** Two
+   answers are acceptable:
+
+   - **a candidate aggregate of our own, whose individual values are Gramps `Date` objects** — this
+     does not violate D1, which governs how a *date value* is represented and not what may hold
+     several of them; or
+   - **a contested fact expressed as several operations**, one per candidate, each carrying its own
+     citation — arguably the more Gramps-native shape, since Gramps expresses competing assertions
+     through citations rather than through a multi-valued date.
+
+   What is **not** acceptable is discovering the conflict during the build.
 5. Ordering and comparison are either implemented and tested against a named table of pairs, or
    explicitly not provided with the refusal asserted by test.
 
