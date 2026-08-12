@@ -325,6 +325,11 @@ class Finding:
 # Allowlisted by EXACT STRING, never by prefix: a path that merely starts with
 # one of these is still a finding. These are locations that carry no
 # information about whose machine produced the file.
+#
+# ⚠️ **Exact against the path AS THE PATTERNS READ IT, not as it is spelled** --
+# see ``_as_joined``. Comparing the spelling made this allowlist disagree with
+# the detectors that had just matched the value, which is the regression that
+# entry is written to prevent recurring.
 PORTABLE_PATHS = frozenset(
     {
         "/usr/bin/env",
@@ -389,6 +394,13 @@ def _joining(separator: str) -> str:
 _JOIN = _joining(_SEPARATOR)
 _JOIN_BACKSLASH = _joining(_ESCAPED_BACKSLASH)
 _JOIN_EITHER = _joining("[" + _ESCAPED_BACKSLASH + _SEPARATOR + "]")
+
+# COMPILED FROM ``_JOIN`` ITSELF, and that is the whole fix rather than a
+# convenience. Teaching the patterns that a run of separators is one separator
+# while the allowlist below went on comparing the spelling left two readings of
+# one rule, and the two disagreed: every portable location reported under every
+# respelling of itself. One source cannot desynchronise from itself.
+_SEPARATOR_RUN = re.compile(_JOIN)
 
 # What may not precede a leading-slash path. Word characters and "." rule out
 # relative paths; ":" and the separator rule out URLs; "<" rules out markup, so
@@ -671,6 +683,27 @@ def _decoded(text: str) -> str:
     return _JSON_ESCAPE.sub(one, text)
 
 
+def _as_joined(found: str) -> str:
+    """The path as the patterns that matched it READ it: a run of joins is one.
+
+    Used for the allowlist comparison and for nothing else. The reported value
+    stays exactly as written -- an operator is shown the text that is in the
+    file, not a tidied version of it.
+
+    ⚠️ **Only the separator, never the backslash.** The UNC opener is a fixed
+    pair with a defined meaning rather than a separator repeated, which is the
+    exception ``_joining`` records; and no location this allowlist holds is
+    spelled with a backslash, so folding one would subtract detections to buy
+    nothing.
+
+    What this changes is bounded and can be stated rather than sampled: a value
+    passes here only when it collapses to a string the allowlist already holds,
+    so the verdicts that move are exactly the respellings of eight locations
+    that carry no information about whose machine produced the file.
+    """
+    return _SEPARATOR_RUN.sub(_SEPARATOR, found)
+
+
 def _first_component(found: str) -> str:
     return found.lstrip(_SEPARATOR).split(_SEPARATOR)[0].casefold()
 
@@ -689,7 +722,7 @@ def _scan_line_for_absolute_paths(
         for match in pattern.finditer(line):
             group = "found" if "found" in match.groupdict() else 0
             found = match.group(group).rstrip(_TRAILING_PUNCTUATION)
-            if not found or found in PORTABLE_PATHS:
+            if not found or _as_joined(found) in PORTABLE_PATHS:
                 continue
             if kind == "rooted" and _first_component(found) not in FILESYSTEM_ROOTS:
                 # A leading-slash string that is not rooted anywhere real. It
