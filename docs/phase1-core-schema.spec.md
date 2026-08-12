@@ -34,9 +34,16 @@ Two consequences bind the design:
 1. **Every operation must be renderable as human-readable prose for review before it executes.**
    If an operation cannot be described in one sentence a person can check against a record, it is the
    wrong granularity.
-2. **Every operation carries provenance.** A fact enters the tree because a specific piece of
-   evidence supports it. An operation that asserts a fact with no citation is the failure mode this
-   whole project exists to avoid.
+2. **Every fact-asserting operation carries provenance.** A fact enters the tree because a specific
+   piece of evidence supports it, and an operation that asserts a fact with no citation is the
+   failure mode this whole project exists to avoid.
+
+   ⚠️ **"Fact-asserting" is load-bearing here and is a classification, not a judgement made afresh
+   per operation** — see the provenance rule below, which partitions the registry. An operation
+   classified `NON_FACT`, such as `add_note`, requires **no citation field at all**. That is not a
+   weaker version of the same requirement; it is a different kind of operation, and what it must
+   carry instead is the recorded one-line rationale for why it is exempt. An earlier wording said
+   *"every operation"*, which left the schema and the negative tests for a note undecidable.
 
 ---
 
@@ -279,7 +286,11 @@ handle*: a preview naming an opaque handle is not reviewable at all.
 ## Stop and report rather than deciding
 
 - Any question that cannot be answered without building the write path first
-- Any need for a dependency beyond the current set — including a second Gramps-side dependency
+- Any need for a dependency beyond the current set. ⚠️ **The D1 Gramps dependency is already ruled
+  and is not a stop condition** — nor is the import check that gates it, which necessarily comes
+  before anything is added to a dependency list that is currently empty. Any *further* dependency
+  stops, Gramps-side or otherwise. An earlier wording exempted only a "second" Gramps-side
+  dependency, which left the implementer told to stop for the very thing D1 decided.
 - Any contradiction between criteria
 - Any gate that cannot pass without weakening it
 
