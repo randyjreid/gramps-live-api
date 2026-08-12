@@ -55,6 +55,7 @@ from tests.fixtures.synthetic import (
     gramps_short_notes,
     gramps_short_notes_with_attributes,
     gramps_xml_document,
+    inside_a_cdata_section,
     json_string_spellings,
     labelled_diagram,
     positioned_notes_outside_a_drawing,
@@ -1014,6 +1015,59 @@ def test_an_unterminated_json_string_is_not_measured() -> None:
     assert _gedcom_x_identity_score(unterminated) is None, (
         "recorded residual: a string with no unescaped end is not measured; "
         "if this now scores, the residual table needs the row removed"
+    )
+
+
+_INERT = "a"
+"""A character no rule below reads: not a reference, not markup, not whitespace.
+
+The controls are built from it so that a control's LENGTH is the only thing
+distinguishing it, which is what lets both tests below compare verdicts instead
+of asserting weights nobody can rederive.
+"""
+
+
+def test_content_xml_treats_literally_is_measured_literally() -> None:
+    """⬅ The measurement decoded what XML does not: the wrong PLACE.
+
+    A CDATA section is the one construct whose content XML reads as itself, and
+    the wrapper was stripped before the length was taken -- so a reference
+    written inside one, where it denotes the five or six characters it is
+    spelled with, was counted as the single character it would name outside.
+    Every such reference shortened the value, and shortening is the direction
+    that loses the finding rather than the direction that reports one.
+
+    Stated as the property and not as the instance: a section holding N
+    characters is worth what N characters are worth. The controls carry the
+    same COUNT of inert characters, so nothing here asserts a weight -- a
+    disagreement means the section was measured as something other than its own
+    source, whichever way it went.
+
+    Both sides of the floor are driven, and they must differ. Without that a
+    scorer ignoring content entirely would satisfy the agreement half perfectly.
+    """
+    disagreements = []
+    observed = set()
+
+    for described, character in _SPELLING_CHARACTERS:
+        for copies in (1, _BELOW_THE_FLOOR):
+            for spelling, body in xml_content_spellings(character * copies).items():
+                literal = _gramps_identity_score(gramps_notes_holding(inside_a_cdata_section(body)))
+                same_length = _gramps_identity_score(gramps_notes_holding(_INERT * len(body)))
+                observed.add(None if same_length is None else same_length[0])
+                if literal != same_length:
+                    disagreements.append(
+                        f"{described} x{copies} {spelling}: {len(body)} characters of source "
+                        f"scored {literal} inside a section and {same_length} outside one"
+                    )
+
+    assert disagreements == [], (
+        "a CDATA section is being decoded before it is measured, so content XML "
+        f"takes literally was counted as what it would mean elsewhere: {disagreements}"
+    )
+    assert len(observed) > 1, (
+        f"every control reached the same verdict {observed}; the floor is not being "
+        "driven from both sides, so the agreement above proves nothing"
     )
 
 

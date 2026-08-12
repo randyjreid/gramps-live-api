@@ -617,6 +617,17 @@ def xml_content_spellings(value: str) -> dict[str, str]:
     return spellings
 
 
+def inside_a_cdata_section(body: str) -> str:
+    """``body`` in a CDATA section, where XML interprets nothing.
+
+    The section is not another spelling of ``body`` -- it is the one place
+    ``body`` spells ITSELF. A reference written inside one denotes the
+    characters it is written with rather than the character it would name
+    outside, so this builder takes a serialization and makes it literal.
+    """
+    return "<![" + "CDATA[" + body + "]" + "]>"
+
+
 def gedcom_x_notes_holding(body: str, *, copies: int = 2) -> str:
     """``copies`` GEDCOM X notes whose string body is written exactly as given.
 
