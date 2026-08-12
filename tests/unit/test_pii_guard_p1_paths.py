@@ -387,19 +387,23 @@ def test_every_path_spelling_agrees_with_itself_however_its_separators_repeat() 
     """Where else the rule holds -- which is everywhere a separator joins.
 
     The measured miss was never one detector. A repeated separator defeated the
-    rooted shape, the leading separator of a path-bearing position and the
-    named home directory outright, and degraded the drive-letter match to a
-    single character -- a finding whose evidence names nothing an operator can
-    act on. One cause, four constructions, which is this module's recurring
-    defect: a rule agreed, then applied in only some of the places it holds.
+    rooted shape and the named home directory outright, and degraded the
+    drive-letter match to a single character -- a finding whose evidence names
+    nothing an operator can act on. One cause, three constructions, which is
+    this module's recurring defect: a rule agreed, then applied in only some of
+    the places it holds.
 
     The VALUE is asserted, not merely the rule. Agreement on the rule alone
     passes on the drive-letter row, because that row was already reporting a
     finding -- just not one that says which path it found.
+
+    The path-bearing position is deliberately absent, and the test below says
+    why: a run of separators where that detector's value begins is a URL
+    authority rather than a repeated separator, and its tail has tolerated
+    repeats all along.
     """
     constructions = (
         ("rooted in prose", "the export lives at {}.", posix_path("home", "private-user", "tree")),
-        ("a path-bearing position", 'backup_dir = "{}"', posix_path("people")),
         ("a named home directory", "stored under {} today", named_home_path("private-user", "t")),
         ("a drive-letter path", "the tree lives at {}", windows_path_forward_slashes("Data")),
     )
@@ -419,6 +423,36 @@ def test_every_path_spelling_agrees_with_itself_however_its_separators_repeat() 
             disagreed.append(f"{name}: a repeated separator reports {doubled[0].match!r}")
 
     assert disagreed == [], f"a spelling of the separator changed the verdict: {disagreed}"
+
+
+def test_a_url_authority_is_not_a_repeated_separator() -> None:
+    """The false-positive side of the separator rule, asserted rather than hoped for.
+
+    ``file`` is one of the identifiers that make a path-bearing position, so
+    the pair opening a file URL's authority sits exactly where that detector
+    reads its value. Treating it as a repeated separator -- which the first
+    draft of the fix did -- puts the authority INSIDE the reported value, and
+    a value carrying it is no longer the exact string the portable allowlist
+    holds. Measured across nine constructions: every file URL was renamed from
+    the detector that understands the scheme to the one that does not, and two
+    locations that identify nobody became findings.
+
+    Both directions are asserted here, because either alone passes on a fix
+    that breaks the other.
+    """
+    portable = ["usr" + chr(47) + "bin" + chr(47) + "env", "dev" + chr(47) + "null"]
+    for location in portable:
+        text = "written to file:" + chr(47) * 3 + location
+        assert scan_text(text) == [], f"a portable location identifies nobody, got {text!r}"
+
+    personal = posix_path("home", "private-user", "tree.ged")
+    findings = scan_text("copied from file:" + chr(47) * 2 + personal)
+
+    assert rules(findings) == ["P1"], f"a personal path in a file URL is a finding, got {findings}"
+    assert findings[0].match == personal, (
+        "the value must be the path the URL names, not the path with the "
+        f"authority in front of it, got {findings[0].match!r}"
+    )
 
 
 def test_an_escape_cannot_renumber_the_findings_below_it() -> None:

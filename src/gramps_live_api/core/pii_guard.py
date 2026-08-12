@@ -360,6 +360,36 @@ _ESCAPED_QUESTION = chr(92) + "?"
 # same job for the "/media/:handle" spelling.
 _COMPONENT = "".join(("[^", r"\s", _SEPARATOR, _ESCAPED_BACKSLASH, ":*?\"'<>|{}]"))
 
+
+def _joining(separator: str) -> str:
+    """One or more separators, where a separator JOINS components.
+
+    A run of separators is the same separator: nothing sits between them, and
+    the empty string they enclose is not a component. Every filesystem reads
+    both spellings as one path, so a rule that judges the spelling disagrees
+    with itself about which path it was given. It disagreed in four places --
+    the shape detector, the leading separator of a path-bearing position, the
+    named home directory, and the drive-letter match, which reported a single
+    character instead of the path.
+
+    ⚠️ **Deliberately NOT used where two separators are SYNTAX rather than a
+    join.** The UNC marker that opens a path and the pair that opens a URL
+    authority are a fixed number of characters with a defined meaning, not a
+    separator repeated; folding them SUBTRACTS detections rather than adding
+    any. That is the same trade ``_decoded`` records for the escaped
+    backslash, and it is written here because the obvious simplification --
+    "then fold everywhere" -- is how this module has lost properties before.
+    """
+    return "(?:" + separator + ")+"
+
+
+# The two spellings, each stated once. The class is a class rather than two
+# patterns because a Windows path may be written with either separator, and
+# has been in every real example this project has met.
+_JOIN = _joining(_SEPARATOR)
+_JOIN_BACKSLASH = _joining(_ESCAPED_BACKSLASH)
+_JOIN_EITHER = _joining("[" + _ESCAPED_BACKSLASH + _SEPARATOR + "]")
+
 # What may not precede a leading-slash path. Word characters and "." rule out
 # relative paths; ":" and the separator rule out URLs; "<" rules out markup, so
 # a closing tag is not read as a path.
@@ -463,6 +493,15 @@ _PATH_POSITION = re.compile(
     (?P<found>
         # A home path, whose account name is the whole payload and needs
         # nothing under it, OR a leading-separator path.
+        #
+        # ⚠️ The LEADING separator is deliberately not a join, while the tail
+        # below is. A run in this one position is a URL AUTHORITY, not a
+        # repeated separator: "file" is itself a trigger above, so joining
+        # here reads the authority as part of the path. Measured, over nine
+        # file-URL constructions: the reported value gained the authority
+        # separators, and two portable locations became findings because a
+        # value carrying them is no longer the exact string the allowlist
+        # holds. The tail already tolerated repeats and always has.
         (?:"""
     + _HOME_PATH
     + r""" | """
@@ -470,7 +509,7 @@ _PATH_POSITION = re.compile(
     + _COMPONENT
     + r"""+ )
       (?:"""
-    + _SEPARATOR
+    + _JOIN
     + _COMPONENT
     + r"""*)*
     )
@@ -482,28 +521,31 @@ _ABSOLUTE_PATH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "UNC",
         re.compile(
+            # The opening marker is SYNTAX -- two characters with a defined
+            # meaning -- so it is written as itself and not joined. What
+            # follows the host is a join, and is.
             _ESCAPED_BACKSLASH * 2
             + _EXTENDED_UNC_PREFIX
             + "[A-Za-z0-9._-]+"
-            + _ESCAPED_BACKSLASH
+            + _JOIN_BACKSLASH
             + _COMPONENT
             + "*"
         ),
     ),
     (
         "drive-letter",
-        re.compile(
-            "(?<![A-Za-z0-9_])[A-Za-z]:[" + _ESCAPED_BACKSLASH + _SEPARATOR + "]" + _COMPONENT + "*"
-        ),
+        re.compile("(?<![A-Za-z0-9_])[A-Za-z]:" + _JOIN_EITHER + _COMPONENT + "*"),
     ),
     # Shape, for prose, where there is no position to read: a path rooted at a
     # real filesystem root with a component under it. This is the detector that
     # stops reporting /people, /health and /apply.
     (
         "rooted",
-        re.compile(
-            _NOT_BEFORE_PATH + "(?:" + _SEPARATOR + _COMPONENT + "+){2,}" + _SEPARATOR + "?"
-        ),
+        # The trailing separator is optional, and the optional marker has to
+        # wrap the whole join: written as a bare suffix it reads as a LAZY
+        # repetition instead, which makes the trailing separator required and
+        # silently truncates every match to its second-to-last component.
+        re.compile(_NOT_BEFORE_PATH + "(?:" + _JOIN + _COMPONENT + "+){2,}" + "(?:" + _JOIN + ")?"),
     ),
     ("path-bearing position", _PATH_POSITION),
     # The tilde spelling of a home directory. P1 wanted a leading separator,
@@ -525,9 +567,7 @@ _ABSOLUTE_PATH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # is an account.
     (
         "named home directory",
-        re.compile(
-            "(?<![" + r"\w" + _SEPARATOR + "~])" + _HOME_PATH + _SEPARATOR + _COMPONENT + "+"
-        ),
+        re.compile("(?<![" + r"\w" + _SEPARATOR + "~])" + _HOME_PATH + _JOIN + _COMPONENT + "+"),
     ),
     # A file URL IS a filesystem path; it just arrives wearing a scheme. The
     # URL guard in the lookbehind -- which correctly ignores an http path,
@@ -537,8 +577,11 @@ _ABSOLUTE_PATH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "file URL",
         re.compile(
+            # The pair after the scheme opens the AUTHORITY. Syntax, like the
+            # UNC marker above, so it stays written as itself; every separator
+            # inside the captured path is a join.
             r"(?i)\bfile:" + _SEPARATOR * 2 + "[^" + _SEPARATOR + r"\s]*"
-            r"(?P<found>" + _SEPARATOR + _COMPONENT + "+(?:" + _SEPARATOR + _COMPONENT + "*)*)"
+            r"(?P<found>" + _JOIN + _COMPONENT + "+(?:" + _JOIN + _COMPONENT + "*)*)"
         ),
     ),
 )
