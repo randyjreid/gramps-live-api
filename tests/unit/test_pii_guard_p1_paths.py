@@ -24,6 +24,7 @@ from tests.fixtures.synthetic import (
     named_home_path,
     posix_path,
     prose_describing_json_keys_with_escaped_quotes,
+    repeated_separators,
     unc_path,
     unicode_escaped_key,
     windows_path,
@@ -353,6 +354,71 @@ def test_an_escape_cannot_manufacture_structure_the_document_does_not_have() -> 
     assert findings == [], (
         f"a document describing the format was read as a document in it, got {findings}"
     )
+
+
+def test_a_repeated_separator_is_the_same_separator() -> None:
+    """A path written with a doubled separator is the path it denotes.
+
+    Issue #3 item 2. The rooted detector's stated property is a leading
+    separator under a real filesystem root with two or more components, and a
+    doubled separator satisfies every one of those terms: the empty string
+    between two separators is not a component. It matched nothing, because the
+    pattern could not cross the gap and its lookbehind refused to restart at
+    the second one.
+
+    Asserted as AGREEMENT between the two spellings rather than as "the doubled
+    one is caught". The second is satisfied by a special case for two
+    separators, which is the enumeration this module has now paid for twenty
+    times over; the first is only satisfied by stating the rule.
+    """
+    path = posix_path("home", "private-user", "tree.ged")
+    written = "the export lives at {}."
+
+    assert rules(scan_text(written.format(path))) == ["P1"], "the premise: one separator is caught"
+
+    findings = scan_text(written.format(repeated_separators(path)))
+
+    assert rules(findings) == rules(scan_text(written.format(path))), (
+        f"the same path, written with a repeated separator, got {findings}"
+    )
+
+
+def test_every_path_spelling_agrees_with_itself_however_its_separators_repeat() -> None:
+    """Where else the rule holds -- which is everywhere a separator joins.
+
+    The measured miss was never one detector. A repeated separator defeated the
+    rooted shape, the leading separator of a path-bearing position and the
+    named home directory outright, and degraded the drive-letter match to a
+    single character -- a finding whose evidence names nothing an operator can
+    act on. One cause, four constructions, which is this module's recurring
+    defect: a rule agreed, then applied in only some of the places it holds.
+
+    The VALUE is asserted, not merely the rule. Agreement on the rule alone
+    passes on the drive-letter row, because that row was already reporting a
+    finding -- just not one that says which path it found.
+    """
+    constructions = (
+        ("rooted in prose", "the export lives at {}.", posix_path("home", "private-user", "tree")),
+        ("a path-bearing position", 'backup_dir = "{}"', posix_path("people")),
+        ("a named home directory", "stored under {} today", named_home_path("private-user", "t")),
+        ("a drive-letter path", "the tree lives at {}", windows_path_forward_slashes("Data")),
+    )
+
+    disagreed: list[str] = []
+    for name, written, path in constructions:
+        single = scan_text(written.format(path))
+        doubled = scan_text(written.format(repeated_separators(path)))
+
+        if rules(single) != ["P1"]:
+            disagreed.append(f"{name}: the premise fails -- one separator gives {single}")
+        elif rules(doubled) != ["P1"]:
+            disagreed.append(f"{name}: a repeated separator gives {doubled}")
+        elif single[0].match != path:
+            disagreed.append(f"{name}: one separator reports {single[0].match!r}, not the path")
+        elif doubled[0].match != repeated_separators(path):
+            disagreed.append(f"{name}: a repeated separator reports {doubled[0].match!r}")
+
+    assert disagreed == [], f"a spelling of the separator changed the verdict: {disagreed}"
 
 
 def test_an_escape_cannot_renumber_the_findings_below_it() -> None:

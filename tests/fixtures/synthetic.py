@@ -510,6 +510,23 @@ def named_home_path(account: str, *parts: str) -> str:
     return bare_named_home_path(account) + _SLASH + _SLASH.join(parts)
 
 
+def repeated_separators(text: str) -> str:
+    """``text`` with every separator written twice.
+
+    A run of separators is the same separator: nothing sits between them, and
+    the empty string they enclose is not a component. Every filesystem and
+    every path library reads both spellings as one path, so a rule that judges
+    the spelling disagrees with itself about which path it was given.
+
+    Both spellings are doubled, because a path carries one or the other and a
+    builder that handled only the separator this project types most would be
+    the partial application this module keeps being fixed for.
+    """
+    for separator in (_SLASH, _BACKSLASH):
+        text = text.replace(separator, separator * 2)
+    return text
+
+
 def json_escaped(text: str) -> str:
     """``text`` with every separator written as JSON's escaped solidus.
 
