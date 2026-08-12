@@ -372,6 +372,12 @@ a genealogy document hiding under that mode. The test reuses the path-component 
 space is not in it. This is fail-closed and correct; do not "fix" it back open without replacing
 the property it rests on.
 
+**Where the residuals stop and the guarantee starts: `docs/pii-guard-acceptance.md`.** The rows above
+say what the guard knowingly does not catch. That document says what it *does* -- seven bounded
+properties, each with the tests that assert it, plus the statement of what none of them claims. Read
+it before arguing that a finding here is a gap: the question a residual has to answer is whether the
+input falls inside the stated terms of a property the guard already holds.
+
 ### Recorded decision: how genealogy records are recognised
 
 **Do not replace the decoration-stripping with "match the record shape anywhere in the line".** It is
@@ -606,6 +612,20 @@ behaviour change in a guard whose whole job is noticing names.
 A `file:` URL is **not** on this list — it was a genuine hole and was fixed. `file:` addresses the
 local filesystem; `http(s)` does not. One scheme with a defined meaning is a property, not an
 enumeration.
+
+**A protocol-relative URL whose authority is a filesystem-root word is reported as a rooted path.**
+This is the measured cost of the rule that a run of separators is the separator it repeats
+(issue #3 item 2). The rule is stated once and used wherever a separator *joins* components; where
+two separators are **syntax** it is deliberately not used, and those places are named in the code:
+the UNC opening marker, the pair that opens a URL authority, and the leading separator of a
+path-bearing position — that last one because `file` is itself a trigger for that detector, so a run
+there is an authority rather than a repetition. What remains is the shape detector, which cannot tell
+an authority from a doubled root marker when the first word after it is one of the real filesystem
+roots. **Measured before it was accepted:** the old and new patterns were run against every line of
+tracked content (10,292 lines) and 291 synthetic constructions covering every detector, template and
+false-positive control; **no input without a repeated separator changed verdict**, and the repository
+reports zero findings at the tip and over the range. Failing in this direction is the one this
+module's stated posture requires.
 
 **A file the scan cannot read aborts the whole scan.** So does a directory it cannot list, and so
 does a local deny-list it cannot read or decode. None of them is skipped and none is treated as
