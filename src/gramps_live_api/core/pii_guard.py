@@ -1020,7 +1020,38 @@ _XML_CHARACTER_REFERENCE = re.compile(
     "&(?:" + "|".join(_XML_PREDEFINED_ENTITIES) + r"|#([0-9]+)|#[xX]([0-9A-Fa-f]+));"
 )
 
-_LARGEST_CODE_POINT = 0x10FFFF
+_XML_CHARACTER_RANGES = (
+    (0x9, 0x9),
+    (0xA, 0xA),
+    (0xD, 0xD),
+    (0x20, 0xD7FF),
+    (0xE000, 0xFFFD),
+    (0x10000, 0x10FFFF),
+)
+"""The XML 1.0 ``Char`` production: every code point XML lets a document say.
+
+    Char ::= #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]
+
+Closed and externally specified, so this is accepted on exactly the grounds
+``_XML_PREDEFINED_ENTITIES`` and ``FILESYSTEM_ROOTS`` are: it does not grow.
+
+⚠️ **This is a permitted-list, which is normally the enumeration pointed
+backwards -- the shape that fails by admitting whatever is new. It is safe HERE
+and only here, because of which way it fails.** A code point this table does not
+recognise is not collapsed, so the value measures LONGER, and longer reports
+rather than misses. The failure direction is closed, which is the whole reason
+a list is allowed to answer the question at all.
+
+It replaced a comparison against the largest code point alone -- one edge of six
+ranges, so NUL, a control, a surrogate and a noncharacter all fell through. The
+top of the last range is that comparison, which is why no separate maximum
+survives beside this.
+
+Note that XML permits the SUPPLEMENTARY noncharacters (``U+1FFFE`` and its kin);
+only the two in the basic plane are excluded, by the end of the fifth range.
+Unicode's opinion of them is not XML's, and XML's is what a measurement of XML
+has to follow.
+"""
 
 _CDATA = re.compile(r"<!\[CDATA\[(.*?)\]\]>", re.DOTALL)
 """A section whose content XML reads as itself.
@@ -1053,6 +1084,11 @@ def _json_logical_length(value: str) -> int:
     return length
 
 
+def _names_an_xml_character(code_point: int) -> bool:
+    """Whether XML lets a document contain the character this reference names."""
+    return any(first <= code_point <= last for first, last in _XML_CHARACTER_RANGES)
+
+
 def _references_collapsed(text: str) -> int:
     """How many characters ``text`` denotes, where XML is reading references.
 
@@ -1067,10 +1103,12 @@ def _references_collapsed(text: str) -> int:
         digits = decimal or hexadecimal
         if digits is not None:
             base = 10 if decimal is not None else 16
-            # A numeric reference is only a character if it NAMES one. Out of
-            # range it names nothing, and counting nothing as one character
-            # would shorten the value -- the one direction this must not err in.
-            if int(digits, base) > _LARGEST_CODE_POINT:
+            # A numeric reference is only a character if it NAMES one XML
+            # PERMITS. A code point Unicode has and XML forbids -- NUL, a
+            # control, a surrogate, a basic-plane noncharacter -- names nothing
+            # here, and counting nothing as one character would shorten the
+            # value, the one direction this must not err in.
+            if not _names_an_xml_character(int(digits, base)):
                 continue
         length -= len(match.group()) - 1
     return length
@@ -1084,14 +1122,23 @@ def _xml_logical_length(content: str) -> int:
     serialization and not the other is the divergence this module keeps paying
     for. ``&amp;&amp;&amp;&amp;`` is four characters written as twenty.
 
-    **One rule: a reference is collapsed only where XML would collapse it.**
-    Inside a CDATA section XML collapses nothing, so the section contributes
-    the characters it contains -- its delimiters denote nothing and its content
-    denotes itself. This used to unwrap the section and then read the whole
-    string as markup, which counted a reference written literally as the
-    character it would have named somewhere else, and shortened the value. That
-    was the third instance of this module's recurring shape: a rule already
-    agreed, applied in only some of the places it holds.
+    **One rule: a reference is collapsed only where XML would collapse it, and
+    only when it names a character XML permits. Everywhere else the source
+    length stands.** Two spellings of one cause, and they arrived together.
+
+    WHERE. Inside a CDATA section XML collapses nothing, so the section
+    contributes the characters it contains -- its delimiters denote nothing and
+    its content denotes itself. This used to unwrap the section and then read
+    the whole string as markup, which counted a reference written literally as
+    the character it would have named somewhere else.
+
+    WHAT. A numeric reference naming a code point XML forbids names no
+    character at all; see ``_XML_CHARACTER_RANGES``. This used to check the
+    largest code point and nothing else, so five of the production's six ranges
+    had no edge tested.
+
+    Both shortened the value, and both were this module's recurring shape: a
+    rule already agreed, applied in only some of the places it holds.
 
     Segmenting also settles a reference straddling a boundary -- unwrapping
     first splices ``&am`` and ``p;`` into a match that the source does not
