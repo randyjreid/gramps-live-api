@@ -56,7 +56,7 @@ deliberately does *not* apply.
 this criterion is universally quantified over all genealogy data, which is the unbounded spec this
 document exists to replace.
 
-`tests/unit/test_pii_guard_p2_genealogy.py` -- **59 tests**. The crux of each mechanism:
+`tests/unit/test_pii_guard_p2_genealogy.py` -- **61 tests**. The crux of each mechanism:
 
 | Mechanism | Named by |
 | --- | --- |
@@ -221,8 +221,11 @@ time.
 
 The outstanding set was adjudicated against B1–B7, item by item, and dispositioned four ways:
 
-- **one item violated a criterion and was fixed** — issue #3 item 2, a repeated separator defeating
-  the rooted-path detector, which satisfied every term B1 states and was matched by none of them;
+- **three items violated a criterion and were fixed** — issue #3 item 2, a repeated separator
+  defeating the rooted-path detector, which satisfied every term B1 states and was matched by none of
+  them; and two against B2 in the final bot round, where the prose measurement collapsed a character
+  reference in a place XML reads nothing and for a character XML forbids, each shortening a value and
+  dropping a prose element below the floor;
 - **three were already resolved** by commits on this branch;
 - **the remainder were accepted with a recorded rationale**, in CONTRIBUTING.md, or **filed** as the
   issues named above.

@@ -502,6 +502,10 @@ the class did not move — escaped separators judged in raw spelling; escaped GE
 raw spelling; `"` decoding into structure the source did not contain; a prose capture ending at
 an escaped delimiter; and a floor measuring an escape's six characters instead of the one it denotes.
 
+**The seventh and eighth are the same class read backwards**, and they landed on the measurement this
+section describes: text judged by what it would say *somewhere else* when the format is reading it
+literally. Both are recorded in the warning below.
+
 **Both directions are real, and they are one defect.** A value containing a quoted phrase measured as
 one character, so a whole life scored as a caption and passed. A four-character caption written as
 four escapes measured twenty-four, so ordinary content was reported as a family tree. One lets data
@@ -509,10 +513,19 @@ out, the other reports a caption, and both are the floor reading the serializati
 
 **The rule is a property of prose, so it is stated for both serializations or it is not stated.**
 Gramps XML has the identical defect with character references — `&amp;&amp;&amp;&amp;` is four
-characters written as twenty — in the false-positive direction only, since a reference is always
-longer than what it denotes and cannot terminate the content capture the way a raw `<` can. Landing
-the fix in JSON alone would leave the same rule stated in one format and unstated in the other, which
-is the divergence the shared vocabulary table exists to end. It went in with the JSON half.
+characters written as twenty. Landing the fix in JSON alone would leave the same rule stated in one
+format and unstated in the other, which is the divergence the shared vocabulary table exists to end.
+It went in with the JSON half.
+
+⚠️ **This section used to say the XML side ran in the false-positive direction ONLY, because a
+reference is always longer than what it denotes and cannot terminate the content capture the way a
+raw `<` can. That was true of references and false of the measurement, and the next round produced
+both fail-opens it ruled out.** The measurement collapsed a reference *where XML does not read one*
+— inside a CDATA section, whose content is literal — and *for a character XML forbids* — a code
+point Unicode has and the `Char` production excludes. Each shortened the value and dropped a prose
+element below the floor. The lesson is narrower than "the claim was wrong": a direction-of-failure
+argument about the **data** does not carry to the **code that measures it**, and this one was stated
+about the first and believed about the second.
 
 #### Two layers, and they ask different questions
 
@@ -534,10 +547,13 @@ either into returning the decoded string.** Decoded text handed back as a string
 string cannot be misused that way by the next person who needs a length.
 
 **Imprecision errs LONG — toward the finding, never away from it** — and every case is named: an
-unrecognised escape, a surrogate pair, an entity needing a DTD, a malformed reference, and a numeric
-reference naming no character at all. Each counts as the source spells it. The XML entity set is the
-five the specification defines and needs no DTD to resolve, accepted on the grounds `FILESYSTEM_ROOTS`
-and `_DRAWING` are: closed, externally specified, and it does not grow.
+unrecognised escape, a surrogate pair, an entity needing a DTD, a malformed reference, a numeric
+reference naming no character XML permits, and a reference straddling the edge of a CDATA section.
+Each counts as the source spells it. The XML entity set is the five the specification defines and
+needs no DTD to resolve, and the permitted code points are the XML 1.0 `Char` production — both
+accepted on the grounds `FILESYSTEM_ROOTS` and `_DRAWING` are: closed, externally specified, and they
+do not grow. `Char` is a *permitted*-list, which is normally the enumeration pointed backwards; it is
+allowed here because a code point it fails to recognise is not collapsed, so the error runs long.
 
 #### Why not parse the JSON — declined on the merits, not deferred
 
@@ -552,7 +568,11 @@ propose it should meet the measurement rather than re-derive it:
   module grows a second classifier. **Two classifiers with two vocabularies is the documented
   mechanism by which the formats diverged in the first place.**
 - **It closes nothing on the XML side**, and the class spans both formats — as the sixth finding
-  proved.
+  proved. **An XML parser is refused for the same reason and one more:** the guard scans fragments,
+  a parser refuses a fragment, and refusing means *no measurement*, which fails in the direction that
+  misses rather than the one that reports. It also returns strings, which the `int` guardrail above
+  exists to forbid, and it brings entity-expansion hazards a length function does not have. Recorded
+  in `_xml_logical_length` itself, because that is where it will be proposed.
 - Residual row 1 already says it for the type gate: *parsing would not show it is not genealogy.*
 
 **Deleting the floor was weighed too, and declined.** It draws findings because it was *measured

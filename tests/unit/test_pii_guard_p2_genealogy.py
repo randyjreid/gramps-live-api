@@ -876,10 +876,14 @@ def test_a_caption_spelled_with_character_references_is_still_a_caption() -> Non
     character references are serialization exactly as JSON escapes are, is
     carried across in the same change.
 
-    Direction, recorded: false positive only. A character reference is always
-    longer than the character it denotes, and a reference cannot terminate the
-    content capture -- only a raw ``<`` can, and a raw ``<`` is not legal
-    content. So there is no XML counterpart of the fail-open above.
+    ⚠️ **This docstring used to record "false positive only -- there is no XML
+    counterpart of the fail-open above", and that was wrong.** The reasoning
+    held for the reference itself, which is indeed always longer than what it
+    denotes, and it did not hold for the measurement built on it: collapsing a
+    reference in a place XML does not read one, or for a character XML forbids,
+    shortens the value and loses the finding. Both arrived in the next round.
+    See the two tests at the end of this block, which is where the counterpart
+    that supposedly did not exist is now asserted from both sides.
     """
     referenced = rules(
         scan_text(gramps_caption_spelled_with_character_references(), source="notes.md")
