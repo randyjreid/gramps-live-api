@@ -195,8 +195,20 @@ date, name or place from any real tree.
    round-trips, and renders a preview.
 3. A range or span whose end precedes its start is not well-formed, and the error names **both**
    fields. Positive control: end equal to start *is* well-formed.
-4. A date carrying at least two mutually exclusive candidates with distinct provenance round-trips
-   with every candidate intact. **Uncertainty is not collapsed.**
+4. **Contested facts are not collapsed.** The model holds at least two mutually exclusive candidate
+   values, each carrying its own citation, and a round-trip preserves every candidate together with
+   the citation attached to it. Asserted by test in both directions.
+
+   ⚠️ **Open question for #21's plan gate — *how*, given D1.** Gramps' `Date` expresses a single
+   date and carries no per-candidate provenance, so this criterion and D1 cannot both be satisfied
+   by a bare `Date`. **Reconcile them in the plan, with a recommendation, before this becomes an
+   exit condition.**
+
+   *"Our own candidate aggregate whose individual values are Gramps `Date` objects"* is an
+   acceptable answer and does not violate D1 — D1 governs how a **date value** is represented, not
+   what may hold several of them. So is *"a contested fact is expressed as separate operations
+   rather than inside one date"*, if the plan argues for it. What is **not** acceptable is
+   discovering the conflict during the build, which is what this note exists to prevent.
 5. Ordering and comparison are either implemented and tested against a named table of pairs, or
    explicitly not provided with the refusal asserted by test.
 
