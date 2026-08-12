@@ -11,6 +11,7 @@ All names used here are invented. See ``tests/fixtures/__init__``.
 
 from __future__ import annotations
 
+import itertools
 import json
 
 _BACKSLASH = chr(92)
@@ -525,6 +526,28 @@ def repeated_separators(text: str) -> str:
     for separator in (_SLASH, _BACKSLASH):
         text = text.replace(separator, separator * 2)
     return text
+
+
+def every_separator_run_spelling(text: str, *, upto: int = 3) -> list[str]:
+    """Every way ``text`` can be written by repeating its separators.
+
+    Each separator independently written once, twice, ... ``upto`` times, so
+    the result covers the mixed spellings a hand-written list never does --
+    a doubled separator in one position and a single one in the next.
+
+    Derived from ``text``, which is the point of it. The finding this exists
+    for was a rule proved against three named examples; three named examples
+    are satisfied by three special cases, and walking the values the code
+    itself holds is not.
+    """
+    parts = text.split(_SLASH)
+    spellings = {text}
+    for counts in itertools.product(range(1, upto + 1), repeat=len(parts) - 1):
+        spellings.add(
+            parts[0]
+            + "".join(_SLASH * count + part for count, part in zip(counts, parts[1:], strict=True))
+        )
+    return sorted(spellings)
 
 
 def json_escaped(text: str) -> str:

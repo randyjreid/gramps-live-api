@@ -13,10 +13,11 @@ detectors now, each precise on its own:
 
 from __future__ import annotations
 
-from gramps_live_api.core.pii_guard import scan_text
+from gramps_live_api.core.pii_guard import PORTABLE_PATHS, scan_text
 from tests.fixtures.expectations import rules
 from tests.fixtures.synthetic import (
     bare_named_home_path,
+    every_separator_run_spelling,
     extended_unc_path,
     extended_windows_path,
     gedcom_x_json,
@@ -453,6 +454,69 @@ def test_a_url_authority_is_not_a_repeated_separator() -> None:
         "the value must be the path the URL names, not the path with the "
         f"authority in front of it, got {findings[0].match!r}"
     )
+
+
+def _every_context(value: str) -> dict[str, str]:
+    """The value written into each surrounding that a detector reads it from.
+
+    The allowlist is compared in one place, but the value reaching that place
+    comes from four different patterns, and a repair proved in one surrounding
+    is proved for one pattern. Assembled rather than written, like every path
+    in this file.
+    """
+    return {
+        "bare": value,
+        "in prose": f"the script at {value} is used",
+        "in a path-bearing position": 'path = "' + value + '"',
+        "in a file URL": "written to file:" + chr(47) * 2 + "host" + value,
+    }
+
+
+def test_every_portable_path_is_allowlisted_however_its_separators_repeat() -> None:
+    """The allowlist reads a path the way the detectors that matched it do.
+
+    A regression, and one that could not have been measured over tracked
+    content: ``1aafc1d`` taught four patterns that a run of separators is one
+    separator, and left the allowlist comparing the spelling. The comparison
+    then disagreed with the patterns about which path it had been given, and
+    locations that identify nobody became findings.
+
+    **Walked over ``PORTABLE_PATHS`` itself**, in every surrounding a detector
+    reads a value from. A test naming three examples is satisfied by three
+    special cases; the allowlist's own entries are what the code holds, and
+    covering the values the code holds is the thing the original measurement
+    could not do by scanning real content.
+    """
+    reported: list[str] = []
+    for location in sorted(PORTABLE_PATHS):
+        for spelling in every_separator_run_spelling(location):
+            for surrounding, text in _every_context(spelling).items():
+                findings = scan_text(text)
+                if findings:
+                    reported.append(f"{spelling!r} {surrounding}: {findings}")
+
+    assert reported == [], (
+        f"a location the allowlist holds became a finding by repeating its separators: {reported}"
+    )
+
+
+def test_a_repeated_separator_does_not_allowlist_a_path_that_identifies_somebody() -> None:
+    """The other direction: reading runs as joins must not admit anything else.
+
+    The values whose verdict the fix changes are exactly the respellings of
+    what the allowlist already holds. A path that is not one of them is still a
+    finding under every spelling, and still reports the whole path as its
+    evidence rather than a fragment of it.
+    """
+    personal = posix_path("home", "private-user", "tree.ged")
+
+    for spelling in every_separator_run_spelling(personal):
+        findings = scan_text(f"the export lives at {spelling}.")
+
+        assert rules(findings) == ["P1"], f"{spelling!r} identifies somebody, got {findings}"
+        assert findings[0].match == spelling, (
+            f"the evidence must be the path as written, got {findings[0].match!r}"
+        )
 
 
 def test_an_escape_cannot_renumber_the_findings_below_it() -> None:
