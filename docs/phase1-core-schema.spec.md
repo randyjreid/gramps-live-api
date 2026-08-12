@@ -84,10 +84,26 @@ approximations, spans, partial dates, dual dates, and non-Gregorian calendars, a
 express uncertainty rather than flatten it — the motivating case is a birth year attested by several
 sources that divide evenly between two adjacent years, which a single-value model cannot hold.
 
-Verified from package metadata: the Gramps distribution publishes a pure-Python `py3-none-any` wheel
-whose only mandatory dependency is a JSON library, with the GTK bindings behind optional extras. So a
-dependency in `core/` is **possible**, and "no Gramps dependency" was a choice rather than a
+**Verified against a named release, because a decision whose evidence cannot be reproduced is not a
+recorded decision.** Assessed at **Gramps 6.0.8**, read from that release's PyPI JSON metadata on
+2026-08-12:
+
+| Fact | Value at 6.0.8 |
+| --- | --- |
+| Wheel | `gramps-6.0.8-py3-none-any.whl` — pure Python, no compiled extension |
+| Mandatory dependency | `orjson`, and nothing else |
+| GTK bindings | `PyGObject` and `pycairo`, behind the `gui` and `all` extras |
+| `requires_python` | **not declared** |
+
+So a dependency in `core/` is **possible**, and "no Gramps dependency" was a choice rather than a
 constraint.
+
+⚠️ **This assessment is version-bound and nothing currently pins it.** `pyproject.toml` declares no
+dependency on Gramps and therefore no constraint, so a later resolve could select a release whose
+metadata or import behaviour differs from the table above — applying a ruling to a package nobody
+checked. **#21 records the version it actually verifies and constrains the dependency to a range
+that assessment covers**, rather than inheriting this table on trust. Re-read the metadata rather
+than citing this document if the release moves.
 
 **Ruled: use Gramps' `Date` model directly.** A wrong date silently written into a tree is the
 expensive failure here, and a hand-rolled model mapped in `core/apply` puts a lossy translation layer
