@@ -154,18 +154,89 @@ provenance partition while needing no date model.
 
 ## Acceptance criteria
 
-**Carried by the issues, not by this document**, so that each is sized to one pass through the loop
-and none carries an unbounded exit. #20 (spine) · #21 (dates) · #22 (identity-side) · #23
-(evidence-side) · #24 (README) · #25 (delete, deferred).
+**Recorded here, in version control.** The issues carry working copies and are where the work is
+tracked, but an issue is mutable, external, and unreadable from an offline checkout — so a
+specification that pointed at issue numbers instead of stating its own exit conditions would be the
+same defect this document was committed to fix, in a different medium.
 
-Every one of them additionally carries the standing gates: `ruff check .`, `ruff format --check .`,
+Where the two ever disagree, **this file is authoritative** and the issue is stale.
+
+Every issue below additionally carries the standing gates: `ruff check .`, `ruff format --check .`,
 `mypy src` and `pytest` all clean; the PII guard reporting zero findings over tracked content and
-over the pushed range; CI green on 3.10, 3.11 and 3.12.
+over the pushed range; CI green on 3.10, 3.11 and 3.12. Fixtures use invented surnames only, and no
+date, name or place from any real tree.
 
-Three criteria are written **structurally** — over the registry rather than over a hand-written list
-of cases — for the reason `B5` in `docs/pii-guard-acceptance.md` gives: an enumeration fails on the
-case nobody listed, and this module's most persistent defect shape is one spelling taught to one
-matcher. Those three are the provenance partition, the rule table, and the preview.
+### The spine — #20
+
+1. A **closed** operation registry. A structural test asserts every registered type is in exactly one
+   of `FACT_ASSERTING` / `NON_FACT`; a type in neither, or in both, fails.
+2. `add_citation` and `add_note` registered and validated, each with at least one positive and one
+   negative test **per required field**.
+3. `validate(op)` returns a `WellFormedResult` — the name contains `WellFormed`, not `Valid`. The
+   module docstring states that well-formed is not correct. A test asserts a syntactically
+   well-formed reference to a nonexistent object **passes**.
+4. Validation rules declared in a frozen `PHASE_1` / `PHASE_3` table, with a structural test that
+   every rule the validator can emit is in the table and no `PHASE_3` rule can fire from `validate`.
+5. Every failure carries a non-empty field path naming a field that exists on the operation, asserted
+   over every negative case; and a case with at least three simultaneous distinct errors reports all
+   three rather than stopping at the first.
+6. Serialise, deserialise, compare equal, for both types. An unknown field is rejected — not ignored
+   — at the top level **and** nested at least one level deep.
+7. `preview()` asserted structurally over the registry: non-empty, single-line `str`, containing no
+   opaque handle, no `None`, and no default `repr`.
+
+### The date model — #21
+
+1. A committed recorded decision answering D1, carrying the verified metadata and stating which
+   option was taken — **plus a test that imports whatever the choice implies and passes on 3.10,
+   3.11 and 3.12 in CI.**
+2. A named, closed list of date kinds — exact; partial (year only, and year with month); approximate;
+   range; span; dual-dated; non-Gregorian — with a structural test that every member constructs,
+   round-trips, and renders a preview.
+3. A range or span whose end precedes its start is not well-formed, and the error names **both**
+   fields. Positive control: end equal to start *is* well-formed.
+4. A date carrying at least two mutually exclusive candidates with distinct provenance round-trips
+   with every candidate intact. **Uncertainty is not collapsed.**
+5. Ordering and comparison are either implemented and tested against a named table of pairs, or
+   explicitly not provided with the refusal asserted by test.
+
+### Identity-side operations — #22
+
+1. `add_person`, `add_place`, `update_name`, `link_child_to_family`, `link_spouse_to_family`
+   registered, and the partition test from #20 covers them **without being modified**.
+2. Positive and negative tests per required field, per type.
+3. The two `link_*` operations validate reference syntax on both ends, and a test asserts a
+   well-formed link between two nonexistent objects **passes**.
+4. Provenance classification recorded per type with a one-line rationale. `update_name` is argued
+   rather than assumed — a spelling correction taken from a transcription is a sourced claim.
+5. `add_place`'s external-authority naming rule is documented, not validated: it sits on the
+   `PHASE_3` side of the rule table and a test asserts it cannot fire from `validate`.
+
+### Evidence-side operations — #23
+
+1. `add_event`, `update_event`, `add_source`, `add_media_reference` registered, and the partition
+   test from #20 covers them without being modified.
+2. Positive and negative tests per required field, per type.
+3. Every type carrying a date uses the model from #21 directly; a structural test asserts no
+   registered type declares an ad-hoc date field.
+4. All four are `FACT_ASSERTING`, and a test asserts each **fails** validation without a citation.
+5. `add_media_reference` references an image by path syntax only; a well-formed reference to a
+   nonexistent file passes, and a test asserts its fixtures do not trip the guard's path property.
+
+### The remaining two
+
+**#24** — the `README.md` roadmap table matches the milestones row for row, the Status section names
+the current phase correctly, and a line records that the milestones are the authority when artifacts
+disagree. **#25** — deferred; its criteria apply only once the backup mechanism exists.
+
+### Why three of these are structural
+
+The provenance partition (#20 criterion 1), the rule table (#20 criterion 4) and the preview (#20
+criterion 7) are asserted over the registry rather than over a hand-written list of cases, for the
+reason `B5` in `docs/pii-guard-acceptance.md` gives: an enumeration fails on the case nobody listed,
+and this project's most persistent defect shape is one spelling taught to one matcher. The same
+reason is why #22 and #23 each require the inherited structural tests to pass **unmodified** — a test
+that must be edited to admit a new type was restated, not derived.
 
 ⚠️ **One thing the criteria deliberately do not claim.** *"A sentence a person can check against a
 record"* is a human judgement and is **not** an acceptance criterion — it is a reviewer checklist
