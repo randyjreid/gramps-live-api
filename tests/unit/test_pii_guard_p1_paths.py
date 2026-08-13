@@ -507,16 +507,30 @@ def test_a_repeated_separator_does_not_allowlist_a_path_that_identifies_somebody
     what the allowlist already holds. A path that is not one of them is still a
     finding under every spelling, and still reports the whole path as its
     evidence rather than a fragment of it.
+
+    **The negative control for B8, and it walks ``_every_context`` because the
+    positive property does.** A property test that only ever asserts "clean" is
+    satisfied by a guard that reports nothing at all, so the criterion needs a
+    value the allowlist does not hold, in the SAME surroundings and the SAME
+    spellings, still reporting. Sharing the helper is what keeps the two halves
+    from drifting apart: a surrounding added for one is added for the other,
+    rather than being remembered for one of them.
     """
     personal = posix_path("home", "private-user", "tree.ged")
 
+    admitted: list[str] = []
     for spelling in every_separator_run_spelling(personal):
-        findings = scan_text(f"the export lives at {spelling}.")
+        for surrounding, text in _every_context(spelling).items():
+            findings = scan_text(text)
 
-        assert rules(findings) == ["P1"], f"{spelling!r} identifies somebody, got {findings}"
-        assert findings[0].match == spelling, (
-            f"the evidence must be the path as written, got {findings[0].match!r}"
-        )
+            if rules(findings) != ["P1"]:
+                admitted.append(f"{spelling!r} {surrounding}: got {findings}")
+            elif findings[0].match != spelling:
+                admitted.append(f"{spelling!r} {surrounding}: reported {findings[0].match!r}")
+
+    assert admitted == [], (
+        f"a path the allowlist does not hold stopped identifying somebody: {admitted}"
+    )
 
 
 def test_an_escape_cannot_renumber_the_findings_below_it() -> None:
