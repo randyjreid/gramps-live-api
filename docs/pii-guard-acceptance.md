@@ -154,10 +154,17 @@ The second half is three refusals, each with a named test:
 `tests/integration/test_repository_hygiene.py` -- **9 tests**, the whole file. The ones this
 criterion rests on are asserted by reading the workflow itself rather than by describing it.
 
-⚠️ **Two of the nine assert a different property and are not evidence for B7**: that no path in the
-repository is both untracked and unignored, and that the workflow directory is ignored. They live
-here because this file is where repository-shape assertions live, not because they say anything
-about publish events. The count is the file's, as B1's is.
+⚠️ **Only four of the nine are evidence for B7 — the four named in the table below.** The count is
+the file's, as B1's is, and the two numbers are not the same number. The other five assert
+neighbouring properties and say nothing about publish events: that every Python source file is
+tracked, that no workflow expression is interpolated into a shell body, that every skip names a seam
+twin that exists, and — added with the workflow-directory rule — that no path is both untracked and
+unignored and that the workflow directory is ignored. They live here because this file is where
+repository-shape assertions live.
+
+An earlier revision of this paragraph said *two* of the nine were unrelated, counting only the two
+added last. That understated it by three and so overstated what B7's coverage rests on, which is the
+opposite of what this document is for.
 
 | Claim | Named by |
 | --- | --- |
