@@ -117,6 +117,17 @@ def test_every_commit_this_repository_publishes_is_clean() -> None:
         capture_output=True,
         text=True,
         check=True,
+        # ⚠️ The same anchored environment the scan below runs under. Git
+        # honours GIT_DIR and GIT_WORK_TREE ahead of cwd, so an unanchored
+        # probe answers about whatever the environment points at -- and it
+        # answers SUCCESSFULLY. A complete repository named there reports
+        # "false", the skip does not fire, and count_range_commits and
+        # scan_repository then run anchored on THIS repository and report
+        # clean over history that was never fetched. The probe and the thing
+        # it guards must not be able to disagree about which repository they
+        # mean. The list is the guard's, which is git's own answer rather
+        # than a second one written here.
+        env=pii_guard._git_environment_anchored_on_the_target(),
     ).stdout.strip()
 
     # Fails closed on anything that is not exactly "false", like the workflow
