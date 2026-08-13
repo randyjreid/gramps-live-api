@@ -1,7 +1,7 @@
 # What it means for the PII guard to be finished
 
 This document is the acceptance condition for `pii_guard`. It replaces *"review until a reviewer
-finds nothing"* -- which is not a condition anybody can meet -- with seven bounded properties, each
+finds nothing"* -- which is not a condition anybody can meet -- with eight bounded properties, each
 asserted by test.
 
 The distinction matters because the earlier criterion was a universally quantified negative over an
@@ -15,7 +15,7 @@ to trip it -- which has already happened here more than once: a comment describi
 the trap, and a `CONTRIBUTING` section documenting the detectors reported itself. Describe the
 construction; do not spell it.
 
-## The seven criteria
+## The eight criteria
 
 ### B1
 
@@ -24,8 +24,25 @@ construction; do not spell it.
 > under a real filesystem root with ≥2 components, any leading slash in a path-bearing position, and
 > the tilde home form. Applies to file *contents*, committed *filenames*, and symlink *targets*.
 
-`tests/unit/test_pii_guard_p1_paths.py` -- **37 tests**, the whole file, including the
+`tests/unit/test_pii_guard_p1_paths.py` -- **38 tests**, the whole file, including the
 false-positive controls that keep routes, links, markup and approximations out of it.
+
+⚠️ **That count is the FILE's, and it is not the number of tests carrying B1. Three of the
+thirty-eight are evidence for B8**, which constrains what the guard must *not* report --
+`test_the_normaliser_folds_a_separator_run_of_any_length`,
+`test_every_portable_path_is_allowlisted_however_its_separators_repeat`, and
+`test_a_repeated_separator_does_not_allowlist_a_path_that_identifies_somebody`. They live here
+because this is the file where the path detectors are exercised, not because they are B1's evidence.
+The remaining **thirty-five** carry B1: the four rows below stand for the catch side, and the rest
+are the controls that bound it. One of those thirty-five,
+`test_a_url_authority_is_not_a_repeated_separator`, is cited by B8 as well, deliberately -- it is a
+false-positive control on the detectors B1 names *and* the recorded exception to the fold B8 names.
+
+**The two numbers drift apart silently, which is why the distinction is written down rather than
+left to be read off.** A file's count moves whenever a test is added for *any* criterion, so a
+number that once matched the criterion's evidence stops matching it without anything announcing the
+change -- and a later repair that takes the file's count for the criterion's own then overstates
+what the criterion rests on, which is the opposite of what this document is for.
 
 | Detector | Named by |
 | --- | --- |
@@ -182,9 +199,101 @@ rather than reported clean (B6 above) -- together with the blanket
 those refusals only if it produced an empty or unresolvable range, and not if it produced a range
 that is merely too narrow.
 
+### B8
+
+> **The guard's own normaliser reads a run of separators of any length as one join; a location the
+> allowlist holds is not a finding under the spellings named below; and this repository reports
+> nothing -- at its tip and across the commits it publishes.** The first half is those two claims,
+> over the normaliser and over the allowlist constant, asserted to different strengths and kept
+> apart below; the second is a measurement of this repository at this commit.
+
+B1–B7 constrain what the guard must **catch**. Nothing constrained what it must **not** report, so a
+guard that reported every line in this repository satisfied all seven of them. Over-reporting is a
+**security** failure here rather than an ergonomic one, which is what makes this a criterion and not
+a preference: *a finding nobody can act on is a finding contributors route around*, and a
+routed-around gate protects nothing. The same reasoning is already recorded against widening the
+path-component class, against decoding structure escapes, and in the threshold-4 decision -- applied
+criterion by criterion in prose, and until now stated as a criterion nowhere.
+
+| Claim | Named by |
+| --- | --- |
+| a run of separators of any length is one join -- the rule the allowlist comparison is made of | `test_the_normaliser_folds_a_separator_run_of_any_length` |
+| every entry of the allowlist, under every combination of short runs plus one long run at each separator position, in each surrounding a detector reads a value from | `test_every_portable_path_is_allowlisted_however_its_separators_repeat` |
+| not vacuous: a value the allowlist does **not** hold, in the same surroundings and the same spellings, is still a finding and still reports the whole value | `test_a_repeated_separator_does_not_allowlist_a_path_that_identifies_somebody` |
+| the tip reports nothing | `test_this_repository_is_clean` |
+| every commit this repository publishes reports nothing | `test_every_commit_this_repository_publishes_is_clean` |
+| the range scanner does report when there is something to report | `test_a_blob_deleted_later_in_the_push_is_still_found` |
+
+**The cases are derived, not enumerated** -- from the allowlist constant itself, and from the
+normaliser's stated rule that a run of joins is one join. Adding an entry to the allowlist extends
+the property's coverage **without the test being edited**, which is the whole point of deriving it: a
+test naming three examples is satisfied by three special cases, and the regression that exposed this
+gap survived a careful measurement over tracked content precisely because the allowlist's own entries
+are not tracked content. The one place the fold deliberately does not apply -- a run that is syntax
+rather than a join -- is recorded where the normaliser is, and named by
+`test_a_url_authority_is_not_a_repeated_separator`.
+
+⚠️ **An earlier wording of this criterion said *any spelling the normaliser folds*, and that was
+more than its tests asserted.** The two claims in the first half are asserted to different
+strengths, so they are stated apart rather than carried by one sentence. The normaliser's rule --
+one or more separators, with no upper bound -- is a property of a single function rather than a
+scan, so it is asserted directly against the fold the allowlist comparison calls, at every separator
+position of every entry, at run lengths up to 1024. That is not literally unbounded, and no test is;
+it is past anything a narrowing would leave behind. The allowlist half is a **scan**, and its
+spellings are a cross-product of run lengths -- exponential in the number of separators, which is
+why that bound is small and stays small. It is widened *linearly* instead: one long run at each
+separator position in turn, for every entry.
+
+**The residual, stated rather than closed: the allowlist half is a sample of an unbounded space.**
+The short-run combinations and the long runs are not crossed with each other, so a fold that failed
+only on two long runs at once would pass it. What keeps that a residual rather than a hole is the
+claim above it -- the fold is one function, asserted on its own at any length worth naming, and the
+allowlist half is what proves the four detectors and the comparison still agree about the value it
+produces.
+
+**Measured, rather than argued.** Narrowing the quantifier to short runs -- the regression this
+criterion exists to catch -- leaves the suite as it stood before these tests entirely green
+(257 passed, 5 skipped, run in a worktree at that commit) and fails exactly the first three rows
+above, and nothing else in the suite (3 failed, 255 passed, 5 skipped). The property and its control
+fail in opposite directions: a location that identifies nobody starts reporting, and a path that
+identifies somebody stops.
+
+The last row is what stops the second half being a formality. A range enumeration that quietly stops
+running leaves a zero-findings verdict reading exactly like a clean one, so the commit count is
+asserted before the verdict and the scanner is separately proved able to report, over a fixture
+repository rather than over this one.
+
+⚠️ **Neither half is a false-positive guarantee, and B8 does not claim one.** The first bounds
+respellings of values the allowlist **already holds**; it says nothing about a safe document nobody
+has written yet. The second is a measurement of *this* repository at *this* commit, and it asserts
+everything reachable from the tip rather than the range any one push publishes -- that arithmetic
+lives in the workflow, which is the thin spot B7 states directly above. A closed corpus of
+representative safe documents was the third candidate shape considered and was declined: it is the
+only one that grows without bound as a fixture-maintenance burden, and a corpus is only ever as
+strong as itself.
+
+⚠️ **And the second half does not run in CI today. Stated here rather than left to be discovered.**
+The job that runs the suite checks out a single commit, so the history assertion **skips on every
+ordinary CI run**; the job that has whole history does not run the suite. So that half is asserted
+when the suite runs against a complete checkout -- locally, or anywhere the checkout is not
+truncated -- and nowhere else.
+
+What still runs on every push is the guard job itself, over the range the event publishes. That is
+not the same claim: it covers what the push publishes rather than everything reachable, and it is a
+scan rather than an assertion about one. **The consequence is exact: a detector change that starts
+reporting an older reachable commit passes CI.** Closing it is one line of workflow -- give the suite
+a complete checkout -- and is deliberately not done here, because this issue's scope excluded the
+workflow and a criterion is the wrong place to discover that a change of scope was needed. It is
+filed as issue #31, and this paragraph is written to be narrowed when that lands.
+
+What B8 buys is smaller than a guarantee, and it is the thing that was missing: **a widening can be
+shown to have cost something.** A change that starts reporting a location the allowlist holds, or
+starts reporting this repository, now fails a named test -- rather than being discovered by a
+contributor who routes the gate around.
+
 ## What this guard does not guarantee
 
-The guard states bounded properties (B1–B7 above), each asserted by test. **It makes no completeness
+The guard states bounded properties (B1–B8 above), each asserted by test. **It makes no completeness
 claim, and the input space it operates over is unbounded.**
 
 Phase 0 ran review rounds across three reviewers until the round count stopped being the useful
@@ -243,6 +352,10 @@ The outstanding set was adjudicated against B1–B7, item by item, and dispositi
 - **three were already resolved** by commits on this branch;
 - **the remainder were accepted with a recorded rationale**, in CONTRIBUTING.md, or **filed** as the
   issues named above.
+
+**B1–B7 above is not a typo for B1–B8.** Phase 0 closed against those seven as frozen; B8 was added
+afterwards, in Phase 1, and did not exist for this adjudication. It came out of it: an item that
+violated no criterion, because no criterion constrained what the guard must not report.
 
 The test for whether an item blocked was not its severity and not who found it. It was whether the
 input fell inside the stated terms of a property the guard already claims. An input needing a

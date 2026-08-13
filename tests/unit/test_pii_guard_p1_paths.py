@@ -13,9 +13,10 @@ detectors now, each precise on its own:
 
 from __future__ import annotations
 
-from gramps_live_api.core.pii_guard import PORTABLE_PATHS, scan_text
+from gramps_live_api.core.pii_guard import PORTABLE_PATHS, _as_joined, scan_text
 from tests.fixtures.expectations import rules
 from tests.fixtures.synthetic import (
+    LONG_SEPARATOR_RUN,
     bare_named_home_path,
     every_separator_run_spelling,
     extended_unc_path,
@@ -26,6 +27,8 @@ from tests.fixtures.synthetic import (
     posix_path,
     prose_describing_json_keys_with_escaped_quotes,
     repeated_separators,
+    separator_positions,
+    separator_run_at,
     unc_path,
     unicode_escaped_key,
     windows_path,
@@ -456,6 +459,40 @@ def test_a_url_authority_is_not_a_repeated_separator() -> None:
     )
 
 
+def test_the_normaliser_folds_a_separator_run_of_any_length() -> None:
+    """The rule the allowlist comparison is made of, at a length it cannot cap.
+
+    The normaliser says one or more separators, with no upper bound, and until
+    now nothing asserted the second half of that. The property below walks a
+    CROSS-PRODUCT of run lengths, which is exponential in the number of
+    separators and therefore bounded at three -- and a bounded sample cannot
+    close an unbounded claim: a fold narrowed to short runs leaves every one of
+    those cases passing while a portable location written with four separators
+    reports.
+
+    So the two claims are asserted apart, and this is the unbounded one. It is
+    a property of the normaliser alone, which makes it a string operation
+    rather than a scan; it is therefore linear, and can be driven at lengths
+    past anything a narrowing would plausibly leave behind.
+
+    Tied to the fold the guard actually uses -- ``_as_joined``, the function
+    the allowlist comparison calls -- and to the entries the guard actually
+    holds. A fold written out here would assert only that this test agrees
+    with itself.
+    """
+    lengths = (1, 2, 3, 4, LONG_SEPARATOR_RUN, 1024)
+
+    unfolded: list[str] = []
+    for entry in sorted(PORTABLE_PATHS):
+        for position in range(separator_positions(entry)):
+            for length in lengths:
+                joined = _as_joined(separator_run_at(entry, position, length))
+                if joined != entry:
+                    unfolded.append(f"{length} at position {position}: read as {joined!r}")
+
+    assert unfolded == [], f"a run of separators was not read as one join: {unfolded}"
+
+
 def _every_context(value: str) -> dict[str, str]:
     """The value written into each surrounding that a detector reads it from.
 
@@ -486,6 +523,14 @@ def test_every_portable_path_is_allowlisted_however_its_separators_repeat() -> N
     special cases; the allowlist's own entries are what the code holds, and
     covering the values the code holds is the thing the original measurement
     could not do by scanning real content.
+
+    The spellings are every combination of runs of one to three, plus one long
+    run at each separator position in turn. The bound on the combinations is
+    deliberate and stays: they are a cross-product, exponential in the number
+    of separators, and this half is a SCAN rather than a string operation. The
+    long runs are what a bounded sample cannot say, added linearly. That the
+    combinations and the long runs are not crossed is what makes this half a
+    sample; the unbounded claim is asserted against the normaliser above.
     """
     reported: list[str] = []
     for location in sorted(PORTABLE_PATHS):
@@ -507,16 +552,36 @@ def test_a_repeated_separator_does_not_allowlist_a_path_that_identifies_somebody
     what the allowlist already holds. A path that is not one of them is still a
     finding under every spelling, and still reports the whole path as its
     evidence rather than a fragment of it.
+
+    **The negative control for B8, and it walks ``_every_context`` because the
+    positive property does.** A property test that only ever asserts "clean" is
+    satisfied by a guard that reports nothing at all, so the criterion needs a
+    value the allowlist does not hold, in the SAME surroundings and the SAME
+    spellings, still reporting. Sharing the helper is what keeps the two halves
+    from drifting apart: a surrounding added for one is added for the other,
+    rather than being remembered for one of them.
+
+    **The spellings are shared for the same reason the surroundings are.** They
+    come from one builder, so the long run at each separator position that
+    widened the property widened its control in the same commit -- and a
+    narrowed fold shows up here as a path that identifies somebody quietly
+    ceasing to be a finding, which is the direction that matters most.
     """
     personal = posix_path("home", "private-user", "tree.ged")
 
+    admitted: list[str] = []
     for spelling in every_separator_run_spelling(personal):
-        findings = scan_text(f"the export lives at {spelling}.")
+        for surrounding, text in _every_context(spelling).items():
+            findings = scan_text(text)
 
-        assert rules(findings) == ["P1"], f"{spelling!r} identifies somebody, got {findings}"
-        assert findings[0].match == spelling, (
-            f"the evidence must be the path as written, got {findings[0].match!r}"
-        )
+            if rules(findings) != ["P1"]:
+                admitted.append(f"{spelling!r} {surrounding}: got {findings}")
+            elif findings[0].match != spelling:
+                admitted.append(f"{spelling!r} {surrounding}: reported {findings[0].match!r}")
+
+    assert admitted == [], (
+        f"a path the allowlist does not hold stopped identifying somebody: {admitted}"
+    )
 
 
 def test_an_escape_cannot_renumber_the_findings_below_it() -> None:

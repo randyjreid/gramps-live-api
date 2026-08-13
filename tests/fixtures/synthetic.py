@@ -528,17 +528,65 @@ def repeated_separators(text: str) -> str:
     return text
 
 
-def every_separator_run_spelling(text: str, *, upto: int = 3) -> list[str]:
+# A run long enough that no bounded quantifier written by accident admits it.
+# The production rule is "one or more" with no upper bound; the ways that get
+# narrowed are small numbers -- a fixed pair, or a run of two to three. This is
+# past all of them, and short enough that the cost of matching over it stays
+# flat.
+LONG_SEPARATOR_RUN = 17
+
+
+def separator_positions(text: str) -> int:
+    """How many separator positions ``text`` has: one fewer than its parts."""
+    return len(text.split(_SLASH)) - 1
+
+
+def separator_run_at(text: str, position: int, length: int) -> str:
+    """``text`` with one separator position written as a run of ``length``.
+
+    Every other position stays single, and that is what makes it linear. The
+    cross-product below is exponential in the number of separators, so a long
+    run is reached one position at a time rather than by widening the product.
+
+    ``position`` indexes the separators of ``text``, not its characters.
+    """
+    lengths = [1] * separator_positions(text)
+    lengths[position] = length
+    parts = text.split(_SLASH)
+    return parts[0] + "".join(
+        _SLASH * count + part for count, part in zip(lengths, parts[1:], strict=True)
+    )
+
+
+def every_separator_run_spelling(
+    text: str, *, upto: int = 3, long_run: int = LONG_SEPARATOR_RUN
+) -> list[str]:
     """Every way ``text`` can be written by repeating its separators.
 
     Each separator independently written once, twice, ... ``upto`` times, so
     the result covers the mixed spellings a hand-written list never does --
-    a doubled separator in one position and a single one in the next.
+    a doubled separator in one position and a single one in the next. That
+    half is a CROSS-PRODUCT, exponential in the number of separators, which is
+    why its bound is small and stays small: raising it buys a slightly larger
+    finite number and multiplies the cost of every caller by it.
+
+    ``long_run`` is the other half, and it is added LINEARLY -- one spelling
+    per separator position, that position written long and the rest single. A
+    sample that stops at three is satisfied by a fold that stops at three, so
+    short runs alone cannot speak for a rule with no upper bound; a long run at
+    each position in turn costs ``positions`` extra cases rather than
+    ``upto ** positions``. What it does not reach is several long runs at once,
+    which makes this half a sample and is recorded as one where the criterion
+    is stated.
 
     Derived from ``text``, which is the point of it. The finding this exists
     for was a rule proved against three named examples; three named examples
     are satisfied by three special cases, and walking the values the code
     itself holds is not.
+
+    Both halves of B8 read this function -- the property and its negative
+    control -- so a spelling added here reaches both by construction rather
+    than by being remembered twice.
     """
     parts = text.split(_SLASH)
     spellings = {text}
@@ -547,6 +595,8 @@ def every_separator_run_spelling(text: str, *, upto: int = 3) -> list[str]:
             parts[0]
             + "".join(_SLASH * count + part for count, part in zip(counts, parts[1:], strict=True))
         )
+    for position in range(separator_positions(text)):
+        spellings.add(separator_run_at(text, position, long_run))
     return sorted(spellings)
 
 
