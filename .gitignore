@@ -95,9 +95,14 @@ ipython_config.py
 # Pipfile.lock
 
 # UV
-#   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
+#   Ruled (#11): the lockfile is TRACKED, so the stock entry below stays commented out and
+#   this file governs it explicitly rather than by omission. Upstream's note points both
+#   ways -- lock an application, ignore it for a library -- and this project is both a
+#   distributable addon and a portfolio repository whose CI signal is a deliverable. The
+#   reproducibility of the gate wins, and it costs no consumer anything: the addon is
+#   installed by copying a folder into the Gramps plugin folder, not by pip, so a committed
+#   lock constrains nobody. CONTRIBUTING.md records why the guard admits it as one named
+#   basename rather than as a file type.
 # uv.lock
 
 # poetry
