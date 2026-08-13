@@ -528,6 +528,36 @@ def repeated_separators(text: str) -> str:
     return text
 
 
+# A run long enough that no bounded quantifier written by accident admits it.
+# The production rule is "one or more" with no upper bound; the ways that get
+# narrowed are small numbers -- a fixed pair, or a run of two to three. This is
+# past all of them, and short enough that the cost of matching over it stays
+# flat.
+LONG_SEPARATOR_RUN = 17
+
+
+def separator_positions(text: str) -> int:
+    """How many separator positions ``text`` has: one fewer than its parts."""
+    return len(text.split(_SLASH)) - 1
+
+
+def separator_run_at(text: str, position: int, length: int) -> str:
+    """``text`` with one separator position written as a run of ``length``.
+
+    Every other position stays single, and that is what makes it linear. The
+    cross-product below is exponential in the number of separators, so a long
+    run is reached one position at a time rather than by widening the product.
+
+    ``position`` indexes the separators of ``text``, not its characters.
+    """
+    lengths = [1] * separator_positions(text)
+    lengths[position] = length
+    parts = text.split(_SLASH)
+    return parts[0] + "".join(
+        _SLASH * count + part for count, part in zip(lengths, parts[1:], strict=True)
+    )
+
+
 def every_separator_run_spelling(text: str, *, upto: int = 3) -> list[str]:
     """Every way ``text`` can be written by repeating its separators.
 

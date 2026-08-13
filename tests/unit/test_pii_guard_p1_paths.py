@@ -13,9 +13,10 @@ detectors now, each precise on its own:
 
 from __future__ import annotations
 
-from gramps_live_api.core.pii_guard import PORTABLE_PATHS, scan_text
+from gramps_live_api.core.pii_guard import PORTABLE_PATHS, _as_joined, scan_text
 from tests.fixtures.expectations import rules
 from tests.fixtures.synthetic import (
+    LONG_SEPARATOR_RUN,
     bare_named_home_path,
     every_separator_run_spelling,
     extended_unc_path,
@@ -26,6 +27,8 @@ from tests.fixtures.synthetic import (
     posix_path,
     prose_describing_json_keys_with_escaped_quotes,
     repeated_separators,
+    separator_positions,
+    separator_run_at,
     unc_path,
     unicode_escaped_key,
     windows_path,
@@ -454,6 +457,40 @@ def test_a_url_authority_is_not_a_repeated_separator() -> None:
         "the value must be the path the URL names, not the path with the "
         f"authority in front of it, got {findings[0].match!r}"
     )
+
+
+def test_the_normaliser_folds_a_separator_run_of_any_length() -> None:
+    """The rule the allowlist comparison is made of, at a length it cannot cap.
+
+    The normaliser says one or more separators, with no upper bound, and until
+    now nothing asserted the second half of that. The property below walks a
+    CROSS-PRODUCT of run lengths, which is exponential in the number of
+    separators and therefore bounded at three -- and a bounded sample cannot
+    close an unbounded claim: a fold narrowed to short runs leaves every one of
+    those cases passing while a portable location written with four separators
+    reports.
+
+    So the two claims are asserted apart, and this is the unbounded one. It is
+    a property of the normaliser alone, which makes it a string operation
+    rather than a scan; it is therefore linear, and can be driven at lengths
+    past anything a narrowing would plausibly leave behind.
+
+    Tied to the fold the guard actually uses -- ``_as_joined``, the function
+    the allowlist comparison calls -- and to the entries the guard actually
+    holds. A fold written out here would assert only that this test agrees
+    with itself.
+    """
+    lengths = (1, 2, 3, 4, LONG_SEPARATOR_RUN, 1024)
+
+    unfolded: list[str] = []
+    for entry in sorted(PORTABLE_PATHS):
+        for position in range(separator_positions(entry)):
+            for length in lengths:
+                joined = _as_joined(separator_run_at(entry, position, length))
+                if joined != entry:
+                    unfolded.append(f"{length} at position {position}: read as {joined!r}")
+
+    assert unfolded == [], f"a run of separators was not read as one join: {unfolded}"
 
 
 def _every_context(value: str) -> dict[str, str]:
