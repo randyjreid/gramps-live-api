@@ -24,8 +24,25 @@ construction; do not spell it.
 > under a real filesystem root with ≥2 components, any leading slash in a path-bearing position, and
 > the tilde home form. Applies to file *contents*, committed *filenames*, and symlink *targets*.
 
-`tests/unit/test_pii_guard_p1_paths.py` -- **37 tests**, the whole file, including the
+`tests/unit/test_pii_guard_p1_paths.py` -- **38 tests**, the whole file, including the
 false-positive controls that keep routes, links, markup and approximations out of it.
+
+⚠️ **That count is the FILE's, and it is not the number of tests carrying B1. Three of the
+thirty-eight are evidence for B8**, which constrains what the guard must *not* report --
+`test_the_normaliser_folds_a_separator_run_of_any_length`,
+`test_every_portable_path_is_allowlisted_however_its_separators_repeat`, and
+`test_a_repeated_separator_does_not_allowlist_a_path_that_identifies_somebody`. They live here
+because this is the file where the path detectors are exercised, not because they are B1's evidence.
+The remaining **thirty-five** carry B1: the four rows below stand for the catch side, and the rest
+are the controls that bound it. One of those thirty-five,
+`test_a_url_authority_is_not_a_repeated_separator`, is cited by B8 as well, deliberately -- it is a
+false-positive control on the detectors B1 names *and* the recorded exception to the fold B8 names.
+
+**The two numbers drift apart silently, which is why the distinction is written down rather than
+left to be read off.** A file's count moves whenever a test is added for *any* criterion, so a
+number that once matched the criterion's evidence stops matching it without anything announcing the
+change -- and a later repair that takes the file's count for the criterion's own then overstates
+what the criterion rests on, which is the opposite of what this document is for.
 
 | Detector | Named by |
 | --- | --- |
@@ -172,10 +189,11 @@ that is merely too narrow.
 
 ### B8
 
-> **A location the allowlist holds is not a finding under any spelling the guard's own normaliser
-> folds, and this repository reports nothing -- at its tip and across the commits it publishes.** The
-> first half is a property over the allowlist constant; the second is a measurement of this
-> repository at this commit.
+> **The guard's own normaliser reads a run of separators of any length as one join; a location the
+> allowlist holds is not a finding under the spellings named below; and this repository reports
+> nothing -- at its tip and across the commits it publishes.** The first half is those two claims,
+> over the normaliser and over the allowlist constant, asserted to different strengths and kept
+> apart below; the second is a measurement of this repository at this commit.
 
 B1–B7 constrain what the guard must **catch**. Nothing constrained what it must **not** report, so a
 guard that reported every line in this repository satisfied all seven of them. Over-reporting is a
@@ -187,7 +205,8 @@ criterion by criterion in prose, and until now stated as a criterion nowhere.
 
 | Claim | Named by |
 | --- | --- |
-| every entry of the allowlist, under every spelling of its separators, in each surrounding a detector reads a value from | `test_every_portable_path_is_allowlisted_however_its_separators_repeat` |
+| a run of separators of any length is one join -- the rule the allowlist comparison is made of | `test_the_normaliser_folds_a_separator_run_of_any_length` |
+| every entry of the allowlist, under every combination of short runs plus one long run at each separator position, in each surrounding a detector reads a value from | `test_every_portable_path_is_allowlisted_however_its_separators_repeat` |
 | not vacuous: a value the allowlist does **not** hold, in the same surroundings and the same spellings, is still a finding and still reports the whole value | `test_a_repeated_separator_does_not_allowlist_a_path_that_identifies_somebody` |
 | the tip reports nothing | `test_this_repository_is_clean` |
 | every commit this repository publishes reports nothing | `test_every_commit_this_repository_publishes_is_clean` |
@@ -201,6 +220,31 @@ gap survived a careful measurement over tracked content precisely because the al
 are not tracked content. The one place the fold deliberately does not apply -- a run that is syntax
 rather than a join -- is recorded where the normaliser is, and named by
 `test_a_url_authority_is_not_a_repeated_separator`.
+
+⚠️ **An earlier wording of this criterion said *any spelling the normaliser folds*, and that was
+more than its tests asserted.** The two claims in the first half are asserted to different
+strengths, so they are stated apart rather than carried by one sentence. The normaliser's rule --
+one or more separators, with no upper bound -- is a property of a single function rather than a
+scan, so it is asserted directly against the fold the allowlist comparison calls, at every separator
+position of every entry, at run lengths up to 1024. That is not literally unbounded, and no test is;
+it is past anything a narrowing would leave behind. The allowlist half is a **scan**, and its
+spellings are a cross-product of run lengths -- exponential in the number of separators, which is
+why that bound is small and stays small. It is widened *linearly* instead: one long run at each
+separator position in turn, for every entry.
+
+**The residual, stated rather than closed: the allowlist half is a sample of an unbounded space.**
+The short-run combinations and the long runs are not crossed with each other, so a fold that failed
+only on two long runs at once would pass it. What keeps that a residual rather than a hole is the
+claim above it -- the fold is one function, asserted on its own at any length worth naming, and the
+allowlist half is what proves the four detectors and the comparison still agree about the value it
+produces.
+
+**Measured, rather than argued.** Narrowing the quantifier to short runs -- the regression this
+criterion exists to catch -- leaves the suite as it stood before these tests entirely green
+(257 passed, 5 skipped, run in a worktree at that commit) and fails exactly the first three rows
+above, and nothing else in the suite (3 failed, 255 passed, 5 skipped). The property and its control
+fail in opposite directions: a location that identifies nobody starts reporting, and a path that
+identifies somebody stops.
 
 The last row is what stops the second half being a formality. A range enumeration that quietly stops
 running leaves a zero-findings verdict reading exactly like a clean one, so the commit count is
