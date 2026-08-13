@@ -12,6 +12,10 @@ and a test asserts that no rule on that side can fire from ``validate``.
 The result type is named ``WellFormedResult`` and never ``Valid`` anything, so
 the distinction is hard to misread at a call site.
 
+No violation this module reports repeats a value the payload carried; the rule
+and its reason are stated on ``RuleViolation``, which is where a new rule's
+author meets it.
+
 The registry is **closed**: there is no public registration function and
 ``REGISTRY`` is a read-only mapping. A closed set is what makes the provenance
 partition assertable at all -- an open one makes this module's most important
@@ -303,6 +307,30 @@ class RuleViolation:
     ``field_path`` is dotted and always names a field that exists on the
     operation, because a message pointing nowhere is a message nobody can act
     on. Asserted over every negative case.
+
+    ⚠️ **NOTHING ON A VIOLATION REPEATS A VALUE THE PAYLOAD CARRIED.** Not the
+    message, not the field path. A violation names the field, and where it
+    helps the **allowed set** or the **declared type** -- never what arrived.
+
+    This is a privacy decision and not a formatting one. A wire payload echoed
+    into a violation becomes content this repository then has to scan, in a
+    public repository whose previous phase existed to keep exactly that out;
+    and any caller that logs or serialises a validation failure would be the
+    thing that published it. An operation payload is precisely where
+    genealogical data will live once this vocabulary is in use.
+
+    **The module's own vocabulary may be named** -- ``OBJECT_TYPES``,
+    ``NOTE_TYPES``, the type a field declares. That is ours rather than the
+    caller's, and naming what *is* permitted is what makes a violation
+    actionable while leaking nothing. Do not instead truncate, redact or
+    fingerprint the rejected value: a truncated payload is still payload, and a
+    redaction mechanism here would be a second, weaker copy of one ``pii_guard``
+    already owns.
+
+    Asserted structurally over generated wire cases -- every registered type,
+    every required path -- in ``tests/unit/test_schema_violation_privacy.py``,
+    because three rules obeying this is not the same property as the module
+    obeying it.
     """
 
     rule: RuleId
@@ -459,6 +487,21 @@ def _text(value: object) -> str:
     return value if isinstance(value, str) else ""
 
 
+def _one_of(vocabulary: frozenset[str]) -> str:
+    """A closed set of this module's own, written out for a caller to read.
+
+    The half of ``RuleViolation``'s rule that says what a message MAY carry: a
+    violation that names only the field tells a caller where the fault is and
+    not what would fix it, and the permitted set is ours rather than the
+    payload's.
+
+    ``sorted`` is load-bearing. A ``frozenset`` iterates in an order that
+    depends on ``PYTHONHASHSEED``, so joining it unsorted gives a message that
+    changes between runs -- undiffable in a log, and untestable by equality.
+    """
+    return ", ".join(sorted(vocabulary))
+
+
 def _reference_missing(operation: Operation) -> tuple[RuleViolation, ...]:
     return tuple(
         RuleViolation(RuleId.REFERENCE_MISSING, name, f"{name} names no object")
@@ -518,11 +561,9 @@ def _field_wrong_type(operation: Operation) -> tuple[RuleViolation, ...]:
             RuleViolation(
                 RuleId.FIELD_WRONG_TYPE,
                 path,
-                # ⚠️ TYPE NAMES ONLY. The value is NOT named, and that is a
-                # privacy decision rather than a formatting one: a wire payload
-                # echoed into a message becomes content the guard has to read,
-                # in a public repository whose previous phase was about exactly
-                # that. The type is what a caller needs to fix it anyway.
+                # Type names only, per the rule on RuleViolation: the field and
+                # what was expected, never what arrived. The type is what a
+                # caller needs to fix it anyway.
                 f"{path} is {type(value).__name__} where {declared} is declared",
             )
         )
@@ -535,11 +576,12 @@ def _object_type_unknown(operation: Operation) -> tuple[RuleViolation, ...]:
         object_type = _text(reference.object_type)
         if not object_type or object_type in OBJECT_TYPES:
             continue
+        path = f"{name}.object_type"
         violations.append(
             RuleViolation(
                 RuleId.OBJECT_TYPE_UNKNOWN,
-                f"{name}.object_type",
-                f"{object_type!r} is not one of the object types there are",
+                path,
+                f"{path} is not one of the object types there are: {_one_of(OBJECT_TYPES)}",
             )
         )
     return tuple(violations)
@@ -553,7 +595,7 @@ def _note_type_unknown(operation: Operation) -> tuple[RuleViolation, ...]:
         RuleViolation(
             RuleId.NOTE_TYPE_UNKNOWN,
             "note_type",
-            f"{note_type!r} is not one of the note types there are",
+            f"note_type is not one of the note types there are: {_one_of(NOTE_TYPES)}",
         ),
     )
 
@@ -589,7 +631,7 @@ def _reference_wrong_type(operation: Operation) -> tuple[RuleViolation, ...]:
             RuleViolation(
                 RuleId.REFERENCE_WRONG_TYPE,
                 f"{name}.object_type",
-                f"{name} must reference a {expected}, not a {object_type}",
+                f"{name} must reference a {expected}",
             )
         )
     return tuple(violations)
