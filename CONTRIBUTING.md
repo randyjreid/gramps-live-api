@@ -373,7 +373,7 @@ space is not in it. This is fail-closed and correct; do not "fix" it back open w
 the property it rests on.
 
 **Where the residuals stop and the guarantee starts: `docs/pii-guard-acceptance.md`.** The rows above
-say what the guard knowingly does not catch. That document says what it *does* -- seven bounded
+say what the guard knowingly does not catch. That document says what it *does* -- eight bounded
 properties, each with the tests that assert it, plus the statement of what none of them claims. Read
 it before arguing that a finding here is a gap: the question a residual has to answer is whether the
 input falls inside the stated terms of a property the guard already holds.
