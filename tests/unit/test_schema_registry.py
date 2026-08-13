@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from gramps_live_api.core import schema
+from tests.fixtures.operations import EXAMPLES
 
 
 def test_the_registry_cannot_be_added_to_from_outside() -> None:
@@ -57,6 +58,27 @@ def test_the_registry_holds_the_class_the_module_actually_exposes() -> None:
         "the registered class must be the finished dataclass the module "
         "exposes, so the registration decorator goes OUTSIDE @dataclass, "
         f"never inside it; got {stale}"
+    )
+
+
+def test_every_registered_type_has_an_example() -> None:
+    # The one place a new operation type must touch a test-side file. A valid
+    # example cannot be synthesised generically -- it needs invented names and
+    # sensible identifiers -- so the failure says what to DO rather than
+    # leaving the next person a puzzle.
+    missing = sorted(set(schema.REGISTRY) - set(EXAMPLES))
+    stale = sorted(set(EXAMPLES) - set(schema.REGISTRY))
+
+    assert missing == [], (
+        "these registered operation types have no example, so every "
+        "structural test below silently skips them. TO FIX: add one entry per "
+        "type to EXAMPLES in tests/fixtures/operations.py -- a valid, complete "
+        "operation using invented surnames only, with note text under 20 "
+        f"characters. Types needing an entry: {missing}"
+    )
+    assert stale == [], (
+        "these examples name types the registry does not have. TO FIX: remove "
+        f"them from EXAMPLES in tests/fixtures/operations.py; got {stale}"
     )
 
 
