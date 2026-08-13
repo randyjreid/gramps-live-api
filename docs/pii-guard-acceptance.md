@@ -151,8 +151,13 @@ The second half is three refusals, each with a named test:
 > (including first push with a zero SHA, and force push), pull request, fork PR, tag push; the job
 > refuses a checkout it cannot prove is complete.
 
-`tests/integration/test_repository_hygiene.py` -- **7 tests**, asserted by reading the workflow
-itself rather than by describing it.
+`tests/integration/test_repository_hygiene.py` -- **9 tests**, the whole file. The ones this
+criterion rests on are asserted by reading the workflow itself rather than by describing it.
+
+⚠️ **Two of the nine assert a different property and are not evidence for B7**: that no path in the
+repository is both untracked and unignored, and that the workflow directory is ignored. They live
+here because this file is where repository-shape assertions live, not because they say anything
+about publish events. The count is the file's, as B1's is.
 
 | Claim | Named by |
 | --- | --- |
