@@ -21,14 +21,86 @@ property unfalsifiable.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, fields
 from types import MappingProxyType
 from typing import TypeVar
+
+# ---------------------------------------------------------------------------
+# References -- D2, answered
+#
+# Handles are machine identity; Gramps IDs are the human-readable rendering.
+# Both are REQUIRED, and that is a strengthening of the recommendation rather
+# than a restatement of it: if the ID were optional, a reference carrying only
+# a handle would force preview() to print either the handle -- which the
+# criterion forbids, and which is the proxy carrying real weight, because an
+# operation naming an opaque handle is not reviewable at all -- or a
+# placeholder, which the criterion also forbids. Requiring the ID is what moves
+# that criterion from defended case by case to true by construction.
+#
+# ⚠️ There is deliberately NO rule that the Gramps ID prefix agrees with the
+# object type. Gramps ID prefixes are user-configurable, so such a rule would
+# be wrong rather than merely incomplete. Do not add it.
+# ---------------------------------------------------------------------------
+
+OBJECT_TYPE_CITATION = "citation"
+
+OBJECT_TYPES: frozenset[str] = frozenset(
+    {
+        "person",
+        "family",
+        "event",
+        "place",
+        "source",
+        OBJECT_TYPE_CITATION,
+        "note",
+        "media",
+        "repository",
+    }
+)
+"""What a reference may point at: the Gramps primary object types.
+
+An enumeration, accepted on exactly the grounds ``FILESYSTEM_ROOTS`` is
+accepted in ``pii_guard``: closed, externally specified, and it does not grow
+on our schedule. Membership is a PHASE_1 rule, which is why this is a set of
+strings rather than an ``Enum`` -- see ``ObjectRef.object_type``.
+"""
+
+_EXPECTS = "expects"
+"""Field metadata key: which object type a reference field must point at."""
+
+
+@dataclass(frozen=True, slots=True)
+class ObjectRef:
+    """A reference to one object that already exists in the tree.
+
+    Every field defaults to empty for the reason given on ``Operation``: a
+    reference the transport could carry must become a value ``validate`` can
+    judge and name a field path for.
+
+    ``object_type`` is a ``str`` against ``OBJECT_TYPES`` and not an ``Enum``
+    on purpose. An ``Enum``-typed field cannot hold a non-member, so the
+    membership rule the spec puts in PHASE_1 would be unreachable -- the check
+    would instead be a ``ValueError`` from a constructor, which is a second
+    validator with a different vocabulary and no field path.
+    """
+
+    object_type: str = ""
+    handle: str = ""
+    gramps_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
 class Operation:
-    """Base for every operation type. Carries no fields of its own."""
+    """Base for every operation type. Carries no fields of its own.
+
+    ⚠️ **Every field of every operation defaults to empty, and that is a
+    design decision rather than laziness.** An operation is a *transport*
+    type: any payload the wire can carry has to become an object ``validate``
+    can judge and report a field path for. A constructor that refuses a
+    missing field is a second validator speaking a different vocabulary --
+    the "two matchers, two ideas" shape this repository has recorded more than
+    once -- and it puts the refusal somewhere no field path can reach.
+    """
 
 
 _Registered = TypeVar("_Registered", bound=type[Operation])
@@ -40,6 +112,12 @@ class OperationSpec:
 
     type_name: str
     cls: type[Operation]
+    citation_field: str | None
+    """The field carrying provenance, or ``None`` for an exempt operation.
+
+    Declared here and cross-checked against the dataclass by test, so the
+    classification table and the schema cannot drift apart.
+    """
 
 
 _REGISTRY: dict[str, OperationSpec] = {}
@@ -53,21 +131,43 @@ but no route by which anything outside this file can add to it.
 """
 
 
-def _register(type_name: str) -> Callable[[_Registered], _Registered]:
+def _register(
+    type_name: str, *, citation_field: str | None
+) -> Callable[[_Registered], _Registered]:
     """Add one operation type to the registry. Module-private, deliberately.
 
     Generic in the class so the decorated name keeps its own type. Returning
     ``type[Operation]`` would erase every subclass to its base at every call
     site, which is a type checker being told to stop helping.
+
+    ``citation_field`` is required here, and the provenance *classification*
+    deliberately is not -- see the partition tables below.
     """
 
     def decorate(cls: _Registered) -> _Registered:
         if type_name in _REGISTRY:
             raise ValueError(f"{type_name} is registered twice")
-        _REGISTRY[type_name] = OperationSpec(type_name=type_name, cls=cls)
+        _REGISTRY[type_name] = OperationSpec(
+            type_name=type_name, cls=cls, citation_field=citation_field
+        )
         return cls
 
     return decorate
+
+
+def expected_object_types(cls: type[Operation]) -> Mapping[str, str]:
+    """For each reference field of ``cls``, the object type it must point at.
+
+    Read off the dataclass field metadata, so it stays true of whatever the
+    class actually declares rather than of a list kept beside it.
+    """
+    return MappingProxyType(
+        {
+            field.name: str(field.metadata[_EXPECTS])
+            for field in fields(cls)
+            if _EXPECTS in field.metadata
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -109,13 +209,28 @@ what a reviewer checks that against, which is why an empty one fails.
 # Asserted by test.
 
 
-@_register("add_citation")
+NOTE_TYPES: frozenset[str] = frozenset({"research", "todo"})
+"""What a note is for. Closed, and a member of it is a PHASE_1 rule."""
+
+
+@_register("add_citation", citation_field="citation")
 @dataclass(frozen=True, slots=True)
 class AddCitation(Operation):
     """Attach evidence that already exists to an object that already exists."""
 
+    target: ObjectRef | None = None
+    citation: ObjectRef | None = field(default=None, metadata={_EXPECTS: OBJECT_TYPE_CITATION})
 
-@_register("add_note")
+
+@_register("add_note", citation_field=None)
 @dataclass(frozen=True, slots=True)
 class AddNote(Operation):
-    """A research note or a to-do, attached to any object."""
+    """A research note or a to-do, attached to any object.
+
+    Carries no citation field, because it is on the exempt side of the
+    partition -- a different kind of operation, not a weaker one.
+    """
+
+    target: ObjectRef | None = None
+    note_type: str = ""
+    text: str = ""
