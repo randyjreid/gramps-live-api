@@ -62,6 +62,108 @@ def test_every_python_source_file_is_tracked() -> None:
     )
 
 
+def is_ignored(pathname: str) -> bool:
+    """Whether Git ignores this path, read from the EXIT CODE and nothing else.
+
+    ``check-ignore -v`` prints the matching line even when that line is a
+    negation, so its output says a path is ignored in the very case where it
+    is not. The .gitignore records this in the block that must stay last, and
+    CONTRIBUTING repeats it. Only the exit code answers the question.
+    """
+    result = subprocess.run(
+        ["git", "check-ignore", "-q", pathname],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode not in (0, 1):
+        pytest.skip(
+            "not a git checkout, so there are no ignore rules to consult; "
+            "nothing to cover -- this skip has no seam twin because the subject "
+            "itself is absent, not the platform capability to observe it"
+        )
+    return result.returncode == 0
+
+
+def test_the_workflow_directory_is_ignored() -> None:
+    """.claude/ holds prompt files, and a prompt file is where local paths end up.
+
+    Issue #27: the directory was neither tracked nor ignored, which is one
+    ordinary ``git add`` away from publishing it. The contents were harmless;
+    the state was not, and it is the same state issue #11 recorded for the
+    lock file.
+
+    Both spellings are asserted because they answer different questions, and
+    the difference is not the one a reader expects. A bare ``.claude`` is
+    reported as ignored only when the directory EXISTS on disk -- measured:
+    exit 1 when absent, exit 0 when present -- because a trailing-slash rule
+    matches directories and Git cannot know a nonexistent path is one. A fresh
+    CI clone has no .claude/ at all, so the bare spelling would fail there for
+    a reason that has nothing to do with the rule. The trailing slash and any
+    path beneath it are answered from the rule alone, on disk or not.
+
+    The markdown path is the one that matters. ``!*.md`` in .gitignore is
+    unanchored, and this directory holds only markdown, so the file is exactly
+    the shape that negation re-admits. It does not, because a negation cannot
+    re-include a file whose parent directory is excluded -- but that is a claim
+    about Git's behaviour, and the .gitignore records four deny-list variants
+    that were silently re-admitted by a reading just as confident.
+    """
+    assert is_ignored(".claude/"), (
+        "the .claude/ workflow directory is not ignored, so its prompt files are "
+        "stageable by an ordinary git add into a public repository"
+    )
+    assert is_ignored(".claude/prompts/any-prompt.md"), (
+        "markdown under .claude/ is not ignored -- the unanchored !*.md negation in "
+        ".gitignore has re-admitted it, which is the interaction issue #27 warned "
+        "would not be visible by reading the pattern"
+    )
+
+
+def test_no_path_is_both_untracked_and_unignored() -> None:
+    """The state issues #11 and #27 both describe, asserted rather than noticed.
+
+    A path that is neither tracked nor ignored is governed by nothing: it does
+    not appear in the repository, so nobody reviews it, and it is not excluded,
+    so any ``git add -A`` sweeps it in. Both issues were found by a person
+    looking at the working tree at the right moment. This is that look, run
+    every time.
+
+    ⚠️ **This test can only ever fire LOCALLY.** A fresh CI clone contains
+    exactly what the repository tracks and nothing else, so there is no
+    untracked path for it to find and it passes vacuously on every single CI
+    run. Green here is evidence of nothing in CI, and a later reader must not
+    read it as evidence the property holds -- that is the structurally-cannot-
+    fail defect issue #8 records. Its seam twin is
+    test_the_workflow_directory_is_ignored, which asserts a rule rather than a
+    tree state and therefore does fire in CI. That asymmetry is why both exist:
+    one proves the rule shipped, the other catches the next directory nobody
+    has written a rule for yet, and only on the machine where it appears.
+    """
+    result = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        pytest.skip(
+            "not a git checkout, so there is no tree state to read; nothing to cover -- "
+            "this skip has no seam twin because the subject itself is absent, not the "
+            "platform capability to observe it"
+        )
+
+    ungoverned = sorted(line[3:] for line in result.stdout.splitlines() if line.startswith("??"))
+
+    assert ungoverned == [], (
+        "these paths are neither tracked nor ignored, so nothing governs them and an "
+        "ordinary git add -A would commit them unexamined -- track each one or add a "
+        f".gitignore rule for it, then confirm with the exit code of check-ignore: {ungoverned}"
+    )
+
+
 def shell_bodies() -> list[tuple[int, str]]:
     """Every line belonging to a ``run:`` block, with its line number.
 
