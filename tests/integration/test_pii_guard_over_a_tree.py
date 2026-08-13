@@ -9,6 +9,7 @@ import pytest
 
 from gramps_live_api.core import pii_guard
 from gramps_live_api.core.pii_guard import (
+    count_range_commits,
     find_committed_denylists,
     main,
     scan_paths,
@@ -86,6 +87,56 @@ def test_the_command_line_entry_point_succeeds_on_a_clean_tree(
 def test_this_repository_is_clean() -> None:
     findings = scan_repository(REPOSITORY_ROOT)
     assert findings == [], f"this repository must not contain personal data, got {findings}"
+
+
+def test_every_commit_this_repository_publishes_is_clean() -> None:
+    """B8's second half: the tip is not what a push publishes.
+
+    Content added in one commit and deleted in the next is gone from the tree
+    the test above scans and is still reachable, so the criterion is measured
+    over the commits as well. ``HEAD`` is everything reachable, which is a
+    SUPERSET of any range a single push publishes and the same range the
+    workflow's tag arm scans -- so it cannot be narrower than the thing it
+    stands for, whatever event runs next.
+
+    Two things make it a measurement rather than a formality. The scanner it
+    uses is known to report when there is something to report -- that is
+    ``test_a_blob_deleted_later_in_the_push_is_still_found``, over a fixture
+    repository, and this test would be worth nothing without it. And the commit
+    count is asserted before the verdict, because "scanned nothing" and "found
+    nothing" must not read the same.
+
+    ⚠️ **This is a measurement of THIS repository at THIS commit, and it costs a
+    walk of the history** -- about twelve seconds over thirty-six commits, and
+    linear in what follows them. It says nothing about content the repository
+    does not yet contain.
+    """
+    shallow = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    # Fails closed on anything that is not exactly "false", like the workflow
+    # step this defers to: a truncated history reports clean over the part that
+    # was never fetched, which is the fail-open the range scans exist to close.
+    if shallow != "false":
+        pytest.skip(
+            "the checkout is not provably complete, so a range scan here would report "
+            "clean over history that was never fetched -- seam twin "
+            "test_the_job_refuses_a_checkout_it_cannot_prove_is_complete"
+        )
+
+    covered = count_range_commits(REPOSITORY_ROOT, "HEAD")
+    assert covered > 0, "the range covered no commits, so a clean verdict would cover nothing"
+
+    findings = scan_repository(REPOSITORY_ROOT, revision_range="HEAD")
+
+    assert findings == [], (
+        f"the commits this repository publishes must not contain personal data, got {findings}"
+    )
 
 
 def test_the_guard_source_is_clean_under_its_own_rules() -> None:
