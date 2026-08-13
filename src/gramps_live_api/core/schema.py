@@ -824,5 +824,23 @@ def validate(operation: Operation) -> WellFormedResult:
     it is the right one, or whether this duplicates something already in the
     tree -- those are declared on the PHASE_3 side of ``RULES`` and cannot
     fire from here.
+
+    ⚠️ **An operation the registry does not name is refused, exactly as
+    ``preview`` and ``to_dict`` refuse it.** The rule table derives what it
+    checks from the declared fields of a registered type, so a class carrying
+    none produces no required path, provokes no rule, and would otherwise come
+    back well-formed -- a clean verdict on something every other entry point
+    rejects, handed to a caller with no way to tell.
+
+    ⚠️ **This is NOT an exception to "validate never raises on any operation
+    ``from_dict`` can produce", and the difference is the point.** That
+    property is quantified over what the wire can PRODUCE, and ``from_dict``
+    refuses a type name the registry does not carry before it constructs
+    anything -- so no payload yields an unregistered class. Refusing one is
+    outside that quantifier rather than a hole in it, and the property stays
+    exactly as strong. A reader who meets this ``SchemaError`` and repairs the
+    never-raises property has repaired the wrong one; the distinction is
+    pinned by a test so it cannot be reached by accident.
     """
+    type_name_of(operation)  # refuses anything unregistered
     return _run(RULES, operation)
