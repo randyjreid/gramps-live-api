@@ -480,6 +480,104 @@ def _run(rules: Sequence[Rule], operation: Operation) -> WellFormedResult:
     return WellFormedResult(well_formed=not violations, violations=tuple(violations))
 
 
+# ---------------------------------------------------------------------------
+# Serialisation
+#
+# ⚠️ **Two error surfaces, and the line between them is load-bearing.**
+#
+# A STRUCTURAL fault -- a key nobody declared, a payload naming no operation
+# type or an unregistered one -- RAISES. There is no operation to hand back
+# and no field path to hang a violation on.
+#
+# A VALUE fault -- a declared key that is absent, empty or wrong -- does NOT
+# raise. It deserialises to the field's empty default and ``validate`` reports
+# it with a field path. If deserialisation refused these instead, validate
+# could never see them and every negative case would be unreachable from the
+# wire, which is the same defect as having two validators.
+# ---------------------------------------------------------------------------
+
+TYPE_KEY = "type"
+"""The key naming which operation a payload is."""
+
+
+class SchemaError(Exception):
+    """A payload that is not an operation at all."""
+
+
+class UnknownFieldError(SchemaError):
+    """A payload carrying a field no operation declares.
+
+    Rejected rather than ignored: a misspelled key silently dropped means the
+    operation that executes is not the one that was agreed, and nothing
+    anywhere says so.
+    """
+
+    def __init__(self, field_path: str) -> None:
+        super().__init__(f"{field_path} is not a field of this operation")
+        self.field_path = field_path
+
+
+def type_name_of(operation: Operation) -> str:
+    """The wire name of ``operation``'s type."""
+    for name, spec in REGISTRY.items():
+        if spec.cls is type(operation):
+            return name
+    raise SchemaError(f"{type(operation).__name__} is not a registered operation")
+
+
+def to_dict(operation: Operation) -> dict[str, object]:
+    """``operation`` as a JSON-shaped mapping, every declared field present."""
+    payload: dict[str, object] = {TYPE_KEY: type_name_of(operation)}
+    for declared in fields(operation):
+        value = getattr(operation, declared.name)
+        payload[declared.name] = (
+            {leaf.name: getattr(value, leaf.name) for leaf in fields(ObjectRef)}
+            if isinstance(value, ObjectRef)
+            else value
+        )
+    return payload
+
+
+def from_dict(payload: Mapping[str, object]) -> Operation:
+    """Build the operation ``payload`` describes, refusing what it cannot be."""
+    type_name = payload.get(TYPE_KEY)
+    if not isinstance(type_name, str):
+        raise SchemaError(f"a payload must name its operation under {TYPE_KEY!r}")
+    if type_name not in REGISTRY:
+        raise SchemaError(f"{type_name!r} is not a registered operation type")
+
+    cls = REGISTRY[type_name].cls
+    declared = {field.name for field in fields(cls)}
+    references = set(reference_fields(cls))
+
+    for key in payload:
+        if key != TYPE_KEY and key not in declared:
+            raise UnknownFieldError(key)
+
+    arguments: dict[str, object] = {}
+    for name in declared:
+        if name not in payload:
+            continue
+        value = payload[name]
+        arguments[name] = _reference_from(name, value) if name in references else value
+    return cls(**arguments)
+
+
+def _reference_from(name: str, value: object) -> ObjectRef | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise SchemaError(f"{name} must be a reference or absent")
+
+    leaves = {leaf.name for leaf in fields(ObjectRef)}
+    for key in value:
+        if key not in leaves:
+            # Named by full path: a refusal reporting only the leaf points at
+            # the wrong level, and criterion 6 asks for both depths.
+            raise UnknownFieldError(f"{name}.{key}")
+    return ObjectRef(**value)
+
+
 def validate(operation: Operation) -> WellFormedResult:
     """Decide whether ``operation`` is **well-formed**. Not whether it is correct.
 
