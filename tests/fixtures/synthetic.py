@@ -558,17 +558,35 @@ def separator_run_at(text: str, position: int, length: int) -> str:
     )
 
 
-def every_separator_run_spelling(text: str, *, upto: int = 3) -> list[str]:
+def every_separator_run_spelling(
+    text: str, *, upto: int = 3, long_run: int = LONG_SEPARATOR_RUN
+) -> list[str]:
     """Every way ``text`` can be written by repeating its separators.
 
     Each separator independently written once, twice, ... ``upto`` times, so
     the result covers the mixed spellings a hand-written list never does --
-    a doubled separator in one position and a single one in the next.
+    a doubled separator in one position and a single one in the next. That
+    half is a CROSS-PRODUCT, exponential in the number of separators, which is
+    why its bound is small and stays small: raising it buys a slightly larger
+    finite number and multiplies the cost of every caller by it.
+
+    ``long_run`` is the other half, and it is added LINEARLY -- one spelling
+    per separator position, that position written long and the rest single. A
+    sample that stops at three is satisfied by a fold that stops at three, so
+    short runs alone cannot speak for a rule with no upper bound; a long run at
+    each position in turn costs ``positions`` extra cases rather than
+    ``upto ** positions``. What it does not reach is several long runs at once,
+    which makes this half a sample and is recorded as one where the criterion
+    is stated.
 
     Derived from ``text``, which is the point of it. The finding this exists
     for was a rule proved against three named examples; three named examples
     are satisfied by three special cases, and walking the values the code
     itself holds is not.
+
+    Both halves of B8 read this function -- the property and its negative
+    control -- so a spelling added here reaches both by construction rather
+    than by being remembered twice.
     """
     parts = text.split(_SLASH)
     spellings = {text}
@@ -577,6 +595,8 @@ def every_separator_run_spelling(text: str, *, upto: int = 3) -> list[str]:
             parts[0]
             + "".join(_SLASH * count + part for count, part in zip(counts, parts[1:], strict=True))
         )
+    for position in range(separator_positions(text)):
+        spellings.add(separator_run_at(text, position, long_run))
     return sorted(spellings)
 
 

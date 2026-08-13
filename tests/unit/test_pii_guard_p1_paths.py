@@ -523,6 +523,14 @@ def test_every_portable_path_is_allowlisted_however_its_separators_repeat() -> N
     special cases; the allowlist's own entries are what the code holds, and
     covering the values the code holds is the thing the original measurement
     could not do by scanning real content.
+
+    The spellings are every combination of runs of one to three, plus one long
+    run at each separator position in turn. The bound on the combinations is
+    deliberate and stays: they are a cross-product, exponential in the number
+    of separators, and this half is a SCAN rather than a string operation. The
+    long runs are what a bounded sample cannot say, added linearly. That the
+    combinations and the long runs are not crossed is what makes this half a
+    sample; the unbounded claim is asserted against the normaliser above.
     """
     reported: list[str] = []
     for location in sorted(PORTABLE_PATHS):
@@ -552,6 +560,12 @@ def test_a_repeated_separator_does_not_allowlist_a_path_that_identifies_somebody
     spellings, still reporting. Sharing the helper is what keeps the two halves
     from drifting apart: a surrounding added for one is added for the other,
     rather than being remembered for one of them.
+
+    **The spellings are shared for the same reason the surroundings are.** They
+    come from one builder, so the long run at each separator position that
+    widened the property widened its control in the same commit -- and a
+    narrowed fold shows up here as a path that identifies somebody quietly
+    ceasing to be a finding, which is the direction that matters most.
     """
     personal = posix_path("home", "private-user", "tree.ged")
 
