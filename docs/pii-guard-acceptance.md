@@ -278,19 +278,27 @@ representative safe documents was the third candidate shape considered and was d
 only one that grows without bound as a fixture-maintenance burden, and a corpus is only ever as
 strong as itself.
 
-⚠️ **And the second half does not run in CI today. Stated here rather than left to be discovered.**
-The job that runs the suite checks out a single commit, so the history assertion **skips on every
-ordinary CI run**; the job that has whole history does not run the suite. So that half is asserted
-when the suite runs against a complete checkout -- locally, or anywhere the checkout is not
-truncated -- and nowhere else.
+**The second half runs in CI, on every push and every pull request.** The gates job checks out whole
+history (`fetch-depth: 0`), so the history assertion executes on all three Python legs rather than
+skipping, and that shape is itself asserted by
+`test_every_job_that_runs_the_suite_checks_out_whole_history`. Until issue #31 it was the other way
+round: the job that ran the suite checked out a single commit and the job with whole history did not
+run the suite, so **the assertion skipped on every ordinary CI run** and a detector change that
+started reporting an older reachable commit passed CI. It costs a walk of the history on each leg --
+34.6 seconds over 74 commits when measured, growing with the history.
 
-What still runs on every push is the guard job itself, over the range the event publishes. That is
-not the same claim: it covers what the push publishes rather than everything reachable, and it is a
-scan rather than an assertion about one. **The consequence is exact: a detector change that starts
-reporting an older reachable commit passes CI.** Closing it is one line of workflow -- give the suite
-a complete checkout -- and is deliberately not done here, because this issue's scope excluded the
-workflow and a criterion is the wrong place to discover that a change of scope was needed. It is
-filed as issue #31, and this paragraph is written to be narrowed when that lands.
+**What the guard job runs on every push is a different claim, and it stays one.** It scans the range
+the event publishes rather than everything reachable, and it is a scan rather than an assertion about
+one. This half asserts everything reachable from the tip, which is the superset. Neither subsumes the
+other, and that distinction is part of why the gap mattered: a scan reporting clean over what one
+push carried never was a statement about the repository.
+
+⚠️ **The residual: this half still fails closed by SKIPPING, not by failing.** It refuses to scan a
+checkout it cannot prove complete -- a range scan over commits that were never fetched reports clean
+over the part it cannot see -- and names
+`test_the_job_refuses_a_checkout_it_cannot_prove_is_complete` as its seam twin. A skip is a report of
+*not measured* and is never a clean verdict, so the CI step runs `pytest -rs`: a skip named in the
+report can be noticed, and a skip folded into a count is exactly what let issue #31 survive.
 
 What B8 buys is smaller than a guarantee, and it is the thing that was missing: **a widening can be
 shown to have cost something.** A change that starts reporting a location the allowlist holds, or
