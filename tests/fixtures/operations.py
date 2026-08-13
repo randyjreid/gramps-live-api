@@ -279,6 +279,51 @@ def forbidden_wire_values() -> list[tuple[str, str, object]]:
     return cases
 
 
+SENTINELS: Mapping[str, str] = MappingProxyType(
+    {
+        "an ordinary token": "Zephyrine-Quorvane-8231",
+        "a token carrying whitespace": "Zephyrine Quorvane 8231",
+        "shaped like the content this repository exists to keep out": (
+            "Tamsin Ashenmoor b. 1832 Larkspur Row"
+        ),
+    }
+)
+"""Distinctive values a payload can carry where a string field goes.
+
+Distinctive is the whole point: a match in a violation message has to be
+unambiguous, which ``123`` or ``"person"`` would not be. All three are
+**invented**, from the same register the other fixtures use.
+
+Three, and each earns its place. The plain token is the ordinary case; the one
+carrying whitespace also provokes ``HANDLE_MALFORMED``, so the sweep reaches
+every rule a present-and-wrong value can; the third is shaped like the content
+this repository exists to keep out, because a rule that echoes a payload echoes
+*that* on the day this vocabulary is in use, and a property demonstrated only
+on a tidy token is a property nobody believes.
+
+⚠️ **No sentinel may contain a path separator, a ``~``, or anything else
+path-shaped.** These are literals in a tracked file that the guard scans, and a
+path-shaped literal here would be a self-inflicted finding -- a trap this
+repository has sprung on itself before, while writing *about* the detectors.
+"""
+
+
+def sentinel_cases() -> list[tuple[str, str, str, str]]:
+    """(type, required path, description, sentinel) over the whole registry.
+
+    Generated exactly as ``wire_cases`` is, and for the same reason: the
+    property is that NO violation repeats a payload value, so the cases have to
+    be every place a payload can put one. A tenth operation type extends the
+    coverage without the test that consumes this being edited.
+    """
+    return [
+        (type_name, path, description, sentinel)
+        for type_name in sorted(EXAMPLES)
+        for path in required_paths(type(EXAMPLES[type_name]))
+        for description, sentinel in sorted(SENTINELS.items())
+    ]
+
+
 def _default_of(owner: object, name: str) -> object:
     for field in fields(owner):  # type: ignore[arg-type]
         if field.name == name:
