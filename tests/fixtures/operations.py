@@ -40,6 +40,21 @@ EXAMPLES: Mapping[str, Operation] = MappingProxyType(
 )
 
 
+def pointing_nowhere(operation: Operation) -> Operation:
+    """``operation`` with every reference re-aimed at an object that is not there.
+
+    Syntactically perfect, resolving to nothing. ``object_type`` is preserved
+    deliberately: rewriting it too would trip the wrong-type rule and the test
+    would then pass for the wrong reason, proving nothing about existence.
+    """
+    rewritten: dict[str, object] = {}
+    for field in fields(operation):
+        reference = getattr(operation, field.name)
+        if isinstance(reference, ObjectRef):
+            rewritten[field.name] = replace(reference, handle="0000000000dead", gramps_id="X9999")
+    return replace(operation, **rewritten)
+
+
 def resolve(operation: Operation, path: str) -> object:
     """The value at a dotted field path, or raise ``AttributeError``.
 
