@@ -12,7 +12,7 @@ import dataclasses
 import pytest
 
 from gramps_live_api.core import schema
-from tests.fixtures.operations import EXAMPLES, MALFORMED, emptied
+from tests.fixtures.operations import EXAMPLES, MALFORMED, emptied, nulled
 
 
 def test_every_rule_the_module_declares_appears_in_the_table_exactly_once() -> None:
@@ -86,11 +86,19 @@ def test_no_phase_3_rule_fires_from_validate(type_name: str, path: str) -> None:
 
 
 def _rules_observed_firing() -> set[schema.RuleId]:
-    """Every rule any test case in the fixtures can actually provoke."""
+    """Every rule any test case in the fixtures can actually provoke.
+
+    The generated cases come first and carry the weight: each is one derived
+    mutation of a canonical example, per required field of every registered
+    type, so a tenth operation type extends this coverage without this file
+    being edited. ``MALFORMED`` is the hand-written remainder, for the rules
+    that need a value which is present, well-typed and wrong.
+    """
     fired: set[schema.RuleId] = set()
-    for type_name, path in _every_negative_case():
-        result = schema.validate(emptied(EXAMPLES[type_name], path))
-        fired.update(violation.rule for violation in result.violations)
+    for derive in (emptied, nulled):
+        for type_name, path in _every_negative_case():
+            result = schema.validate(derive(EXAMPLES[type_name], path))
+            fired.update(violation.rule for violation in result.violations)
     for operation in MALFORMED.values():
         fired.update(violation.rule for violation in schema.validate(operation).violations)
     return fired

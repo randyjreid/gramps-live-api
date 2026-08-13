@@ -23,7 +23,13 @@ from collections.abc import Mapping
 from dataclasses import fields, replace
 from types import MappingProxyType
 
-from gramps_live_api.core.schema import AddCitation, AddNote, ObjectRef, Operation
+from gramps_live_api.core.schema import (
+    AddCitation,
+    AddNote,
+    ObjectRef,
+    Operation,
+    to_dict,
+)
 
 EXAMPLES: Mapping[str, Operation] = MappingProxyType(
     {
@@ -114,12 +120,62 @@ def emptied(operation: Operation, path: str) -> Operation:
     """
     head, _, rest = path.partition(".")
     if not rest:
-        return replace(operation, **{head: _default_of(operation, head)})
+        return carrying(operation, path, _default_of(operation, head))
 
     reference = getattr(operation, head)
     if reference is None:
         raise ValueError(f"{path}: cannot empty a leaf of a reference that is already absent")
-    return replace(operation, **{head: replace(reference, **{rest: _default_of(reference, rest)})})
+    return carrying(operation, path, _default_of(reference, rest))
+
+
+def nulled(operation: Operation, path: str) -> Operation:
+    """``operation`` with the leaf at ``path`` set explicitly to ``None``.
+
+    The *other* kind of absence, and not the one ``emptied`` makes. A payload
+    that carries a null is not a payload with a field missing, and a required
+    field explicitly given no value has to be reported rather than skipped --
+    generated per required field, for the same reason ``emptied`` is.
+    """
+    return carrying(operation, path, None)
+
+
+def carrying(operation: Operation, path: str, value: object) -> Operation:
+    """``operation`` with the leaf at ``path`` replaced by ``value``.
+
+    Deliberately does no checking of ``value``: this is the test side of the
+    claim that an operation is a *transport* type, so a fixture must be able to
+    put anything the wire can carry where a field goes and leave the judging to
+    ``validate``.
+    """
+    head, _, rest = path.partition(".")
+    if not rest:
+        return replace(operation, **{head: value})
+
+    reference = getattr(operation, head)
+    if reference is None:
+        raise ValueError(f"{path}: cannot set a leaf of a reference that is already absent")
+    return replace(operation, **{head: replace(reference, **{rest: value})})
+
+
+def payload_with(type_name: str, path: str, value: object) -> dict[str, object]:
+    """The canonical payload for ``type_name``, carrying ``value`` at ``path``.
+
+    The same generated negative, met from the wire instead of built as an
+    object. Both routes matter: an operation the transport can carry but
+    ``validate`` never sees is the defect the two error surfaces exist to
+    prevent.
+    """
+    payload = to_dict(EXAMPLES[type_name])
+    head, _, rest = path.partition(".")
+    if not rest:
+        payload[head] = value
+        return payload
+
+    nested = payload[head]
+    if not isinstance(nested, dict):
+        raise ValueError(f"{path}: {head} carries no nested value on the wire")
+    payload[head] = {**nested, rest: value}
+    return payload
 
 
 def _default_of(owner: object, name: str) -> object:

@@ -10,7 +10,15 @@ from __future__ import annotations
 import pytest
 
 from gramps_live_api.core import schema
-from tests.fixtures.operations import EXAMPLES, MALFORMED, emptied, pointing_nowhere, resolve
+from tests.fixtures.operations import (
+    EXAMPLES,
+    MALFORMED,
+    emptied,
+    nulled,
+    payload_with,
+    pointing_nowhere,
+    resolve,
+)
 
 
 def test_the_result_type_is_named_for_well_formedness_not_validity() -> None:
@@ -109,6 +117,53 @@ def test_every_reported_field_path_names_a_field_that_exists(type_name: str, pat
             "a caller nothing about where to look"
         )
         resolve(EXAMPLES[type_name], violation.field_path)
+
+
+def _reference_roots(type_name: str) -> set[str]:
+    return set(schema.reference_fields(type(EXAMPLES[type_name])))
+
+
+@pytest.mark.parametrize(("type_name", "path"), _every_required_field())
+def test_an_explicitly_null_required_field_is_reported_at_that_field(
+    type_name: str, path: str
+) -> None:
+    # A null the payload CARRIES is not a field the payload omits, and skipping
+    # it means validate hands back well_formed=True for an operation missing a
+    # required value. The one exception is a field whose declared type admits
+    # None -- today exactly a reference root -- which _reference_missing reports
+    # once, by name. That skip is asserted here rather than assumed, because it
+    # is the only one there is.
+    result = schema.validate(schema.from_dict(payload_with(type_name, path, None)))
+    reported = {(violation.rule, violation.field_path) for violation in result.violations}
+
+    assert not result.well_formed, (
+        f"{type_name} carrying null at {path} validated clean -- a required "
+        "field explicitly given no value is not a value, and nothing "
+        "downstream is told where the hole is"
+    )
+    expected = (
+        schema.RuleId.REFERENCE_MISSING
+        if path in _reference_roots(type_name)
+        else schema.RuleId.FIELD_NULL
+    )
+    assert (expected, path) in reported, (
+        f"null at {path} must be reported by {expected.name} AT {path}; got {sorted(reported)}"
+    )
+
+
+@pytest.mark.parametrize(("type_name", "path"), _every_required_field())
+def test_a_null_reported_from_the_wire_is_reported_the_same_way_built_as_an_object(
+    type_name: str, path: str
+) -> None:
+    # The two routes must agree. A verdict that depends on whether the
+    # operation arrived over the transport or was constructed directly is two
+    # validators again, in the shape hardest to notice.
+    from_the_wire = schema.validate(schema.from_dict(payload_with(type_name, path, None)))
+    as_an_object = schema.validate(nulled(EXAMPLES[type_name], path))
+
+    assert {(v.rule, v.field_path) for v in from_the_wire.violations} == {
+        (v.rule, v.field_path) for v in as_an_object.violations
+    }, f"null at {path} was judged differently from the wire than as an object"
 
 
 @pytest.mark.parametrize("description", sorted(MALFORMED))
