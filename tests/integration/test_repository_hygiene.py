@@ -406,6 +406,307 @@ def test_the_job_refuses_a_checkout_it_cannot_prove_is_complete() -> None:
     )
 
 
+def job_blocks(text: str) -> dict[str, str]:
+    """Every job of this workflow text, keyed by its name.
+
+    Hand-parsed by indentation for the reason shell_bodies() gives: the guard
+    job deliberately installs nothing, so this repository has no dependency to
+    add a YAML library to. A job header is the only key at two spaces -- the
+    keys inside one sit at four, and its steps at six.
+
+    The text is a parameter rather than read here, so the rules built on top of
+    it can be run over a constructed workflow. A rule that can only ever see the
+    file it guards can only be tested by editing that file.
+    """
+    _, _, jobs = text.partition("\njobs:\n")
+
+    blocks: dict[str, str] = {}
+    name = ""
+    for line in jobs.splitlines():
+        header = re.match(r"^ {2}([\w-]+):\s*$", line)
+        if header:
+            name = header.group(1)
+            blocks[name] = ""
+        elif name:
+            blocks[name] += line + "\n"
+    return blocks
+
+
+def job_steps(job: str) -> list[str]:
+    """The job's steps, as text. Split on the list marker, not on ``- name:``.
+
+    STEP_SEPARATOR would drop every unnamed step, and an unnamed ``- uses:`` is
+    exactly what a checkout is: the shape this test exists to read.
+    """
+    return re.split(r"^ {6}- ", job, flags=re.MULTILINE)[1:]
+
+
+def invokes_the_suite(step: str) -> bool:
+    """Whether this step runs pytest, read from its ``run:`` block alone.
+
+    Comments are excluded and so is everything ahead of ``run:``. This
+    workflow explains itself at length, and a step whose commentary mentions
+    the suite does not run it.
+    """
+    body = step.partition("run:")[2]
+    return any("pytest" in line for line in body.splitlines() if not line.strip().startswith("#"))
+
+
+def uses_action(step: str) -> str:
+    """The action this step runs, read from its ACTIVE ``uses:`` line.
+
+    Comments cannot answer, because a commented line begins with ``#``. Same
+    reason invokes_the_suite() reads the ``run:`` block alone: this workflow
+    explains itself at length, and a step whose prose names an action does not
+    run it.
+    """
+    for line in step.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("uses:"):
+            return stripped[len("uses:") :].strip()
+    return ""
+
+
+def step_inputs(step: str) -> dict[str, str]:
+    """The step's ACTIVE ``with:`` inputs, hand-parsed by indentation.
+
+    No YAML library, for the reason shell_bodies() and job_blocks() both give:
+    the guard job deliberately installs nothing and this repository has no
+    runtime dependency to add one to. The block begins at the line whose strip
+    is exactly ``with:`` and ends at the next line indented no further.
+
+    ⚠️ **Comments are excluded in both directions.** A commented-out input must
+    not be able to satisfy a check -- that is the fail-open the tests below
+    reproduce -- and prose sitting beside a real input must not be able to break
+    one, which would be a false red. Neither is hypothetical: the checkout this
+    reads carries fourteen lines of explanation above its one setting.
+
+    The value is normalised the way Actions reads it: an inline comment is cut,
+    then surrounding quotes are dropped, so ``0`` and ``"0"`` are the same
+    answer. Failing on the quoted spelling would be a false red about a workflow
+    that is entirely correct.
+    """
+    lines = step.splitlines()
+    inputs: dict[str, str] = {}
+    for index, line in enumerate(lines):
+        if line.strip() != "with:":
+            continue
+        indent = len(line) - len(line.lstrip())
+        for following in lines[index + 1 :]:
+            if following.strip() and len(following) - len(following.lstrip()) <= indent:
+                break
+            stripped = following.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            key, separator, value = stripped.partition(":")
+            if separator:
+                inputs[key.strip()] = value.split(" #")[0].strip().strip("\"'")
+    return inputs
+
+
+def jobs_running_the_suite(text: str) -> dict[str, str]:
+    """Every job of this workflow text that runs the suite, keyed by its name."""
+    return {
+        name: block
+        for name, block in job_blocks(text).items()
+        if any(invokes_the_suite(step) for step in job_steps(block))
+    }
+
+
+def jobs_running_the_suite_without_a_checkout(text: str) -> list[str]:
+    """Those that never check the repository out, so there is no shape to assert."""
+    return sorted(
+        name
+        for name, block in jobs_running_the_suite(text).items()
+        if not [
+            step for step in job_steps(block) if uses_action(step).startswith("actions/checkout")
+        ]
+    )
+
+
+def jobs_running_the_suite_on_a_truncated_checkout(text: str) -> list[str]:
+    """Those whose checkout has not asked for the whole history.
+
+    Both halves read ACTIVE lines rather than the step's text -- what the step
+    ``uses:``, and what its ``with:`` block sets -- and the two must be read the
+    same way. A textual detection paired with a parsed setting would let the two
+    disagree about what a checkout even is: a step whose comment mentions
+    actions/checkout would be counted as one and then reported as truncated,
+    which is the same defect facing the other way.
+    """
+    return sorted(
+        name
+        for name, block in jobs_running_the_suite(text).items()
+        for step in job_steps(block)
+        if uses_action(step).startswith("actions/checkout")
+        and step_inputs(step).get("fetch-depth") != "0"
+    )
+
+
+def test_every_job_that_runs_the_suite_checks_out_whole_history() -> None:
+    """B8's history assertion cannot run on a checkout that stops at one commit.
+
+    ``test_every_commit_this_repository_publishes_is_clean`` scans the commits
+    this repository publishes, and it refuses to do that over a truncated
+    history -- correctly, because a range scan over commits that were never
+    fetched reports clean over the part it cannot see. So on a shallow checkout
+    it SKIPS. Nothing goes red: the job stays green while the property goes
+    unmeasured on every ordinary run, which is issue #31, and it is why the
+    workflow runs ``pytest -rs``. A skip named in the report is a skip somebody
+    can notice; a skip folded into a count is what let this survive.
+
+    ⚠️ **The rule, not the routing.** This names no job, so it is equally true
+    of a job added later that runs the suite on a checkout nobody thought
+    about -- the same reason test_no_scan_step_reads_only_the_tip asks whether
+    every step running the guard passes --range, rather than asking about the
+    tag arm it was written for.
+
+    And every checkout in such a job, not merely one of them. A second checkout
+    added later without ``fetch-depth: 0`` is the same defect with a second
+    cause; failing closed on it costs a reviewer one look, and the other
+    reading costs a property nobody measures.
+    """
+    text = workflow_text()
+
+    assert jobs_running_the_suite(text), (
+        "no job runs the suite at all -- this test has stopped watching anything"
+    )
+
+    checkoutless = jobs_running_the_suite_without_a_checkout(text)
+    assert checkoutless == [], (
+        "these jobs run the suite without checking the repository out at all, so this "
+        f"test would be asserting a property of a step that is not there: {checkoutless}"
+    )
+
+    truncated = jobs_running_the_suite_on_a_truncated_checkout(text)
+
+    assert truncated == [], (
+        "these jobs run the suite on a checkout they have not asked to be complete, so "
+        "the history assertion skips there rather than failing -- the job stays green "
+        f"and the property goes unmeasured: {truncated}"
+    )
+
+
+# Three constructed workflows, each a minimal two-step ``gates`` job that runs
+# the suite. They exist because the rule above can otherwise only be exercised
+# against the one file it guards, and the defect they describe is a defect of
+# the RULE rather than of today's text: this repository's checkout comment does
+# not contain the literal, so nothing here is broken at this commit.
+A_CHECKOUT_WHOSE_SETTING_IS_ONLY_A_COMMENT = """\
+name: CI
+
+on:
+  push:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # fetch-depth: 0 deliberately omitted here
+          ref: main
+
+      - name: Tests
+        run: pytest -rs
+"""
+
+A_CHECKOUT_THAT_IS_SHALLOW_AND_MENTIONS_THE_SETTING = """\
+name: CI
+
+on:
+  push:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # One commit is enough for these gates, so no fetch-depth: 0 here.
+          fetch-depth: 1
+
+      - name: Tests
+        run: pytest -rs
+"""
+
+AN_ACTIVE_SETTING_AMONG_COMMENTS = """\
+name: CI
+
+on:
+  push:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The suite's history assertion cannot run on a truncated checkout.
+          fetch-depth: "0"
+          # fetch-depth: 0 -- prose about the line above, not a second setting.
+          # fetch-depth: 1 -- and this one would be wrong if it were read.
+          ref: main
+
+      - name: Tests
+        run: pytest -rs
+"""
+
+
+@pytest.mark.parametrize(
+    "workflow",
+    [
+        pytest.param(A_CHECKOUT_WHOSE_SETTING_IS_ONLY_A_COMMENT, id="commented-out"),
+        pytest.param(
+            A_CHECKOUT_THAT_IS_SHALLOW_AND_MENTIONS_THE_SETTING, id="shallow-but-mentioned"
+        ),
+    ],
+)
+def test_a_comment_cannot_stand_in_for_an_active_fetch_depth(workflow: str) -> None:
+    """A fail-open inside the test written to close a fail-open.
+
+    The rule above used to decide a checkout was complete with ``"fetch-depth:
+    0" not in step`` -- a substring search over the whole step, comments
+    included. The workflow it reads explains itself at length, so the literal
+    surviving in prose while the setting itself is gone is an ordinary edit, not
+    a contrivance: comment the line out and leave a sentence naming it, and the
+    rule goes green over a shallow checkout, B8's history assertion silently
+    skips again, and issue #31 is back with nothing red.
+
+    Both spellings here are that defect. The first removes the setting and keeps
+    the literal in a comment; the second leaves an ACTIVE ``fetch-depth: 1`` and
+    mentions the complete one in passing. Neither checkout fetches whole
+    history, and the substring search called both of them complete.
+    """
+    assert jobs_running_the_suite_on_a_truncated_checkout(workflow) == ["gates"], (
+        "a comment naming fetch-depth: 0 satisfied the completeness check, so a job "
+        "running the suite on a shallow checkout is reported as complete and the "
+        "history assertion skips there rather than failing"
+    )
+
+
+def test_a_comment_in_the_with_block_cannot_break_the_check() -> None:
+    """The other direction: comments must not be able to fail it either.
+
+    A parser that answered from any line of the ``with:`` block would read the
+    two comments below and report a checkout that fetches whole history as
+    truncated. That is a false red, and a false red in a fail-open guard is how
+    the guard gets weakened later by somebody fixing the wrong end of it.
+
+    The active setting is written ``"0"`` on purpose. Actions reads the bare and
+    the quoted spelling as the same value, so failing on the quoted one would be
+    a false red for a second reason.
+
+    This one is green before and after the parser it guards; it is a regression
+    test on the fix rather than a reproduction of the defect.
+    """
+    assert jobs_running_the_suite_on_a_truncated_checkout(AN_ACTIVE_SETTING_AMONG_COMMENTS) == [], (
+        "a checkout that actively asks for the whole history was reported truncated -- "
+        "either a comment in its with: block was read as a setting, or the quoted "
+        "spelling of the value was not recognised"
+    )
+
+
 def test_every_skip_names_a_seam_twin_that_exists() -> None:
     """A cross-reference that rots is worse than none at all.
 

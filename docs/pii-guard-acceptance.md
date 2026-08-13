@@ -168,16 +168,29 @@ The second half is three refusals, each with a named test:
 > (including first push with a zero SHA, and force push), pull request, fork PR, tag push; the job
 > refuses a checkout it cannot prove is complete.
 
-`tests/integration/test_repository_hygiene.py` -- **9 tests**, the whole file. The ones this
+`tests/integration/test_repository_hygiene.py` -- **12 tests**, the whole file. The ones this
 criterion rests on are asserted by reading the workflow itself rather than by describing it.
 
-⚠️ **Only four of the nine are evidence for B7 — the four named in the table below.** The count is
-the file's, as B1's is, and the two numbers are not the same number. The other five assert
+⚠️ **Only four of the twelve are evidence for B7 — the four named in the table below.** The count is
+the file's, as B1's is, and the two numbers are not the same number. The other eight assert
 neighbouring properties and say nothing about publish events: that every Python source file is
 tracked, that no workflow expression is interpolated into a shell body, that every skip names a seam
 twin that exists, and — added with the workflow-directory rule — that no path is both untracked and
 unignored and that the workflow directory is ignored. They live here because this file is where
 repository-shape assertions live.
+
+The remaining three are **not** evidence for B7 either:
+`test_every_job_that_runs_the_suite_checks_out_whole_history`, added with issue #31, together with
+`test_a_comment_cannot_stand_in_for_an_active_fetch_depth` and
+`test_a_comment_in_the_with_block_cannot_break_the_check`, which were added to close a fail-open in
+that test's own reading of the workflow. B7 is about the guard job's coverage of the events that
+publish content; all three are about the job that runs the *suite*, and about whether its checkout is
+complete enough for B8's history assertion to run rather than skip. Neighbouring shapes, different
+claims — which is exactly the conflation the count paragraph above exists to prevent.
+
+The twelve counts test **definitions**, which is what the names above are. One of them is
+parametrized over two workflows, so `pytest` collects thirteen items from the file; that number moves
+for reasons this criterion has nothing to do with.
 
 An earlier revision of this paragraph said *two* of the nine were unrelated, counting only the two
 added last. That understated it by three and so overstated what B7's coverage rests on, which is the
@@ -272,19 +285,37 @@ representative safe documents was the third candidate shape considered and was d
 only one that grows without bound as a fixture-maintenance burden, and a corpus is only ever as
 strong as itself.
 
-⚠️ **And the second half does not run in CI today. Stated here rather than left to be discovered.**
-The job that runs the suite checks out a single commit, so the history assertion **skips on every
-ordinary CI run**; the job that has whole history does not run the suite. So that half is asserted
-when the suite runs against a complete checkout -- locally, or anywhere the checkout is not
-truncated -- and nowhere else.
+**The second half runs in CI, on every push and every pull request.** The gates job checks out whole
+history (`fetch-depth: 0`), so the history assertion executes on all three Python legs rather than
+skipping, and that shape is itself asserted by
+`test_every_job_that_runs_the_suite_checks_out_whole_history`. Until issue #31 it was the other way
+round: the job that ran the suite checked out a single commit and the job with whole history did not
+run the suite, so **the assertion skipped on every ordinary CI run** and a detector change that
+started reporting an older reachable commit passed CI.
 
-What still runs on every push is the guard job itself, over the range the event publishes. That is
-not the same claim: it covers what the push publishes rather than everything reachable, and it is a
-scan rather than an assertion about one. **The consequence is exact: a detector change that starts
-reporting an older reachable commit passes CI.** Closing it is one line of workflow -- give the suite
-a complete checkout -- and is deliberately not done here, because this issue's scope excluded the
-workflow and a criterion is the wrong place to discover that a change of scope was needed. It is
-filed as issue #31, and this paragraph is written to be narrowed when that lands.
+It costs a walk of the history on each leg, and **the two costs are an order of magnitude apart, so
+the platform has to be named with the number.** Locally the walk measured 34.6 seconds over 74
+commits on a Windows development machine. On the runner, at this branch's head, the *whole suite* --
+that walk included -- finished in 9.22, 7.96 and 10.61 seconds on the 3.10, 3.11 and 3.12 legs, which
+bounds the walk there at roughly ten seconds. **That supersedes the ~1.7 minutes of added runner time
+reasoned from the local figure in commit `04b8efe`**, whose message cannot be corrected because it is
+already pushed. The reason is recorded rather than invented here: issue #12's cost model has the walk
+spawning a `git` process per commit at a measured 32 ms per spawn on Windows, which is a
+development-machine tax and not a runner one. ⚠️ **Three legs of one run over a 74-commit repository
+is not a benchmark**, and the walk still grows with the history on both platforms.
+
+**What the guard job runs on every push is a different claim, and it stays one.** It scans the range
+the event publishes rather than everything reachable, and it is a scan rather than an assertion about
+one. This half asserts everything reachable from the tip, which is the superset. Neither subsumes the
+other, and that distinction is part of why the gap mattered: a scan reporting clean over what one
+push carried never was a statement about the repository.
+
+⚠️ **The residual: this half still fails closed by SKIPPING, not by failing.** It refuses to scan a
+checkout it cannot prove complete -- a range scan over commits that were never fetched reports clean
+over the part it cannot see -- and names
+`test_the_job_refuses_a_checkout_it_cannot_prove_is_complete` as its seam twin. A skip is a report of
+*not measured* and is never a clean verdict, so the CI step runs `pytest -rs`: a skip named in the
+report can be noticed, and a skip folded into a count is exactly what let issue #31 survive.
 
 What B8 buys is smaller than a guarantee, and it is the thing that was missing: **a widening can be
 shown to have cost something.** A change that starts reporting a location the allowlist holds, or

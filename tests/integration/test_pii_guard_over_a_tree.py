@@ -107,9 +107,26 @@ def test_every_commit_this_repository_publishes_is_clean() -> None:
     nothing" must not read the same.
 
     ⚠️ **This is a measurement of THIS repository at THIS commit, and it costs a
-    walk of the history** -- about twelve seconds over thirty-six commits, and
-    linear in what follows them. It says nothing about content the repository
-    does not yet contain.
+    walk of the history** -- measured at 34.6 seconds over 74 commits on a
+    Windows development machine, against the twelve seconds over thirty-six
+    commits recorded when this was written. The two figures come from different
+    machines, so read the pair as growth with the history rather than as a rate.
+    Since issue #31 that walk is paid on each of CI's three Python legs as well
+    as locally, which is the price of the assertion running there at all rather
+    than skipping. It says nothing about content the repository does not yet
+    contain.
+
+    ⚠️ **That 34.6 seconds is the LOCAL cost, and the runner is what the cost
+    claim was about.** On ubuntu-latest at this branch's head the WHOLE SUITE --
+    this walk included -- finished in 9.22, 7.96 and 10.61 seconds on the 3.10,
+    3.11 and 3.12 legs, which bounds the walk there at roughly ten seconds: an
+    order of magnitude under the local figure, and it supersedes the ~1.7
+    minutes of added runner time that commit 04b8efe reasoned from that figure.
+    The reason is already recorded rather than invented here -- issue #12's cost
+    model, where the walk spawns a git process per commit at a measured 32 ms
+    per spawn on Windows. That is a development-machine tax and not a runner
+    one. Three legs of one run over a 74-commit repository is not a benchmark,
+    and the walk still grows with the history on both platforms.
     """
     shallow = subprocess.run(
         ["git", "rev-parse", "--is-shallow-repository"],
