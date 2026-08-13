@@ -27,25 +27,31 @@ machine.
 
 ## Status
 
-**Phase 0 of 8 -- scaffold.** There is no product functionality yet. What exists is the test
-skeleton, the CI gates, and the guard that keeps personal data out of this public repository.
+**Phase 1 of 8 -- `core/schema`**, in progress: the operation model and its validation, on pure
+unit tests. There is no product functionality yet. What exists is the test skeleton, the CI gates,
+and the guard that keeps personal data out of this public repository.
 
 Nothing in this repository imports `gramps` or `gi` yet, and there is no HTTP server.
 
 ## Roadmap
 
-Provisional; the phases after the current one will be specified as they are reached.
+Provisional beyond the current phase; the ones after it are specified as they are reached.
 
-| Phase | What it adds |
-| --- | --- |
-| 0 | Scaffold: test-first layout, CI gates, the PII guard |
-| 1 | A read-only bridge to the live database |
-| 2 | The loopback HTTP server and read endpoints |
-| 3 | The gramplet: the addon that runs the server inside Gramps |
-| 4 | The backup mechanism, before any write is possible |
-| 5 | An operation schema: a typed vocabulary for proposed changes |
-| 6 | Apply logic: validated writes through Gramps' own handle |
-| 7 | The MCP client |
+**When this table and the [milestones](https://github.com/randyjreid/gramps-live-api/milestones)
+disagree, the milestones are the authority.** This table was stale in all eight rows once already,
+and the point of saying where the answer lives is that the next drift is resolved by looking rather
+than re-argued.
+
+| Phase | Milestone | What it adds |
+| --- | --- | --- |
+| 0 | Scaffold | Repo, GPL-2.0, `.gitignore` in the first commit, `pyproject`, ruff/mypy, CI green on an empty suite |
+| 1 | core/schema | Operation model and validation. Pure unit tests. Gramps' `Date` model used directly, conditional on an import check passing on 3.10/3.11/3.12 |
+| 2 | Backup mechanism | How a pre-batch backup is produced from inside a running Gramps. No write endpoint ships before this |
+| 3 | core/apply | `DbTxn` writes. Integration tests assert reference backlink integrity after every operation |
+| 4 | core/query | Read helpers over a seeded synthetic tree |
+| 5 | bridge/server | Loopback HTTP with token auth and the four endpoints. Tests against a stub core |
+| 6 | gramplet | GTK shell and `GLib.idle_add` marshalling. Manual verification checklist; not CI-testable |
+| 7 | mcp | stdio MCP client, `claude mcp add`, full end-to-end verification against the live tree |
 
 ## Privacy
 

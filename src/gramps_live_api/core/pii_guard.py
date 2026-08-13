@@ -511,9 +511,9 @@ _PATH_POSITION = re.compile(
         # repeated separator: "file" is itself a trigger above, so joining
         # here reads the authority as part of the path. Measured, over nine
         # file-URL constructions: the reported value gained the authority
-        # separators, and two portable locations became findings because a
-        # value carrying them is no longer the exact string the allowlist
-        # holds. The tail already tolerated repeats and always has.
+        # separators, so the evidence shown to an operator would name the
+        # authority as part of what it found. The tail already tolerated
+        # repeats and always has.
         (?:"""
     + _HOME_PATH
     + r""" | """
