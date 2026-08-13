@@ -275,6 +275,7 @@ class RuleId(Enum):
 
     REFERENCE_MISSING = "REFERENCE_MISSING"
     FIELD_EMPTY = "FIELD_EMPTY"
+    FIELD_NULL = "FIELD_NULL"
     OBJECT_TYPE_UNKNOWN = "OBJECT_TYPE_UNKNOWN"
     NOTE_TYPE_UNKNOWN = "NOTE_TYPE_UNKNOWN"
     HANDLE_MALFORMED = "HANDLE_MALFORMED"
@@ -382,6 +383,33 @@ def required_paths(cls: type[Operation]) -> tuple[str, ...]:
     return tuple(paths)
 
 
+def _declared_at(cls: type, path: str) -> tuple[tuple[type, ...], bool]:
+    """The types ``path`` may hold on ``cls``, and whether ``None`` is one of them.
+
+    Read off the declaration, like everything else in this section, and that is
+    what makes the ONE documented skip fall out by construction instead of
+    being restated: a field whose declared type admits ``None`` is
+    ``_reference_missing``'s business, and today those are exactly the
+    reference roots. An enumeration of "the fields that may be absent" would be
+    the same fact pointed backwards -- correct now, and wrong the day a type
+    declares an optional scalar.
+    """
+    owner: type = cls
+    permitted: tuple[type, ...] = ()
+    optional = False
+    for step in path.split("."):
+        annotation = get_type_hints(owner)[step]
+        candidates = get_args(annotation) or (annotation,)
+        permitted = tuple(
+            candidate
+            for candidate in candidates
+            if isinstance(candidate, type) and candidate is not type(None)
+        )
+        optional = type(None) in candidates
+        owner = permitted[0] if permitted else object
+    return permitted, optional
+
+
 # ---------------------------------------------------------------------------
 # The rules
 # ---------------------------------------------------------------------------
@@ -410,10 +438,31 @@ def _field_empty(operation: Operation) -> tuple[RuleViolation, ...]:
     for path in required_paths(type(operation)):
         value = _at(operation, path)
         if value is _ABSENT or value is None:
-            # An absent reference is reported once, by _reference_missing.
+            # Absence is not emptiness, and neither is this rule's business:
+            # _reference_missing reports an absent reference root and
+            # _field_null reports every other None, each once and by name.
             continue
         if isinstance(value, str) and not value.strip():
             violations.append(RuleViolation(RuleId.FIELD_EMPTY, path, f"{path} is empty"))
+    return tuple(violations)
+
+
+def _field_null(operation: Operation) -> tuple[RuleViolation, ...]:
+    # A null the payload CARRIES, which is a different fault from a key it
+    # omits: deserialisation cannot refuse it without becoming a second
+    # validator with no field path, so validate has to be the one that judges
+    # it. Skipping it is how well_formed=True is returned for an operation
+    # missing a required value.
+    violations = []
+    for path in required_paths(type(operation)):
+        if _at(operation, path) is not None:
+            continue
+        if _declared_at(type(operation), path)[1]:
+            # The one skip there is, and it is the declaration's word rather
+            # than a list kept here: a field that MAY hold None is reported by
+            # _reference_missing when it does.
+            continue
+        violations.append(RuleViolation(RuleId.FIELD_NULL, path, f"{path} is null"))
     return tuple(violations)
 
 
@@ -486,6 +535,7 @@ def _reference_wrong_type(operation: Operation) -> tuple[RuleViolation, ...]:
 RULES: tuple[Rule, ...] = (
     Rule(RuleId.REFERENCE_MISSING, Phase.PHASE_1, _reference_missing),
     Rule(RuleId.FIELD_EMPTY, Phase.PHASE_1, _field_empty),
+    Rule(RuleId.FIELD_NULL, Phase.PHASE_1, _field_null),
     Rule(RuleId.OBJECT_TYPE_UNKNOWN, Phase.PHASE_1, _object_type_unknown),
     Rule(RuleId.NOTE_TYPE_UNKNOWN, Phase.PHASE_1, _note_type_unknown),
     Rule(RuleId.HANDLE_MALFORMED, Phase.PHASE_1, _handle_malformed),
