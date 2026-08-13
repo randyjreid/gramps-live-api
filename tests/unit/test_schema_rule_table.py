@@ -12,7 +12,7 @@ import dataclasses
 import pytest
 
 from gramps_live_api.core import schema
-from tests.fixtures.operations import EXAMPLES, emptied
+from tests.fixtures.operations import EXAMPLES, MALFORMED, emptied
 
 
 def test_every_rule_the_module_declares_appears_in_the_table_exactly_once() -> None:
@@ -82,6 +82,42 @@ def test_no_phase_3_rule_fires_from_validate(type_name: str, path: str) -> None:
     assert fired == [], (
         "a PHASE_3 rule fired from validate, so this module answered a "
         f"question that needs a tree; got {fired}"
+    )
+
+
+def _rules_observed_firing() -> set[schema.RuleId]:
+    """Every rule any test case in the fixtures can actually provoke."""
+    fired: set[schema.RuleId] = set()
+    for type_name, path in _every_negative_case():
+        result = schema.validate(emptied(EXAMPLES[type_name], path))
+        fired.update(violation.rule for violation in result.violations)
+    for operation in MALFORMED.values():
+        fired.update(violation.rule for violation in schema.validate(operation).violations)
+    return fired
+
+
+def test_every_phase_1_rule_can_fire() -> None:
+    # The converse of "every rule the validator emits is in the table", and
+    # the half that catches dead code: a rule declared PHASE_1 with a check
+    # nothing provokes has never been run, so nothing says it works.
+    declared = {rule.id for rule in schema.RULES if rule.phase is schema.Phase.PHASE_1}
+    never = sorted(rule.name for rule in declared - _rules_observed_firing())
+
+    assert never == [], (
+        "these PHASE_1 rules are implemented and no test case makes them "
+        "report, so their checks have never run. TO FIX: add one operation "
+        "that is well-shaped and wrong to MALFORMED in "
+        f"tests/fixtures/operations.py, one per rule listed here: {never}"
+    )
+
+
+@pytest.mark.parametrize("description", sorted(MALFORMED))
+def test_each_malformed_case_is_reported(description: str) -> None:
+    result = schema.validate(MALFORMED[description])
+
+    assert not result.well_formed, (
+        f"{description} validated clean, so the fixture no longer exercises "
+        "the rule it was written for"
     )
 
 

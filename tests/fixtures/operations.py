@@ -40,6 +40,38 @@ EXAMPLES: Mapping[str, Operation] = MappingProxyType(
 )
 
 
+MALFORMED: Mapping[str, Operation] = MappingProxyType(
+    {
+        "an object type nobody registered": AddNote(
+            target=ObjectRef(object_type="dwelling", handle="b2c3d4e5f60718", gramps_id="P0002"),
+            note_type="research",
+            text="Ashenmoor deed",
+        ),
+        "a note type nobody registered": AddNote(
+            target=ObjectRef(object_type="person", handle="b2c3d4e5f60718", gramps_id="I0012"),
+            note_type="musing",
+            text="Ashenmoor deed",
+        ),
+        "a handle that is not one printable token": AddNote(
+            target=ObjectRef(object_type="person", handle="two words", gramps_id="I0012"),
+            note_type="research",
+            text="Ashenmoor deed",
+        ),
+        "provenance pointing at something that is not a citation": AddCitation(
+            target=ObjectRef(object_type="person", handle="c9a1f0e2b7d46a", gramps_id="I0031"),
+            citation=ObjectRef(object_type="source", handle="e41b8c07a25fd3", gramps_id="S0009"),
+        ),
+    }
+)
+"""Operations that are well-shaped but wrong, one per rule that needs one.
+
+Emptying a field exercises only the two rules about absence. Every other
+PHASE_1 rule needs a value that is *present and wrong*, and a rule no test can
+make fire is a rule nobody has checked. ``test_every_phase_1_rule_can_fire``
+asserts the coverage rather than trusting this table to be complete.
+"""
+
+
 def pointing_nowhere(operation: Operation) -> Operation:
     """``operation`` with every reference re-aimed at an object that is not there.
 
