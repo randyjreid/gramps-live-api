@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from gramps_live_api.core import schema
-from tests.fixtures.operations import EXAMPLES, pointing_nowhere
+from tests.fixtures.operations import EXAMPLES, emptied, pointing_nowhere, resolve
 
 
 def test_the_result_type_is_named_for_well_formedness_not_validity() -> None:
@@ -58,3 +58,99 @@ def test_a_well_formed_reference_to_a_nonexistent_object_passes(type_name: str) 
         "exist is WELL-FORMED. Reporting it here would be existence checking, "
         f"which needs a database and belongs to Phase 3; got {result.violations}"
     )
+
+
+def _every_required_field() -> list[tuple[str, str]]:
+    """(type, path) for every required field of every registered type.
+
+    Computed from the registry at collection time, so a tenth operation type
+    brings its whole positive-and-negative set with it and this file does not
+    change.
+    """
+    return [
+        (type_name, path)
+        for type_name in sorted(EXAMPLES)
+        for path in schema.required_paths(type(EXAMPLES[type_name]))
+    ]
+
+
+@pytest.mark.parametrize(("type_name", "path"), _every_required_field())
+def test_the_example_is_well_formed_with_this_field_present(type_name: str, path: str) -> None:
+    # Criterion 2's positive half, one per required field. Parametrised rather
+    # than asserted once so a failure names the field it is about.
+    result = schema.validate(EXAMPLES[type_name])
+
+    assert result.well_formed, f"{type_name} with {path} present must pass; got {result.violations}"
+
+
+@pytest.mark.parametrize(("type_name", "path"), _every_required_field())
+def test_emptying_one_required_field_is_reported_at_that_field(type_name: str, path: str) -> None:
+    result = schema.validate(emptied(EXAMPLES[type_name], path))
+
+    assert not result.well_formed, (
+        f"{type_name} with {path} emptied must not be well-formed -- a required "
+        "field nothing reports is a required field in name only"
+    )
+    assert path in [violation.field_path for violation in result.violations], (
+        f"the failure must be reported AT {path}, not merely somewhere; got "
+        f"{[(v.rule.name, v.field_path) for v in result.violations]}"
+    )
+
+
+@pytest.mark.parametrize(("type_name", "path"), _every_required_field())
+def test_every_reported_field_path_names_a_field_that_exists(type_name: str, path: str) -> None:
+    # Criterion 5, asserted over every negative case rather than over a chosen
+    # one. A path that resolves nowhere is a message nobody can act on.
+    result = schema.validate(emptied(EXAMPLES[type_name], path))
+
+    for violation in result.violations:
+        assert violation.field_path, (
+            f"{violation.rule.name} reported an empty field path, which tells "
+            "a caller nothing about where to look"
+        )
+        resolve(EXAMPLES[type_name], violation.field_path)
+
+
+def _types_with_at_least_three_required_leaves() -> list[str]:
+    return [
+        type_name
+        for type_name in sorted(EXAMPLES)
+        if len(_leaf_paths(type_name)) >= 3  # noqa: PLR2004
+    ]
+
+
+def _leaf_paths(type_name: str) -> list[str]:
+    # Leaves only: emptying a reference root collapses its own leaves, so
+    # three faults would be reported as one and the test would measure the
+    # wrong thing.
+    cls = type(EXAMPLES[type_name])
+    roots = set(schema.reference_fields(cls))
+    return [path for path in schema.required_paths(cls) if path not in roots]
+
+
+def test_at_least_one_registered_type_can_carry_three_faults_at_once() -> None:
+    assert _types_with_at_least_three_required_leaves(), (
+        "no registered type has three required leaves, so the "
+        "three-simultaneous-errors criterion below is vacuous"
+    )
+
+
+@pytest.mark.parametrize("type_name", _types_with_at_least_three_required_leaves())
+def test_three_simultaneous_faults_are_all_reported(type_name: str) -> None:
+    faulty = EXAMPLES[type_name]
+    broken = _leaf_paths(type_name)[:3]
+    for path in broken:
+        faulty = emptied(faulty, path)
+
+    result = schema.validate(faulty)
+    reported = {(violation.rule, violation.field_path) for violation in result.violations}
+
+    assert len(reported) >= 3, (  # noqa: PLR2004
+        "three distinct faults must be reported as three, not as the first "
+        f"one found -- fixing them one round trip at a time is what "
+        f"accumulation exists to prevent; broke {broken}, got {sorted(reported)}"
+    )
+    for path in broken:
+        assert path in {field_path for _, field_path in reported}, (
+            f"{path} was emptied and nothing reported it; got {sorted(reported)}"
+        )
