@@ -70,6 +70,45 @@ strings rather than an ``Enum`` -- see ``ObjectRef.object_type``.
 _EXPECTS = "expects"
 """Field metadata key: which object type a reference field must point at."""
 
+_PREVIEW_TEXT_LIMIT = 60
+"""How much of a free-text value a one-line preview carries before eliding."""
+
+
+def _named(reference: ObjectRef | None) -> str:
+    """A reference as a person reads it: what kind of thing, and which one.
+
+    ⚠️ **The handle is deliberately absent and must stay absent.** It is
+    machine identity; naming it here is the one thing criterion 7 rules out
+    outright, because an operation identified by an opaque string cannot be
+    checked against a record by the person approving it.
+    """
+    if reference is None:
+        return "an object that was not named"
+    kind = reference.object_type or "object"
+    return f"{kind} {reference.gramps_id}" if reference.gramps_id else f"an unidentified {kind}"
+
+
+def _identified(reference: ObjectRef | None) -> str:
+    """A reference where the sentence has already said what kind of thing it is.
+
+    ``cite citation C0042`` is what naming the kind twice reads like, and a
+    sentence a reviewer trips over is one they stop reading. Same guarantee as
+    ``_named``: the identifier, never the handle.
+    """
+    if reference is None:
+        return "an object that was not named"
+    return reference.gramps_id or f"an unidentified {reference.object_type or 'object'}"
+
+
+def _shortened(text: str) -> str:
+    """Free text, quoted, and cut to something a single line can hold."""
+    collapsed = " ".join(text.split())
+    if not collapsed:
+        return "(no text)"
+    if len(collapsed) > _PREVIEW_TEXT_LIMIT:
+        collapsed = collapsed[: _PREVIEW_TEXT_LIMIT - 1].rstrip() + "…"
+    return f"“{collapsed}”"
+
 
 @dataclass(frozen=True, slots=True)
 class ObjectRef:
@@ -103,6 +142,15 @@ class Operation:
     the "two matchers, two ideas" shape this repository has recorded more than
     once -- and it puts the refusal somewhere no field path can reach.
     """
+
+    def render(self) -> str:
+        """One sentence describing what this operation would do.
+
+        Called only through ``preview``, which applies the single-line rule.
+        An override returns whatever reads best; it does not have to remember
+        to strip newlines, and that is the point of the choke point.
+        """
+        raise NotImplementedError
 
 
 _Registered = TypeVar("_Registered", bound=type[Operation])
@@ -281,6 +329,9 @@ class AddCitation(Operation):
     target: ObjectRef | None = None
     citation: ObjectRef | None = field(default=None, metadata={_EXPECTS: OBJECT_TYPE_CITATION})
 
+    def render(self) -> str:
+        return f"cite {_identified(self.citation)} as evidence for {_named(self.target)}"
+
 
 @_register("add_note", citation_field=None)
 @dataclass(frozen=True, slots=True)
@@ -294,6 +345,9 @@ class AddNote(Operation):
     target: ObjectRef | None = None
     note_type: str = ""
     text: str = ""
+
+    def render(self) -> str:
+        return f"add a {self.note_type} note to {_named(self.target)}: {_shortened(self.text)}"
 
 
 # ---------------------------------------------------------------------------
@@ -576,6 +630,19 @@ def _reference_from(name: str, value: object) -> ObjectRef | None:
             # the wrong level, and criterion 6 asks for both depths.
             raise UnknownFieldError(f"{name}.{key}")
     return ObjectRef(**value)
+
+
+def preview(operation: Operation) -> str:
+    """One line describing what ``operation`` would do, for a person to approve.
+
+    ⚠️ **The single-line rule is applied HERE and nowhere else.** Nine
+    renderers each remembering to strip newlines is nine chances to forget;
+    one choke point is a property. Dispatch goes through the registry, so
+    something that is not a registered operation is refused rather than
+    rendered as whatever its class happens to say.
+    """
+    type_name_of(operation)  # refuses anything unregistered
+    return " ".join(operation.render().split())
 
 
 def validate(operation: Operation) -> WellFormedResult:
