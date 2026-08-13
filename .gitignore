@@ -98,11 +98,19 @@ ipython_config.py
 #   Ruled (#11): the lockfile is TRACKED, so the stock entry below stays commented out and
 #   this file governs it explicitly rather than by omission. Upstream's note points both
 #   ways -- lock an application, ignore it for a library -- and this project is both a
-#   distributable addon and a portfolio repository whose CI signal is a deliverable. The
-#   reproducibility of the gate wins, and it costs no consumer anything: the addon is
-#   installed by copying a folder into the Gramps plugin folder, not by pip, so a committed
-#   lock constrains nobody. CONTRIBUTING.md records why the guard admits it as one named
-#   basename rather than as a file type.
+#   distributable addon and a portfolio repository whose CI signal is a deliverable.
+#
+#   Tracking it costs no consumer anything: the addon is installed by copying a folder into
+#   the Gramps plugin folder, not by pip, so a committed lock constrains nobody.
+#
+#   BUT IT DOES NOT MAKE THE GATE REPRODUCIBLE, and this comment used to say it did. CI
+#   installs from pyproject and never reads this file, so a green run does not pin what it
+#   resolved, and a locked local environment is not reproducing CI. The reproducibility
+#   argument belongs to the CI change, not to tracking the file -- #11 stays open on exactly
+#   that. Until then this is a tracked artefact and nothing more.
+#
+#   CONTRIBUTING.md records why the guard admits it as one named basename rather than as a
+#   file type.
 # uv.lock
 
 # poetry
