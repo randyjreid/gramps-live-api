@@ -328,3 +328,81 @@ def test_a_null_a_wrong_type_and_an_empty_are_reported_as_three_faults(type_name
             f"{expected[0].name} at {expected[1]} was not reported alongside "
             f"the other two faults; got {sorted(reported)}"
         )
+
+
+class _Unregistered(schema.Operation):
+    """An operation class the registry does not name.
+
+    Written here rather than imported, because the registry is closed and
+    there is no other way to obtain one: a caller holding an unregistered
+    operation wrote the class, which is exactly the case below.
+    """
+
+
+UNREGISTERED: dict[str, schema.Operation] = {
+    "a locally defined subclass": _Unregistered(),
+    "the base class itself": schema.Operation(),
+}
+
+
+@pytest.mark.parametrize("description", sorted(UNREGISTERED))
+def test_validating_something_that_is_not_a_registered_operation_is_refused(
+    description: str,
+) -> None:
+    # The closed registry is what lets anything downstream believe the
+    # operation it holds is one this module supports. validate is a public way
+    # in, so it keeps that guarantee too: a clean WellFormedResult for a class
+    # that from_dict, to_dict and preview all reject is a verdict nothing else
+    # will honour, handed to a caller with no way to tell.
+    with pytest.raises(schema.SchemaError):
+        schema.validate(UNREGISTERED[description])
+
+
+@pytest.mark.parametrize("description", sorted(UNREGISTERED))
+def test_the_three_entry_points_refuse_the_same_unregistered_operation(
+    description: str,
+) -> None:
+    # Consistency is the justification, so it is the assertion. Three public
+    # calls take an Operation, and a caller cannot reason about the registry at
+    # all while one of them answers differently from the other two. The way
+    # that drifts back is one of the three being changed alone, which is what
+    # this reports.
+    operation = UNREGISTERED[description]
+    refused = []
+
+    for name, call in (
+        ("preview", schema.preview),
+        ("to_dict", schema.to_dict),
+        ("validate", schema.validate),
+    ):
+        try:
+            call(operation)
+        except schema.SchemaError:
+            refused.append(name)
+
+    assert refused == ["preview", "to_dict", "validate"], (
+        "preview, to_dict and validate must agree about what the registry does "
+        f"not name; given {description}, only {refused} refused it"
+    )
+
+
+def test_an_unregistered_class_is_not_something_the_wire_can_produce() -> None:
+    # The distinction the refusal above rests on, pinned so a later reader
+    # meeting a SchemaError out of validate does not conclude the never-raises
+    # property broke and repair the wrong one. That property is quantified over
+    # the operations from_dict can PRODUCE, and from_dict refuses a type name
+    # the registry does not carry before it constructs anything. So no payload
+    # yields this class: refusing it is OUTSIDE the quantifier, not an
+    # exception to it, and the sweep above stands untouched.
+    name = _Unregistered.__name__
+
+    assert name not in schema.REGISTRY, (
+        f"{name} is registered under its own name, so the cases above are "
+        "about a registered type and prove nothing"
+    )
+    assert all(spec.cls is not _Unregistered for spec in schema.REGISTRY.values()), (
+        f"{name} reached the registry under some other name, so the cases "
+        "above are about a registered type and prove nothing"
+    )
+    with pytest.raises(schema.SchemaError):
+        schema.from_dict({schema.TYPE_KEY: name})
