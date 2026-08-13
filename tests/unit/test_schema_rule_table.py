@@ -12,7 +12,7 @@ import dataclasses
 import pytest
 
 from gramps_live_api.core import schema
-from tests.fixtures.operations import EXAMPLES, MALFORMED, emptied, nulled
+from tests.fixtures.operations import EXAMPLES, MALFORMED, emptied, mistyped, nulled
 
 
 def test_every_rule_the_module_declares_appears_in_the_table_exactly_once() -> None:
@@ -95,7 +95,7 @@ def _rules_observed_firing() -> set[schema.RuleId]:
     that need a value which is present, well-typed and wrong.
     """
     fired: set[schema.RuleId] = set()
-    for derive in (emptied, nulled):
+    for derive in (emptied, nulled, mistyped):
         for type_name, path in _every_negative_case():
             result = schema.validate(derive(EXAMPLES[type_name], path))
             fired.update(violation.rule for violation in result.violations)

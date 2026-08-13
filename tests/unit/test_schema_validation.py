@@ -14,10 +14,13 @@ from tests.fixtures.operations import (
     EXAMPLES,
     MALFORMED,
     emptied,
+    forbidden_wire_values,
+    mistyped,
     nulled,
     payload_with,
     pointing_nowhere,
     resolve,
+    wire_cases,
 )
 
 
@@ -166,6 +169,80 @@ def test_a_null_reported_from_the_wire_is_reported_the_same_way_built_as_an_obje
     }, f"null at {path} was judged differently from the wire than as an object"
 
 
+@pytest.mark.parametrize(("type_name", "path", "value"), wire_cases())
+def test_validate_never_raises_on_anything_the_wire_can_carry(
+    type_name: str, path: str, value: object
+) -> None:
+    # THE invariant behind "the operation type is a transport type and validate
+    # is the single judge". A validator that can raise on its own input is not a
+    # judge; it is a second failure mode with no field path, which is the shape
+    # every field defaulting to empty was chosen to avoid.
+    #
+    # Only SchemaError is caught, and that IS the assertion: refusing a payload
+    # that is not an operation at all is the documented structural surface.
+    # Anything else -- a TypeError out of a regex, an AttributeError off a
+    # value -- escapes here and fails this test by name.
+    try:
+        operation = schema.from_dict(payload_with(type_name, path, value))
+    except schema.SchemaError:
+        return
+
+    result = schema.validate(operation)
+
+    assert isinstance(result, schema.WellFormedResult), (
+        f"{type_name} carrying {value!r} at {path} must be JUDGED, not raised on"
+    )
+
+
+@pytest.mark.parametrize(("type_name", "path", "value"), forbidden_wire_values())
+def test_a_value_the_declared_type_forbids_is_refused_or_reported_at_that_field(
+    type_name: str, path: str, value: object
+) -> None:
+    # The two acceptable answers, and nothing else: either deserialisation
+    # refuses the payload, or validate reports it AT the field. Passing an
+    # arbitrary wire value into the dataclass and calling it well-formed is what
+    # leaves a caller to discover the type later, somewhere with no field path.
+    try:
+        operation = schema.from_dict(payload_with(type_name, path, value))
+    except schema.SchemaError:
+        return
+
+    result = schema.validate(operation)
+    reported = {(violation.rule, violation.field_path) for violation in result.violations}
+
+    assert not result.well_formed, (
+        f"{type_name} carrying {value!r} at {path} validated clean, and "
+        f"{path} does not declare {type(value).__name__}"
+    )
+    assert (schema.RuleId.FIELD_WRONG_TYPE, path) in reported, (
+        f"a wrong-typed value must be reported AT {path}; got {sorted(reported)}"
+    )
+
+
+@pytest.mark.parametrize(("type_name", "path"), _every_required_field())
+def test_a_wrong_typed_value_is_reported_even_where_the_wire_cannot_reach(
+    type_name: str, path: str
+) -> None:
+    # Built as an object rather than deserialised, which is how a reference ROOT
+    # gets a wrong-typed value at all: the wire cannot carry one, because
+    # anything that is not a mapping is refused before validate sees it. The
+    # rule is still asserted there, so it does not hold only where a payload
+    # happens to be able to reach.
+    faulty = mistyped(EXAMPLES[type_name], path)
+
+    assert faulty != EXAMPLES[type_name], (
+        f"the derived wrong value for {path} left the example unchanged, so "
+        "this case proves nothing"
+    )
+
+    result = schema.validate(faulty)
+    reported = {(violation.rule, violation.field_path) for violation in result.violations}
+
+    assert (schema.RuleId.FIELD_WRONG_TYPE, path) in reported, (
+        f"a wrong-typed value at {path} must be reported there; got {sorted(reported)}"
+    )
+
+
 @pytest.mark.parametrize("description", sorted(MALFORMED))
 def test_a_present_but_wrong_value_is_also_reported_at_a_field_that_exists(
     description: str,
@@ -224,4 +301,30 @@ def test_three_simultaneous_faults_are_all_reported(type_name: str) -> None:
     for path in broken:
         assert path in {field_path for _, field_path in reported}, (
             f"{path} was emptied and nothing reported it; got {sorted(reported)}"
+        )
+
+
+@pytest.mark.parametrize("type_name", _types_with_at_least_three_required_leaves())
+def test_a_null_a_wrong_type_and_an_empty_are_reported_as_three_faults(type_name: str) -> None:
+    # The criterion above, over the three KINDS of value fault rather than three
+    # of one kind. A type rule that short-circuits -- returning on the first
+    # wrong type, or refusing the payload outright -- reports one of these and
+    # hides the other two, which is the round-trip-per-fault behaviour
+    # accumulation exists to prevent.
+    null_at, wrong_at, empty_at = _leaf_paths(type_name)[:3]
+    faulty = nulled(EXAMPLES[type_name], null_at)
+    faulty = mistyped(faulty, wrong_at)
+    faulty = emptied(faulty, empty_at)
+
+    result = schema.validate(faulty)
+    reported = {(violation.rule, violation.field_path) for violation in result.violations}
+
+    for expected in (
+        (schema.RuleId.FIELD_NULL, null_at),
+        (schema.RuleId.FIELD_WRONG_TYPE, wrong_at),
+        (schema.RuleId.FIELD_EMPTY, empty_at),
+    ):
+        assert expected in reported, (
+            f"{expected[0].name} at {expected[1]} was not reported alongside "
+            f"the other two faults; got {sorted(reported)}"
         )

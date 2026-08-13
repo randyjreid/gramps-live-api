@@ -20,14 +20,16 @@ checkout:
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import fields, replace
+from dataclasses import fields, is_dataclass, replace
 from types import MappingProxyType
+from typing import get_args, get_type_hints
 
 from gramps_live_api.core.schema import (
     AddCitation,
     AddNote,
     ObjectRef,
     Operation,
+    required_paths,
     to_dict,
 )
 
@@ -176,6 +178,105 @@ def payload_with(type_name: str, path: str, value: object) -> dict[str, object]:
         raise ValueError(f"{path}: {head} carries no nested value on the wire")
     payload[head] = {**nested, rest: value}
     return payload
+
+
+WIRE_VALUES: tuple[object, ...] = (None, 123, True, [], {}, 1.5)
+"""What a JSON payload can carry where a field goes.
+
+Not a guess at what a client might send wrongly -- these are the JSON types,
+which is the whole space the transport has. ``[]`` and ``{}`` are here for a
+specific reason: they are FALSY, and a guard written as ``if not value`` lets a
+falsy wrong-typed value through while catching the truthy ones.
+"""
+
+
+def permits(cls: type, path: str, value: object) -> bool:
+    """Whether ``cls``'s own declaration allows ``value`` at ``path``.
+
+    ⚠️ **Derived here from ``dataclasses.fields`` and ``get_type_hints``, and
+    deliberately NOT by calling the module's helper.** The module decides what
+    it will accept; this decides what it *should*, from the same declaration by
+    a different route. Two sources that must agree is a test -- one source read
+    twice is not, and it would pass just as happily if both were wrong.
+    """
+    permitted, optional = _declared(cls, path)
+    if value is None:
+        return optional
+    return isinstance(value, permitted)
+
+
+def _declared(cls: type, path: str) -> tuple[tuple[type, ...], bool]:
+    owner: type = cls
+    permitted: tuple[type, ...] = ()
+    optional = False
+    for step in path.split("."):
+        annotation = get_type_hints(owner)[step]
+        candidates = get_args(annotation) or (annotation,)
+        permitted = tuple(
+            candidate
+            for candidate in candidates
+            if isinstance(candidate, type) and candidate is not type(None)
+        )
+        optional = type(None) in candidates
+        owner = permitted[0] if permitted else object
+    return permitted, optional
+
+
+def wrong_value_for(cls: type, path: str) -> object:
+    """A value of a type ``path`` does not declare, chosen from ``WIRE_VALUES``.
+
+    Derived rather than tabulated, so a field of a type nobody here anticipated
+    still gets a negative case -- and if no wire value is wrong for it, that
+    raises rather than quietly generating a case that proves nothing.
+    """
+    for value in WIRE_VALUES:
+        if value is not None and not permits(cls, path, value):
+            return value
+    raise ValueError(f"{path}: no value in WIRE_VALUES is of a type it forbids")
+
+
+def mistyped(operation: Operation, path: str) -> Operation:
+    """``operation`` with the leaf at ``path`` holding a wrong-typed value."""
+    return carrying(operation, path, wrong_value_for(type(operation), path))
+
+
+def wire_cases() -> list[tuple[str, str, object]]:
+    """Every (type, required path, wire value) a payload can be built from.
+
+    The whole cross product, generated from the registry: what the transport can
+    carry at every required field of every registered type. A tenth operation
+    type widens it without anything here changing.
+    """
+    return [
+        (type_name, path, value)
+        for type_name in sorted(EXAMPLES)
+        for path in required_paths(type(EXAMPLES[type_name]))
+        for value in WIRE_VALUES
+    ]
+
+
+def forbidden_wire_values() -> list[tuple[str, str, object]]:
+    """The subset of ``wire_cases`` whose value the declaration forbids.
+
+    Two exclusions, both deliberate:
+
+    * ``None`` -- an explicit null is a different fault with a different rule,
+      and reporting it is ``nulled``'s business.
+    * a **mapping** where a nested object is declared -- that is how the wire
+      *spells* the object, not a value of the wrong type. ``{}`` deserialises
+      to a well-typed reference whose leaves are empty, and ``FIELD_EMPTY`` is
+      what reports that.
+    """
+    cases = []
+    for type_name, path, value in wire_cases():
+        cls = type(EXAMPLES[type_name])
+        if value is None or permits(cls, path, value):
+            continue
+        nests = any(is_dataclass(candidate) for candidate in _declared(cls, path)[0])
+        if nests and isinstance(value, Mapping):
+            continue
+        cases.append((type_name, path, value))
+    return cases
 
 
 def _default_of(owner: object, name: str) -> object:
