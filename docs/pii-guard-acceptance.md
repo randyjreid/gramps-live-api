@@ -168,16 +168,22 @@ The second half is three refusals, each with a named test:
 > (including first push with a zero SHA, and force push), pull request, fork PR, tag push; the job
 > refuses a checkout it cannot prove is complete.
 
-`tests/integration/test_repository_hygiene.py` -- **9 tests**, the whole file. The ones this
+`tests/integration/test_repository_hygiene.py` -- **10 tests**, the whole file. The ones this
 criterion rests on are asserted by reading the workflow itself rather than by describing it.
 
-⚠️ **Only four of the nine are evidence for B7 — the four named in the table below.** The count is
-the file's, as B1's is, and the two numbers are not the same number. The other five assert
+⚠️ **Only four of the ten are evidence for B7 — the four named in the table below.** The count is
+the file's, as B1's is, and the two numbers are not the same number. The other six assert
 neighbouring properties and say nothing about publish events: that every Python source file is
 tracked, that no workflow expression is interpolated into a shell body, that every skip names a seam
 twin that exists, and — added with the workflow-directory rule — that no path is both untracked and
 unignored and that the workflow directory is ignored. They live here because this file is where
 repository-shape assertions live.
+
+The sixth is `test_every_job_that_runs_the_suite_checks_out_whole_history`, added with issue #31,
+and it is **not** evidence for B7 either. B7 is about the guard job's coverage of the events that
+publish content; that test is about the job that runs the *suite*, and about whether its checkout is
+complete enough for B8's history assertion to run rather than skip. Neighbouring shapes, different
+claims — which is exactly the conflation the count paragraph above exists to prevent.
 
 An earlier revision of this paragraph said *two* of the nine were unrelated, counting only the two
 added last. That understated it by three and so overstated what B7's coverage rests on, which is the

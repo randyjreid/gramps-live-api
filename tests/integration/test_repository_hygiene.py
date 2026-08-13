@@ -406,6 +406,103 @@ def test_the_job_refuses_a_checkout_it_cannot_prove_is_complete() -> None:
     )
 
 
+def job_blocks() -> dict[str, str]:
+    """Every job of the workflow, as text, keyed by its name.
+
+    Hand-parsed by indentation for the reason shell_bodies() gives: the guard
+    job deliberately installs nothing, so this repository has no dependency to
+    add a YAML library to. A job header is the only key at two spaces -- the
+    keys inside one sit at four, and its steps at six.
+    """
+    _, _, jobs = workflow_text().partition("\njobs:\n")
+
+    blocks: dict[str, str] = {}
+    name = ""
+    for line in jobs.splitlines():
+        header = re.match(r"^ {2}([\w-]+):\s*$", line)
+        if header:
+            name = header.group(1)
+            blocks[name] = ""
+        elif name:
+            blocks[name] += line + "\n"
+    return blocks
+
+
+def job_steps(job: str) -> list[str]:
+    """The job's steps, as text. Split on the list marker, not on ``- name:``.
+
+    STEP_SEPARATOR would drop every unnamed step, and an unnamed ``- uses:`` is
+    exactly what a checkout is: the shape this test exists to read.
+    """
+    return re.split(r"^ {6}- ", job, flags=re.MULTILINE)[1:]
+
+
+def invokes_the_suite(step: str) -> bool:
+    """Whether this step runs pytest, read from its ``run:`` block alone.
+
+    Comments are excluded and so is everything ahead of ``run:``. This
+    workflow explains itself at length, and a step whose commentary mentions
+    the suite does not run it.
+    """
+    body = step.partition("run:")[2]
+    return any("pytest" in line for line in body.splitlines() if not line.strip().startswith("#"))
+
+
+def test_every_job_that_runs_the_suite_checks_out_whole_history() -> None:
+    """B8's history assertion cannot run on a checkout that stops at one commit.
+
+    ``test_every_commit_this_repository_publishes_is_clean`` scans the commits
+    this repository publishes, and it refuses to do that over a truncated
+    history -- correctly, because a range scan over commits that were never
+    fetched reports clean over the part it cannot see. So on a shallow checkout
+    it SKIPS. Nothing goes red: the job stays green while the property goes
+    unmeasured on every ordinary run, which is issue #31, and it is why the
+    workflow runs ``pytest -rs``. A skip named in the report is a skip somebody
+    can notice; a skip folded into a count is what let this survive.
+
+    ⚠️ **The rule, not the routing.** This names no job, so it is equally true
+    of a job added later that runs the suite on a checkout nobody thought
+    about -- the same reason test_no_scan_step_reads_only_the_tip asks whether
+    every step running the guard passes --range, rather than asking about the
+    tag arm it was written for.
+
+    And every checkout in such a job, not merely one of them. A second checkout
+    added later without ``fetch-depth: 0`` is the same defect with a second
+    cause; failing closed on it costs a reviewer one look, and the other
+    reading costs a property nobody measures.
+    """
+    jobs = {
+        name: block
+        for name, block in job_blocks().items()
+        if any(invokes_the_suite(step) for step in job_steps(block))
+    }
+
+    assert jobs, "no job runs the suite at all -- this test has stopped watching anything"
+
+    checkoutless = sorted(
+        name
+        for name, block in jobs.items()
+        if not [step for step in job_steps(block) if "actions/checkout" in step]
+    )
+    assert checkoutless == [], (
+        "these jobs run the suite without checking the repository out at all, so this "
+        f"test would be asserting a property of a step that is not there: {checkoutless}"
+    )
+
+    truncated = sorted(
+        name
+        for name, block in jobs.items()
+        for step in job_steps(block)
+        if "actions/checkout" in step and "fetch-depth: 0" not in step
+    )
+
+    assert truncated == [], (
+        "these jobs run the suite on a checkout they have not asked to be complete, so "
+        "the history assertion skips there rather than failing -- the job stays green "
+        f"and the property goes unmeasured: {truncated}"
+    )
+
+
 def test_every_skip_names_a_seam_twin_that_exists() -> None:
     """A cross-reference that rots is worse than none at all.
 
