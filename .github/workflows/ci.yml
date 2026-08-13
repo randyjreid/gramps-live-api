@@ -14,6 +14,21 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The suite asserts that every commit this repository publishes
+          # reports nothing, and that assertion refuses to run over a
+          # truncated history -- correctly, since a range scan over commits
+          # that were never fetched reports clean over the part it cannot see.
+          #
+          # So on a shallow checkout it SKIPS rather than fails, and a skip is
+          # invisible in a bare pytest summary: the job stays green while the
+          # property goes unmeasured on every ordinary run. That is issue #31,
+          # and it is why the Tests step below reports its skips by name.
+          #
+          # The guard job below has the same line for a different reason. This
+          # one is about the suite being able to make an assertion; that one is
+          # about the range scans having a history to resolve against.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -33,8 +48,12 @@ jobs:
       - name: Types
         run: mypy src
 
+      # -rs names every skipped test and its reason in the report. A skip is
+      # this suite's fail-closed answer to a platform it cannot observe, so a
+      # skip nobody can see reads exactly like a pass -- which is how the
+      # history assertion went unrun on every CI run without anyone noticing.
       - name: Tests
-        run: pytest
+        run: pytest -rs
 
   pii-guard:
     name: pii-guard

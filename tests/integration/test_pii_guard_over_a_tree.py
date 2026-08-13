@@ -107,9 +107,13 @@ def test_every_commit_this_repository_publishes_is_clean() -> None:
     nothing" must not read the same.
 
     ⚠️ **This is a measurement of THIS repository at THIS commit, and it costs a
-    walk of the history** -- about twelve seconds over thirty-six commits, and
-    linear in what follows them. It says nothing about content the repository
-    does not yet contain.
+    walk of the history** -- measured at 34.6 seconds over 74 commits, against
+    the twelve seconds over thirty-six commits recorded when this was written.
+    The two figures come from different machines, so read the pair as growth
+    with the history rather than as a rate. Since issue #31 that walk is paid
+    on each of CI's three Python legs as well as locally, which is the price of
+    the assertion running there at all rather than skipping. It says nothing
+    about content the repository does not yet contain.
     """
     shallow = subprocess.run(
         ["git", "rev-parse", "--is-shallow-repository"],
