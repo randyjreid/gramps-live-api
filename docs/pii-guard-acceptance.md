@@ -216,6 +216,20 @@ representative safe documents was the third candidate shape considered and was d
 only one that grows without bound as a fixture-maintenance burden, and a corpus is only ever as
 strong as itself.
 
+⚠️ **And the second half does not run in CI today. Stated here rather than left to be discovered.**
+The job that runs the suite checks out a single commit, so the history assertion **skips on every
+ordinary CI run**; the job that has whole history does not run the suite. So that half is asserted
+when the suite runs against a complete checkout -- locally, or anywhere the checkout is not
+truncated -- and nowhere else.
+
+What still runs on every push is the guard job itself, over the range the event publishes. That is
+not the same claim: it covers what the push publishes rather than everything reachable, and it is a
+scan rather than an assertion about one. **The consequence is exact: a detector change that starts
+reporting an older reachable commit passes CI.** Closing it is one line of workflow -- give the suite
+a complete checkout -- and is deliberately not done here, because this issue's scope excluded the
+workflow and a criterion is the wrong place to discover that a change of scope was needed. It is
+filed as issue #31, and this paragraph is written to be narrowed when that lands.
+
 What B8 buys is smaller than a guarantee, and it is the thing that was missing: **a widening can be
 shown to have cost something.** A change that starts reporting a location the allowlist holds, or
 starts reporting this repository, now fails a named test -- rather than being discovered by a
