@@ -667,7 +667,17 @@ open — an absolute path on your machine, in whatever log the gate was writing 
 Each phase has a spec with explicit out-of-scope items. Work outside them gets flagged in review,
 even when it is obviously a good idea -- file it as an issue instead.
 
-In particular, nothing imports `gramps` or `gi` until the phase that introduces the bridge.
+In particular, nothing imports `gramps` or `gi` until the phase that introduces the bridge — with
+**one recorded exception**, adjudicated rather than assumed.
+
+The Phase 1 date-model ruling permits `gramps.gen.lib` inside `core/`, because a genealogical date
+is the one value this project cannot afford to translate: a hand-rolled model mapped at the write
+boundary puts a lossy layer exactly where a wrong date would be written silently. The exception is
+**conditional on an import check passing on every supported Python** — until it passes, nothing
+imports it, and if it fails the fallback is a hand-rolled model with the reason recorded.
+
+`gi` is not covered by the exception, and neither is anything else. See
+`docs/phase1-core-schema.spec.md`.
 
 ## Commits
 
