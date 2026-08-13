@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from gramps_live_api.core import schema
-from tests.fixtures.operations import EXAMPLES, emptied, pointing_nowhere, resolve
+from tests.fixtures.operations import EXAMPLES, MALFORMED, emptied, pointing_nowhere, resolve
 
 
 def test_the_result_type_is_named_for_well_formedness_not_validity() -> None:
@@ -109,6 +109,22 @@ def test_every_reported_field_path_names_a_field_that_exists(type_name: str, pat
             "a caller nothing about where to look"
         )
         resolve(EXAMPLES[type_name], violation.field_path)
+
+
+@pytest.mark.parametrize("description", sorted(MALFORMED))
+def test_a_present_but_wrong_value_is_also_reported_at_a_field_that_exists(
+    description: str,
+) -> None:
+    # Criterion 5 says EVERY negative case, and emptying a field is only one
+    # kind of negative. A value that is present and wrong is the other, and it
+    # travels a different code path to a different field path.
+    operation = MALFORMED[description]
+    result = schema.validate(operation)
+
+    assert not result.well_formed, f"{description} validated clean"
+    for violation in result.violations:
+        assert violation.field_path, f"{violation.rule.name} reported an empty field path"
+        resolve(operation, violation.field_path)
 
 
 def _types_with_at_least_three_required_leaves() -> list[str]:
