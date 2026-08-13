@@ -21,7 +21,7 @@ property unfalsifiable.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from enum import Enum
 from types import MappingProxyType
@@ -276,9 +276,15 @@ class RuleId(Enum):
     REFERENCE_MISSING = "REFERENCE_MISSING"
     FIELD_EMPTY = "FIELD_EMPTY"
     FIELD_NULL = "FIELD_NULL"
+    FIELD_WRONG_TYPE = "FIELD_WRONG_TYPE"
     OBJECT_TYPE_UNKNOWN = "OBJECT_TYPE_UNKNOWN"
     NOTE_TYPE_UNKNOWN = "NOTE_TYPE_UNKNOWN"
     HANDLE_MALFORMED = "HANDLE_MALFORMED"
+
+    # ⚠️ Not the same rule as FIELD_WRONG_TYPE and not a near-duplicate of it.
+    # This one is about WHAT A REFERENCE POINTS AT -- a citation field aimed at
+    # a source -- where both values are perfectly typed strings. FIELD_WRONG_TYPE
+    # is about the Python type of a value the wire delivered.
     REFERENCE_WRONG_TYPE = "REFERENCE_WRONG_TYPE"
 
     # ⚠️ Declared, deliberately unimplemented, and NOT decorative. Without a
@@ -425,6 +431,34 @@ Phase 1 has any standing to check.
 """
 
 
+def _present_references(operation: Operation) -> Iterator[tuple[str, ObjectRef]]:
+    """Every reference field of ``operation`` that really holds an ``ObjectRef``.
+
+    ⚠️ **The choke point behind all three reference rules, and it is the point
+    rather than a convenience.** A value of the wrong type is one rule's
+    business -- ``_field_wrong_type`` reports it once, at its own path -- and
+    every other rule ignores what it cannot judge. Three rules each remembering
+    to check the type is three chances to forget, and the one that forgot raised
+    a ``TypeError`` out of the validator: not a verdict, not a field path, and
+    not something a caller can do anything with.
+    """
+    for name in reference_fields(type(operation)):
+        reference = getattr(operation, name)
+        if isinstance(reference, ObjectRef):
+            yield name, reference
+
+
+def _text(value: object) -> str:
+    """``value`` if it is text, and the empty string if it is not.
+
+    Same principle as ``_present_references``, one level down: a rule about the
+    *content* of a string has nothing to say about a value that is not one, and
+    it must not put that value into its message either -- a wire payload echoed
+    into a violation is content this repository then has to scan.
+    """
+    return value if isinstance(value, str) else ""
+
+
 def _reference_missing(operation: Operation) -> tuple[RuleViolation, ...]:
     return tuple(
         RuleViolation(RuleId.REFERENCE_MISSING, name, f"{name} names no object")
@@ -466,25 +500,53 @@ def _field_null(operation: Operation) -> tuple[RuleViolation, ...]:
     return tuple(violations)
 
 
+def _field_wrong_type(operation: Operation) -> tuple[RuleViolation, ...]:
+    # What the wire delivered is not what the field declares. Deserialisation
+    # cannot refuse it without becoming a second validator with no field path,
+    # so validate judges it -- and judges it ONCE, here, which is what lets every
+    # other rule ignore a value it has nothing to say about.
+    violations = []
+    for path in required_paths(type(operation)):
+        value = _at(operation, path)
+        if value is _ABSENT or value is None:
+            continue
+        permitted, _ = _declared_at(type(operation), path)
+        if not permitted or isinstance(value, permitted):
+            continue
+        declared = " or ".join(candidate.__name__ for candidate in permitted)
+        violations.append(
+            RuleViolation(
+                RuleId.FIELD_WRONG_TYPE,
+                path,
+                # ⚠️ TYPE NAMES ONLY. The value is NOT named, and that is a
+                # privacy decision rather than a formatting one: a wire payload
+                # echoed into a message becomes content the guard has to read,
+                # in a public repository whose previous phase was about exactly
+                # that. The type is what a caller needs to fix it anyway.
+                f"{path} is {type(value).__name__} where {declared} is declared",
+            )
+        )
+    return tuple(violations)
+
+
 def _object_type_unknown(operation: Operation) -> tuple[RuleViolation, ...]:
     violations = []
-    for name in reference_fields(type(operation)):
-        reference = getattr(operation, name)
-        if reference is None or not reference.object_type:
+    for name, reference in _present_references(operation):
+        object_type = _text(reference.object_type)
+        if not object_type or object_type in OBJECT_TYPES:
             continue
-        if reference.object_type not in OBJECT_TYPES:
-            violations.append(
-                RuleViolation(
-                    RuleId.OBJECT_TYPE_UNKNOWN,
-                    f"{name}.object_type",
-                    f"{reference.object_type!r} is not one of the object types there are",
-                )
+        violations.append(
+            RuleViolation(
+                RuleId.OBJECT_TYPE_UNKNOWN,
+                f"{name}.object_type",
+                f"{object_type!r} is not one of the object types there are",
             )
+        )
     return tuple(violations)
 
 
 def _note_type_unknown(operation: Operation) -> tuple[RuleViolation, ...]:
-    note_type = getattr(operation, "note_type", "")
+    note_type = _text(getattr(operation, "note_type", ""))
     if not note_type or note_type in NOTE_TYPES:
         return ()
     return (
@@ -498,11 +560,11 @@ def _note_type_unknown(operation: Operation) -> tuple[RuleViolation, ...]:
 
 def _handle_malformed(operation: Operation) -> tuple[RuleViolation, ...]:
     violations = []
-    for name in reference_fields(type(operation)):
-        reference = getattr(operation, name)
-        if reference is None or not reference.handle:
+    for name, reference in _present_references(operation):
+        handle = _text(reference.handle)
+        if not handle:
             continue
-        if _WHITESPACE_OR_CONTROL.search(reference.handle):
+        if _WHITESPACE_OR_CONTROL.search(handle):
             violations.append(
                 RuleViolation(
                     RuleId.HANDLE_MALFORMED,
@@ -516,19 +578,20 @@ def _handle_malformed(operation: Operation) -> tuple[RuleViolation, ...]:
 def _reference_wrong_type(operation: Operation) -> tuple[RuleViolation, ...]:
     # Internal consistency, and derived from the field metadata rather than
     # written per type -- so #22 and #23 inherit it without touching this.
+    expected_types = expected_object_types(type(operation))
     violations = []
-    for name, expected in expected_object_types(type(operation)).items():
-        reference = getattr(operation, name)
-        if reference is None or not reference.object_type:
+    for name, reference in _present_references(operation):
+        expected = expected_types.get(name)
+        object_type = _text(reference.object_type)
+        if expected is None or not object_type or object_type == expected:
             continue
-        if reference.object_type != expected:
-            violations.append(
-                RuleViolation(
-                    RuleId.REFERENCE_WRONG_TYPE,
-                    f"{name}.object_type",
-                    f"{name} must reference a {expected}, not a {reference.object_type}",
-                )
+        violations.append(
+            RuleViolation(
+                RuleId.REFERENCE_WRONG_TYPE,
+                f"{name}.object_type",
+                f"{name} must reference a {expected}, not a {object_type}",
             )
+        )
     return tuple(violations)
 
 
@@ -536,6 +599,7 @@ RULES: tuple[Rule, ...] = (
     Rule(RuleId.REFERENCE_MISSING, Phase.PHASE_1, _reference_missing),
     Rule(RuleId.FIELD_EMPTY, Phase.PHASE_1, _field_empty),
     Rule(RuleId.FIELD_NULL, Phase.PHASE_1, _field_null),
+    Rule(RuleId.FIELD_WRONG_TYPE, Phase.PHASE_1, _field_wrong_type),
     Rule(RuleId.OBJECT_TYPE_UNKNOWN, Phase.PHASE_1, _object_type_unknown),
     Rule(RuleId.NOTE_TYPE_UNKNOWN, Phase.PHASE_1, _note_type_unknown),
     Rule(RuleId.HANDLE_MALFORMED, Phase.PHASE_1, _handle_malformed),
@@ -559,10 +623,17 @@ _ABSENT = object()
 
 
 def _at(operation: Operation, path: str) -> object:
-    """The value at a dotted path, or ``_ABSENT`` if a reference along it is."""
+    """The value at a dotted path, or ``_ABSENT`` if a step along it cannot resolve.
+
+    A reference that is absent stops the walk, and so does one of the wrong
+    type: either way the fault belongs to the path that CARRIES it, reported
+    once there rather than again at every leaf underneath. ``required_paths``
+    comes from ``fields``, so a well-typed operation always resolves every step
+    and this can only be reached by a fault reported elsewhere.
+    """
     value: object = operation
     for step in path.split("."):
-        if value is None:
+        if value is None or not hasattr(value, step):
             return _ABSENT
         value = getattr(value, step)
     return value
@@ -690,6 +761,15 @@ def preview(operation: Operation) -> str:
     one choke point is a property. Dispatch goes through the registry, so
     something that is not a registered operation is refused rather than
     rendered as whatever its class happens to say.
+
+    ⚠️ **Precondition: ``operation`` has passed ``validate``.** This renders a
+    sentence for a person to approve; it is not a second judge and does not
+    check its input. A renderer given a value ``validate`` would have rejected
+    may raise, and that is by design -- making it total would mean rendering
+    arbitrary wire values for the benefit of a caller who skipped the judge,
+    which is the second-vocabulary shape this module refuses everywhere else.
+    The precondition is stated because an unstated one becomes somebody's defect
+    later.
     """
     type_name_of(operation)  # refuses anything unregistered
     return " ".join(operation.render().split())
