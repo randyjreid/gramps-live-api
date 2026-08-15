@@ -2406,7 +2406,13 @@ _GENEALOGY_TEXT_SIGNATURES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
 )
 
-_XML_PROLOG = re.compile(r"\A\s*<\?xml\b")
+# `_XML_PROLOG` stood here -- `\A\s*<\?xml\b`, TWO approximations of two XML
+# productions -- and NOTHING IN THE REPOSITORY READ IT. It was deleted rather
+# than transcribed: machinery nobody reads is a candidate for deletion, not for
+# hardening, and an approximation with no reader is surface for the next review
+# round and nothing else. The licence table would otherwise have carried a row
+# that can never be exercised.
+#
 # Assembled, not written. Once the namespace stopped requiring a prolog at the
 # start of the file, a module holding it as a literal reported itself -- the
 # same self-report the patterns above are composed from constants to avoid, and
