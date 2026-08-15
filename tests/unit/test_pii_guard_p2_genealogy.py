@@ -17,6 +17,7 @@ from pathlib import Path
 from gramps_live_api.core.pii_guard import (
     _CATEGORY_WEIGHT,
     _GRAMPS_PROSE_LENGTH,
+    _GRAMPS_XML_NAMESPACE,
     _VOCABULARY,
     _gedcom_x_identity_score,
     _gramps_identity_score,
@@ -57,6 +58,7 @@ from tests.fixtures.synthetic import (
     gramps_reference_fragment,
     gramps_short_notes,
     gramps_short_notes_with_attributes,
+    gramps_xml_database_element,
     gramps_xml_document,
     inside_a_cdata_section,
     inside_a_comment,
@@ -94,6 +96,40 @@ def _gramps_probe(spelling: str, copies: int) -> str:
     return "".join(
         "<" + spelling + ">" + _PROBE_PAYLOAD + "</" + spelling + ">" for _ in range(copies)
     )
+
+
+_NAMESPACE_PREFIX = "g"
+"""One export's alias for the Gramps namespace.
+
+WHICH alias it is says nothing; the property is that it does not matter, and
+that is what the tests below assert. It is joined to the spelling at runtime, so
+no tracked file spells a filled prefixed identity element -- the rule at the top
+of the fixture module, applied to a probe assembled here.
+"""
+
+
+def _prefixed(spelling: str) -> str:
+    """The same spelling, qualified by a namespace prefix.
+
+    Joined at runtime, so no tracked file spells a filled prefixed identity
+    element. Qualifying the SPELLING rather than wrapping the probe is
+    deliberate: ``_observed_weight`` reports a probe that scores nothing by the
+    spelling it was given, so wrapping the probe makes a prefixed failure and a
+    bare one print the same name.
+    """
+    return _NAMESPACE_PREFIX + ":" + spelling
+
+
+def _gramps_attributed_probe(spelling: str, copies: int) -> str:
+    """``copies`` elements of one spelling carrying an attribute and no content.
+
+    The attributed pass is the SECOND site the shared alternation feeds, and it
+    is a separate loop -- so a prefix could be taught to one pass and not the
+    other, which is this module's oldest defect wearing a new spelling. Scored
+    by the same difference method as the filled probe, so it needs no knowledge
+    of what the pass charges.
+    """
+    return "".join("<" + spelling + ' val="' + _PROBE_PAYLOAD + '"/>' for _ in range(copies))
 
 
 def _gedcom_x_probe(spelling: str, copies: int) -> str:
@@ -648,6 +684,97 @@ def test_the_compiled_scorer_agrees_with_the_vocabulary_for_every_row() -> None:
     assert disagreements == [], (
         "the compiled scorers disagree with the vocabulary table they are compiled from: "
         f"{disagreements}"
+    )
+
+
+def test_a_namespace_prefix_does_not_change_what_a_filled_row_scores() -> None:
+    """⭐ **Every row of the table, prefixed against unprefixed.**
+
+    A namespace prefix is a document's private alias for a namespace, so a
+    prefixed export is the same export and has to score the same. It did not:
+    with a prefix declared the compiled matcher saw NO element at all, in any
+    category -- including the four already weighted correctly -- because the
+    alternation held bare spellings and a qualified tag does not begin with one.
+    The gap is LEXICAL rather than semantic, which is why it takes every
+    category with it at once.
+
+    Derived from the table rather than exampled, in the same shape as the test
+    above, so adding a row extends this property without this test being
+    edited. Asserted as AGREEMENT between the two spellings rather than against
+    the weight table, because the claim is that the prefix does not matter --
+    which stays true, and stays checked, when a weight changes.
+    """
+    disagreements = []
+
+    for _, shared, xml_only, _ in _VOCABULARY:
+        for spelling in shared + xml_only:
+            bare = _observed_weight(_gramps_identity_score, _gramps_probe, spelling)
+            prefixed = _observed_weight(_gramps_identity_score, _gramps_probe, _prefixed(spelling))
+            if bare != prefixed:
+                disagreements.append(f"<{spelling}>: {bare} bare, {prefixed} prefixed")
+
+    assert disagreements == [], (
+        "a namespace prefix changes what these rows score, so one export in two spellings "
+        f"gets two verdicts: {disagreements}"
+    )
+
+
+def test_a_namespace_prefix_does_not_change_what_an_attributed_row_scores() -> None:
+    """The same property over the OTHER pass the alternation feeds.
+
+    Two loops read one alternation, and teaching the prefix to the pattern only
+    one of them uses is precisely the partial application this vocabulary exists
+    to make impossible. An export is not only its filled elements; it is also
+    the links between them, and under a prefix those scored nothing either.
+    """
+    disagreements = []
+
+    for _, shared, xml_only, _ in _VOCABULARY:
+        for spelling in shared + xml_only:
+            bare = _observed_weight(_gramps_identity_score, _gramps_attributed_probe, spelling)
+            prefixed = _observed_weight(
+                _gramps_identity_score, _gramps_attributed_probe, _prefixed(spelling)
+            )
+            if bare != prefixed:
+                disagreements.append(f"<{spelling} val=...>: {bare} bare, {prefixed} prefixed")
+
+    assert disagreements == [], (
+        f"a namespace prefix changes what these rows score in the attributed pass: {disagreements}"
+    )
+
+
+def test_a_prefixed_database_element_names_the_format_the_same_way() -> None:
+    """The third site: the signature by which a Gramps export is recognised at all.
+
+    A document declaring the namespace on a prefixed database element was not
+    recognised as the format, and the namespace fallback does not stand in for
+    it -- two points is below the threshold, so the document was clean.
+
+    Asserted as agreement between the two spellings, with the unprefixed control
+    checked first so that "neither of them is caught" cannot satisfy it.
+    """
+    bare = scan_text(gramps_xml_database_element(), source="notes.md")
+    prefixed = scan_text(gramps_xml_database_element(prefix=_NAMESPACE_PREFIX), source="notes.md")
+
+    assert rules(bare) == ["P2"], f"the control is not caught, so this proves nothing: {bare}"
+    assert [finding.message for finding in prefixed] == [finding.message for finding in bare], (
+        "a prefixed export is the same export, and the finding must name the signature that "
+        f"caught it: bare says {[finding.message for finding in bare]}, prefixed says "
+        f"{[finding.message for finding in prefixed]}"
+    )
+
+
+def test_a_prefixed_document_still_declares_the_namespace_it_belongs_to() -> None:
+    """The one site of the four that needed no change, checked rather than assumed.
+
+    A prefix moves the declaration from ``xmlns`` to ``xmlns:g``; the URI it
+    binds is untouched, and the URI is what the fallback reads. Green on
+    arrival, deliberately: "no change needed here" is a claim like any other,
+    and an unasserted claim in a commit message is how the fourth site of four
+    came to be found in planning rather than in the code.
+    """
+    assert _GRAMPS_XML_NAMESPACE in gramps_xml_database_element(prefix=_NAMESPACE_PREFIX), (
+        "the namespace fallback reads a URI, and a prefixed document still declares it"
     )
 
 

@@ -940,6 +940,84 @@ _GRAMPS_STRUCTURE_ELEMENTS = _elements_of("structure")
 _GRAMPS_ALL_ELEMENTS = tuple(dict.fromkeys(_GRAMPS_CATEGORY_OF))
 
 # ---------------------------------------------------------------------------
+# THE QUALIFIED-NAME ALTERNATION. ONE CONSTRUCTION SITE, FOUR PATTERNS.
+#
+# Namespaces in XML: a tag is an optional PREFIX, a colon, and the local name.
+# The prefix is the DOCUMENT'S OWN ALIAS for a namespace, so two exports of one
+# tree may spell the same element `<name>`, `<g:name>` or `<grampsxml:name>` and
+# mean exactly the same thing by it. It therefore belongs inside the tag group,
+# where a backreference can still close the element it opened, and nowhere at
+# all in the category lookup, which asks what the element MEANS.
+#
+# ⚠️ **All four patterns that read an element name are built from this and
+# nothing else**, because the four used to spell the alternation themselves and
+# a prefix consequently meant four different things. The gap is LEXICAL, not
+# semantic -- with a prefix declared the matcher saw no element in ANY category,
+# including the four weighted correctly -- and it pointed both ways at once:
+# filled elements, attributed elements and the database signature scored nothing
+# (data out), while the drawing exemption stopped applying (a chart reported).
+# One blindness, opposite directions, which is why one table fixes both and why
+# each direction is measured on its own.
+#
+# A fifth site hand-rolling its own alternation is caught by test rather than by
+# hoping -- see the test that asserts each compiled pattern contains this.
+# ---------------------------------------------------------------------------
+
+_XML_NAME_PREFIX = r"(?:[^\W\d][\w.\-]*:)?"
+"""An optional namespace prefix: a name character that is not a digit, then name
+characters, then the colon.
+
+An approximation of the NCName production rather than a transcription of it, and
+the DIRECTION of the approximation is what makes it acceptable: a prefix using a
+character this misses is invisible to all four patterns today and stays exactly
+as invisible, so the residual is left unchanged rather than created here. The
+other direction is bounded by the class itself, which cannot match ``<``, ``>``,
+``/``, ``=``, a quote or whitespace.
+"""
+
+
+def _qualified(*names: str) -> str:
+    r"""The tag alternation, prefix and all, as ONE group's worth of pattern.
+
+    ⚠️ **This emits no capturing group, and the alternation is wrapped.** Both
+    are load-bearing, and neither is a style choice:
+
+    * Group numbering is read by number in the scoring loops and by a ``\1``
+      backreference in the patterns themselves -- see the note above
+      ``_NOT_ENDING_AN_ELEMENT`` -- so a group added here would silently shift
+      both. The call sites put their own parenthesis round this, which is how
+      group 1 comes to hold the WHOLE qualified tag and how ``</\1\s*>`` still
+      closes the element that opened.
+    * ``(?:p:)?a|b`` parses as ``((?:p:)?a)|b``, so an unwrapped alternation
+      would take the prefix on its first alternative and no other. Nothing
+      behavioural would see that today, because no two spellings in the table
+      collide -- which is exactly what makes it the kind that ships.
+
+    Alternatives are ordered LONGEST FIRST, so a spelling is never shadowed by a
+    shorter one it begins with: ``namemaps`` past ``name``, ``dateval`` past
+    ``date``, ``placeobj`` past ``place``. The trailing ``\b`` at each call site
+    makes the engine backtrack into the longer alternative anyway today;
+    ordering means the patterns do not DEPEND on that, which matters because
+    this table is about to be derived from a published schema rather than
+    written by hand. No behavioural test can see this until a colliding pair
+    exists, so it is asserted structurally instead.
+    """
+    alternation = "|".join(sorted(names, key=lambda name: (-len(name), name)))
+    return _XML_NAME_PREFIX + "(?:" + alternation + ")"
+
+
+def _local_name(tag: str) -> str:
+    """What a matched tag MEANS: its local name, lowered, the prefix discarded.
+
+    The prefix is an alias the document chose, so a category lookup that reads
+    it is asking a question about spelling and calling the answer meaning.
+    Written once rather than at each of the two scoring loops, for the reason
+    the vocabulary above is written once.
+    """
+    return tag.rpartition(":")[2].lower()
+
+
+# ---------------------------------------------------------------------------
 # WHAT MAY SIT BETWEEN AN ELEMENT'S TAGS BESIDES CHARACTER DATA.
 #
 # XML 1.0's content production:
@@ -1001,7 +1079,7 @@ it encloses denotes anything.
 """
 
 _GRAMPS_FILLED_ELEMENT = re.compile(
-    r"<(" + "|".join(_GRAMPS_ALL_ELEMENTS) + r")\b[^>]*>"
+    r"<(" + _qualified(*_GRAMPS_ALL_ELEMENTS) + r")\b[^>]*>"
     r"((?:" + _NOT_ENDING_AN_ELEMENT + r"|[^<])+)</\1\s*>",
     re.IGNORECASE | re.DOTALL,
 )
@@ -1020,7 +1098,7 @@ a captured group nobody consumes is machinery pretending to be a rule.
 """
 
 _GRAMPS_ATTRIBUTED_ELEMENT = re.compile(
-    r"<(" + "|".join(_GRAMPS_ALL_ELEMENTS) + r")\b[^>]*?\w+\s*=\s*[\"'][^>]*>", re.IGNORECASE
+    r"<(" + _qualified(*_GRAMPS_ALL_ELEMENTS) + r")\b[^>]*?\w+\s*=\s*[\"'][^>]*>", re.IGNORECASE
 )
 """An element carrying a quoted attribute -- a handle or an id is export syntax,
 not something a specification writes in passing."""
@@ -1591,7 +1669,10 @@ def _gramps_identity_score(text: str) -> tuple[int, int] | None:
     drawings = [match.span() for match in _DRAWING.finditer(text)]
 
     for match in _GRAMPS_FILLED_ELEMENT.finditer(text):
-        tag = match.group(1).lower()
+        # Group 1 holds the WHOLE qualified tag, because the backreference that
+        # closes the element has to match what opened it. The category is a
+        # question about the local name -- see ``_local_name``.
+        tag = _local_name(match.group(1))
         # The RAW content, deliberately: only the measurement can tell which
         # parts of it XML reads and which it takes literally, and unwrapping
         # here threw that away before the question was asked.
@@ -1628,7 +1709,7 @@ def _gramps_identity_score(text: str) -> tuple[int, int] | None:
         # weighed the same as a bare person element -- one principle stated in
         # the comment at the top and honoured by only one of the two loops
         # beneath it.
-        score += _CATEGORY_WEIGHT[_GRAMPS_CATEGORY_OF[match.group(1).lower()]]
+        score += _CATEGORY_WEIGHT[_GRAMPS_CATEGORY_OF[_local_name(match.group(1))]]
         first = match.start() if first is None else first
 
     if _GRAMPS_XML_NAMESPACE in text:
@@ -1651,7 +1732,13 @@ _GENEALOGY_TEXT_SIGNATURES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     (
         "Gramps XML database element",
-        re.compile(_LINE_PREFIX + r"<database\b[^>]*gramps", re.IGNORECASE | re.MULTILINE),
+        # The same alternation as the two element patterns, for a table of one
+        # spelling: an export that binds the namespace to an alias writes
+        # `<g:database …>` and was not recognised as the format at all.
+        re.compile(
+            _LINE_PREFIX + r"<" + _qualified("database") + r"\b[^>]*gramps",
+            re.IGNORECASE | re.MULTILINE,
+        ),
     ),
 )
 

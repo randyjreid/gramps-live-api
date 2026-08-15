@@ -429,6 +429,23 @@ def gramps_xml_document() -> str:
     return "\n".join(lines) + "\n"
 
 
+def gramps_xml_database_element(*, prefix: str = "") -> str:
+    """The line by which the format names itself: a database element and the namespace.
+
+    ``prefix`` spells it as a namespace-prefixed document -- what an export
+    written by a tool that binds the namespace to an alias looks like, and the
+    spelling the signature was blind to. Assembled prefix and all, for the
+    reason at the top of this module: the unprefixed form of this line is a
+    genuine finding in a tracked file.
+    """
+    # Split inside the namespace, not merely before it, exactly as the builders
+    # above split it and for the same reason.
+    namespace = "http:" + "//gramps-project" + ".org/xml/1.7.1/"
+    qualifier = prefix + ":" if prefix else ""
+    declaration = "xmlns:" + prefix if prefix else "xmlns"
+    return _element(qualifier + "database", attributes=f'{declaration}="{namespace}"')
+
+
 def utf16le_gedcom_bytes() -> bytes:
     """A GEDCOM saved as BOM-less UTF-16LE.
 
