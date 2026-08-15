@@ -47,13 +47,17 @@ EXPLICIT_BIDI_FORMATTING: frozenset[str] = frozenset(
 )
 """The explicit formatting types of the Unicode Bidirectional Algorithm, UAX #9.
 
-⚠️ **A second published definition, on purpose.** The guard's own class is the
-General_Category group "Other" of UAX #44; this is the algorithm that says which
-characters *reorder* text, named by its own bidirectional types and read back
-out of the UCD through ``unicodedata.bidirectional``. Two sources that must
-agree is a test -- one source read twice is not, and it would pass just as
-happily if both were wrong. The same reason ``permits`` in the fixture module
-derives what a field *should* accept rather than calling the module's helper.
+⚠️ **A second published definition, on purpose.** The guard's own class is a
+committed table derived from UAX #44's General_Category and the derived core
+property ``Default_Ignorable_Code_Point``, at one pinned Unicode release; this
+is the algorithm that says which characters *reorder* text, named by its own
+bidirectional types and read back out of **the running interpreter's** database
+through ``unicodedata.bidirectional``. That the two sources are now also two
+different Unicode versions is not a flaw in the cross-check -- it is what makes
+it one. Two sources that must agree is a test; one source read twice is not, and
+it would pass just as happily if both were wrong. The same reason ``permits`` in
+the fixture module derives what a field *should* accept rather than calling the
+module's helper.
 """
 
 GUARDED: Mapping[str, str] = MappingProxyType(
