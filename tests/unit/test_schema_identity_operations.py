@@ -55,6 +55,27 @@ def test_both_sides_of_the_partition_record_a_rationale_per_type() -> None:
     )
 
 
+def _registered(type_name: str) -> schema.OperationSpec:
+    spec = schema.REGISTRY.get(type_name)
+
+    assert spec is not None, (
+        f"{type_name} is not in the registry, so every structural test #20 "
+        "quantifies over the registry silently skips it"
+    )
+    return spec
+
+
+def test_add_person_asserts_a_fact_and_so_carries_its_evidence() -> None:
+    _registered("add_person")
+
+    assert "add_person" in schema.FACT_ASSERTING, (
+        "add_person is FACT_ASSERTING. That a person existed is the "
+        "archetypal genealogical fact, and a person enters the tree only "
+        "because a record attests them -- an individual added on nobody's "
+        "authority is the failure mode this project exists to avoid"
+    )
+
+
 def test_every_registered_type_records_why_it_is_classified_as_it_is() -> None:
     recorded = _recorded_rationales()
     missing = sorted(
