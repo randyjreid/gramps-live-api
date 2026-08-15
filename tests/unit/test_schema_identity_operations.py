@@ -16,8 +16,10 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Mapping
 
+import pytest
+
 from gramps_live_api.core import schema
-from tests.fixtures.operations import EXAMPLES
+from tests.fixtures.operations import EXAMPLES, carrying, pointing_nowhere
 
 _SIDES = ("FACT_ASSERTING", "NON_FACT")
 
@@ -206,6 +208,141 @@ def test_update_name_records_the_name_of_a_person() -> None:
     assert expects.get("target") == "person", (
         "a name belongs to a person, so the target says so and REFERENCE_WRONG_TYPE "
         f"reports a reference aimed elsewhere; got {expects.get('target')!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# The links -- criterion 3, which is the Phase-1/Phase-3 boundary at its
+# sharpest.
+# ---------------------------------------------------------------------------
+
+_LINK_TYPES = ("link_child_to_family",)
+
+
+def _ends_of(type_name: str) -> tuple[str, ...]:
+    """The two ends a link joins: its reference fields other than its provenance.
+
+    Derived from the class rather than named here, so a link that grows or
+    renames an end is covered by whatever it actually declares. An enumeration
+    would keep passing about the ends it used to have.
+    """
+    spec = _registered(type_name)
+    return tuple(name for name in schema.reference_fields(spec.cls) if name != spec.citation_field)
+
+
+@pytest.mark.parametrize("type_name", _LINK_TYPES)
+def test_a_link_joins_exactly_two_ends(type_name: str) -> None:
+    # The control for every sweep below. Each loops over the ends, and a loop
+    # over an empty or one-item tuple passes while proving nothing about "both
+    # ends".
+    ends = _ends_of(type_name)
+
+    assert len(ends) == 2, (  # noqa: PLR2004
+        f"{type_name} joins two objects, and the sweeps below check BOTH of them; got {ends}"
+    )
+
+
+@pytest.mark.parametrize("type_name", _LINK_TYPES)
+def test_a_well_formed_link_between_two_objects_that_do_not_exist_passes(type_name: str) -> None:
+    # ⭐ CRITERION 3, AND THE ONE MOST LIKELY TO BE "FIXED" INTO A BUG.
+    #
+    # A link whose two ends are syntactically perfect and resolve to nothing is
+    # WELL-FORMED. Whether the child, the spouse or the family exists is a
+    # question that needs a tree, and it is declared on the PHASE_3 side --
+    # TARGET_DOES_NOT_EXIST -- precisely so that answering it here is visibly
+    # out of bounds rather than a judgement call. A reader who thinks a link to
+    # nothing ought to fail is asking Phase 1 to guess.
+    #
+    # Both ends are re-aimed, and the object types are preserved: rewriting
+    # those too would trip the wrong-type rule and the test would then pass for
+    # a reason that says nothing about existence.
+    example = _example(type_name)
+    nowhere = example
+    for end in _ends_of(type_name):
+        nowhere = carrying(nowhere, f"{end}.handle", "0000000000dead")
+        nowhere = carrying(nowhere, f"{end}.gramps_id", "X9999")
+
+    result = schema.validate(nowhere)
+
+    assert result.well_formed, (
+        "a well-formed link between two objects that do not exist is "
+        "WELL-FORMED. Reporting it here is existence checking, which needs a "
+        "database and is declared on the PHASE_3 side of the rule table; got "
+        f"{[(v.rule.name, v.field_path) for v in result.violations]}"
+    )
+
+    everywhere_nowhere = schema.validate(pointing_nowhere(example))
+
+    assert everywhere_nowhere.well_formed, (
+        "the same link with its citation re-aimed as well is still "
+        f"well-formed; got {everywhere_nowhere.violations}"
+    )
+
+
+@pytest.mark.parametrize("type_name", _LINK_TYPES)
+def test_a_malformed_handle_at_either_end_of_a_link_is_reported_there(type_name: str) -> None:
+    # Criterion 3's other half: syntax IS checked, at BOTH ends. A rule applied
+    # to one end and not the other is this repository's recurring shape -- a
+    # property agreed, then applied in some of the places it holds.
+    for end in _ends_of(type_name):
+        path = f"{end}.handle"
+        result = schema.validate(carrying(_example(type_name), path, "two words"))
+        reported = {(violation.rule, violation.field_path) for violation in result.violations}
+
+        assert (schema.RuleId.HANDLE_MALFORMED, path) in reported, (
+            f"a handle that is not one printable token must be reported AT "
+            f"{path}; got {sorted(reported)}"
+        )
+
+
+@pytest.mark.parametrize("type_name", _LINK_TYPES)
+def test_an_unknown_object_type_at_either_end_of_a_link_is_reported_there(type_name: str) -> None:
+    for end in _ends_of(type_name):
+        path = f"{end}.object_type"
+        result = schema.validate(carrying(_example(type_name), path, "dwelling"))
+        reported = {(violation.rule, violation.field_path) for violation in result.violations}
+
+        assert (schema.RuleId.OBJECT_TYPE_UNKNOWN, path) in reported, (
+            f"an object type outside the closed set must be reported AT "
+            f"{path}; got {sorted(reported)}"
+        )
+
+
+@pytest.mark.parametrize("type_name", _LINK_TYPES)
+def test_a_link_end_aimed_at_the_wrong_kind_of_object_is_reported_there(type_name: str) -> None:
+    # The end-specific one: both values are perfectly typed strings and both
+    # name real object types. What is wrong is WHICH kind this end may point at,
+    # which is why a child end and a family end cannot be checked by one rule
+    # that forgot to ask.
+    expects = schema.expected_object_types(_registered(type_name).cls)
+
+    for end in _ends_of(type_name):
+        expected = expects.get(end)
+
+        assert expected is not None, (
+            f"{end} declares no expected object type, so nothing stops this "
+            "end of the link pointing at anything at all"
+        )
+
+        wrong = next(kind for kind in sorted(schema.OBJECT_TYPES) if kind != expected)
+        path = f"{end}.object_type"
+        result = schema.validate(carrying(_example(type_name), path, wrong))
+        reported = {(violation.rule, violation.field_path) for violation in result.violations}
+
+        assert (schema.RuleId.REFERENCE_WRONG_TYPE, path) in reported, (
+            f"{end} must reference a {expected}, and a reference aimed "
+            f"elsewhere must be reported AT {path}; got {sorted(reported)}"
+        )
+
+
+def test_link_child_to_family_asserts_the_relationship_it_records() -> None:
+    _registered("link_child_to_family")
+
+    assert "link_child_to_family" in schema.FACT_ASSERTING, (
+        "a parent-child relationship is the fact this project exists to get "
+        "right -- the spec calls the relationships the actual product -- and "
+        "one asserted on nobody's authority is exactly the failure mode it "
+        "exists to avoid"
     )
 
 
