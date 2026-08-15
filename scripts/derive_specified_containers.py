@@ -65,8 +65,10 @@ _ATTLIST = re.compile(r"<!ATTLIST\s+(?P<element>\S+)\s+(?P<body>.*?)>", re.DOTAL
 # emitted a partial table while claiming it would refuse to. The fabricated row
 # is visible in a re-derivation diff; the omission is not.
 #
-# With the enumerated list, an unknown type token cannot match at all, the
-# remainder check sees the tail, and the script refuses as it says it does.
+# With the enumerated list, an unknown type token cannot match at all, so the
+# parser stops where it stands and the script refuses as it says it does. The
+# check that "passed anyway" no longer exists: `attributes_of` walks the body
+# left to right and cannot advance past a byte it did not match.
 # Ordering is longest-first -- `IDREFS` before `IDREF` before `ID`, `ENTITIES`
 # before `ENTITY`, `NMTOKENS` before `NMTOKEN` -- plus `\b`, so a longer type is
 # never shadowed by the shorter one it begins with. That is the rule the guard's
@@ -81,8 +83,8 @@ _ATT_TYPE = (
 )
 
 # ⚠️ **`AttValue` may be quoted EITHER way**, and this accepted only `"…"`.
-# That failed closed -- the whole attribute failed to match and the remainder
-# check refused -- so it defeated no guarantee, but it refused a valid DTD, and
+# That failed closed -- the whole attribute failed to match and the parser
+# refused -- so it defeated no guarantee, but it refused a valid DTD, and
 # leaving a known identical hole in the production being repaired is the class
 # this fix exists to close. It changes nothing in the committed table.
 _ATT_VALUE = r"(?:'[^']*'|\"[^\"]*\")"
@@ -97,6 +99,12 @@ _ATTRIBUTE = re.compile(
     r"(?:\#REQUIRED|\#IMPLIED|\#FIXED\s+(?P<fixed>" + _ATT_VALUE + r")|" + _ATT_VALUE + r")",
     re.DOTALL,
 )
+
+# Where the next definition begins, or nothing but whitespace is left. The
+# parser below walks an ATTLIST body position by position, so it needs exactly
+# one thing the productions above do not give it: how far to skip between two
+# definitions, and how to tell the end of the body from the start of the next.
+_NEXT_DEFINITION = re.compile(r"\S")
 
 _VALUE_SEPARATOR = "/"
 """Where a ``#FIXED`` default is split before it is written out.
@@ -155,10 +163,26 @@ def attributes_of(
     property of the same declarations the first reads, and parsing an ATTLIST
     twice would be a second place for the production to be spelled.
 
-    ⚠️ **An unparsed tail is a failure, not a shortfall.** A declaration this
-    cannot read is an attribute silently missing from the table, which is the
-    fail-open shape of every enumeration defect this module has had, so it
+    ⚠️ **An unparsed definition is a failure, not a shortfall.** A declaration
+    this cannot read is an attribute silently missing from the table, which is
+    the fail-open shape of every enumeration defect this module has had, so it
     stops the derivation instead.
+
+    ⚠️ **THE GUARANTEE IS STRUCTURAL, AND THAT IS THE REPAIR.** This used to
+    scan the body for matches and then check the text left over after the last
+    one -- two checks, of which only the second was ever written down. It
+    validated the TAIL and nothing else: in ``bad WIDGET #IMPLIED good CDATA
+    #IMPLIED`` the scan skipped the unreadable definition, the later match
+    carried the consumed offset to the end of the body, the remainder was empty,
+    and the script emitted a partial table while reporting that it never would.
+    Same shape as the composite-type defect above -- something the pattern could
+    not read was passed over and the check succeeded anyway -- and the silent
+    omission is again the exposure a re-derivation diff cannot show.
+
+    So the body is now consumed left to right and **the parser cannot advance
+    past a byte it did not match**. "Nothing was skipped" stops being a property
+    somebody has to maintain, and the refusal quotes the FIRST unreadable text
+    rather than whatever survived to the end.
 
     ⚠️ **Both ``EnumeratedType`` forms normalise to ``_ENUMERATION``.** A
     NOTATION type is a fixed vocabulary of the format's own, which is what that
@@ -170,8 +194,19 @@ def attributes_of(
     for declaration in _ATTLIST.finditer(dtd):
         element = declaration.group("element").lower()
         body = declaration.group("body")
-        consumed = 0
-        for attribute in _ATTRIBUTE.finditer(body):
+        position = 0
+        while True:
+            following = _NEXT_DEFINITION.search(body, position)
+            if following is None:
+                # Whitespace to the end of the body: the list is read whole.
+                break
+            position = following.start()
+            attribute = _ATTRIBUTE.match(body, position)
+            if attribute is None:
+                raise SystemExit(
+                    f"unread attribute text on <{element}>: {body[position : position + 60]!r} "
+                    "-- the derivation would silently omit it"
+                )
             name = attribute.group("name").lower()
             declared = " ".join(attribute.group("type").split())
             found.append(
@@ -184,13 +219,7 @@ def attributes_of(
             fixed = attribute.group("fixed")
             if fixed is not None:
                 defaults.append((element, name, tuple(fixed[1:-1].split(_VALUE_SEPARATOR))))
-            consumed = attribute.end()
-        remainder = body[consumed:].strip()
-        if remainder:
-            raise SystemExit(
-                f"unread attribute text on <{element}>: {remainder[:60]!r} -- the derivation "
-                "would silently omit it"
-            )
+            position = attribute.end()
     return found, defaults
 
 

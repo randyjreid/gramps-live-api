@@ -134,6 +134,75 @@ def test_a_declaration_the_parser_cannot_read_stops_the_derivation() -> None:
     )
 
 
+def test_an_unreadable_definition_anywhere_in_a_list_stops_the_derivation() -> None:
+    """⭐ **The reproduction, quantified over POSITION so no position is special.**
+
+    ``bad WIDGET #IMPLIED good CDATA #IMPLIED``: the scan over the body skipped
+    the definition it could not read, the later match advanced the consumed
+    offset to the end, and the tail check -- the whole fail-closed guarantee --
+    passed on an empty remainder. Only the readable definition was emitted, and
+    a silently omitted attribute is invisible in the re-derivation diff that is
+    supposed to catch this.
+
+    ⚠️ **The trailing case already passed and the other two did not**, which is
+    why this is asserted over every position rather than on the reviewer's
+    input: a check that reads only the tail is correct exactly when the
+    unreadable text IS the tail.
+
+    ⚠️ **And the refusal must quote the UNREADABLE text**, not merely refuse.
+    The old check reported whatever survived to the end of the body; a parser
+    that cannot advance past a byte it did not match reports the first byte it
+    could not read, which is the one somebody has to go and look at.
+    """
+    derivation = _derivation()
+    unreadable = _definition(_ATTRIBUTE, "WIDGET")
+    readable = (_definition("tally", "CDATA"), _definition("cadence", "CDATA"))
+    passed = []
+
+    for position in range(len(readable) + 1):
+        definitions = list(readable)
+        definitions.insert(position, unreadable)
+        try:
+            rows, _ = derivation.attributes_of(_attlist(*definitions))
+        except SystemExit as refusal:
+            if unreadable not in str(refusal):
+                passed.append(f"{position}: refused without quoting it -- {refusal}")
+        else:
+            passed.append(f"{position}: {rows}")
+
+    assert passed == [], (
+        f"an unreadable definition stops the derivation wherever it sits, and these were passed "
+        f"over: {passed}"
+    )
+
+
+def test_every_readable_definition_in_a_list_is_read() -> None:
+    """The non-vacuity partner, and neither can be satisfied by weakening the other.
+
+    A pattern that quietly matches everything passes this and fails the test
+    above; a parser that refuses everything passes that one and fails this. The
+    two together are what say the derivation reads a whole ``ATTLIST`` and
+    refuses the rest, rather than doing either one of those things well.
+
+    Order is asserted, not just membership: the table is emitted in declaration
+    order and a parser that walks positions can only produce it that way.
+    """
+    derivation = _derivation()
+    names = ("tally", "cadence", "furlong")
+    misread = []
+
+    for count in (2, 3):
+        chosen = names[:count]
+        rows, _ = derivation.attributes_of(
+            _attlist(*(_definition(name, "CDATA") for name in chosen))
+        )
+        expected = [(_ELEMENT, name, "CDATA") for name in chosen]
+        if rows != expected:
+            misread.append(f"{chosen} -> {rows}")
+
+    assert misread == [], f"a list of readable definitions is read whole and in order: {misread}"
+
+
 def test_every_attribute_type_the_specification_permits_is_read() -> None:
     """Derived over ``AttType`` rather than over the types this DTD happens to use.
 
