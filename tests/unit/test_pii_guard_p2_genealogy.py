@@ -1161,6 +1161,124 @@ def test_the_marker_must_occur_in_a_namespace_declaration() -> None:
     )
 
 
+_XML_WHITESPACE = (0x20, 0x9, 0xD, 0xA)
+r"""``S ::= (#x20 | #x9 | #xD | #xA)+`` -- XML 1.0 §2.3, transcribed here too.
+
+⚠️ **Transcribed from the specification rather than read off the guard's own
+table, for the reason ``_XML_CHARACTER_BOUNDARIES`` is:** a table that
+recomputed the rule from the implementation would agree with a wrong
+implementation. Four characters, and the whole of finding 2 is that Python's
+``\s`` matches more than four.
+"""
+
+
+def _not_xml_whitespace() -> list[str]:
+    r"""Every character Python's ``\s`` matches that XML's ``S`` does not.
+
+    ⚠️ **Computed rather than listed**, which is the difference between asserting
+    a property and asserting six examples. A non-breaking space is the character
+    the reproduction was built from; a vertical tab, a form feed, an ogham space
+    mark, a line separator and an ideographic space are the ones nobody would
+    have thought to list -- and U+1680 is the sharpest of them, because it is
+    also a legal ``NameChar``, so it is whitespace to Python and part of the
+    element's own name to XML.
+
+    The sweep is the Basic Multilingual Plane, which is where every character
+    with the White_Space property lives; nothing above it can be missed.
+    """
+    matches_python = re.compile(r"\s")
+    return [
+        chr(code_point)
+        for code_point in range(0x10000)
+        if matches_python.match(chr(code_point)) and code_point not in _XML_WHITESPACE
+    ]
+
+
+def _declaration_separated_by(character: str) -> dict[str, str]:
+    """One start tag per position an ``S`` may occupy, each holding ``character``.
+
+    ⚠️ **Five positions, because the guard reads ``S`` at three constants and a
+    probe at one of them proves nothing about the other two.** The reviewer named
+    two -- the ``Eq`` fragment and the attribute separator. The third is the
+    namespace declaration's own leading whitespace, which the audit found: a
+    declaration with no ordinary attribute in front of it never reaches
+    ``_XML_ATTRIBUTE`` at all, so its separator is a fourth site wearing the same
+    defect.
+    """
+    namespace = gramps_namespace_url()
+    ordinary = 'id="1" '
+    return {
+        "the separator before the declaration": (
+            "<" + _MARKER_WRAPPER + character + 'xmlns="' + namespace + '">'
+        ),
+        "the separator before an ordinary attribute": (
+            "<" + _MARKER_WRAPPER + character + ordinary + 'xmlns="' + namespace + '">'
+        ),
+        "the declaration's Eq, before the equals": (
+            "<" + _MARKER_WRAPPER + " xmlns" + character + '="' + namespace + '">'
+        ),
+        "the declaration's Eq, after the equals": (
+            "<" + _MARKER_WRAPPER + " xmlns=" + character + '"' + namespace + '">'
+        ),
+        "an ordinary attribute's Eq": (
+            "<" + _MARKER_WRAPPER + " id" + character + '="1" xmlns="' + namespace + '">'
+        ),
+    }
+
+
+def test_xml_separates_attributes_with_the_four_characters_the_production_names() -> None:
+    r"""⭐ **The reproduction: a non-breaking space is not XML whitespace.**
+
+    ``S ::= (#x20 | #x9 | #xD | #xA)+`` is four characters. Python's ``\s``
+    matches twenty-odd, so ``<wrapper`` + U+00A0 + ``xmlns="…gramps…">`` was read
+    as a namespace declaration in attribute position -- and it is not one. XML
+    reads that tag's name as ``wrapper`` + U+00A0 + ``xmlns``, an element that
+    declares nothing, so the marker fired on a document that never named the
+    format and re-enabled some eighty derived rows.
+
+    **Both directions, and the negative half is DERIVED rather than exampled.**
+    Listing the characters that must fail is the enumeration this module refuses
+    everywhere else: it is satisfied by six special cases and says nothing about
+    the seventh. Asking Python which characters IT calls whitespace, and
+    subtracting the four the production names, is the same question asked so
+    that a new one cannot be missed.
+
+    ⚠️ **At every position an ``S`` may occupy, because the guard spells it at
+    three constants** -- ``_XML_EQ``, ``_XML_ATTRIBUTE``'s leading separator and
+    ``_XMLNS_DECLARATION``'s. A repair reaching two of the three is the partial
+    application this module has paid for in every previous round.
+    """
+    outside = _not_xml_whitespace()
+
+    assert chr(0xA0) in outside and len(outside) > 5, (
+        "the negative set is derived from what Python calls whitespace, and it has come out "
+        f"empty or without the character the reproduction was built from: {ascii(''.join(outside))}"
+    )
+
+    missed = [
+        f"U+{ord(character):04X} at {where}"
+        for character in (chr(code_point) for code_point in _XML_WHITESPACE)
+        for where, probe in _declaration_separated_by(character).items()
+        if not _names_the_gramps_format(probe)
+    ]
+    misread = [
+        f"U+{ord(character):04X} at {where}"
+        for character in outside
+        for where, probe in _declaration_separated_by(character).items()
+        if _names_the_gramps_format(probe)
+    ]
+
+    assert missed == [], (
+        "XML separates a start tag's parts with exactly the four characters its S production "
+        f"names, and a declaration written with one of them was not read as one: {missed}"
+    )
+    assert misread == [], (
+        "and a character Python calls whitespace which XML does not is part of the NAME, not a "
+        f"separator -- these are not declarations and were read as the format naming itself: "
+        f"{misread}"
+    )
+
+
 def test_a_fragment_quoted_beside_a_bare_mention_is_the_anchoring_cost() -> None:
     """⭐ **What anchoring costs, asserted in BOTH directions rather than described.**
 
