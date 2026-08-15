@@ -15,8 +15,13 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
+from gramps_live_api.core._specified_containers import (
+    MARKUP_ELEMENT_NAMES,
+    SPECIFIED_ELEMENTS,
+)
 from gramps_live_api.core.pii_guard import (
     _CATEGORY_WEIGHT,
+    _GRAMPS_CATEGORY_OF,
     _DRAWING,
     _GENEALOGY_TEXT_SIGNATURES,
     _GRAMPS_ALL_ELEMENTS,
@@ -104,8 +109,41 @@ _PROBE_COPIES = (4, 5)
 """Four clears the threshold even at the smallest weight; five is one more."""
 
 
-def _gramps_probe(spelling: str, copies: int) -> str:
+_CARRIER_SPELLING = "surname"
+_CARRIER_COPIES = 3
+"""A fixed score every Gramps probe carries, so the probe never rests on the row.
+
+⚠️ **Without this a row weighing NOTHING cannot be measured, only crashed
+into.** The difference method needs two scores; a spelling worth zero produces
+no score at all in either probe, so the helper below used to stop at *"does not
+clear the threshold even in quantity"* -- which is the right diagnosis when a
+category has been lost in compilation, and the wrong one when the table says
+zero on purpose. The derivation adds rows that say exactly that: a spelling the
+published markup indexes also use is deliberately unweighted.
+
+Three filled identity elements is six against a threshold of four, so every
+probe scores whatever the row under test is worth. Being CONSTANT is the whole
+mechanism -- it appears identically in the four-copy and five-copy probes, so
+it cancels out of the difference and what remains is still the weight of
+exactly one element. It cancels for the row that IS the carrier too.
+
+This is the one pre-existing helper the derivation changed, and it is recorded
+in CONTRIBUTING as a deliberate edit. It **strengthens** what the tests can
+say: a spelling that scores nothing is now reported by name as a disagreement
+with its declared weight, rather than raising about a threshold.
+"""
+
+
+def _carrier() -> str:
+    """The constant score, assembled like everything else here."""
     return "".join(
+        "<" + _CARRIER_SPELLING + ">" + _PROBE_PAYLOAD + "</" + _CARRIER_SPELLING + ">\n"
+        for _ in range(_CARRIER_COPIES)
+    )
+
+
+def _gramps_probe(spelling: str, copies: int) -> str:
+    return _carrier() + "".join(
         "<" + spelling + ">" + _PROBE_PAYLOAD + "</" + spelling + ">" for _ in range(copies)
     )
 
@@ -183,7 +221,9 @@ def _gramps_attributed_probe(spelling: str, copies: int) -> str:
     by the same difference method as the filled probe, so it needs no knowledge
     of what the pass charges.
     """
-    return "".join("<" + spelling + ' val="' + _PROBE_PAYLOAD + '"/>' for _ in range(copies))
+    return _carrier() + "".join(
+        "<" + spelling + ' val="' + _PROBE_PAYLOAD + '"/>' for _ in range(copies)
+    )
 
 
 _DRAWING_PREFIX = "svg"
@@ -246,11 +286,16 @@ def _observed_weight(
     probe: Callable[[str, int], str],
     spelling: str,
 ) -> int:
-    """What one filled key or element of ``spelling`` is actually worth."""
+    """What one filled key or element of ``spelling`` is actually worth.
+
+    Zero is a MEASUREMENT here, not a crash: the Gramps probes carry a constant
+    score of their own, so a deliberately-unweighted row measures 0 and is
+    reported by its caller against the weight it declares. See ``_carrier``.
+    """
     low, high = (scorer(probe(spelling, copies)) for copies in _PROBE_COPIES)
     assert low is not None and high is not None, (
-        f"{spelling!r} does not clear the threshold even in quantity, so the compiled "
-        "scorer scores it at nothing -- the category is lost, not mis-weighted"
+        f"{spelling!r} produced no score in a probe that carries one of its own, so the probe "
+        "itself is broken rather than the row being unweighted"
     )
     return int(high[0]) - int(low[0])
 
@@ -766,6 +811,159 @@ def test_a_short_json_note_is_not_a_biography() -> None:
     """
     assert scan_text(gedcom_x_short_note(), source="tree.md") == [], (
         "a caption in a note key is a caption"
+    )
+
+
+_WEIGHTS_BEFORE_THE_DERIVATION = {
+    "surname": 2,
+    "name": 2,
+    "first": 2,
+    "ptitle": 2,
+    "pname": 2,
+    "street": 2,
+    "city": 2,
+    "county": 2,
+    "state": 2,
+    "postal": 2,
+    "country": 2,
+    "phone": 2,
+    "url": 2,
+    "email": 2,
+    "text": 4,
+    "note": 4,
+    "person": 1,
+    "family": 1,
+    "gender": 1,
+    "birth": 1,
+    "death": 1,
+    "dateval": 1,
+    "placeobj": 1,
+    "address": 1,
+    "citation": 1,
+    "eventref": 1,
+    "childref": 1,
+    "noteref": 1,
+    "attribute": 1,
+}
+"""Every Gramps spelling the vocabulary held, and its weight, before #4's audit.
+
+⚠️ **This is not a duplicate of the vocabulary; it is a FROZEN SNAPSHOT of a
+different moment, and the difference is the point.** The audit that derives the
+container list from the published schema has one invariant standing over it:
+*no row already in the vocabulary is gated or zero-weighted by this work.* That
+is a claim about the past, so it needs a record of the past to be checked
+against -- otherwise "nothing was retracted" is only ever a promise in a commit
+message, and the quiet way to make a widening's measurement look good is to
+zero an existing catch.
+
+Three spellings here are **not** in the published schema at all -- ``birth``,
+``death`` and ``email``. They stay exactly as they are for the same reason: the
+derivation adds rows, and a row it cannot account for is not thereby wrong.
+"""
+
+
+def test_no_spelling_the_vocabulary_already_had_changes_what_it_scores() -> None:
+    """⭐ **Invariant 1 of the derivation, asserted rather than promised.**
+
+    The audit widens the vocabulary from what reviewers happened to name to
+    what the published schema declares, and the affordability problem it runs
+    into -- schema spellings that are also ordinary markup element names -- is
+    answered by a deliberately-unweighted category. That answer is safe only
+    while the zero is a condition on rows the audit ADDS. Applied to a row the
+    guard already catches, the very same mechanism is a retraction: ``<text>``
+    is an SVG element name too, and zeroing it would drop the note-carrying-a-
+    biography catch entirely while every number in the measurement improved.
+
+    So the snapshot is the control. Scored through the compiled scorer rather
+    than read out of the table, because the claim is about what the guard
+    DOES.
+    """
+    retracted = []
+
+    for spelling, expected in sorted(_WEIGHTS_BEFORE_THE_DERIVATION.items()):
+        observed = _observed_weight(_gramps_identity_score, _gramps_probe, spelling)
+        if observed != expected:
+            retracted.append(f"<{spelling}>: was {expected}, now {observed}")
+
+    assert retracted == [], (
+        "this audit adds rows and retracts none, and these spellings scored less than they did "
+        f"before it: {retracted}"
+    )
+
+
+def test_every_container_the_published_schema_declares_has_a_weight() -> None:
+    """⭐ **The exit condition of issue #4, mechanically.**
+
+    The issue was filed with five items, grew to six, and its original exit
+    condition -- *every place in either format where a container can hold prose
+    or an identity field* -- is universally quantified over a format with no
+    way to say when it has been satisfied. It was re-specified: the container
+    list is DERIVED from the published specification and frozen as a committed
+    table, and the audit closes when every row of that table has a weight and a
+    test.
+
+    This is that sentence as an assertion. The frozen table is the checklist,
+    the vocabulary is the weighting, and a row present in one and absent from
+    the other is precisely the partial application the issue exists to end.
+    ``test_the_compiled_scorer_agrees_with_the_vocabulary_for_every_row``
+    supplies the other half -- that the weight the table declares is the weight
+    the compiled scorer charges -- so between them ~100 rows are covered
+    without ~100 hand-written tests, and a row added to the schema by a later
+    version extends both without either being edited.
+    """
+    unweighted = [
+        f"<{spelling}> ({model})"
+        for spelling, model in SPECIFIED_ELEMENTS
+        if spelling not in _GRAMPS_CATEGORY_OF
+    ]
+
+    assert unweighted == [], (
+        f"{len(unweighted)} containers the published schema declares carry no weight, so the "
+        f"vocabulary is still what reviewers happened to name: {unweighted}"
+    )
+
+
+def test_a_spelling_the_published_markup_indexes_also_use_earns_no_weight() -> None:
+    """⭐ **What makes the widening affordable, and it is the whole risk.**
+
+    The schema declares ``title``, ``style``, ``code``, ``map``, ``object``,
+    ``source`` and ``header``. **Those are HTML and SVG element names**, and
+    this repository is full of markup. Weighted at even the smallest weight,
+    four filled ones reach the threshold and an ordinary markup snippet is
+    reported -- so the rows that close the audit are also the rows that could
+    make the guard something contributors route around.
+
+    The answer is a deliberately-unweighted category, and it is accepted on
+    exactly the ground ``FILESYSTEM_ROOTS`` and the drawing exemption are:
+    the collision is read off two published element indexes, which are closed
+    and externally specified rather than a list somebody maintains.
+
+    **The rejected alternative is recorded so it is not re-proposed:** a
+    document-level structural gate -- score these spellings only once the file
+    has proved it is Gramps. It is the more precise answer and it is a second
+    document-level condition on the XML scorer, and the failure mode of the one
+    taken is stated instead: a real export earns nothing from its ``<title>``
+    elements, which costs nothing, because such an export is caught many times
+    over by spellings that collide with nothing.
+
+    ⚠️ **The two exceptions are not exceptions to the rule; they are Invariant
+    1.** ``text`` and ``address`` were weighted before this audit, and the
+    twin test above is what keeps them that way.
+    """
+    earning = []
+
+    for spelling, _ in SPECIFIED_ELEMENTS:
+        if spelling not in MARKUP_ELEMENT_NAMES:
+            continue
+        if spelling in _WEIGHTS_BEFORE_THE_DERIVATION:
+            continue
+        observed = _observed_weight(_gramps_identity_score, _gramps_probe, spelling)
+        if observed != 0:
+            earning.append(f"<{spelling}>: {observed}")
+
+    assert earning == [], (
+        "these spellings are ordinary markup element names, so a document using them is not "
+        f"evidence of anything, and they score: {earning}"
     )
 
 
