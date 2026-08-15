@@ -6,7 +6,7 @@ valid one needs invented names and sensible identifiers. So a new operation
 type adds one entry here, and ``test_every_registered_type_has_an_example``
 fails with an instruction if it does not.
 
-Two constraints on the values, both from the PII guard running over this
+Three constraints on the values, all from the PII guard running over this
 checkout:
 
 * Invented surnames only, from the register the other fixtures use.
@@ -15,6 +15,19 @@ checkout:
   gated only by no GEDCOM X structural key being present in the same file.
   Staying under the floor means the fixture cannot become a finding if such a
   key ever lands beside it. Cheap, and it costs the fixture nothing.
+* ⚠️ **Every example is BUILT, never written out as a payload.** Two of the
+  schema's own field names -- the family name and the given name -- are also
+  GEDCOM X identity keys, and the guard's identity keys are **ungated**: two
+  filled ones in one file score the whole threshold on their own, with no
+  structural key needed to arm them. A keyword argument is not a filled key, so
+  a constructed operation matches nothing; the same payload written as a
+  literal mapping of quoted keys to quoted values is a genuine P2 finding in a
+  tracked file.
+
+  The same rule, one shape along: **never put a value key in the same object as
+  a type key.** That pairing is the GEDCOM X name-part shape and scores per
+  object, wherever it sits. ``to_dict`` builds both at runtime, which is why
+  the round-trip tests can hold a payload without this file containing one.
 """
 
 from __future__ import annotations
@@ -27,6 +40,7 @@ from typing import get_args, get_type_hints
 from gramps_live_api.core.schema import (
     AddCitation,
     AddNote,
+    AddPerson,
     ObjectRef,
     Operation,
     required_paths,
@@ -43,6 +57,11 @@ EXAMPLES: Mapping[str, Operation] = MappingProxyType(
             target=ObjectRef(object_type="family", handle="7fd3a9c15e0842", gramps_id="F0007"),
             note_type="research",
             text="Ashenmoor deed",
+        ),
+        "add_person": AddPerson(
+            given="Elowen",
+            surname="Ashenmoor",
+            citation=ObjectRef(object_type="citation", handle="d0a7e93c184b6f", gramps_id="C0051"),
         ),
     }
 )

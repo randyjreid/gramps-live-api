@@ -316,6 +316,10 @@ FACT_ASSERTING: Mapping[str, str] = MappingProxyType(
             "attaching evidence to an object asserts that the evidence supports it, and "
             "the citation it names is that assertion's own warrant"
         ),
+        "add_person": (
+            "that a person existed is the archetypal genealogical fact, and an individual "
+            "enters the tree only because a record attests them"
+        ),
     }
 )
 """Operations that assert a genealogical fact, each with why it asserts one.
@@ -481,6 +485,53 @@ class AddNote(Operation):
             *_named(self.target, "target"),
             _own(": "),
             *_shortened(self.text, "text"),
+        )
+
+
+# ---------------------------------------------------------------------------
+# The identity side: the operations that need no date model.
+#
+# ⚠️ **Names are carried as flat fields, and no operation nests a value object
+# of its own.** ``required_paths``, ``to_dict`` and ``from_dict`` expand exactly
+# one nested type -- ``ObjectRef`` -- so a name object would produce no required
+# path, would not round-trip, and would need those three derivations widened to
+# admit it. Widening a derived mechanism to admit a new type is how a mechanism
+# gets restated, which is the thing this phase is asserted against.
+# ---------------------------------------------------------------------------
+
+
+@_register("add_person", citation_field="citation")
+@dataclass(frozen=True, slots=True)
+class AddPerson(Operation):
+    """An individual entering the tree on the strength of a record that names them.
+
+    ⚠️ **Both name parts are required, and the consequence is recorded rather
+    than discovered later: a record naming only ONE of them cannot be expressed
+    today.** Every declared field of an operation is required -- there is no way
+    to declare an optional scalar without changing how ``required_paths``
+    derives what it derives -- so a register giving a family name and no
+    forename has no well-formed operation here. Filed as #40 rather than solved
+    by carrying the name as a single string, which would put name-part parsing
+    in the write path: the lossy translation layer D1 warns bugs live in.
+    """
+
+    given: str = ""
+    surname: str = ""
+    citation: ObjectRef | None = field(default=None, metadata={_EXPECTS: OBJECT_TYPE_CITATION})
+
+    def render(self) -> tuple[Fragment, ...]:
+        # ⚠️ ``given`` and ``surname`` are separate fragments and must stay
+        # separate. Folding them into one carried piece renders the identical
+        # sentence and attributes a refusal in the surname to ``given`` -- the
+        # attribution-by-declaration-order failure ``Fragment`` exists to
+        # prevent, and the one a reviewer cannot act on.
+        return (
+            _own("add the person "),
+            _carried("given", self.given),
+            _own(" "),
+            _carried("surname", self.surname),
+            _own(" on the evidence of "),
+            *_named(self.citation, "citation"),
         )
 
 
