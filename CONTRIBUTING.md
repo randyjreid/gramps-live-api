@@ -359,6 +359,9 @@ them.**
 | **What an XML comment or a processing instruction SAYS is not measured** — so a prose element holding only a comment is worth what a bare short note is worth, and one of them escapes. | Added with the fix that stopped a comment ending the element it sits in. **A comment contains no character data, so the measured quantity excludes it by definition; this is a definition, not an imprecision erring short.** The alternative — measure the comment's own text, on the grounds that a name in a committed comment is published all the same — was implemented and measured before being declined, and it lost on both axes rather than being a trade. It reports ordinary documentary comments (a `TODO`, a placeholder, a commented-out example each score 4 on their own); it keeps the chart-label false positive this reading removes; and it does not reach the far commoner shape, a comment that is not inside a prose element at all, which neither reading measures. **What is conceded is the ceiling already recorded, not a new one:** one such element scores identity weight and escapes, two reach the threshold and are caught — exactly what a bare short note does, asserted by test in both directions. **The deny-list is the backstop**, here as for every other residual in this table. A comment holding a whole *export* is still caught either way: the filled-element scan finds the elements inside the comment's text regardless of the comment around them. |
 | **Not a miss but a deliberate false positive, recorded here because it is the same trade read backwards: a NAMESPACE-PREFIXED drawing is not a drawing**, so `<x:svg>` holding short `text` elements is reported rather than exempt — whatever `x` is bound to, including the SVG namespace itself. | Added when the drawing exemption's use of the shared qualified-name alternation was deleted. A prefix is matched by **shape** here and never resolved, and that mechanism points in opposite directions depending on what reads it: for the three patterns that **score** an element, matching more elements means more *findings* — conservative; for an **exemption**, matching more containers means more *suppression* — fail-open. The input that proved it is a prefix bound to a namespace that is not SVG: the container had the shape of a drawing, the exemption applied, and a name, a date of birth and a place went from a finding to nothing by being wrapped in a tag whose meaning nothing checked. **A conditional exemption is where fail-open lives.** Both repairs that keep the fourth site were rejected — resolving the prefix means reading namespace bindings, which is a parser, refused repeatedly here; and requiring the namespace URI somewhere in the document is *still a condition on an exemption*, and wrong in the case that matters, because a document may bind that URI to a different prefix entirely. **Where it eventually belongs is issue #33's rendering boundary:** a structural guard over what the preview *emits*, across all rendered fields, can answer "is this really a drawing" — that is the right home for the question, rather than a condition bolted onto an exemption in the scanner. Of the two directions, failing closed is the one this module's stated posture requires. Asserted by test in both directions, on the same payload: the unprefixed drawing still exempts its labels, the prefixed one does not. |
 | **The detail inside a failure message cannot be revealed, not even locally.** The flag that reveals matched values does not reveal it. | The redacting wrapper renders when the failure is raised, so what reaches the printing site is already finished text and a flag has nothing left to un-redact. Making it work means the failure carrying the wrapped value intact all the way to that site -- **a second route to a wrapped value, running through the paths that are exercised least.** That is what was refused when the ordering comparison was declined, for the same reason: the wrapper is worth having only while there is exactly one audited way to the value, and error handling is the worst place to add a second. **Kept:** the message names the kind of error in clear and carries the detail redacted, both asserted by test, so an operator learns what failed and where. **Lost:** diagnosing one of these means reproducing the failure, not re-reading the message. |
+| **A container the published schema declares whose spelling is also an HTML or SVG element name scores nothing** -- `title`, `style`, `code`, `map`, `object`, `source` and `header`. A real export earns nothing from its `<title>` or `<source>` elements. | Added with #4's derived container table, and it is what makes that table affordable. At even the smallest weight four filled ones reach the threshold, and two ordinary documentation fragments were measured doing exactly that -- see the table above. The collision is read off the published HTML and SVG element indexes rather than a list maintained here, on the ground `FILESYSTEM_ROOTS` is accepted on: closed, externally specified, and not growing at our discretion. **What is lost is small and stated:** such an export is caught many times over by the eighty-odd spellings that collide with nothing. **The rejected alternative is a document-level structural gate** -- score them once the file has proved it is Gramps -- which is the more precise answer and is a second document-level condition on the XML scorer; refile it if a real export is ever measured slipping. ⚠️ The rule applies only to rows that table ADDS: `text` and `address` collide too and keep their weights, asserted by test, because zeroing a row already caught is a retraction dressed as a widening. |
+| **A container that can hold a sentence but is not narrative about a person scores 1, not 4** -- `description`, `cause`, `page`. | Added with the same table. Prose weight is for containers whose *purpose* is narrative about a person, which the schema says of `note` and `text` and does not say of a caption on a media object or a URL. **What is lost:** a whole biography written into a single `<description>` scores 1 and escapes on its own. **What promoting them would cost:** one filled element clearing the threshold in any schema document that shows an example -- precisely the document Phase 1 is about to write -- and a finding nobody can act on is a finding contributors route around. Two of them together are still caught. The deny-list is the backstop, here as elsewhere. |
+| **Custom and extension elements the published schema does not define stay uncovered**, and so do schema versions other than the pinned one. | The stated residual of #4's exit condition, recorded when that condition was re-specified rather than discovered afterwards. A derivation closes the list the specification declares and says nothing about what a vendor adds to it, and a container introduced by a later version is not in the table until the table is re-derived. The deny-list is the backstop. |
 
 **Removed in round 9: the classic-Mac line-ending row.** It said a carriage-return-only GEDCOM was
 not caught. It is caught, and has been since the density property arrived — Python splits lines on a
@@ -435,6 +438,69 @@ failure bought — a change measured on one of its two parts predicted 9 finding
 
 Measured at the tip: **no tracked file scores at the threshold.** In history: 16 sightings, all
 blobs of the two fixture files that carried literal name blocks before this round assembled them.
+
+### Recorded decision: the container list is derived, and markup spellings earn nothing
+
+Which containers exist stopped being a judgement in #4's Change C1. The list is derived from the
+published Gramps XML schema and frozen as a committed table — see the derivation note in `docs` —
+which took the Gramps vocabulary from 29 spellings to 110. Both directions, measured against the
+previous head:
+
+| Payload | Before | After | Without the unweighted category |
+| --- | --- | --- | --- |
+| researcher block (a name and an address) | 0 | **6** | 6 |
+| name detail — call name, nickname, suffix | 0 | **6** | 6 |
+| a source credited to a person | 0 | **5** | 5 |
+| place block | 0 | **4** | 5 |
+| event block | 0 | **4** | 4 |
+| repository block | 0 | **4** | 4 |
+| an ordinary HTML fragment: four colliding tags | 0 | **0** | **4 — reported** |
+| a documentation page: `header`, `source`, `object`, `map` | 0 | **0** | **4 — reported** |
+| a genuine export fragment *(control)* | 5 | 5 | 5 |
+| an importer specification *(control)* | 0 | 0 | 0 |
+| one long note, the prose floor *(control)* | 4 | 4 | 4 |
+
+The third column is the same change with the deliberately-unweighted category switched on to
+structural weight. **That column is the whole argument for the category:** the schema declares
+`title`, `style`, `code`, `map`, `object`, `source` and `header`, and two ordinary documentation
+fragments reach the threshold exactly without it. The collision is read off the published HTML and
+SVG element indexes, which is the ground `FILESYSTEM_ROOTS` and the drawing exemption stand on.
+
+**The rejected alternative, recorded so it is not re-proposed:** a document-level structural gate,
+scoring those spellings only once a file has proved it is Gramps. It is the more precise answer and
+it is a second document-level condition on the XML scorer. Refile it if measurement ever shows a
+real export slipping.
+
+⚠️ **One claim this change was planned against did not reproduce, and it is recorded rather than
+quietly dropped.** The existing markup false-positive test — a document holding a filled `<title>`
+— was named in advance as the thing a careless widening turns red. Measured, its document scores
+**0 in all three columns**: it holds two filled elements and only one of them, `title`, is a schema
+spelling at all. The real exposure is the two fragments above, and the test was never the tripwire
+it was described as.
+
+**Exposure over this repository's own content, before and after.** Before: two filled element
+literals in all tracked content, both on one line of one test file, and neither was a vocabulary
+spelling, so that file scored 0. ⚠️ **This change was planned against that pair costing 2, and it
+was 1** — `body` is not in the schema at all, so only `title` was ever going to gain a row. After:
+the same probe finds four literals, the two new ones being regex fragments in the derivation script
+and not schema spellings; exactly one tracked file contains a filled element the vocabulary knows,
+`<title>`, which weighs **0**. So **no tracked file scores anything at all**, before or after. The
+counterfactual is where the category shows: without it that file would score 1, against a threshold
+of 4.
+
+**Cost.** The alternation went from 29 alternatives to 110. Over the widest corpus available — 401
+blobs, 11.4 MiB, every blob the history reaches — scoring took **0.066 s before and 0.071 s after,
+best of three: 1.11×**, against a bound of 2×. End to end the tip scan went 2.34 s → 2.54 s and the
+published-range walk over 91 commits ran in 15.5 s, clean. ⚠️ Every figure here is from a **Windows
+11 development machine on Python 3.12.13**; the runner is an order of magnitude faster on the
+history walk, for the reason recorded against B8.
+
+**Three weights that a reader will want to promote, and why they stay structural.** `description`,
+`cause` and `page` can each hold a sentence, and `<description>` reads like prose. Prose weight is
+for containers whose *purpose* is narrative about a person — which the schema says of `note` and
+`text` and does not say of a caption on a media object. Promoting them would make one filled element
+clear the threshold in any schema document that shows an example, which is the document Phase 1 is
+about to write.
 
 ⚠️ **The measured ceiling of content detection — one number, three costumes.** This is the answer
 to "why not just lower the threshold", and the reason to trust it is that the same figure keeps

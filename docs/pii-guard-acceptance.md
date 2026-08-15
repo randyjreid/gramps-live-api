@@ -66,28 +66,37 @@ deliberately does *not* apply.
 ### B2
 
 > **A file carrying genealogy data the guard has a property for scores at or above the threshold and
-> is a finding, whatever the file is named.** GEDCOM records counted per file; Gramps XML weighted by
-> the real-versus-mentioned distinction; GEDCOM X keys gated on a structural marker.
+> is a finding, whatever the file is named -- and its NAME is read the same way.** GEDCOM records
+> counted per file; Gramps XML weighted by the real-versus-mentioned distinction, over a container
+> list derived from the published schema; GEDCOM X keys gated on a structural marker.
 
 ⚠️ **The qualifier *"the guard has a property for"* is load-bearing and is not a hedge.** Without it
 this criterion is universally quantified over all genealogy data, which is the unbounded spec this
 document exists to replace.
 
-`tests/unit/test_pii_guard_p2_genealogy.py` -- **78 tests**. The crux of each mechanism:
+⚠️ **"Which containers" is no longer a judgement, and that is what makes the Gramps half closable.**
+The list is derived from the published schema and frozen as a committed table -- see the derivation
+note in this directory. Every row of that table has a weight and a test, which is finite and
+reached; the previous formulation, *every place where a container can hold prose or an identity
+field*, was quantified over a format and could not be shown to have been satisfied.
+
+`tests/unit/test_pii_guard_p2_genealogy.py` -- **84 tests**. The crux of each mechanism:
 
 | Mechanism | Named by |
 | --- | --- |
 | GEDCOM records counted per file, not consecutively | `test_an_annotated_walkthrough_is_a_finding` |
 | Gramps XML weighted by real versus mentioned | `test_an_importer_spec_is_not_a_finding` -- the false-positive side is the point of the distinction |
+| the container list is the published schema's, not a reviewer's | `test_every_container_the_published_schema_declares_has_a_weight` |
 | GEDCOM X keys gated on a structural marker | `test_configuration_json_is_not_genealogy_without_the_format` |
 | whatever the file is named | `test_gedcom_renamed_as_text_is_still_caught` |
+| and the name itself is read | `test_a_committed_name_carrying_a_record_is_a_finding` |
 
 The two formats are held to one vocabulary by
 `test_the_compiled_scorer_agrees_with_the_vocabulary_for_every_row` and
 `test_one_life_is_judged_the_same_in_both_formats`.
 
 ⚠️ **That count is the FILE's, and it is not the number of tests carrying B2. It moves for
-reasons this criterion is not about, and it has now moved for two.** Twelve of the seventy-eight
+reasons this criterion is not about, and it has now moved for three.** Twelve of them
 arrived with #4 item 4, which taught the compiled patterns that read an element name to read
 a namespace-prefixed tag: **nine** with the two commits that shared one alternation between the four
 sites it then had, and **three** more with the commit that replaced the prefix's character class with
@@ -101,10 +110,24 @@ to what B2 claims, and the twelve divide three ways:
 | the drawing exemption's two directions -- an ordinary unprefixed drawing still exempts its labels, and a container whose prefix this module cannot resolve does not | **two**, and the first half of each of them constrains what the guard must *not* report, which is B8's concern rather than this one |
 | the shared alternation's construction: which patterns are built from it and that the drawing is deliberately not, longest-first ordering, `_DRAWING` refusing a prefixed drawing, the namespace fallback still reading a prefixed declaration, and -- from the `NCName` commit -- the production transcribed at every range boundary, the start and continue classes being distinct, and the class matching no markup | **seven**, asserting how the patterns are built rather than what a scan returns. They carry no criterion on their own |
 
-So the twelve are not this criterion growing. What carries B2 is the four mechanisms in the table
+So the twelve are not this criterion growing. What carries B2 is the mechanisms in the table
 above and the two agreements beneath it; the number is a file's length, and the file is shared.
 
-⚠️ **The seventy-eight is UNCHANGED by the fourth site's deletion, and that is a coincidence rather
+**Six more arrived with #4's items 1, 5 and 6-XML** -- the change that derived the container list
+from the published schema. Unlike the twelve, **three of these do carry B2**, and the split is worth
+stating because it is the opposite of the last one:
+
+| The six | What they are |
+| --- | --- |
+| `test_every_container_the_published_schema_declares_has_a_weight` and `test_a_committed_name_carrying_a_record_is_a_finding` | **two**, and B2 evidence of a new kind. The first bounds *which containers* this criterion ranges over -- the sentence above is only checkable because that set is finite and external. The second extends the criterion to the committed NAME, which is why the wording above gained a clause rather than keeping the same claim over a bigger table |
+| `test_the_address_payload_issue_four_was_filed_with_is_a_finding` | **one**, B2 evidence in the ordinary way, and green on arrival: it re-measures the input #4 item 1 was filed with rather than assuming the item was still open |
+| `test_a_spelling_the_published_markup_indexes_also_use_earns_no_weight` | **one**, and it constrains what the guard must *not* report -- **B8's concern rather than this one**, exactly as the drawing rows are. It is what makes a hundred-row vocabulary affordable in a repository full of markup |
+| `test_no_spelling_the_vocabulary_already_had_changes_what_it_scores` and `test_no_spelling_is_claimed_by_two_categories` | **two**, asserting properties of the table rather than what a scan returns. The first is the control on the widening -- it is how "this audit adds rows and retracts none" stops being a promise -- and the second was written because a spelling really was placed in two categories, where the later silently won |
+
+⚠️ **The six are why the sentence at the top of this criterion changed, and a criterion whose
+wording moves is not a count moving.** Read the claim, not the number.
+
+⚠️ **The count was UNCHANGED by the fourth site's deletion, and that is a coincidence rather
 than evidence nothing happened.** That change removed the test asserting a mismatched-prefix pair is
 not a drawing -- the backreference it was about no longer exists, and its input is still reported for
 a reason that has nothing to do with the tags disagreeing -- and added the reproduction that deletion
@@ -115,7 +138,8 @@ rather than carried forward.
 ⚠️ **This is the fifth time a documented count in this repository has gone stale, and the general
 repair is filed as #36 rather than built here.** The count is corrected at the change that moved it,
 which is the cheapest place; what #36 owes is the mechanism that makes a stale one fail rather than
-read as considered.
+read as considered. The sixth change to touch this file looked for this number **before** adding a
+test to it rather than after, which is the cheap half of that repair available today.
 
 ### B3
 
