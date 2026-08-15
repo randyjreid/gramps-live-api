@@ -62,6 +62,26 @@ leaves the rest, so a test that used only those would pass on a guard that does
 nothing.
 """
 
+INVISIBLE_OUTSIDE_OTHER: Mapping[str, int] = MappingProxyType(
+    {
+        "a combining grapheme joiner": 0x034F,
+        "a Hangul choseong filler": 0x115F,
+        "a Hangul jungseong filler": 0x1160,
+        "the first variation selector": 0xFE00,
+    }
+)
+"""Round 4's named inputs: invisible characters the "Other" group does not hold.
+
+⚠️ **This is the finding, stated as a fixture.** U+034F and U+FE00 are ``Mn``
+and U+115F and U+1160 are ``Lo``, so a class written as *general category*
+``C`` cannot reach any of them -- and every one of them renders as nothing.
+An invisible character in a sentence somebody is about to approve is precisely
+what this guard exists for, whichever category the standard files it under.
+
+Named by code point and built with ``chr``, like everything else here, so this
+tracked file stays plain ASCII.
+"""
+
 
 def _value(type_name: str, path: str) -> str:
     """The example's value at ``path``, or the empty string where it holds no text."""
@@ -251,6 +271,30 @@ def test_a_character_in_two_rendered_fields_names_the_one_that_contributed_it() 
         "the offending character reaches the sentence from citation.gramps_id "
         "first; target.gramps_id is what DECLARATION ORDER answers, which is "
         f"the attribution this guard must not be making; got {refusal.value.field_path!r}"
+    )
+
+
+@pytest.mark.parametrize(("description", "code_point"), sorted(INVISIBLE_OUTSIDE_OTHER.items()))
+def test_an_invisible_character_outside_the_other_category_is_refused(
+    description: str, code_point: int
+) -> None:
+    # ⚠️ Round 4's finding. The class used to be the General_Category group
+    # "Other", and none of these four is in it -- two are Mn and two are Lo --
+    # so all four reached the screen as nothing at all. A reviewer approves a
+    # sentence they can read; a character they cannot see is the attack, and
+    # which category the standard files it under is not the question.
+    operation = carrying(EXAMPLES["add_note"], "text", "Ashenmoor" + chr(code_point) + " deed")
+
+    assert schema.validate(operation).well_formed, (
+        "this case is only the rendering guard's business while the operation "
+        "is still well-formed; preview's precondition is unchanged"
+    )
+    with pytest.raises(schema.UnrenderableFieldError) as refusal:
+        schema.preview(operation)
+
+    assert refusal.value.field_path == "text", (
+        f"{description} (U+{code_point:04X}) reaches the sentence from text; "
+        f"got {refusal.value.field_path!r}"
     )
 
 
