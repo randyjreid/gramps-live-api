@@ -813,6 +813,37 @@ def _reference_from(name: str, value: object) -> ObjectRef | None:
 # was weighed and rejected: nothing here can establish what characters Gramps
 # emits in an opaque identifier, and a rendering guard does not need to. It
 # constrains what we DISPLAY, not what we accept.
+#
+# ---------------------------------------------------------------------------
+# What this costs, and what it does not reach. Recorded rather than carved
+# around, because each of these is a residual somebody should meet here instead
+# of discovering it.
+#
+# ⚠️ **The class refuses characters some scripts need.** The zero-width
+# non-joiner and joiner (U+200C, U+200D) are required by Persian and Indic
+# text, and they are the same general category as the ones that hide a sentence
+# from its reader. **So a legitimate note in those scripts becomes
+# unpreviewable, and therefore unapprovable.** That is a real cost and it is
+# taken as a stated trade: no published definition separates
+# invisible-and-dangerous from invisible-and-legitimate, because the same
+# characters are both. Carving the joiners out by hand would be the enumeration
+# pointed backwards -- a known-safe list, failing by admitting whatever nobody
+# carved. If this ever needs narrowing it needs a ruling with evidence, not an
+# exemption added here.
+#
+# ⚠️ **Truncation means a hidden character can go unrefused, and that is
+# correct.** ``_shortened`` elides free text, so a character past the limit is
+# never emitted -- and a guard over what we DISPLAY has nothing to say about a
+# character that reaches no screen. Stated so it is not later mistaken for a
+# bypass.
+#
+# ⚠️ **Implicit reordering is not covered, and must not be.** A strong
+# right-to-left letter -- an ordinary name, category Lo -- reorders the neutral
+# characters around it under UAX #9 with no formatting character present at
+# all, and it is nowhere near this class. Covering it would mean refusing
+# legitimate names, in a genealogy tool. That mitigation belongs to whatever
+# eventually displays the sentence, which can isolate each field; it is not
+# available to a function that returns a string.
 # ---------------------------------------------------------------------------
 
 _OTHER = "C"
