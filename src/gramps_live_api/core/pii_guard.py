@@ -1625,8 +1625,30 @@ def _gedcom_x_identity_score(text: str) -> tuple[int, int] | None:
     return score, min(offsets)
 
 
-_DRAWING = re.compile(r"<svg\b[^>]*>.*?</svg\s*>", re.IGNORECASE | re.DOTALL)
-"""A drawing, inside which a short text element is a label and not a note.
+_DRAWING = re.compile(
+    r"<(" + _qualified("svg") + r")\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL
+)
+r"""A drawing, inside which a short text element is a label and not a note.
+
+⚠️ **Built from the shared alternation, and the fourth site to be.** A drawing
+that binds its own namespace to an alias -- ``<svg:svg>`` holding
+``<svg:text>`` -- was not a drawing here, so its labels were not labels and the
+chart was reported. Same lexical blindness as the three sites that read element
+names, pointing the OTHER WAY: those three failed open and let data out, this
+one fails closed and manufactures a false positive. That is why it is measured
+on its own row rather than folded into theirs.
+
+**The backreference is a decision, not decoration.** ``</\1\s*>`` means the
+prefix that opened the drawing is the prefix that closes it, so ``<a:svg>`` is
+not closed by ``</b:svg>`` and a mismatched pair is not a drawing at all. That
+direction is chosen deliberately: the rejected alternative -- an independent
+optional prefix on each tag -- accepts the mismatched pair and so fails OPEN,
+exempting labels inside something no parser would call a drawing. Failing
+closed on it reports a chart, which is the posture stated below and the one
+this module takes everywhere else. Do not simplify the backreference away.
+
+The capturing group it needs is free here: the only consumer of this pattern
+takes ``match.span()`` and reads no groups.
 
 ⚠️ **This replaced "the element carries an attribute", which asked the wrong
 question and so let data out whatever the answer.** The discriminator has to

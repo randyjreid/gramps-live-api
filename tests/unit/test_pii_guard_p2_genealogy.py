@@ -16,11 +16,17 @@ from pathlib import Path
 
 from gramps_live_api.core.pii_guard import (
     _CATEGORY_WEIGHT,
+    _DRAWING,
+    _GENEALOGY_TEXT_SIGNATURES,
+    _GRAMPS_ALL_ELEMENTS,
+    _GRAMPS_ATTRIBUTED_ELEMENT,
+    _GRAMPS_FILLED_ELEMENT,
     _GRAMPS_PROSE_LENGTH,
     _GRAMPS_XML_NAMESPACE,
     _VOCABULARY,
     _gedcom_x_identity_score,
     _gramps_identity_score,
+    _qualified,
     scan_blob,
     scan_paths,
     scan_text,
@@ -130,6 +136,25 @@ def _gramps_attributed_probe(spelling: str, copies: int) -> str:
     of what the pass charges.
     """
     return "".join("<" + spelling + ' val="' + _PROBE_PAYLOAD + '"/>' for _ in range(copies))
+
+
+_DRAWING_PREFIX = "svg"
+"""The alias a drawing conventionally binds its own namespace to.
+
+Deliberately the harder spelling: ``<svg:svg>`` puts the element's own name in
+the prefix position, so a pattern that reads the prefix as if it were the tag
+matches the opening and then cannot find its closing tag.
+"""
+
+
+def _alternatives_of(fragment: str) -> list[str]:
+    """The spellings ``_qualified`` emitted, in the order it emitted them.
+
+    Reads the helper's own output rather than a pattern that embeds it, so a
+    change to the helper's shape fails this loudly instead of quietly returning
+    something else.
+    """
+    return fragment.rsplit("(?:", 1)[1].rstrip(")").split("|")
 
 
 def _gedcom_x_probe(spelling: str, copies: int) -> str:
@@ -775,6 +800,109 @@ def test_a_prefixed_document_still_declares_the_namespace_it_belongs_to() -> Non
     """
     assert _GRAMPS_XML_NAMESPACE in gramps_xml_database_element(prefix=_NAMESPACE_PREFIX), (
         "the namespace fallback reads a URI, and a prefixed document still declares it"
+    )
+
+
+def test_every_pattern_that_reads_an_element_name_is_built_from_the_one_alternation() -> None:
+    """⭐ **One construction site, asserted rather than promised.**
+
+    Four compiled patterns read a Gramps element name, and under a namespace
+    prefix all four failed -- three by letting data out, the fourth by
+    withdrawing an exemption and reporting a chart. A fifth site hand-rolling
+    its own alternation fails the same way in whichever direction it points,
+    and nothing behavioural sees it until somebody writes the document. So the
+    site count is what gets asserted.
+    """
+    signature = dict(_GENEALOGY_TEXT_SIGNATURES)["Gramps XML database element"]
+    sites = {
+        "_GRAMPS_FILLED_ELEMENT": (_GRAMPS_FILLED_ELEMENT.pattern, _GRAMPS_ALL_ELEMENTS),
+        "_GRAMPS_ATTRIBUTED_ELEMENT": (_GRAMPS_ATTRIBUTED_ELEMENT.pattern, _GRAMPS_ALL_ELEMENTS),
+        "Gramps XML database element": (signature.pattern, ("database",)),
+        "_DRAWING": (_DRAWING.pattern, ("svg",)),
+    }
+
+    hand_rolled = [
+        name for name, (pattern, names) in sites.items() if _qualified(*names) not in pattern
+    ]
+
+    assert hand_rolled == [], (
+        "these patterns do not read the shared alternation, so a namespace prefix means "
+        f"something different to each of them: {hand_rolled}"
+    )
+
+
+def test_the_alternation_never_lets_a_shorter_spelling_shadow_a_longer_one() -> None:
+    """Longest first, asserted structurally because nothing behavioural can see it.
+
+    No two spellings in the table collide today, so a shorter alternative
+    shadowing a longer one is a defect no document can currently exhibit -- and
+    the table is about to be derived from a published schema, which is where
+    collisions come from. The trailing word boundary makes the engine backtrack
+    into the longer alternative anyway; the point is that the patterns must not
+    DEPEND on that.
+    """
+    lengths = [len(name) for name in _alternatives_of(_qualified(*_GRAMPS_ALL_ELEMENTS))]
+
+    assert lengths == sorted(lengths, reverse=True), (
+        f"the alternation is not ordered longest-first: {lengths}"
+    )
+    assert _alternatives_of(_qualified("name", "namemaps"))[0] == "namemaps", (
+        "a spelling that begins with another must be offered before it, or reaching it "
+        "depends on the engine backtracking"
+    )
+
+
+def test_a_prefixed_drawing_is_still_a_drawing() -> None:
+    """The fourth site, and the one that fails CLOSED.
+
+    ``_DRAWING`` is the container question the short-prose discriminator asks,
+    and it read a bare tag. So a prefixed drawing was not a drawing, its labels
+    were not labels, and a chart got reported -- the same lexical blindness as
+    the three sites above, pointing the other way.
+    """
+    assert _DRAWING.search(worded_diagram(prefix=_DRAWING_PREFIX)) is not None, (
+        "a drawing that binds its own namespace to an alias is still a drawing"
+    )
+
+
+def test_labels_in_a_prefixed_drawing_are_still_labels() -> None:
+    """The behavioural half, asserted as agreement with the unprefixed chart.
+
+    ⚠️ **This test's red does not exist at the head this branch started from.**
+    A prefixed chart was clean there for the wrong reason -- its labels were
+    invisible too, so nothing scored. Teaching the element patterns the prefix
+    is what makes the labels visible and turns this chart into a false positive,
+    which is why the two commits are separate: this is the only state in which
+    the container fix is demonstrably necessary, and collapsing them would mean
+    nobody ever saw it fail.
+    """
+    bare = rules(scan_text(worded_diagram(), source="docs/chart.md"))
+    prefixed = rules(scan_text(worded_diagram(prefix=_DRAWING_PREFIX), source="docs/chart.md"))
+
+    assert prefixed == bare == [], (
+        "a worded axis label is a label in either spelling: bare says "
+        f"{bare}, prefixed says {prefixed}"
+    )
+
+
+def test_a_drawing_whose_tags_disagree_about_the_prefix_is_not_a_drawing() -> None:
+    """The direction the backreference chooses, asserted rather than argued.
+
+    The closing tag must carry the prefix the opening tag carried, so a
+    mismatched pair is not a drawing and its labels are reported: fails CLOSED.
+    The rejected alternative -- an independent optional prefix on each tag --
+    accepts the pair and exempts labels inside something no parser would call a
+    drawing: fails OPEN. Recorded beside ``_DRAWING``, and asserted here rather
+    than left as a claim, because that constant's own note says this
+    discriminator is asserted by test in both directions.
+    """
+    matched = worded_diagram(prefix=_DRAWING_PREFIX)
+    mismatched = matched.replace("</" + _DRAWING_PREFIX + ":svg>", "</other:svg>")
+
+    assert mismatched != matched, "the closing tag was not rewritten, so this proves nothing"
+    assert rules(scan_text(mismatched, source="docs/chart.md")) == ["P2"], (
+        "a drawing whose tags disagree about the prefix is not provably a drawing, and "
+        "this discriminator refuses what it cannot prove safe"
     )
 
 

@@ -307,17 +307,25 @@ def gramps_attributed_identity() -> str:
     )
 
 
-def worded_diagram() -> str:
+def worded_diagram(*, prefix: str = "") -> str:
     """A chart whose labels are words rather than numbers.
 
     The shape that returns if the prose floor is lowered instead of the
     positioned-text discriminator being used.
+
+    ``prefix`` spells the drawing and its labels as a namespace-prefixed
+    document -- ``<svg:svg>`` holding ``<svg:text>``. That is the same lexical
+    blindness the element patterns had, pointing the other way: the labels are
+    visible to the scorer and their container is not, so a chart is reported.
+    Both tags take the prefix, because a document that qualifies one qualifies
+    the other.
     """
+    qualifier = prefix + ":" if prefix else ""
     labels = "".join(
-        _element("text", attributes=f'x="0" y="{offset}"', body=value)
+        _element(qualifier + "text", attributes=f'x="0" y="{offset}"', body=value)
         for offset, value in ((9, "Temperature"), (18, "Pressure over time"))
     )
-    return _element("svg", body=labels)
+    return _element(qualifier + "svg", body=labels)
 
 
 def gramps_address_block() -> str:
