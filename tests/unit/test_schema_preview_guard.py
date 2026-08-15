@@ -23,13 +23,29 @@ ASCII**, and every value is invented.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import sys
+import unicodedata
+from collections.abc import Iterator, Mapping
 from types import MappingProxyType
 
 import pytest
 
 from gramps_live_api.core import schema
-from tests.fixtures.operations import EXAMPLES, carrying, resolve
+from tests.fixtures.operations import EXAMPLES, SENTINELS, carrying, resolve
+
+EXPLICIT_BIDI_FORMATTING: frozenset[str] = frozenset(
+    {"LRE", "RLE", "LRO", "RLO", "PDF", "LRI", "RLI", "FSI", "PDI"}
+)
+"""The explicit formatting types of the Unicode Bidirectional Algorithm, UAX #9.
+
+⚠️ **A second published definition, on purpose.** The guard's own class is the
+General_Category group "Other" of UAX #44; this is the algorithm that says which
+characters *reorder* text, named by its own bidirectional types and read back
+out of the UCD through ``unicodedata.bidirectional``. Two sources that must
+agree is a test -- one source read twice is not, and it would pass just as
+happily if both were wrong. The same reason ``permits`` in the fixture module
+derives what a field *should* accept rather than calling the module's helper.
+"""
 
 GUARDED: Mapping[str, str] = MappingProxyType(
     {
@@ -192,3 +208,90 @@ def test_the_punctuation_the_renderer_itself_inserts_is_not_refused() -> None:
 
     assert rendered.strip()
     assert chr(0x2026) in rendered, f"the elision did not run, so it is untested; got {rendered!r}"
+
+
+def _every_code_point() -> Iterator[str]:
+    """The whole code space. A full sweep costs about a tenth of a second."""
+    return (chr(code_point) for code_point in range(sys.maxunicode + 1))
+
+
+def test_every_character_the_bidi_algorithm_defines_as_explicit_formatting_is_guarded() -> None:
+    # The reordering half of the property, checked against UAX #9 rather than
+    # against the class the guard is written in terms of.
+    formatting = [
+        character
+        for character in _every_code_point()
+        if unicodedata.bidirectional(character) in EXPLICIT_BIDI_FORMATTING
+    ]
+    missed = [character for character in formatting if not schema._is_unrenderable(character)]
+
+    assert formatting, "the sweep found no explicit formatting at all, so this proves nothing"
+    assert missed == [], (
+        "a character the Bidirectional Algorithm defines as explicit formatting "
+        f"can reorder a sentence for review and is not guarded: {[ord(c) for c in missed]}"
+    )
+
+
+def test_no_character_a_person_could_read_is_guarded() -> None:
+    # The false-positive half. Letters, marks, numbers, punctuation, symbols and
+    # separators are what a sentence a person checks against a record is made
+    # of, and refusing any of them would be a guard that blocks legitimate data.
+    readable = frozenset({"L", "M", "N", "P", "S", "Z"})
+    refused = [
+        character
+        for character in _every_code_point()
+        if unicodedata.category(character)[0] in readable and schema._is_unrenderable(character)
+    ]
+
+    assert refused == [], f"a readable character is refused: {[ord(c) for c in refused]}"
+
+
+def test_an_unassigned_code_point_is_not_guarded() -> None:
+    # ⚠️ The recorded exclusion, pinned so that "completing" the class fails
+    # here rather than in CI on one Python version and not another. Unassigned
+    # is a fact about the UCD this interpreter was built with -- not about the
+    # character -- so guarding it would make the same operation preview on one
+    # version of our matrix and refuse on another. Derived from the UCD rather
+    # than picking a code point by hand, because what is unassigned moves.
+    unassigned = [
+        character for character in _every_code_point() if unicodedata.category(character) == "Cn"
+    ]
+
+    assert unassigned, "this UCD assigns everything, so the exclusion is untested"
+    assert not any(schema._is_unrenderable(character) for character in unassigned), (
+        "an unassigned code point is guarded, which makes the verdict depend on "
+        f"the interpreter's Unicode version (this one is {unicodedata.unidata_version})"
+    )
+
+
+@pytest.mark.parametrize(("description", "sentinel"), sorted(SENTINELS.items()))
+def test_the_refusal_repeats_no_value_the_payload_carried(description: str, sentinel: str) -> None:
+    # The rule on RuleViolation, which this refusal obeys for the same reason: a
+    # payload echoed into an error becomes content this repository then has to
+    # scan, and any caller that logs the failure would be what published it.
+    character = GUARDED["an override that reorders what follows it"]
+    operation = carrying(EXAMPLES["add_citation"], "citation.gramps_id", sentinel + character)
+
+    with pytest.raises(schema.UnrenderableFieldError) as refusal:
+        schema.preview(operation)
+
+    message = str(refusal.value)
+    assert sentinel not in message, f"the refusal repeated {description}"
+    assert character not in message, "the refusal repeated the character the payload carried"
+    assert "citation.gramps_id" in message, "a refusal naming nothing is one nobody can act on"
+
+
+def test_a_character_no_field_carries_is_refused_without_naming_one() -> None:
+    # ⚠️ Reaches a module-private function deliberately, because there is no
+    # route to this branch through the public one: it fires when a renderer in
+    # this module emits a guarded character itself, and the registry is closed,
+    # so registering a type that did would break the partition and the example
+    # table that quantify over it. The branch still has to be right -- a
+    # sentence nobody can trust is not shown because of where the character came
+    # from -- and it must not claim a field carried something no field carries.
+    with pytest.raises(schema.SchemaError) as refusal:
+        schema._refuse_unrenderable(EXAMPLES["add_citation"], "cite citation " + chr(0x202E))
+
+    assert not isinstance(refusal.value, schema.UnrenderableFieldError), (
+        "a refusal naming a field no value came from points the reader at the wrong place"
+    )
