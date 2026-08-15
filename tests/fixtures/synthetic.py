@@ -544,6 +544,40 @@ def gramps_generic_xml_names() -> str:
     return "\n".join(_element("type", body=value) for value in values) + "\n"
 
 
+def generic_xml_names_under_an_unrelated_namespace(*, namespace: str) -> str:
+    """The reproduction: an unrelated format's namespace on the schema's document element.
+
+    ``<database xmlns="...">`` wrapping the four filled ``<type>`` elements
+    above. A document that declares a namespace which is **not** the Gramps one
+    has named a different format, so the four generic names inside it are as
+    ordinary as they are in the bare reproduction.
+
+    The namespace is passed in rather than written here, exactly as
+    ``notes_inside_a_container`` takes one: what it names does not matter, only
+    that it is not the value the schema fixes.
+    """
+    return _element(
+        "database",
+        attributes='xmlns="' + namespace + '"',
+        body="\n" + gramps_generic_xml_names(),
+    )
+
+
+def generic_xml_names_under_an_unrelated_doctype(*, identifier: str) -> str:
+    """The same reproduction, spelled as a doctype naming an unrelated identifier.
+
+    A doctype's ``Name`` is the document element, so a document declaring one
+    named ``database`` is not thereby a Gramps document: the identifier beside
+    it is what says which format, and this one names another.
+
+    ⚠️ **``<!DOCTYPE`` is assembled**, like every other marker-shaped string in
+    this module: written whole beside four filled containers it would be a
+    marker in a tracked file rather than a fixture.
+    """
+    opening = "<!DOC" + "TYPE database SYSTEM " + '"' + identifier + '">'
+    return opening + "\n" + gramps_generic_xml_names()
+
+
 def unrelated_xml_document() -> str:
     """A build manifest: a file, its status, a description and a type.
 

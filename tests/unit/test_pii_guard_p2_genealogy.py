@@ -32,7 +32,6 @@ from gramps_live_api.core.pii_guard import (
     _GRAMPS_FILLED_ELEMENT,
     _GRAMPS_PROSE_LENGTH,
     _GRAMPS_XML_NAMESPACE,
-    _NAMES_THE_GRAMPS_FORMAT,
     _NCNAME_CONTINUE_RANGES,
     _NCNAME_START_RANGES,
     _SPELLINGS_THE_DERIVATION_ADDED,
@@ -63,6 +62,8 @@ from tests.fixtures.synthetic import (
     gedcom_x_notes_holding,
     gedcom_x_short_note,
     genealogy_record_as_a_filename,
+    generic_xml_names_under_an_unrelated_doctype,
+    generic_xml_names_under_an_unrelated_namespace,
     gramps_address_block,
     gramps_attributed_identity,
     gramps_biography_and_address,
@@ -1002,6 +1003,51 @@ def test_a_document_about_unrelated_xml_is_not_a_finding() -> None:
     )
 
 
+def test_an_unrelated_namespace_does_not_name_the_gramps_format() -> None:
+    """⭐ **The reproduction: the gate reading a document that named ANOTHER format.**
+
+    ``<database xmlns="urn:...">`` around four filled ``<type>`` elements. The
+    document-element marker checked that an ``xmlns`` attribute was *there* and
+    never what it said, so a document explicitly declaring an unrelated
+    namespace re-enabled every derived row and scored 5 -- exactly the
+    generic-XML false positive the gate was built to remove, restored by the
+    gate itself.
+    """
+    findings = scan_text(
+        generic_xml_names_under_an_unrelated_namespace(namespace=_NOT_THE_GRAMPS_NAMESPACE),
+        source="notes.md",
+    )
+
+    assert findings == [], (
+        "a document that declares a namespace which is NOT the Gramps one has named a different "
+        f"format, and it was read as Gramps: got {findings}"
+    )
+
+
+def test_an_unrelated_doctype_does_not_name_the_gramps_format() -> None:
+    """The same defect in the doctype spelling, and that one could not be repaired.
+
+    A doctype's ``Name`` is the document element, so a doctype naming an
+    unrelated identifier matched a marker that read the name and nothing else.
+    Binding it to Gramps-specific evidence would need the **public
+    identifier**, which appears in no artifact this repository has frozen --
+    the DTD does not declare its own -- so correcting it would mean the
+    hand-typed literal the gate's whole design forbids.
+
+    Written separately from the test above because a repair reaching only the
+    namespace spelling would pass that one and fail this one.
+    """
+    findings = scan_text(
+        generic_xml_names_under_an_unrelated_doctype(identifier=_NOT_THE_GRAMPS_NAMESPACE),
+        source="notes.md",
+    )
+
+    assert findings == [], (
+        "a doctype naming an unrelated identifier has named a different format, and it was read "
+        f"as Gramps: got {findings}"
+    )
+
+
 def test_every_spelling_the_derivation_added_is_gated_on_the_format() -> None:
     """⭐ **The gate, over the table rather than over the two reproductions.**
 
@@ -1050,53 +1096,61 @@ def test_every_spelling_the_derivation_added_scores_once_the_format_is_named() -
     )
 
 
-def test_each_marker_the_gate_reads_is_the_one_the_schema_declares() -> None:
-    """⭐ **The markers are DERIVED, and a hand-written list would be the same defect.**
+def test_the_only_marker_the_gate_reads_is_the_namespace_the_schema_fixes() -> None:
+    """⭐ **One marker, and the two beside it were removed rather than tightened.**
 
-    A gate on "is this Gramps" resting on three spellings somebody chose is the
-    enumeration this project refuses, one level up from the one the derivation
-    just removed. So each marker names a closed, externally-specified source,
-    and is bound to it here:
+    Round 1 read three. The other two -- a doctype naming the document element,
+    and that element carrying an ``xmlns`` at all -- checked that something was
+    *present* and never what it said, so a document declaring an unrelated
+    namespace or identifier was read as Gramps.
 
-    * the **doctype** -- XML 1.0 §2.8, ``doctypedecl ::= '<!DOCTYPE' S Name``,
-      whose ``Name`` is the document element;
-    * the **document element declaring a namespace** -- the element the schema
-      attaches ``xmlns`` to, read off the frozen attribute table.
+    ⚠️ **Bound to the namespace they would have matched nothing new, which is
+    why the repair is a deletion.** The remaining marker is a plain substring
+    test over the decoded text, and the test below this one pins its constant as
+    a substring of the reassembled ``#FIXED`` value -- so any text satisfying a
+    correctly-bound structural marker already satisfies it, a strict subset
+    adding no match ever. Tightened they were dead weight; loose they were the
+    false positive. And the doctype could not be tightened at all: the only
+    Gramps-specific evidence it carries beyond the namespace is the public
+    identifier, which no artifact this repository has frozen declares.
 
-    ⚠️ **Exactly one element declares ``xmlns``, and that is asserted rather
-    than assumed.** A schema that moved the declaration, or added a second one,
-    would otherwise leave the markers silently pointing at the old element.
-
-    The third marker -- the namespace value itself -- is bound in the test that
-    reads the ``#FIXED`` default the schema gives it, because that is a
-    different source and it belongs against that source.
+    ⚠️ **``_GRAMPS_DOCUMENT_ELEMENT`` stays, and exactly one element declaring
+    ``xmlns`` is still asserted.** It selects the ``FIXED_ATTRIBUTE_DEFAULTS``
+    row the marker is read from, so a schema that moved or duplicated the
+    declaration still fails a test rather than leaving the gate pointing at an
+    element that declares nothing.
     """
     declaring = sorted(
         {element for element, attribute, _ in SPECIFIED_ATTRIBUTES if attribute == "xmlns"}
     )
 
     assert declaring == [_GRAMPS_DOCUMENT_ELEMENT], (
-        "the markers are built from the one element the schema attaches a namespace "
-        f"declaration to, and the frozen table names {declaring}"
+        "the marker is read from the one element the schema attaches a namespace declaration "
+        f"to, and the frozen table names {declaring}"
     )
 
-    doctype = "<!DOC" + "TYPE " + _GRAMPS_DOCUMENT_ELEMENT + " SYSTEM>"
+    named = "TYPE " + _GRAMPS_DOCUMENT_ELEMENT + ' SYSTEM "' + _NOT_THE_GRAMPS_NAMESPACE + '">'
+    doctype = "<!DOC" + named
     declares = "<" + _GRAMPS_DOCUMENT_ELEMENT + ' xmlns="' + _NOT_THE_GRAMPS_NAMESPACE + '">'
-    unmarked = [
-        probe
-        for probe in (doctype, declares)
-        if not any(m.search(probe) for m in _NAMES_THE_GRAMPS_FORMAT)
-    ]
-
-    assert unmarked == [], f"these name the format and no marker pattern reads them: {unmarked}"
-
     ordinary = (
         "<" + _GRAMPS_DOCUMENT_ELEMENT + ">a table of them</" + _GRAMPS_DOCUMENT_ELEMENT + ">"
     )
+    misread = [probe for probe in (doctype, declares, ordinary) if _names_the_gramps_format(probe)]
 
-    assert not _names_the_gramps_format(ordinary), (
-        "a document that merely FILLS the document element has not declared the format, and a "
-        "marker that reads it gates nothing"
+    assert misread == [], (
+        "naming the schema's document element is not naming the format -- the VALUE is what says "
+        f"which format, and these were read as Gramps: {misread}"
+    )
+
+    fixed = [
+        pieces
+        for element, attribute, pieces in FIXED_ATTRIBUTE_DEFAULTS
+        if (element, attribute) == (_GRAMPS_DOCUMENT_ELEMENT, "xmlns")
+    ]
+
+    assert len(fixed) == 1 and _names_the_gramps_format("/".join(fixed[0])), (
+        "and the value the schema FIXES that attribute at does name the format, or the assertion "
+        f"above is satisfied by a gate that reads nothing: {fixed}"
     )
 
 
@@ -1147,27 +1201,43 @@ def test_the_namespace_the_gate_reads_is_the_default_the_schema_fixes() -> None:
 
 
 def test_a_prefixed_document_still_names_the_format() -> None:
-    """Change A's equivalence, carried into the gate.
+    """Change A's equivalence, carried into the gate -- and now true by construction.
 
     A namespace prefix is the document's own alias, so a prefixed export is the
-    same export -- and a gate blind to the prefixed spelling of its own markers
-    would silently zero every derived row in one. Both markers, both aliases,
-    over the tuple rather than over an example, for the reason
-    ``_NAMESPACE_PREFIXES`` exists.
+    same export, and a gate blind to the prefixed spelling would silently zero
+    every derived row in one.
+
+    ⚠️ **The one remaining marker is a substring test over the whole text, and a
+    substring test cannot see a prefix.** The property therefore holds by
+    construction rather than by an alternation somebody has to keep in step with
+    four other patterns. That is a claim worth asserting rather than assuming,
+    so it is -- over the alias tuple, unprefixed form included.
+
+    ⚠️ **In both directions, because the first half alone is satisfied by a gate
+    that accepts everything.** The same probes carrying a namespace that is not
+    the Gramps one name the format in none of their spellings.
     """
-    unmarked = []
+    missed = []
+    misread = []
 
-    for prefix in _NAMESPACE_PREFIXES:
-        element = _prefixed(_GRAMPS_DOCUMENT_ELEMENT, prefix)
-        for probe in (
-            "<!DOC" + "TYPE " + element + " SYSTEM>",
-            "<" + element + " xmlns:" + prefix + '="' + _NOT_THE_GRAMPS_NAMESPACE + '">',
-        ):
-            if not _names_the_gramps_format(probe):
-                unmarked.append(repr(probe))
+    for prefix in ("", *_NAMESPACE_PREFIXES):
+        element = (
+            _prefixed(_GRAMPS_DOCUMENT_ELEMENT, prefix) if prefix else _GRAMPS_DOCUMENT_ELEMENT
+        )
+        declaration = "xmlns:" + prefix if prefix else "xmlns"
+        genuine = "<" + element + " " + declaration + '="' + gramps_namespace_url() + '">'
+        unrelated = "<" + element + " " + declaration + '="' + _NOT_THE_GRAMPS_NAMESPACE + '">'
+        if not _names_the_gramps_format(genuine):
+            missed.append(repr(genuine))
+        if _names_the_gramps_format(unrelated):
+            misread.append(repr(unrelated))
 
-    assert unmarked == [], (
-        f"a prefixed document names the format exactly as an unprefixed one does: {unmarked}"
+    assert missed == [], (
+        f"a prefixed document names the format exactly as an unprefixed one does: {missed}"
+    )
+    assert misread == [], (
+        "and a prefix is not evidence of anything on its own -- these carry an unrelated "
+        f"namespace and were read as Gramps: {misread}"
     )
 
 

@@ -2176,72 +2176,80 @@ _XML_PROLOG = re.compile(r"\A\s*<\?xml\b")
 _GRAMPS_XML_NAMESPACE = "gramps-project" + ".org" + _SEPARATOR + "xml"
 
 # ---------------------------------------------------------------------------
-# WHAT COUNTS AS THE DOCUMENT SAYING IT IS GRAMPS. THREE SPELLINGS, EACH
-# DERIVED FROM A CLOSED SOURCE.
+# WHAT COUNTS AS THE DOCUMENT SAYING IT IS GRAMPS. ONE SPELLING, DERIVED FROM A
+# CLOSED SOURCE.
 #
 # ⚠️ **A hand-written list of markers would be the same defect the derivation
 # just removed, one level up.** The container list stopped being a judgement in
-# #4's Change C1; a gate on "is this Gramps" resting on three spellings somebody
-# chose would put the judgement straight back, in the place that decides whether
-# ~80 rows score at all. So each marker names its source and is bound to it by
-# test:
+# #4's Change C1; a gate on "is this Gramps" resting on spellings somebody chose
+# would put the judgement straight back, in the place that decides whether ~80
+# rows score at all. So the marker names its source and is bound to it by test:
 #
-#   M1  the declared namespace  -- the `#FIXED` default the schema gives the
-#                                  `xmlns` attribute of its document element,
-#                                  emitted into the frozen table as
-#                                  `FIXED_ATTRIBUTE_DEFAULTS`
-#   M2  the doctype             -- XML 1.0 §2.8,
-#                                  `doctypedecl ::= '<!DOCTYPE' S Name …`,
-#                                  whose `Name` IS the document element
-#   M3  the document element    -- the one element `SPECIFIED_ATTRIBUTES`
-#       declaring a namespace      attaches `xmlns` to
+#   the declared namespace  -- the `#FIXED` default the schema gives the
+#                              `xmlns` attribute of its document element,
+#                              emitted into the frozen table as
+#                              `FIXED_ATTRIBUTE_DEFAULTS`
+#
+# ⚠️ **THIS WAS THREE MARKERS, AND THE OTHER TWO WERE REMOVED RATHER THAN
+# TIGHTENED.** They read structure and never a value: a doctype whose `Name` was
+# the document element, and that element carrying an `xmlns` attribute at all.
+# So `<database xmlns="urn:unrelated">` beside four filled `<type>` elements --
+# a document that has explicitly named ANOTHER format -- re-enabled every
+# derived row and scored a P2. That is the generic-XML false positive this gate
+# exists to remove, restored by the gate.
+#
+# **Bound to the namespace, they would have matched nothing new.** The marker
+# below is a plain substring test over the decoded text, and
+# `test_the_namespace_the_gate_reads_is_the_default_the_schema_fixes` pins its
+# constant as a substring of the reassembled `#FIXED` value -- so any text
+# satisfying a correctly-bound structural marker already satisfies this one, a
+# strict subset adding no match ever. Tightened they were dead weight; loose
+# they were the false positive. **And the doctype could not be tightened at
+# all:** the only Gramps-specific evidence it carries beyond the namespace is
+# the public identifier, which appears in no artifact this repository has frozen
+# -- the DTD does not declare its own -- so correcting it would need exactly the
+# hand-typed literal this design forbids.
+#
+# **What that costs, recorded rather than discovered.** A genuine document
+# naming itself ONLY by a PUBLIC-only doctype, with no namespace anywhere, no
+# longer enables derived rows. Round 1's own honest note recorded that this
+# single case was the doctype marker's entire reach -- a whole export carrying a
+# doctype or a namespaced document element already trips
+# `_GENEALOGY_TEXT_SIGNATURES` above, which short-circuits `_sniff_genealogy`
+# before any scorer runs. Measured in CONTRIBUTING and in the derivation note.
+#
+# ⚠️ **The prefixed case gets STRONGER, not weaker.** A substring test over the
+# whole text is blind to prefixes by construction, so `<x:database
+# xmlns:x="…">` names the format exactly as the bare form does, for every alias
+# -- Change A's equivalence property with nothing left to keep in step.
 #
 # ⚠️ **NOTHING HERE IMPORTS `_specified_containers`.** That module's docstring
 # says it is data rather than behaviour and that the scan does not change if it
-# is deleted, and that stays true: the markers are composed constants in this
+# is deleted, and that stays true: the marker is a composed constant in this
 # module, BOUND BY TEST to the frozen table -- exactly the standing the
 # vocabulary itself has, which is also placed here and bound by
 # `test_every_container_the_published_schema_declares_has_a_weight`. "Derived"
 # in this project means *nothing is maintained by hand without a test that would
 # fail*, not *imported at runtime*.
-#
-# ⚠️ **M2 and M3 go through `_qualified`**, or a prefixed export loses its
-# marker and every derived row in it silently scores nothing -- Change A's
-# equivalence property, broken by the very gate meant to make the widening
-# affordable.
-#
-# **Honest note on what M2 and M3 actually reach, stated rather than
-# discovered.** A whole export carrying a doctype or a namespaced document
-# element already trips `_GENEALOGY_TEXT_SIGNATURES` above, which short-circuits
-# `_sniff_genealogy` before any scorer runs. So M1 does most of this gate's work
-# in practice; M2 earns its place on the case M1 misses -- a doctype carrying
-# only a PUBLIC identifier and no system URI -- and M3 on a direct call to
-# `_gramps_identity_score`.
 # ---------------------------------------------------------------------------
 
 _GRAMPS_DOCUMENT_ELEMENT = "database"
 """The element the schema attaches its namespace declaration to.
 
-Placed here rather than imported, for the reason in the block above. The frozen
-table is asserted to name **exactly one** such element and to name this one, so
-a schema that moved or duplicated the declaration fails a test instead of
-leaving M2 and M3 quietly pointing at an element that no longer declares
-anything.
-"""
-
-_NAMES_THE_GRAMPS_FORMAT: tuple[re.Pattern[str], ...] = (
-    re.compile(r"<!DOCTYPE\s+" + _qualified(_GRAMPS_DOCUMENT_ELEMENT) + r"\b", re.IGNORECASE),
-    re.compile(r"<" + _qualified(_GRAMPS_DOCUMENT_ELEMENT) + r"\b[^>]*xmlns", re.IGNORECASE),
-)
-"""M2 and M3 compiled. M1 is a substring test and needs no pattern.
-
-Both read the document element through the shared alternation, so a prefixed
-document names the format exactly as an unprefixed one does.
+Placed here rather than imported, for the reason in the block above. It is what
+SELECTS the `FIXED_ATTRIBUTE_DEFAULTS` row the marker is read from, and the
+frozen table is asserted to name **exactly one** such element and to name this
+one -- so a schema that moved or duplicated the declaration fails a test instead
+of leaving the gate quietly pointing at an element that declares nothing.
 """
 
 
 def _names_the_gramps_format(text: str) -> bool:
     """Whether ``text`` says it is Gramps -- the condition a derived row scores under.
+
+    ⚠️ **One marker, and the block above says why the other two are gone.**
+    Bound to the namespace they matched nothing this substring test does not;
+    unbound they read an unrelated format as Gramps.
 
     ⚠️ **"The file" is the string the scorer was handed, and nothing else.** No
     cross-file state and no cross-commit state, which keeps one answer per scan
@@ -2256,9 +2264,7 @@ def _names_the_gramps_format(text: str) -> bool:
     rather than a defect in its scoping, and it costs nothing today, because the
     name that is a finding is a GEDCOM record and rests on the record signature.
     """
-    return _GRAMPS_XML_NAMESPACE in text or any(
-        marker.search(text) is not None for marker in _NAMES_THE_GRAMPS_FORMAT
-    )
+    return _GRAMPS_XML_NAMESPACE in text
 
 
 # The known-SAFE side of the classification. Everything not on it is a finding.
