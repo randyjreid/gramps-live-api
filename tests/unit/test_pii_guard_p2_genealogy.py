@@ -15,6 +15,7 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
+from gramps_live_api.core import pii_guard
 from gramps_live_api.core._specified_containers import (
     FIXED_ATTRIBUTE_DEFAULTS,
     MARKUP_ELEMENT_NAMES,
@@ -1762,6 +1763,333 @@ def test_every_pattern_that_scores_an_element_is_built_from_the_one_alternation(
     assert _qualified("svg") not in _DRAWING.pattern, (
         "the drawing exemption reads the shared alternation again, so a container whose "
         "alias this module never resolves suppresses every short element inside it"
+    )
+
+
+# ---------------------------------------------------------------------------
+# ⭐ THE LICENCE TABLE: which compiled pattern may hold which Python shorthand,
+# and why. Five review rounds on this module found the SAME defect five times --
+# a Python shorthand standing in for an XML production -- so the round that
+# transcribed the last of them owes an artifact that keeps the set closed.
+#
+# ⚠️ **A document cannot do that and this table is not one.** The audit that
+# enumerated the twenty sites is prose; prose does not fail when somebody adds
+# pattern twenty-one. This does, and the failure names the pattern.
+#
+# Every compiled pattern the module holds gets a row, INCLUDING the ones that
+# read no XML production at all: the row is where "this one is a GEDCOM record,
+# not an XML production" is written down, so its absence from the transcription
+# reads as a decision rather than as an oversight. A pattern with no row is a
+# failure, which is what makes a NEW pattern arrive through this table.
+# ---------------------------------------------------------------------------
+
+_PYTHON_SHORTHANDS = "bBdDsSwW"
+r"""The shorthands an XML production is approximated BY, every one of them.
+
+``\s`` for ``S``, ``\b`` for a name boundary, ``\w`` for ``NameChar`` -- the
+three that were actually wrong here -- plus their complements and the two digit
+classes, because the table is about the CLASS of substitution rather than about
+the three spellings that happened to be found.
+"""
+
+
+def _shorthands_in(pattern: str) -> frozenset[str]:
+    r"""Every shorthand ``pattern`` carries, with escapes read as escapes.
+
+    ⚠️ **Scanned rather than searched for, and the difference is a false
+    positive waiting to happen.** ``\\s`` is an escaped backslash followed by a
+    literal ``s``, it CONTAINS the substring ``\s``, and it is not one -- this
+    module composes patterns out of ``chr(92)`` runs precisely so a backslash
+    can be matched literally. Walking the string two characters at a time past
+    every escape is what tells the two apart.
+    """
+    backslash = chr(92)
+    found = set()
+    index = 0
+    while index < len(pattern):
+        if pattern[index] == backslash and index + 1 < len(pattern):
+            if pattern[index + 1] in _PYTHON_SHORTHANDS:
+                found.add(backslash + pattern[index + 1])
+            index += 2
+            continue
+        index += 1
+    return frozenset(found)
+
+
+def _compiled_patterns() -> dict[str, str]:
+    """Every compiled pattern the guard holds, by the name it is reachable under.
+
+    ⚠️ **Walked rather than listed, which is the whole of why the table cannot
+    pass vacuously.** A hand-written list of patterns to check is the same
+    enumeration pointed backwards that this module refuses everywhere else: a
+    pattern added tomorrow would simply not be on it, and the table would go on
+    reporting that everything it knows about is licensed.
+
+    A ``(label, pattern)`` pair is keyed by its LABEL rather than its index, so
+    inserting a row above it does not silently move another row's licence.
+    """
+    found: dict[str, str] = {}
+
+    def labelled(item: object) -> bool:
+        return (
+            isinstance(item, tuple)
+            and len(item) == 2
+            and isinstance(item[0], str)
+            and isinstance(item[1], re.Pattern)
+        )
+
+    def walk(name: str, value: object) -> None:
+        if isinstance(value, re.Pattern):
+            found[name] = value.pattern
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                walk(f"{name}[{key}]", item)
+        elif isinstance(value, (tuple, list)):
+            for index, item in enumerate(value):
+                if labelled(item):
+                    walk(f"{name}[{item[0]}]", item[1])
+                else:
+                    walk(f"{name}[{index}]", item)
+
+    for name, value in vars(pii_guard).items():
+        walk(name, value)
+    return found
+
+
+_NOT_AN_XML_PRODUCTION = "reads no XML production: "
+
+_XML_SHORTHAND_LICENCE: dict[str, tuple[frozenset[str], str]] = {
+    # --- patterns that read an XML production -------------------------------
+    "_NAMES_THE_GRAMPS_FORMAT": (
+        frozenset(),
+        "the marker, and it is transcribed end to end: STag, (S Attribute)*, Eq and AttValue "
+        "all read _XML_S, the name reads _XML_NCNAME, and the value reads a URI. Nothing here "
+        "is licensed, because every shorthand this pattern ever held was a reported defect",
+    ),
+    "_DRAWING": (
+        frozenset(),
+        "an EXEMPTION, where a loose reading suppresses rather than reports -- so it is the one "
+        "pattern that may hold no shorthand at all on principle rather than by accident. Its "
+        "opener reads _XML_NAME_END and its closer reads _XML_S",
+    ),
+    "_GRAMPS_FILLED_ELEMENT": (
+        frozenset({chr(92) + "s"}),
+        r"the ETag's `S?` in `</\1\s*>`, in a SCORER: loose means an element is read where XML "
+        "reads none, which errs toward REPORTING. Transcribing it subtracts a catch on a "
+        "malformed paste and buys no false positive back. The name's end is _XML_NAME_END",
+    ),
+    "_GRAMPS_ATTRIBUTED_ELEMENT": (
+        frozenset({chr(92) + "s", chr(92) + "w"}),
+        r"`[^>]*?\w+\s*=\s*[\"']` is the `<[^<>]*xmlns=` shape the marker block condemns -- but "
+        "in a SCORER, where reading an attribute that XML does not is one more finding rather "
+        "than one fewer. Recorded so the next reader sees it was weighed, not missed. The "
+        "name's end is _XML_NAME_END",
+    ),
+    "_GENEALOGY_TEXT_SIGNATURES[Gramps XML database element]": (
+        frozenset({chr(92) + "s"}),
+        r"_LINE_PREFIX's `^[\s>]*`, which is Markdown quoting decoration in front of the tag "
+        "rather than any part of XML. The tag itself reads the shared alternation, so its "
+        "name ends where _XML_NAME_END says it does",
+    ),
+    "_MARKUP_NODE": (
+        frozenset(),
+        "the content table's delimiters, `re.escape`d from the one table that holds them; "
+        "there is no production left to approximate",
+    ),
+    "_XML_CHARACTER_REFERENCE": (
+        frozenset(),
+        "`Reference`, narrowed to the five predefined entities and the numeric forms. The "
+        "NARROWING is the recorded approximation and it errs long; it is not a shorthand",
+    ),
+    # --- patterns that read no XML production at all -------------------------
+    "_SEPARATOR_RUN": (frozenset(), _NOT_AN_XML_PRODUCTION + "a run of path separators"),
+    "_PATH_POSITION": (
+        frozenset({chr(92) + "b", chr(92) + "s", chr(92) + "w"}),
+        _NOT_AN_XML_PRODUCTION + "identifiers and calls that mean a filesystem path follows",
+    ),
+    "_ABSOLUTE_PATH_PATTERNS[UNC]": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a UNC path; the class is _COMPONENT's, which excludes it",
+    ),
+    "_ABSOLUTE_PATH_PATTERNS[drive-letter]": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a drive-letter path; the class is _COMPONENT's",
+    ),
+    "_ABSOLUTE_PATH_PATTERNS[rooted]": (
+        frozenset({chr(92) + "s", chr(92) + "w"}),
+        _NOT_AN_XML_PRODUCTION + "a rooted path and the lookbehind that keeps it out of a word",
+    ),
+    "_ABSOLUTE_PATH_PATTERNS[path-bearing position]": (
+        frozenset({chr(92) + "b", chr(92) + "s", chr(92) + "w"}),
+        _NOT_AN_XML_PRODUCTION + "_PATH_POSITION under its second name; see that row",
+    ),
+    "_ABSOLUTE_PATH_PATTERNS[named home directory]": (
+        frozenset({chr(92) + "s", chr(92) + "w"}),
+        _NOT_AN_XML_PRODUCTION + "a tilde home directory and the lookbehind for a web path",
+    ),
+    "_ABSOLUTE_PATH_PATTERNS[file URL]": (
+        frozenset({chr(92) + "b", chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a file URL's scheme and authority",
+    ),
+    "_JSON_ESCAPE": (frozenset(), _NOT_AN_XML_PRODUCTION + "JSON string escapes"),
+    "_JSON_ESCAPE_IN_A_STRING": (frozenset(), _NOT_AN_XML_PRODUCTION + "the same, inside a string"),
+    "_DECORATION": (
+        frozenset({chr(92) + "d", chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "Markdown quoting, bullets and list numbering",
+    ),
+    "_GENEALOGY_RECORD": (
+        frozenset({chr(92) + "b", chr(92) + "d", chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a GEDCOM level line, whose grammar is not XML's",
+    ),
+    "_GENEALOGY_TEXT_SIGNATURES[GEDCOM header record]": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a GEDCOM header line under _LINE_PREFIX",
+    ),
+    "_GENEALOGY_TEXT_SIGNATURES[GEDCOM level-0 record]": (
+        frozenset({chr(92) + "b", chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a GEDCOM level-0 line under _LINE_PREFIX",
+    ),
+    "_GEDCOM_X_FILLED_KEY[identity]": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a JSON key and colon; JSON whitespace, not XML's S",
+    ),
+    "_GEDCOM_X_FILLED_KEY[address]": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a JSON key and colon; JSON whitespace, not XML's S",
+    ),
+    "_GEDCOM_X_FILLED_KEY[contact]": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a JSON key and colon; JSON whitespace, not XML's S",
+    ),
+    "_GEDCOM_X_FILLED_KEY[prose]": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a JSON key and colon; JSON whitespace, not XML's S",
+    ),
+    "_GEDCOM_X_TYPE_KEY": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a JSON key and colon; JSON whitespace, not XML's S",
+    ),
+    "_GEDCOM_X_VALUE_KEY": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a JSON key and colon; JSON whitespace, not XML's S",
+    ),
+    "_GEDCOM_X_STRUCTURAL_KEY": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a JSON key and colon; JSON whitespace, not XML's S",
+    ),
+    "_PLAUSIBLE_PATH": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "whether a reported string looks like a path at all",
+    ),
+}
+"""Pattern -> the shorthands it may hold, and the reason it may hold them."""
+
+
+def _unlicensed(
+    patterns: dict[str, str], licence: dict[str, tuple[frozenset[str], str]]
+) -> list[str]:
+    """Every complaint the table has about ``patterns``, in three kinds.
+
+    A pure function of two arguments so the test can feed it a fabricated
+    pattern and a stripped licence and SHOW that it complains, rather than
+    asserting once against the real module and hoping the assertion means
+    something.
+    """
+    complaints = []
+
+    for name in sorted(patterns):
+        if name not in licence:
+            complaints.append(f"{name}: no licence row, so its shorthands were never weighed")
+            continue
+        permitted, reason = licence[name]
+        if not reason.strip():
+            complaints.append(f"{name}: licensed with no reason recorded")
+        for shorthand in sorted(_shorthands_in(patterns[name]) - permitted):
+            complaints.append(f"{name}: {ascii(shorthand)} is not licensed here")
+
+    for name in sorted(set(licence) - set(patterns)):
+        complaints.append(f"{name}: a licence row for a pattern that no longer exists")
+
+    return complaints
+
+
+def test_no_pattern_reading_an_xml_production_uses_a_python_shorthand() -> None:
+    r"""⭐ **The artifact that keeps the approximation set closed. The audit does not.**
+
+    Five rounds found one defect five times: ``\s`` for ``S``, ``\b`` for the
+    end of a ``Name``, a bare substring for a URI, ``\w`` for ``NameChar``. Each
+    was repaired where it was reported, and the next round found the next one --
+    because what closes a set of this shape is not a longer list of repairs but
+    a rule that the next pattern has to pass.
+
+    **The rule, and it is decidable per pattern rather than per input:**
+    transcribe an approximation whose looseness ADDS structure the document does
+    not have -- a marker firing, an exemption applying, a name ending where XML
+    says it does not. LEAVE, with a recorded reason, one whose looseness only
+    makes the guard read more content as data.
+
+    ⚠️ **Four ways this could pass while saying nothing, and each is closed by
+    name:**
+
+    * a pattern **absent** from the table -- the enumeration is WALKED off the
+      module rather than listed, so pattern twenty-one has no row and fails;
+    * an **empty** table, or an enumerator that found nothing -- both asserted
+      non-empty before anything is compared;
+    * a row whose **reason** was deleted, leaving a bare licence nobody can
+      audit -- an empty reason is itself a complaint;
+    * the checker being **incapable of complaining** -- so the last three
+      assertions feed it a fabricated pattern, a widened one, and a stripped
+      row, and require it to object to all three.
+
+    ⚠️ **A licence row is not a dispensation, it is a recorded decision**, which
+    is why the rows for the GEDCOM, JSON and path patterns exist at all: "this
+    one reads no XML production" is exactly the sentence that has to be written
+    down, because its ABSENCE is indistinguishable from nobody having looked.
+    """
+    patterns = _compiled_patterns()
+
+    assert _XML_SHORTHAND_LICENCE, (
+        "the licence table is empty, so it licenses nothing and asks for nothing"
+    )
+    assert len(patterns) > 20, (
+        "the walk over the module found almost no compiled patterns, so the table below is "
+        f"being compared against nothing: {sorted(patterns)}"
+    )
+
+    assert _unlicensed(patterns, _XML_SHORTHAND_LICENCE) == [], (
+        "a compiled pattern holds a Python shorthand it is not licensed for, which is the one "
+        "defect five review rounds on this module have found five times -- a shorthand standing "
+        f"in for an XML production: {_unlicensed(patterns, _XML_SHORTHAND_LICENCE)}"
+    )
+
+    transcribed = sorted(
+        name for name in ("_NAMES_THE_GRAMPS_FORMAT", "_DRAWING") if _XML_SHORTHAND_LICENCE[name][0]
+    )
+    assert transcribed == [], (
+        "the marker and the exemption are licensed for NOTHING -- one decides whether ~80 rows "
+        "score and the other decides what is suppressed, so neither may hold an approximation "
+        f"at all: {transcribed}"
+    )
+
+    unweighed = dict(patterns)
+    unweighed["_A_PATTERN_NOBODY_WEIGHED"] = "<name" + chr(92) + "b>"
+    widened = dict(patterns)
+    widened["_NAMES_THE_GRAMPS_FORMAT"] = patterns["_NAMES_THE_GRAMPS_FORMAT"] + chr(92) + "s"
+    unreasoned = dict(_XML_SHORTHAND_LICENCE)
+    unreasoned["_NAMES_THE_GRAMPS_FORMAT"] = (frozenset(), "   ")
+
+    silent = [
+        label
+        for label, complaints in (
+            ("a new pattern with no row", _unlicensed(unweighed, _XML_SHORTHAND_LICENCE)),
+            ("a licensed pattern widened", _unlicensed(widened, _XML_SHORTHAND_LICENCE)),
+            ("a row whose reason was removed", _unlicensed(patterns, unreasoned)),
+        )
+        if not complaints
+    ]
+    assert silent == [], (
+        "the check passes on inputs it must reject, so the assertion above is worth nothing: "
+        f"{silent}"
     )
 
 
