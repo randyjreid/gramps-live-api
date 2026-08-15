@@ -940,7 +940,7 @@ _GRAMPS_STRUCTURE_ELEMENTS = _elements_of("structure")
 _GRAMPS_ALL_ELEMENTS = tuple(dict.fromkeys(_GRAMPS_CATEGORY_OF))
 
 # ---------------------------------------------------------------------------
-# THE QUALIFIED-NAME ALTERNATION. ONE CONSTRUCTION SITE, FOUR PATTERNS.
+# THE QUALIFIED-NAME ALTERNATION. ONE CONSTRUCTION SITE, THREE PATTERNS.
 #
 # Namespaces in XML: a tag is an optional PREFIX, a colon, and the local name.
 # The prefix is the DOCUMENT'S OWN ALIAS for a namespace, so two exports of one
@@ -949,18 +949,23 @@ _GRAMPS_ALL_ELEMENTS = tuple(dict.fromkeys(_GRAMPS_CATEGORY_OF))
 # where a backreference can still close the element it opened, and nowhere at
 # all in the category lookup, which asks what the element MEANS.
 #
-# ⚠️ **All four patterns that read an element name are built from this and
-# nothing else**, because the four used to spell the alternation themselves and
-# a prefix consequently meant four different things. The gap is LEXICAL, not
+# ⚠️ **Every pattern that SCORES an element is built from this and nothing
+# else**, because each used to spell the alternation itself and a prefix
+# consequently meant a different thing to each. The gap is LEXICAL, not
 # semantic -- with a prefix declared the matcher saw no element in ANY category,
-# including the four weighted correctly -- and it pointed both ways at once:
-# filled elements, attributed elements and the database signature scored nothing
-# (data out), while the drawing exemption stopped applying (a chart reported).
-# One blindness, opposite directions, which is why one table fixes both and why
-# each direction is measured on its own.
+# including the ones weighted correctly -- so filled elements, attributed
+# elements and the database signature all scored nothing, and a complete
+# identity document was clean.
 #
-# A fifth site hand-rolling its own alternation is caught by test rather than by
-# hoping -- see the test that asserts each compiled pattern contains this.
+# ⚠️ **AND THE DRAWING EXEMPTION IS DELIBERATELY NOT ONE OF THEM.** It was, and
+# the fourth site was deleted: this alternation matches a prefix by SHAPE and
+# never resolves it, which is conservative in a scorer -- matching more elements
+# means more findings -- and fail-open in an exemption, where matching more
+# containers means more SUPPRESSION. See `_DRAWING`, which fails closed instead.
+#
+# A fourth scoring site hand-rolling its own alternation is caught by test
+# rather than by hoping, and so is the drawing being wired back in -- see the
+# test that asserts which compiled patterns contain this and which must not.
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
@@ -1067,7 +1072,8 @@ r"""An optional namespace prefix: an ``NCName``, then the colon.
 approximation was a live fail-open.** This used to be ``[^\W\d][\w.\-]*``, built
 from Python's word class. ``\w`` does not match a combining mark, but ``NameChar``
 does -- so a document consistently using the legal alias ``a`` + U+0301 was
-missed by ALL FOUR patterns at once, and with only the namespace URI scoring two
+missed by every pattern that reads an element name at once, and with only the
+namespace URI scoring two
 against a threshold of four, **a complete identity document was clean.** Being
 equally invisible before the prefix work is not a defence: this criterion says a
 namespace-prefixed document scores what the unprefixed one scores, and that
@@ -1086,6 +1092,11 @@ RESOLVED.** Whether the document actually binds it to the Gramps namespace is a
 question only a parser can answer, and the namespace URI is weighed separately
 for that. Matching by shape errs toward reading more elements, which is the side
 that reports.
+
+⚠️ **Which is why nothing that EXEMPTS may be built from this.** "Reads more
+elements" is the safe direction only where reading one adds a finding. In an
+exemption it removes findings, so the same shape match becomes a fail-open --
+see `_DRAWING`, which is not built from this and says why.
 """
 
 
@@ -1738,30 +1749,51 @@ def _gedcom_x_identity_score(text: str) -> tuple[int, int] | None:
     return score, min(offsets)
 
 
-_DRAWING = re.compile(
-    r"<(" + _qualified("svg") + r")\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL
-)
+_DRAWING = re.compile(r"<svg\b[^>]*>.*?</svg\s*>", re.IGNORECASE | re.DOTALL)
 r"""A drawing, inside which a short text element is a label and not a note.
 
-⚠️ **Built from the shared alternation, and the fourth site to be.** A drawing
-that binds its own namespace to an alias -- ``<svg:svg>`` holding
-``<svg:text>`` -- was not a drawing here, so its labels were not labels and the
-chart was reported. Same lexical blindness as the three sites that read element
-names, pointing the OTHER WAY: those three failed open and let data out, this
-one fails closed and manufactures a false positive. That is why it is measured
-on its own row rather than folded into theirs.
+⚠️ **THE UNPREFIXED SPELLING ONLY, AND IT DOES NOT USE THE SHARED ALTERNATION.
+Do not "finish the job" by wiring it back in.** It was built from it -- the
+fourth site of four -- and that site was deleted, because the mechanism is
+right for the other three and wrong here:
 
-**The backreference is a decision, not decoration.** ``</\1\s*>`` means the
-prefix that opened the drawing is the prefix that closes it, so ``<a:svg>`` is
-not closed by ``</b:svg>`` and a mismatched pair is not a drawing at all. That
-direction is chosen deliberately: the rejected alternative -- an independent
-optional prefix on each tag -- accepts the mismatched pair and so fails OPEN,
-exempting labels inside something no parser would call a drawing. Failing
-closed on it reports a chart, which is the posture stated below and the one
-this module takes everywhere else. Do not simplify the backreference away.
+* those three SCORE. Matching a prefix by shape makes them read more elements,
+  and reading more elements produces more FINDINGS. Conservative.
+* this one EXEMPTS. Matching by shape makes it read more containers, and
+  reading more containers produces more SUPPRESSION. Fail-open.
 
-The capturing group it needs is free here: the only consumer of this pattern
-takes ``match.span()`` and reads no groups.
+The input that proved it: a prefix bound to a namespace that is **not SVG**.
+Nothing here resolves an alias, so ``<x:svg xmlns:x="…not-svg…">`` had the
+shape of a drawing, the exemption applied, and every short text element inside
+it was suppressed -- a name, a date of birth and a place went from a finding to
+nothing by being wrapped in a tag whose meaning this module never checked.
+**A conditional exemption is where fail-open lives.**
+
+**Both repairs that keep the fourth site were rejected.** Resolving the prefix
+means reading namespace bindings, which is a parser, which this project has
+refused repeatedly. Requiring the namespace URI somewhere in the document is
+still a *condition on an exemption*, and it is wrong in the case that matters:
+a document may bind that URI to a different prefix entirely.
+
+**The cost, and it is the accepted trade:** a namespace-prefixed chart is no
+longer exempt, so its labels are reported. That is a false positive, it is
+FAIL-CLOSED, and it is the direction this module's posture requires -- refuse
+what cannot be proved safe. Recorded in CONTRIBUTING's residual table, with
+**issue #33's rendering boundary named as where it eventually belongs**: a
+structural guard over what the preview EMITS can answer "is this really a
+drawing", and that is where the question goes, rather than into a condition
+bolted onto an exemption here.
+
+**How it actually rejects a prefixed drawing -- verified mechanically, not
+assumed.** ``<svg\b`` still matches the OPENING tag of ``<svg:svg>``: the word
+boundary sits between the ``g`` and the colon, and ``[^>]*`` then swallows the
+rest. It is the CLOSER that rejects it -- ``</svg\s*>`` cannot match
+``</svg:svg>`` -- so the container has no match and is not a drawing.
+⚠️ **Do not "tidy" the opener into something like ``<svg[^:>]`` without
+measuring it:** the rejection is a property of the closing tag, and moving it
+to the opening one is a different pattern with a different failure set. A
+document mixing a prefixed opener with a later UNPREFIXED ``</svg>`` can still
+span between them; that predates this change and is out of scope for it.
 
 ⚠️ **This replaced "the element carries an attribute", which asked the wrong
 question and so let data out whatever the answer.** The discriminator has to

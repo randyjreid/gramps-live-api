@@ -88,21 +88,29 @@ The two formats are held to one vocabulary by
 
 ⚠️ **That count is the FILE's, and it is not the number of tests carrying B2. It moves for
 reasons this criterion is not about, and it has now moved for two.** Twelve of the seventy-eight
-arrived with #4 item 4, which taught the four compiled patterns that read an element name to read
+arrived with #4 item 4, which taught the compiled patterns that read an element name to read
 a namespace-prefixed tag: **nine** with the two commits that shared one alternation between the four
-sites, and **three** more with the commit that replaced the prefix's character class with the XML
-`NCName` production, after a review round found that a legal alias containing a combining mark was
-missed by all four sites at once. Both are changes to what the matcher can **see**, not to what B2
-claims, and the twelve divide three ways:
+sites it then had, and **three** more with the commit that replaced the prefix's character class with
+the XML `NCName` production, after a review round found that a legal alias containing a combining
+mark was missed by every one of them at once. Both are changes to what the matcher can **see**, not
+to what B2 claims, and the twelve divide three ways:
 
 | The twelve | What they are |
 | --- | --- |
 | `test_a_namespace_prefix_does_not_change_what_a_filled_row_scores`, its attributed twin, and `test_a_prefixed_database_element_names_the_format_the_same_way` | **three**, and B2 evidence in the ordinary way -- a prefixed export is the same export. Derived from the vocabulary rather than exampled, so a new row extends them unedited. The `NCName` commit added no test here; it widened these three to quantify over an alias tuple, which is the same reason they are derived rather than exampled |
-| the drawing exemption's two directions -- a prefixed chart is not reported, a chart whose tags disagree about the prefix is | **two**, and the first of them constrains what the guard must *not* report, which is B8's concern rather than this one |
-| the shared alternation's construction: one site for four patterns, longest-first ordering, `_DRAWING` matching a prefixed drawing, the namespace fallback still reading a prefixed declaration, and -- from the `NCName` commit -- the production transcribed at every range boundary, the start and continue classes being distinct, and the class matching no markup | **seven**, asserting how the patterns are built rather than what a scan returns. They carry no criterion on their own |
+| the drawing exemption's two directions -- an ordinary unprefixed drawing still exempts its labels, and a container whose prefix this module cannot resolve does not | **two**, and the first half of each of them constrains what the guard must *not* report, which is B8's concern rather than this one |
+| the shared alternation's construction: which patterns are built from it and that the drawing is deliberately not, longest-first ordering, `_DRAWING` refusing a prefixed drawing, the namespace fallback still reading a prefixed declaration, and -- from the `NCName` commit -- the production transcribed at every range boundary, the start and continue classes being distinct, and the class matching no markup | **seven**, asserting how the patterns are built rather than what a scan returns. They carry no criterion on their own |
 
 So the twelve are not this criterion growing. What carries B2 is the four mechanisms in the table
 above and the two agreements beneath it; the number is a file's length, and the file is shared.
+
+⚠️ **The seventy-eight is UNCHANGED by the fourth site's deletion, and that is a coincidence rather
+than evidence nothing happened.** That change removed the test asserting a mismatched-prefix pair is
+not a drawing -- the backreference it was about no longer exists, and its input is still reported for
+a reason that has nothing to do with the tags disagreeing -- and added the reproduction that deletion
+was made for: a prefix bound to a namespace that is not SVG. One out, one in. **A count that did not
+move is not a count that was not checked**, and the four rows above were re-read against the file
+rather than carried forward.
 
 ⚠️ **This is the fifth time a documented count in this repository has gone stale, and the general
 repair is filed as #36 rather than built here.** The count is corrected at the change that moved it,

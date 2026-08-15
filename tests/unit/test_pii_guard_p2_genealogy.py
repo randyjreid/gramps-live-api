@@ -75,6 +75,7 @@ from tests.fixtures.synthetic import (
     json_string_spellings,
     labelled_diagram,
     labelled_diagram_holding,
+    notes_inside_a_container,
     positioned_notes_outside_a_drawing,
     prose_describing_json_keys_with_escaped_quotes,
     sqlite_bytes,
@@ -123,8 +124,9 @@ _COMBINING_NAMESPACE_PREFIX = "a" + chr(0x301)
 ``a`` followed by COMBINING ACUTE ACCENT: a perfectly legal ``NCName``, because
 a combining mark is a ``NameChar``. It is not a ``\\w`` character, which is what
 the prefix class used to be built from -- so a document consistently using this
-alias was missed by all four sites at once, and a COMPLETE identity document
-scored nothing at all rather than merely scoring less.
+alias was missed by every pattern that reads an element name at once, and a
+COMPLETE identity document scored nothing at all rather than merely scoring
+less.
 
 ⚠️ **Assembled with ``chr`` and never pasted.** The tracked file stays plain
 ASCII, which is the same rule the character class in the guard follows for the
@@ -160,7 +162,7 @@ def _admits_as_prefix(candidate: str) -> bool:
 
     The fragment is optional, so a candidate it rejects leaves the trailing
     colon unconsumed and the full match fails -- which is the question being
-    asked, and it is asked of the fragment the four patterns actually carry
+    asked, and it is asked of the fragment the scoring patterns actually carry
     rather than of a copy of the tables.
     """
     return re.fullmatch(_XML_NAME_PREFIX, candidate + ":") is not None
@@ -199,6 +201,16 @@ deliberately the harder spelling, and that argument has to survive a second
 alias being added beside it rather than being displaced by one. The second is
 here for the reason it is in ``_NAMESPACE_PREFIXES``: this site failed under a
 combining mark too, and it is the site that fails CLOSED.
+"""
+
+_NOT_THE_SVG_NAMESPACE = "urn" + ":" + "example" + ":" + "quarterly-rollup"
+"""A namespace that is not SVG, for an alias shaped exactly like SVG's.
+
+Assembled rather than written, like every other value in these fixtures. What
+it names does not matter and that is the point: **nothing in this module reads
+it.** A prefix is matched by shape and never resolved, so the alias ``svg``
+bound here is indistinguishable from the alias ``svg`` bound to the drawing
+namespace -- which is why an exemption may not rest on it.
 """
 
 
@@ -864,13 +876,14 @@ def test_a_prefixed_database_element_names_the_format_the_same_way() -> None:
 
 
 def test_a_prefixed_document_still_declares_the_namespace_it_belongs_to() -> None:
-    """The one site of the four that needed no change, checked rather than assumed.
+    """The site that needed no change, checked rather than assumed.
 
     A prefix moves the declaration from ``xmlns`` to ``xmlns:g``; the URI it
     binds is untouched, and the URI is what the fallback reads. Green on
     arrival, deliberately: "no change needed here" is a claim like any other,
-    and an unasserted claim in a commit message is how the fourth site of four
-    came to be found in planning rather than in the code.
+    and an unasserted claim in a commit message is how the drawing exemption --
+    since deleted as a site, for reading a prefix it could not resolve -- came
+    to be found in planning rather than in the code.
     """
     missing = [
         ascii(prefix)
@@ -883,22 +896,27 @@ def test_a_prefixed_document_still_declares_the_namespace_it_belongs_to() -> Non
     )
 
 
-def test_every_pattern_that_reads_an_element_name_is_built_from_the_one_alternation() -> None:
-    """⭐ **One construction site, asserted rather than promised.**
+def test_every_pattern_that_scores_an_element_is_built_from_the_one_alternation() -> None:
+    """⭐ **One construction site, and EXACTLY which patterns use it.**
 
-    Four compiled patterns read a Gramps element name, and under a namespace
-    prefix all four failed -- three by letting data out, the fourth by
-    withdrawing an exemption and reporting a chart. A fifth site hand-rolling
-    its own alternation fails the same way in whichever direction it points,
-    and nothing behavioural sees it until somebody writes the document. So the
-    site count is what gets asserted.
+    Three compiled patterns score a Gramps element, and under a namespace
+    prefix all three failed by letting data out. A fourth site hand-rolling its
+    own alternation fails the same way, and nothing behavioural sees it until
+    somebody writes the document, so the site set is what gets asserted.
+
+    ⚠️ **The exclusion is asserted too, and it is not symmetry.** ``_DRAWING``
+    was built from this alternation and the fourth site was deleted: matching
+    more elements means more FINDINGS when scoring and more SUPPRESSION when
+    exempting, so the same mechanism that is conservative in the three patterns
+    above is fail-open in an exemption. Wiring it back in is the obvious way to
+    "finish the job", it looks like consistency, and it re-opens a P1 -- so it
+    fails here rather than being caught by a comment.
     """
     signature = dict(_GENEALOGY_TEXT_SIGNATURES)["Gramps XML database element"]
     sites = {
         "_GRAMPS_FILLED_ELEMENT": (_GRAMPS_FILLED_ELEMENT.pattern, _GRAMPS_ALL_ELEMENTS),
         "_GRAMPS_ATTRIBUTED_ELEMENT": (_GRAMPS_ATTRIBUTED_ELEMENT.pattern, _GRAMPS_ALL_ELEMENTS),
         "Gramps XML database element": (signature.pattern, ("database",)),
-        "_DRAWING": (_DRAWING.pattern, ("svg",)),
     }
 
     hand_rolled = [
@@ -908,6 +926,10 @@ def test_every_pattern_that_reads_an_element_name_is_built_from_the_one_alternat
     assert hand_rolled == [], (
         "these patterns do not read the shared alternation, so a namespace prefix means "
         f"something different to each of them: {hand_rolled}"
+    )
+    assert _qualified("svg") not in _DRAWING.pattern, (
+        "the drawing exemption reads the shared alternation again, so a container whose "
+        "alias this module never resolves suppresses every short element inside it"
     )
 
 
@@ -937,7 +959,8 @@ def test_the_prefix_class_is_the_ncname_production_it_transcribes() -> None:
 
     The class used to be built from ``\\w``, which is a Python word class and
     not an XML production. It missed combining marks -- legal ``NameChar``s --
-    so a document using a legal alias was invisible at all four sites at once.
+    so a document using a legal alias was invisible at every site that reads an
+    element name at once.
     The repair is to transcribe the production, and a transcription is checked
     the only way one can be without an unbounded sweep: at the edges.
 
@@ -1023,35 +1046,40 @@ def test_the_prefix_class_cannot_match_markup() -> None:
     )
 
 
-def test_a_prefixed_drawing_is_still_a_drawing() -> None:
-    """The fourth site, and the one that fails CLOSED.
+def test_a_prefixed_drawing_is_not_a_drawing() -> None:
+    """The site that was withdrawn, asserted rather than left to the comment.
 
-    ``_DRAWING`` is the container question the short-prose discriminator asks,
-    and it read a bare tag. So a prefixed drawing was not a drawing, its labels
-    were not labels, and a chart got reported -- the same lexical blindness as
-    the three sites above, pointing the other way.
+    ``_DRAWING`` reads the UNPREFIXED spelling and nothing else. A prefix is
+    matched by SHAPE everywhere in this module, never resolved, and that is
+    conservative for the three scorers -- matching more elements means more
+    findings -- and fail-open here, because matching more containers means more
+    SUPPRESSION. The exemption is withdrawn from a container it cannot prove is
+    a drawing rather than granted on an unresolved alias.
     """
-    missed = [
+    matched = [
         ascii(prefix)
         for prefix in _DRAWING_PREFIXES
-        if _DRAWING.search(worded_diagram(prefix=prefix)) is None
+        if _DRAWING.search(worded_diagram(prefix=prefix)) is not None
     ]
 
-    assert missed == [], (
-        f"a drawing that binds its own namespace to an alias is still a drawing: {missed}"
+    assert matched == [], (
+        "a drawing is a drawing by its unprefixed spelling; an alias this module never "
+        f"resolves does not buy an exemption: {matched}"
     )
 
 
-def test_labels_in_a_prefixed_drawing_are_still_labels() -> None:
-    """The behavioural half, asserted as agreement with the unprefixed chart.
+def test_labels_in_a_prefixed_drawing_are_reported() -> None:
+    """The behavioural half, and the wanted direction is DISAGREEMENT.
 
-    ⚠️ **This test's red does not exist at the head this branch started from.**
-    A prefixed chart was clean there for the wrong reason -- its labels were
-    invisible too, so nothing scored. Teaching the element patterns the prefix
-    is what makes the labels visible and turns this chart into a false positive,
-    which is why the two commits are separate: this is the only state in which
-    the container fix is demonstrably necessary, and collapsing them would mean
-    nobody ever saw it fail.
+    The bare chart is exempt and the prefixed one is reported: the same chart,
+    reported because its container cannot be proved to be a drawing. That is a
+    false positive and it is the direction this module's posture requires --
+    refuse what cannot be proved safe. The cost is recorded in CONTRIBUTING's
+    residual table, with issue #33's rendering boundary named as where a real
+    "is this a drawing" answer belongs.
+
+    The bare arm is asserted here rather than assumed: it is the exemption that
+    actually earns its keep, and it is the thing a careless revert breaks.
     """
     bare = rules(scan_text(worded_diagram(), source="docs/chart.md"))
     reported = {
@@ -1059,30 +1087,50 @@ def test_labels_in_a_prefixed_drawing_are_still_labels() -> None:
         for prefix in _DRAWING_PREFIXES
     }
 
-    assert bare == [] and all(found == [] for found in reported.values()), (
-        "a worded axis label is a label in either spelling: bare says "
-        f"{bare}, prefixed says {reported}"
+    assert bare == [] and all(found == ["P2"] for found in reported.values()), (
+        "an unresolved alias does not buy an exemption, and an ordinary drawing keeps one: "
+        f"bare says {bare}, prefixed says {reported}"
     )
 
 
-def test_a_drawing_whose_tags_disagree_about_the_prefix_is_not_a_drawing() -> None:
-    """The direction the backreference chooses, asserted rather than argued.
+def test_a_container_whose_prefix_is_bound_elsewhere_is_not_a_drawing() -> None:
+    """⭐ **The reproduction the fourth site was deleted for.**
 
-    The closing tag must carry the prefix the opening tag carried, so a
-    mismatched pair is not a drawing and its labels are reported: fails CLOSED.
-    The rejected alternative -- an independent optional prefix on each tag --
-    accepts the pair and exempts labels inside something no parser would call a
-    drawing: fails OPEN. Recorded beside ``_DRAWING``, and asserted here rather
-    than left as a claim, because that constant's own note says this
-    discriminator is asserted by test in both directions.
+    A prefix bound to a namespace that is not SVG still had the SHAPE of a
+    drawing, so the container matched, the exemption applied, and every short
+    text element inside it was suppressed. A whole identity -- a name, a date of
+    birth and a place -- went from a finding to nothing by being wrapped in a
+    tag whose alias this module never resolves. Prefix-shape matching is
+    conservative for the three scorers and fail-open for an exemption, and this
+    is what fail-open looked like.
+
+    **Three assertions, and the two on the ends are what keep the middle one
+    honest.** Without the unwrapped premise a scoring change makes this vacuous
+    -- the notes would stop being a finding and the test would still pass.
+    Without the unprefixed control, a revert that went further than the fourth
+    site would break the exemption that actually earns its keep and nothing
+    here would say so. Same payload in all three, so the container is the only
+    variable.
     """
-    matched = worded_diagram(prefix=_DRAWING_PREFIX)
-    mismatched = matched.replace("</" + _DRAWING_PREFIX + ":svg>", "</other:svg>")
+    unwrapped = rules(scan_text(gramps_short_notes(), source="notes.md"))
+    exempt = rules(scan_text(notes_inside_a_container(), source="notes.md"))
+    reported = {
+        ascii(prefix): rules(
+            scan_text(
+                notes_inside_a_container(prefix=prefix, namespace=_NOT_THE_SVG_NAMESPACE),
+                source="notes.md",
+            )
+        )
+        for prefix in _DRAWING_PREFIXES
+    }
 
-    assert mismatched != matched, "the closing tag was not rewritten, so this proves nothing"
-    assert rules(scan_text(mismatched, source="docs/chart.md")) == ["P2"], (
-        "a drawing whose tags disagree about the prefix is not provably a drawing, and "
-        "this discriminator refuses what it cannot prove safe"
+    assert unwrapped == ["P2"], (
+        f"the premise: three short notes are a whole identity on their own, got {unwrapped}"
+    )
+    assert exempt == [], f"an ordinary drawing still exempts its labels, and must: got {exempt}"
+    assert all(found == ["P2"] for found in reported.values()), (
+        "an alias bound to something that is not SVG is a drawing by shape alone, and an "
+        f"exemption may not rest on a shape this module never resolves: {reported}"
     )
 
 

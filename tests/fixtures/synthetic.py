@@ -328,6 +328,29 @@ def worded_diagram(*, prefix: str = "") -> str:
     return _element(qualifier + "svg", body=labels)
 
 
+def notes_inside_a_container(*, prefix: str = "", namespace: str = "") -> str:
+    """Three short notes inside a drawing container, bare or namespace-prefixed.
+
+    The payload is ``gramps_short_notes`` -- a name, a date of birth and a
+    place, each too short to clear the prose floor and a finding together. It
+    is the SAME payload in both spellings, so the only variable is the
+    container.
+
+    With no ``prefix`` this is the exemption that earns its keep: an ordinary
+    drawing, whose short text elements are labels. With one, the container is a
+    drawing by SHAPE alone -- ``namespace`` binds that alias to something that
+    is not SVG, and nothing here resolves it. Matching by shape is conservative
+    for a scorer and fail-open for an exemption, so the exemption is withdrawn
+    rather than granted on an unresolved alias and the notes are reported.
+
+    The binding is assembled by the caller, like every other value here: a
+    namespace written whole in a tracked file is a value in a tracked file.
+    """
+    qualifier = prefix + ":" if prefix else ""
+    binding = "xmlns:" + prefix + '="' + namespace + '"' if prefix else ""
+    return _element(qualifier + "svg", attributes=binding, body=gramps_short_notes())
+
+
 def gramps_address_block() -> str:
     """Where a person lives: a populated Gramps address record."""
     return _element(
