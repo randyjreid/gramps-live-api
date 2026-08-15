@@ -357,6 +357,27 @@ def test_link_spouse_to_family_asserts_the_relationship_it_records() -> None:
     )
 
 
+_IDENTITY_OPERATIONS = ("add_person", "add_place", "update_name", *_LINK_TYPES)
+"""The five #22 registers, and the link names are read from ``_LINK_TYPES``.
+
+⚠️ **An enumeration, deliberately, and the only one in this file.** Everything
+else here is derived, because a list goes stale on the case nobody added. This
+one cannot: the criterion IS that these five names are registered, so a test
+that derived them from the registry would say "the registry contains what the
+registry contains" and pass over an empty one.
+"""
+
+
+def test_the_five_identity_operations_are_registered() -> None:
+    missing = sorted(set(_IDENTITY_OPERATIONS) - set(schema.REGISTRY))
+
+    assert missing == [], (
+        "#22 registers the five operations that need no date model, and the "
+        "structural tests #20 wrote cover each of them the moment it is in the "
+        f"registry; got these missing: {missing}"
+    )
+
+
 def test_every_registered_type_records_why_it_is_classified_as_it_is() -> None:
     recorded = _recorded_rationales()
     missing = sorted(
