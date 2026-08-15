@@ -66,28 +66,41 @@ deliberately does *not* apply.
 ### B2
 
 > **A file carrying genealogy data the guard has a property for scores at or above the threshold and
-> is a finding, whatever the file is named.** GEDCOM records counted per file; Gramps XML weighted by
-> the real-versus-mentioned distinction; GEDCOM X keys gated on a structural marker.
+> is a finding, whatever the file is named -- and its NAME is read the same way.** GEDCOM records
+> counted per file; Gramps XML weighted by the real-versus-mentioned distinction, over a container
+> list derived from the published schema, with the rows that derivation added gated on a Gramps
+> marker in the same file; GEDCOM X keys gated on a structural marker.
 
 ⚠️ **The qualifier *"the guard has a property for"* is load-bearing and is not a hedge.** Without it
 this criterion is universally quantified over all genealogy data, which is the unbounded spec this
 document exists to replace.
 
-`tests/unit/test_pii_guard_p2_genealogy.py` -- **78 tests**. The crux of each mechanism:
+⚠️ **"Which containers" is no longer a judgement, and that is what makes the Gramps half closable.**
+The list is derived from the published schema and frozen as a committed table -- see the derivation
+note in this directory. Every row of that table has a weight and a test, which is finite and
+reached; the previous formulation, *every place where a container can hold prose or an identity
+field*, was quantified over a format and could not be shown to have been satisfied.
+
+`tests/unit/test_pii_guard_p2_genealogy.py` -- **105 tests**. ⚠️ **That is the FILE's count and not
+this criterion's**; see the warning below, which is now on its eighth reason. The crux of each
+mechanism:
 
 | Mechanism | Named by |
 | --- | --- |
 | GEDCOM records counted per file, not consecutively | `test_an_annotated_walkthrough_is_a_finding` |
 | Gramps XML weighted by real versus mentioned | `test_an_importer_spec_is_not_a_finding` -- the false-positive side is the point of the distinction |
+| the container list is the published schema's, not a reviewer's | `test_every_container_the_published_schema_declares_has_a_weight` |
+| a row that derivation added is gated on a Gramps marker | `test_every_spelling_the_derivation_added_scores_once_the_format_is_named` |
 | GEDCOM X keys gated on a structural marker | `test_configuration_json_is_not_genealogy_without_the_format` |
 | whatever the file is named | `test_gedcom_renamed_as_text_is_still_caught` |
+| and the name itself is read | `test_a_committed_name_carrying_a_record_is_a_finding` |
 
 The two formats are held to one vocabulary by
 `test_the_compiled_scorer_agrees_with_the_vocabulary_for_every_row` and
 `test_one_life_is_judged_the_same_in_both_formats`.
 
 ⚠️ **That count is the FILE's, and it is not the number of tests carrying B2. It moves for
-reasons this criterion is not about, and it has now moved for two.** Twelve of the seventy-eight
+reasons this criterion is not about, and it has now moved for eight.** Twelve of them
 arrived with #4 item 4, which taught the compiled patterns that read an element name to read
 a namespace-prefixed tag: **nine** with the two commits that shared one alternation between the four
 sites it then had, and **three** more with the commit that replaced the prefix's character class with
@@ -101,10 +114,159 @@ to what B2 claims, and the twelve divide three ways:
 | the drawing exemption's two directions -- an ordinary unprefixed drawing still exempts its labels, and a container whose prefix this module cannot resolve does not | **two**, and the first half of each of them constrains what the guard must *not* report, which is B8's concern rather than this one |
 | the shared alternation's construction: which patterns are built from it and that the drawing is deliberately not, longest-first ordering, `_DRAWING` refusing a prefixed drawing, the namespace fallback still reading a prefixed declaration, and -- from the `NCName` commit -- the production transcribed at every range boundary, the start and continue classes being distinct, and the class matching no markup | **seven**, asserting how the patterns are built rather than what a scan returns. They carry no criterion on their own |
 
-So the twelve are not this criterion growing. What carries B2 is the four mechanisms in the table
+So the twelve are not this criterion growing. What carries B2 is the mechanisms in the table
 above and the two agreements beneath it; the number is a file's length, and the file is shared.
 
-⚠️ **The seventy-eight is UNCHANGED by the fourth site's deletion, and that is a coincidence rather
+**Six more arrived with #4's items 1, 5 and 6-XML** -- the change that derived the container list
+from the published schema. Unlike the twelve, **three of these do carry B2**, and the split is worth
+stating because it is the opposite of the last one:
+
+| The six | What they are |
+| --- | --- |
+| `test_every_container_the_published_schema_declares_has_a_weight` and `test_a_committed_name_carrying_a_record_is_a_finding` | **two**, and B2 evidence of a new kind. The first bounds *which containers* this criterion ranges over -- the sentence above is only checkable because that set is finite and external. The second extends the criterion to the committed NAME, which is why the wording above gained a clause rather than keeping the same claim over a bigger table |
+| `test_the_address_payload_issue_four_was_filed_with_is_a_finding` | **one**, B2 evidence in the ordinary way, and green on arrival: it re-measures the input #4 item 1 was filed with rather than assuming the item was still open |
+| `test_a_spelling_the_published_markup_indexes_also_use_earns_no_weight` | **one**, and it constrains what the guard must *not* report -- **B8's concern rather than this one**, exactly as the drawing rows are. It is what makes a hundred-row vocabulary affordable in a repository full of markup |
+| `test_no_spelling_the_vocabulary_already_had_changes_what_it_scores` and `test_no_spelling_is_claimed_by_two_categories` | **two**, asserting properties of the table rather than what a scan returns. The first is the control on the widening -- it is how "this audit adds rows and retracts none" stops being a promise -- and the second was written because a spelling really was placed in two categories, where the later silently won |
+
+⚠️ **The six are why the sentence at the top of this criterion changed, and a criterion whose
+wording moves is not a count moving.** Read the claim, not the number.
+
+**Nine more arrived with the marker gate** -- the change that made a container the derivation added
+score only where the document names the Gramps format. It exists because some of what the published
+schema declares are ordinary XML names: four filled `<type>` elements, or a `<file>`, a `<status>`,
+a `<description>` and a `<type>`, reached the threshold in a document about unrelated XML. The nine
+divide the same three ways, and **only two of them carry B2**:
+
+| The nine | What they are |
+| --- | --- |
+| `test_every_spelling_the_derivation_added_scores_once_the_format_is_named` and `test_a_prefixed_document_still_names_the_format` | **two**, and B2 evidence in the ordinary way. The first is what stops the gate being a deletion -- every added row is re-measured, with a marker present, against the weight its category declares, so a gate that simply zeroed those rows would pass the constraint tests and fail this one. The second carries the prefixed-export claim into the gate: a document's private alias must not cost it its own marker |
+| `test_generic_xml_names_are_not_genealogy_without_the_format`, `test_a_document_about_unrelated_xml_is_not_a_finding`, `test_every_spelling_the_derivation_added_is_gated_on_the_format`, and `test_a_researcher_block_without_the_format_is_the_gates_recorded_cost` | **four**, constraining what the guard must *not* report -- **B8's concern rather than this one**, exactly as the drawing rows and the markup-collision row are. The first two are the reproductions; the third is the same property derived over the table, so a row a later schema version adds is gated with no test edited. The fourth is the residual, asserted in both directions: the accepted cost is that a genuine fragment quoted *without* its marker is no longer caught, and its second half is the control that the gate removed the unmarked case and nothing else |
+| `test_the_attested_snapshot_still_records_the_moment_it_claims_to`, `test_the_only_marker_the_gate_reads_is_the_namespace_the_schema_fixes`, and `test_the_namespace_the_gate_reads_is_the_default_the_schema_fixes` | **three**, asserting properties of the tables rather than what a scan returns. They carry no criterion on their own. The first pins the membership of the frozen pre-audit snapshot, which is what buys back the independence lost when that snapshot moved into the guard for the gate to read; the other two bind the marker to the source it is derived from, so it is not a spelling somebody chose |
+
+**Two more arrived with the marker DELETION** -- the round that found the gate reading any namespace
+declaration on an element named `database`, so `<database xmlns="urn:example:ledger">` beside four
+filled `<type>` elements scored 5 and was reported. Two of the three markers read *structure* and
+never a value; they were removed rather than tightened, because bound to the namespace they matched
+nothing the substring marker does not. **Neither of the two carries B2:**
+
+| The two | What they are |
+| --- | --- |
+| `test_an_unrelated_namespace_does_not_name_the_gramps_format` and `test_an_unrelated_doctype_does_not_name_the_gramps_format` | **two**, constraining what the guard must *not* report -- **B8's concern rather than this one**, exactly as the four reproductions above are. They are the two spellings of one reproduction, written separately because a repair reaching only the namespace form would pass the first and fail the second |
+
+⚠️ **Two tests in this file were REWRITTEN by that round rather than added, and they are counted
+among the nine above, not here.** `test_each_marker_the_gate_reads_is_the_one_the_schema_declares`
+became `test_the_only_marker_the_gate_reads_is_the_namespace_the_schema_fixes` -- one marker instead
+of three, and its structural probes now assert the format is *not* named -- and
+`test_a_prefixed_document_still_names_the_format` gained its negative half, so a prefix carrying an
+unrelated namespace names nothing. **Both arrived in this branch's own repairs**, which is why
+rewriting them is a fix rather than the modification of a pre-existing test.
+
+⚠️ **Two pre-existing tests in this file changed their probe and are not among the nine**, because
+they are not new. `test_the_compiled_scorer_agrees_with_the_vocabulary_for_every_row` and
+`test_a_spelling_the_published_markup_indexes_also_use_earns_no_weight` -- and the two
+prefix-equivalence tests with them -- now measure through a probe that names the format. Without
+that they would measure some sixty rows at zero and be asserting the gate rather than the weight.
+The invariant-1 test deliberately did **not** change: what it claims is that an attested row still
+scores with **no** marker present, and a marked probe cannot see that.
+
+**Three more arrived with the marker ANCHORING** -- the round that found the one surviving marker
+reading the namespace as a bare substring *anywhere*, so a prose sentence naming it beside four
+filled `<type>` elements scored **6 and was reported**. Shape without value had already been
+rejected by the deletion above; this is value without shape, and each half was rejected only for
+lacking the other. The gate now requires the schema-fixed value as the value of an `xmlns` attribute
+reachable from a start tag's name through complete attributes. **None of the three carries B2:**
+
+| The three | What they are |
+| --- | --- |
+| `test_a_prose_mention_of_the_namespace_does_not_name_the_format` and `test_a_fragment_quoted_beside_a_bare_mention_is_the_anchoring_cost` | **two**, constraining what the guard must *not* report -- **B8's concern rather than this one**, exactly as the six reproductions above them are. The first is the reproduction; the second is the residual, asserted in both directions, and its second half is the control that anchoring removed the mention-only case and nothing else. That is the same shape as `test_a_researcher_block_without_the_format_is_the_gates_recorded_cost`, which is classified the same way |
+| `test_the_marker_must_occur_in_a_namespace_declaration` | **one**, asserting a property of the compiled gate rather than what a scan returns. It carries no criterion on its own. It is the mechanical definition of *in attribute position*, both directions in one table so neither can be satisfied by weakening the other, and it is the one place the namespace quoted inside **another** attribute's value is refused by name |
+
+⚠️ **Three more tests in this file were REWRITTEN by that round rather than added, and a rewrite
+moves no count, so none of them is among the three above.**
+`test_the_only_marker_the_gate_reads_is_the_namespace_the_schema_fixes` (`cfa91e0`) and
+`test_the_namespace_the_gate_reads_is_the_default_the_schema_fixes` (`7450185`) fed
+`_names_the_gramps_format` the **bare** reassembled `#FIXED` value, which the anchored gate reads as
+naming nothing. Both now place that value in a declaration, and the first also asserts that the bare
+value names nothing -- a strictly stronger binding rather than a weakened one.
+`test_a_prefixed_document_still_names_the_format` (`5d82932`) kept its **body unchanged**, and that
+is the evidence that the prefixed case survives anchoring: only its docstring moved, because the
+property used to hold by a substring test's blindness to prefixes and now holds by the `NCName` the
+element patterns and the declaration share. All three arrived in this branch's own repairs, so
+rewriting them is a fix rather than the modification of a pre-existing test.
+
+**Five more arrived with the TRANSCRIPTION AUDIT** — the round that stopped repairing one Python
+shorthand at a time and enumerated every place the guard approximates an XML production. Three
+findings were reproduced: a declared URI that merely *contains* the namespace (`urn:not-gramps:…`),
+a non-breaking space where XML's `S` admits four characters, and `<type-extra id="x"/>` scored as
+`<type>` because `\b` is not an XML name boundary. All three are one defect, and the audit found
+five more sites of it that nobody had reported. **Only one of the five tests carries B2:**
+
+| The five | What they are |
+| --- | --- |
+| `test_a_container_whose_name_merely_begins_with_svg_is_not_a_drawing` | **one**, and B2 evidence in the ordinary way — this is the only one of the five whose claim is that the guard *must* report. `<svg-chart …>` opened the drawing exemption, so a name, a date of birth and a place wrapped between it and a later `</svg>` were suppressed entirely. A live fail-open closed, in the direction this criterion is about |
+| `test_a_uri_that_merely_contains_the_namespace_does_not_name_the_format`, `test_xml_separates_attributes_with_the_four_characters_the_production_names`, and `test_a_vocabulary_spelling_is_not_the_prefix_of_a_longer_name` | **three**, constraining what the guard must *not* report — **B8's concern rather than this one**, exactly as the six reproductions above them are. Each carries its own positive control in the same test, because a negative half alone is satisfied by a guard that reports nothing: a genuine declaration in seven URI spellings, a separator written with each of the four characters XML names, and every weighted vocabulary row still scoring written as itself |
+| `test_no_pattern_reading_an_xml_production_uses_a_python_shorthand` | **one**, asserting a property of the compiled patterns rather than what a scan returns. It carries no criterion on its own — and it is the round's deliverable. Every compiled pattern the module holds is walked off the module and needs a row naming the shorthands it may hold and why, so a pattern added later with an unlicensed shorthand fails, and so does a row whose recorded reason is deleted |
+
+⚠️ **No pre-existing test in this file was modified by that round, and that is measured rather than
+claimed:** `git diff 5745d05` removes exactly **one line** from this file, the body of the
+`_alternatives_of` **helper**, which read the tail of `_qualified`'s output as its alternation and
+now strips the emitted `_XML_NAME_END` first — by the guard's own constant, not by a suffix written
+in the test. Every other hunk is an insertion. The helper's caller,
+`test_the_alternation_never_lets_a_shorter_spelling_shadow_a_longer_one`, keeps its body and its
+claim.
+
+⚠️ **`test_every_pattern_that_scores_an_element_is_built_from_the_one_alternation` got stronger with
+nothing added to it**, which is the point of putting the name's end inside `_qualified()`. It
+asserts that fragment appears verbatim in each of the three scoring patterns; the fragment now ends
+with the transcribed name end, so the same assertion says all three end their names correctly.
+
+**Two more arrived with the URI SCHEME** -- the round that found the value fragment reading RFC
+3986's `scheme` production, which admits every syntactically valid scheme, so a wrapper declaring
+the base over `ftp`, beside four filled `<type>` elements, named the format and scored **6**.
+Namespace names are compared by exact string match, so that document has declared a *different*
+namespace. This is the third tightening of one check, and what replaced the production is not a
+narrower production but a **declared tolerance table**: equality with the reassembled `#FIXED`
+value, then five relaxations, each carrying a recorded reason. **Neither of the two carries B2:**
+
+| The two | What they are |
+| --- | --- |
+| `test_a_scheme_the_schema_does_not_fix_does_not_name_the_format` | **one**, constraining what the guard must *not* report -- **B8's concern rather than this one**, exactly as the reproductions above it are. Seven refused schemes, three of them DERIVED from the fixed scheme rather than typed -- upper-cased, suffixed and prefixed -- and it carries its own positive control in the same test, because a negative half alone is satisfied by a guard that reports nothing |
+| `test_every_namespace_tolerance_is_declared_with_a_reason_and_earns_its_row` | **one**, asserting a property of the tolerance table rather than what a scan returns. It carries no criterion on its own -- and it is the round's deliverable, the same shape as the licence table's test one round earlier. Every relaxation must sit at a position the compiler reads, carry a non-blank reason, and **stop at least one spelling the gate is required to accept when it is removed**. Removing the one `tail` row stops all six spellings carrying a version segment, which is the later-schema-revision property asserted rather than argued |
+
+⚠️ **One test in this file was EXTENDED by that round rather than added, and an extension moves no
+count.** `test_the_namespace_the_gate_reads_is_the_default_the_schema_fixes` bound the namespace's
+host and path to `FIXED_ATTRIBUTE_DEFAULTS` and said nothing about its **scheme**, because until
+that round the scheme was a transcribed production rather than a value. It now also asserts that the
+guard's scheme constant is the frozen value's first piece, and that the canonical prefix is a
+declared row rather than a spelling the pattern happens to admit. It arrived at `7450185`, **in this
+branch's own repairs** -- checked with `git merge-base --is-ancestor` against `c58b66d` rather than
+assumed -- so extending it is a fix rather than the modification of a pre-existing test.
+
+⚠️ **A separate file arrived with the same change and is counted nowhere above.**
+`tests/unit/test_derive_specified_containers.py` -- **9 tests** -- asserts the derivation script's
+own properties. It carries no criterion here: it is about a build step's fail-closed guarantee, not
+about what a scan returns. ⚠️ **That is that FILE's count too, and it moved for the same kind of
+reason:** the marker-deletion round added
+`test_an_unreadable_definition_anywhere_in_a_list_stops_the_derivation` and
+`test_every_readable_definition_in_a_list_is_read`, the non-vacuity pair that replaced the script's
+match-and-check-the-tail scheme with a parser that cannot advance past a byte it did not match. Both
+are about a build step, so neither moves anything this document claims.
+
+⚠️ **The anchoring round did NOT move that 9, and it was re-collected rather than assumed** --
+`pytest --collect-only` reports nine on the head that carries this sentence. The round touched no
+build step, which is the reason to expect it, and expecting it is not the same as checking.
+
+⚠️ **Nor did the transcription audit, re-collected the same way on the head that carries THIS
+sentence.** That round touched no build step either -- `git diff --exit-code` over both
+`scripts/derive_specified_containers.py` and the table it emits returns 0 against `5745d05` -- and
+the reason to expect a number is still not a reading of it.
+
+⚠️ **Nor did the URI-scheme round, re-collected the same way again.** `pytest --collect-only`
+reports **nine**, and `git diff --exit-code` over the derivation script and the emitted table
+returns 0 against `84cb944`. Three rounds in a row have had a reason to expect nine; three rounds in
+a row have read it instead.
+
+⚠️ **The count was UNCHANGED by the fourth site's deletion, and that is a coincidence rather
 than evidence nothing happened.** That change removed the test asserting a mismatched-prefix pair is
 not a drawing -- the backreference it was about no longer exists, and its input is still reported for
 a reason that has nothing to do with the tags disagreeing -- and added the reproduction that deletion
@@ -115,7 +277,28 @@ rather than carried forward.
 ⚠️ **This is the fifth time a documented count in this repository has gone stale, and the general
 repair is filed as #36 rather than built here.** The count is corrected at the change that moved it,
 which is the cheapest place; what #36 owes is the mechanism that makes a stale one fail rather than
-read as considered.
+read as considered. The sixth change to touch this file looked for this number **before** adding a
+test to it rather than after, which is the cheap half of that repair available today; so did the
+seventh, for **both** counts on this page, and so did the eighth -- the marker anchoring, which
+moved the file's count from 95 to **98** and left the derivation file's at **9**. So did the
+**ninth**, the transcription audit, which moved it from 98 to **103** and again left the derivation
+file's at **9**: it grepped this page for both numbers before writing a single test, which is the
+order that makes the staleness impossible rather than merely noticed. So did the **tenth**, the URI
+scheme, which moved it from 103 to **105** and left the derivation file's at **9**.
+
+⚠️ **The ninth also says why the cheap half is not the whole repair, and #36 still owes the rest.**
+Looking the number up first works only for somebody who knows a documented count exists. It is the
+`grep` that has to happen, not the intention -- and nothing in the repository fails if it does not.
+
+⚠️ **And a documented MEASUREMENT went stale the same way, which is the same defect wearing different
+clothes.** CONTRIBUTING's control table -- the retained side of the marker gate -- recorded
+`4 / 4 / 6 / 9` for four payloads. Re-walked at its own *Before* head those payloads measure
+`4 / 8 / 9`, and the fourth is not scored at all: it is reported by a genealogy text signature before
+any scorer runs. The three stale figures are the **pre-derivation** weights, carried forward from an
+earlier document rather than re-measured after the vocabulary went from 29 rows to 110. The claim the
+table makes was true throughout; only its evidence was wrong. #36 is scoped to counts, and a figure
+is not a count -- so this one is corrected where it was found, with the correction recorded beside
+it, and it is why the tables in that section are now marked *re-walked* rather than carried.
 
 ### B3
 

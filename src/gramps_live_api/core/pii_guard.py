@@ -43,7 +43,7 @@ import re
 import subprocess
 import sys
 import unicodedata
-from collections.abc import Iterable, Iterator, Mapping, MutableMapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import cast
@@ -873,17 +873,39 @@ _VOCABULARY: tuple[tuple[str, tuple[str, ...], tuple[str, ...], tuple[str, ...]]
     # the defect this table exists to make impossible -- so anything the two
     # formats call by the same name is written ONCE, and the per-format columns
     # hold only what genuinely differs.
-    ("identity", ("surname",), ("name", "first", "ptitle", "pname"), ("fullText", "given")),
+    (
+        "identity",
+        ("surname",),
+        (
+            "name",
+            "first",
+            "ptitle",
+            "pname",
+            # The rest of what the schema calls a person by, and the one name
+            # in the researcher block: a call name, the nicknames, the suffix,
+            # the surname group, and the author a source is credited to.
+            "call",
+            "nick",
+            "familynick",
+            "suffix",
+            "group",
+            "sauthor",
+            "resname",
+        ),
+        ("fullText", "given"),
+    ),
     (
         # Where somebody lives locates them as surely as what they are called.
         "address",
         ("street", "city", "county", "state", "postal", "country", "phone"),
-        (),
+        # The schema's own address spellings, and the researcher block, which
+        # is a home address belonging to a named person by construction.
+        ("locality", "resaddr", "reslocality", "rescity", "resstate", "rescountry", "respostal"),
         ("postalCode",),
     ),
     # A way to reach a person names them at least as directly as a home
     # directory does, which P1 already treats as identity.
-    ("contact", ("url", "email"), (), ("emails",)),
+    ("contact", ("url", "email"), ("resphone", "resemail"), ("emails",)),
     ("prose", ("text", "note"), (), ()),
     (
         "structure",
@@ -902,12 +924,138 @@ _VOCABULARY: tuple[tuple[str, tuple[str, ...], tuple[str, ...], tuple[str, ...]]
             "childref",
             "noteref",
             "attribute",
+            # Everything else the schema declares. Structural weight is not a
+            # shrug: a document made of four of these is an export whatever
+            # they are, which is the density question, while no single one of
+            # them names anybody -- which is the whole distinction this table
+            # was rewritten around.
+            #
+            # ⚠️ Three of these are the ones a reader will want to promote --
+            # `description`, `cause` and `page` can hold a sentence, and
+            # `<description>` in particular reads like prose. They stay at
+            # structural weight deliberately. Prose weight is for containers
+            # whose PURPOSE is narrative about a person, which the schema says
+            # of `note` and `text` and does not say of a caption on a media
+            # object or a URL. Promoting them costs a threshold-clearing score
+            # for one filled element in any schema document that shows an
+            # example, which is the document Phase 1 is about to write.
+            "database",
+            "created",
+            "researcher",
+            "mediapath",
+            "people",
+            "personref",
+            "childof",
+            "parentin",
+            "families",
+            "father",
+            "mother",
+            "rel",
+            "events",
+            "event",
+            "type",
+            "sources",
+            "stitle",
+            "spubinfo",
+            "sabbrev",
+            "places",
+            "coord",
+            "location",
+            "objects",
+            "file",
+            "repositories",
+            "repository",
+            "rname",
+            "reporef",
+            "notes",
+            "range",
+            "tags",
+            "tag",
+            "tagref",
+            "citations",
+            "citationref",
+            "sourceref",
+            "srcattribute",
+            "bookmarks",
+            "bookmark",
+            "namemaps",
+            "name-formats",
+            "format",
+            "daterange",
+            "datespan",
+            "datestr",
+            "page",
+            "confidence",
+            "place",
+            "placeref",
+            "cause",
+            "description",
+            "objref",
+            "region",
+            "data_item",
+            "lds_ord",
+            "temple",
+            "status",
+            "sealed_to",
         ),
         ("persons", "names", "nameForms", "relationships", "facts", "notes", "addresses"),
     ),
+    (
+        # ⚠️ **DELIBERATELY UNWEIGHTED, AND THE WIDENING IS UNAFFORDABLE
+        # WITHOUT IT.** These are element names the published schema declares
+        # AND the published HTML and SVG element indexes also list. At even the
+        # smallest weight, four filled ones reach the threshold -- and this
+        # repository is full of markup, so an ordinary snippet would be
+        # reported and the gate would become something contributors route
+        # around, which is a security failure here rather than an ergonomic
+        # one.
+        #
+        # Accepted on exactly the ground ``FILESYSTEM_ROOTS`` and the drawing
+        # exemption are: the collision is read off two published indexes, which
+        # are closed and externally specified rather than a list maintained
+        # here. The membership is asserted against those indexes by test.
+        #
+        # **The failure mode taken, stated rather than discovered:** a real
+        # export earns nothing from its `<title>` or `<source>` elements. That
+        # costs nothing, because such an export is caught many times over by
+        # the spellings that collide with nothing -- `person`, `surname`,
+        # `placeobj`, `childref` and eighty others.
+        #
+        # ⚠️ **THE STRUCTURAL GATE THIS BLOCK USED TO RECORD AS REJECTED WAS
+        # RULED IN, and it is `_SPELLINGS_THE_DERIVATION_ADDED` above.** The
+        # reason is that these two published indexes cannot see the collision
+        # that matters: `type`, `file`, `status` and `description` are schema
+        # spellings that are also ordinary XML names, they are in NEITHER index,
+        # and four filled ones reached the threshold in any document showing an
+        # example. This category answered the collision it was shown.
+        #
+        # ⚠️ **The gate does not make this category redundant, and deleting it
+        # would be a widening.** What is left for it is the case the gate
+        # deliberately lets through: `<title>` and `<source>` earn nothing
+        # INSIDE a document that has named the format, where every other derived
+        # row scores. That is a smaller job than it had, and it is a real one --
+        # per the diminishing-returns rule, if a future round finds against this
+        # category the candidate action is deletion rather than more hardening.
+        #
+        # ⚠️ **This category is for rows this audit ADDS, and never a
+        # retraction.** `text` and `address` collide too and are NOT here: they
+        # were weighted before the derivation, and zeroing them would drop
+        # existing catches while every number in the measurement improved.
+        "collides",
+        (),
+        ("title", "style", "code", "map", "object", "source", "header"),
+        (),
+    ),
 )
 
-_CATEGORY_WEIGHT = {"identity": 2, "address": 2, "contact": 2, "prose": 4, "structure": 1}
+_CATEGORY_WEIGHT = {
+    "identity": 2,
+    "address": 2,
+    "contact": 2,
+    "prose": 4,
+    "structure": 1,
+    "collides": 0,
+}
 
 
 def _elements_of(*categories: str) -> tuple[str, ...]:
@@ -938,6 +1086,78 @@ _GRAMPS_IDENTITY_ELEMENTS = _elements_of("identity", "address", "contact")
 _GRAMPS_PROSE_ELEMENTS = _elements_of("prose")
 _GRAMPS_STRUCTURE_ELEMENTS = _elements_of("structure")
 _GRAMPS_ALL_ELEMENTS = tuple(dict.fromkeys(_GRAMPS_CATEGORY_OF))
+
+_WEIGHTS_BEFORE_THE_DERIVATION = {
+    "surname": 2,
+    "name": 2,
+    "first": 2,
+    "ptitle": 2,
+    "pname": 2,
+    "street": 2,
+    "city": 2,
+    "county": 2,
+    "state": 2,
+    "postal": 2,
+    "country": 2,
+    "phone": 2,
+    "url": 2,
+    "email": 2,
+    "text": 4,
+    "note": 4,
+    "person": 1,
+    "family": 1,
+    "gender": 1,
+    "birth": 1,
+    "death": 1,
+    "dateval": 1,
+    "placeobj": 1,
+    "address": 1,
+    "citation": 1,
+    "eventref": 1,
+    "childref": 1,
+    "noteref": 1,
+    "attribute": 1,
+}
+"""Every Gramps spelling the vocabulary held, and its weight, before #4's audit.
+
+⚠️ **This is not a duplicate of the vocabulary; it is a FROZEN SNAPSHOT of a
+different moment, and the difference is the point.** The audit that derives the
+container list from the published schema has one invariant standing over it:
+*no row already in the vocabulary is gated or zero-weighted by this work.* That
+is a claim about the past, so it needs a record of the past to be checked
+against -- otherwise "nothing was retracted" is only ever a promise in a commit
+message, and the quiet way to make a widening's measurement look good is to
+zero an existing catch.
+
+Three spellings here are **not** in the published schema at all -- ``birth``,
+``death`` and ``email``. They stay exactly as they are for the same reason: the
+derivation adds rows, and a row it cannot account for is not thereby wrong.
+
+⚠️ **It lives HERE rather than in the test suite because the gate below reads
+it, and two copies of a historical snapshot is the drift this project keeps
+paying for.** The independence that move costs is bought back in the suite: the
+MEMBERSHIP is pinned there as a sorted literal, so adding a spelling here fails
+by name instead of silently widening the ungated domain. That pin is not
+optional; it is what makes the move safe.
+"""
+
+_SPELLINGS_THE_DERIVATION_ADDED = frozenset(_GRAMPS_CATEGORY_OF) - frozenset(
+    _WEIGHTS_BEFORE_THE_DERIVATION
+)
+"""The gate's domain: every spelling the vocabulary gained from the schema.
+
+⚠️ **THE GATE IS SCOPED TO ROWS, AND A FILE-LEVEL GATE WOULD NOT BE SAFE.**
+Conditioning the whole XML scorer on a marker would suppress a pre-existing
+catch in a file that carries none -- a note holding a biography, a bare name
+block -- which is the retraction the audit's first invariant forbids. Cutting
+the domain out of the frozen snapshot instead makes that impossible rather than
+merely unobserved: a pre-existing row is not in this set, so no measurement is
+needed to show the gate did not reach it.
+
+Derived by subtraction rather than listed, so a row a later schema version adds
+is gated the day it is added and a row promoted into the snapshot stops being
+gated on the same day, with nothing to remember.
+"""
 
 # ---------------------------------------------------------------------------
 # THE QUALIFIED-NAME ALTERNATION. ONE CONSTRUCTION SITE, THREE PATTERNS.
@@ -1060,12 +1280,50 @@ def _character_class(ranges: tuple[tuple[int, int], ...]) -> str:
     return "[" + "".join(_escaped(first) + "-" + _escaped(last) for first, last in ranges) + "]"
 
 
-_XML_NAME_PREFIX = (
-    "(?:"
-    + _character_class(_NCNAME_START_RANGES)
-    + _character_class(_NCNAME_CONTINUE_RANGES)
-    + "*:)?"
+_XML_NCNAME = (
+    _character_class(_NCNAME_START_RANGES) + _character_class(_NCNAME_CONTINUE_RANGES) + "*"
 )
+"""``NCName``: one name, no colon in it -- the two tables above, in order.
+
+Extracted so there is **one** transcribed ``NCName`` with three readers: the
+element alternation's prefix below, the ``xmlns:`` prefix of a namespace
+declaration, and the attribute names in between. A second copy written for the
+declaration would be a table somebody has to keep in step with this one, which
+is the shape every other duplication in this module has been removed for.
+"""
+
+_XML_NAME_END = "(?!" + _character_class(_NCNAME_CONTINUE_RANGES) + "|:)"
+r"""Where a ``Name`` ENDS: not a character that could continue it, and not a colon.
+
+⚠️ **A TRANSCRIPTION of the production, and the approximation was a live
+fail-open at every site that read it.** This used to be ``\b`` at each call
+site. ``\b`` is Python's word boundary, and ``-``, ``.``, ``·``, a combining
+mark and an undertie all legally CONTINUE an XML name while satisfying it -- so
+``<type-extra id="x"/>`` was scored as ``<type>``, an element the document never
+wrote, and 103 vocabulary rows behaved that way under nineteen different
+suffixes in both scoring shapes.
+
+⚠️ **The combining mark is the SAME class this module already paid for at the
+other end of the same name.** ``<type`` + U+0301 is a legal element name whose
+local name is not ``type``; U+0301 is a ``NameChar`` and is not a ``\w``
+character, which is exactly what made ``[^\W\d][\w.\-]*`` a live fail-open for
+namespace PREFIXES in Change A. One production, one shorthand, missed at the
+front of the name and then again at the back.
+
+**The colon is refused as well, and it is a distinct defect rather than tidiness.**
+``<type:extra>`` is a legal ``QName`` whose local name is ``extra``; ``\b`` sits
+happily between ``e`` and ``:``, so the shared alternation read the PREFIX as
+the tag and scored ``type``. Refusing the colon here is what makes
+``_local_name`` -- which says the meaning is the local name and the prefix is an
+alias -- true of the match as well as of the string.
+
+**Built from ``_NCNAME_CONTINUE_RANGES``, which the module already holds**, so
+there is no second character class to keep in step; and emitted by
+``_qualified`` rather than written at the call sites, so a fourth scoring site
+cannot hand-roll its own and a repair cannot reach two readers out of three.
+"""
+
+_XML_NAME_PREFIX = "(?:" + _XML_NCNAME + ":)?"
 r"""An optional namespace prefix: an ``NCName``, then the colon.
 
 ⚠️ **A TRANSCRIPTION of the production, not an approximation of it, and the
@@ -1085,7 +1343,14 @@ positions would read ``<-9:name>`` as an element.
 
 The bound this constant has always claimed still holds and is now asserted
 rather than argued: the class cannot match ``<``, ``>``, ``/``, ``=``, a quote,
-whitespace or the colon.
+XML ``S`` or the colon.
+
+⚠️ **That last clause used to read "whitespace", and transcribing ``S`` made the
+word false.** ``NameChar`` admits U+1680 OGHAM SPACE MARK, which Python's ``\s``
+calls whitespace -- so the class DOES match something a reader of the old
+sentence would have been told it could not. The bound that is true, and the one
+the test asserts, is about the four characters XML's ``S`` names. A module
+asserting something untrue about itself is the defect, not the wording.
 
 **What is still not checked, deliberately: the alias is matched, never
 RESOLVED.** Whether the document actually binds it to the Gramps namespace is a
@@ -1097,6 +1362,130 @@ that reports.
 elements" is the safe direction only where reading one adds a finding. In an
 exemption it removes findings, so the same shape match becomes a fail-open --
 see `_DRAWING`, which is not built from this and says why.
+"""
+
+
+# ---------------------------------------------------------------------------
+# WHAT AN ATTRIBUTE IS. XML 1.0, W3C Recommendation, §3.1 -- and §2.3 for `S`:
+#
+#     S         ::= (#x20 | #x9 | #xD | #xA)+
+#     STag      ::= '<' Name (S Attribute)* S? '>'
+#     Attribute ::= Name Eq AttValue
+#     Eq        ::= S? '=' S?
+#     AttValue  ::= '"' ([^<&"] | Reference)* '"'
+#                 | "'" ([^<&'] | Reference)* "'"
+#
+# Transcribed rather than approximated, on exactly the grounds the `NCName`
+# tables above are -- and here the difference is not academic. The cheap
+# approximation for "an attribute in a start tag" is `<[^<>]*xmlns=`, and it
+# ACCEPTS THE NAMESPACE QUOTED INSIDE ANOTHER ATTRIBUTE'S VALUE: an element
+# whose `desc` attribute describes a declaration has declared nothing. Reaching
+# the attribute through a sequence of complete `Attribute` productions is what
+# refuses that, and nothing weaker does.
+#
+# Closed and externally specified, so this transcription is accepted on exactly
+# the grounds the productions above it are: it does not grow.
+# ---------------------------------------------------------------------------
+
+_XML_WHITESPACE_RANGES: tuple[tuple[int, int], ...] = (
+    (0x9, 0x9),  # TAB
+    (0xA, 0xA),  # LF
+    (0xD, 0xD),  # CR
+    (0x20, 0x20),  # SPACE
+)
+"""``S``: the four characters, and there are only ever four."""
+
+_XML_S = _character_class(_XML_WHITESPACE_RANGES)
+r"""``S``, as a character class -- built the way every other production here is.
+
+⚠️ **A TRANSCRIPTION of the production, and the approximation it replaces was a
+live fail-open.** All three constants below used to spell this ``\s``, which is
+Python's whitespace class and matches **twenty-six** characters XML's ``S`` does
+not: a non-breaking space, a vertical tab, a form feed, the C1 line separators,
+the whole ``U+2000`` block. So ``<wrapper`` + U+00A0 + ``xmlns="…gramps…">`` was
+read as a namespace declaration in attribute position. It is not one: XML reads
+that tag's name as ``wrapper`` + U+00A0 + ``xmlns``, an element that declares
+nothing at all -- and the marker firing on it re-enables some eighty derived
+rows.
+
+⚠️ **U+1680 is the sharpest of the twenty-six and says why the two questions are
+different questions.** OGHAM SPACE MARK is whitespace to Python and a legal
+``NameChar`` to XML, so it is part of the element's own name. A class built from
+"what looks like a space" cannot get that right by being more careful; it is
+asking the wrong production.
+
+Read by ``_XML_EQ``, ``_XML_ATTRIBUTE``, ``_XMLNS_DECLARATION`` and ``_DRAWING``
+-- **one transcription, four readers**, for the reason ``_XML_NCNAME`` is one:
+the defect this module keeps paying for is a rule taught to some of the sites
+that read a production and not to the rest.
+"""
+
+_XML_EQ = _XML_S + "*=" + _XML_S + "*"
+r"""``Eq ::= S? '=' S?`` -- the equals sign and what may surround it."""
+
+
+def _att_value_of(build: Callable[[str], str]) -> str:
+    r"""``AttValue`` whose CONTENT is built by ``build`` from the value-body class.
+
+    Either quoting, because the production admits either and a rule that reads
+    only ``"…"`` refuses half of well-formed XML -- the same hole the
+    derivation script's own ``AttValue`` was repaired for. The two quote
+    spellings are stated once here, and ``build`` is handed the body class that
+    goes with whichever quote is being written, so a caller cannot get the two
+    out of step.
+
+    ⚠️ **The body admits ``&``, which the production admits only as the start of
+    a ``Reference``.** That is a deliberate widening of one character, and it
+    runs toward reporting: a value is read as a value slightly more often, never
+    less. It is also what keeps this pattern honest about `#50` -- a value
+    spelling the namespace with character references still occupies an
+    `AttValue`, so a `_decoded` that folds them closes that evasion here with no
+    change to this production.
+
+    ⚠️ **This exists because "contains" and "is" are different questions.** The
+    older helper below could only say *the value holds this somewhere*, which is
+    a bare substring test wearing an `AttValue`'s quotes -- and that is exactly
+    how a URI naming a DIFFERENT namespace came to name this one. A caller that
+    needs to constrain the WHOLE value builds it here instead.
+    """
+    alternatives = []
+    for quote in ('"', "'"):
+        alternatives.append(quote + build("[^<" + quote + "]*") + quote)
+    return "(?:" + "|".join(alternatives) + ")"
+
+
+def _att_value(containing: str = "") -> str:
+    r"""``AttValue``, optionally required to CONTAIN ``containing``.
+
+    Unchanged in behaviour and re-expressed through ``_att_value_of``: the body
+    class, either quoting and the ``&`` widening are all that helper's now, and
+    "somewhere inside the value" is spelled here as body-fragment-body.
+
+    ``containing`` is a regex fragment, not a literal.
+    """
+    return _att_value_of(lambda body: (body + containing + body) if containing else body)
+
+
+_XML_ATTRIBUTE = _XML_S + "+" + _XML_NAME_PREFIX + _XML_NCNAME + _XML_EQ + _att_value()
+r"""``S Attribute`` -- one whole attribute, with the whitespace that must open it.
+
+The whitespace belongs to this fragment rather than to the caller: the
+production is ``(S Attribute)*``, so an attribute without a separator in front
+of it is not an attribute, and a caller repeating ``S*`` between them would
+read ``a="1"b="2"`` as two.
+
+⚠️ **The separator is ``_XML_S``, not ``\s``**, and the two are not the same
+question -- see that constant. This is one of the sites the reviewer named; the
+declaration's own separator below is the one the audit found.
+"""
+
+_XML_ATTRIBUTE_SEQUENCE = "(?:" + _XML_ATTRIBUTE + ")*"
+"""``(S Attribute)*`` -- what a start tag's name may be followed by.
+
+⚠️ **This is the fragment that makes "in attribute position" mean anything**, and
+the whole reason the productions above are transcribed. A rule that skipped
+ahead with ``[^<>]*`` instead would let one attribute's VALUE stand in for the
+path to the next one.
 """
 
 
@@ -1119,15 +1508,30 @@ def _qualified(*names: str) -> str:
 
     Alternatives are ordered LONGEST FIRST, so a spelling is never shadowed by a
     shorter one it begins with: ``namemaps`` past ``name``, ``dateval`` past
-    ``date``, ``placeobj`` past ``place``. The trailing ``\b`` at each call site
-    makes the engine backtrack into the longer alternative anyway today;
-    ordering means the patterns do not DEPEND on that, which matters because
-    this table is about to be derived from a published schema rather than
-    written by hand. No behavioural test can see this until a colliding pair
-    exists, so it is asserted structurally instead.
+    ``date``, ``placeobj`` past ``place``. The trailing ``_XML_NAME_END`` makes
+    the engine backtrack into the longer alternative anyway today; ordering
+    means the patterns do not DEPEND on that, which matters because this table
+    is about to be derived from a published schema rather than written by hand.
+    No behavioural test can see this until a colliding pair exists, so it is
+    asserted structurally instead.
+
+    ⚠️ **THE NAME'S END IS EMITTED HERE, NOT AT THE CALL SITES, AND THAT IS THE
+    WHOLE POINT.** It used to be a ``\b`` written out at each of the three
+    sites -- and the paragraph four lines above warns against exactly the shape
+    that produces: a rule taught to some readers of a production and not the
+    rest. Every site that reads this alternation now gets the transcribed end
+    for free, a fourth site cannot hand-roll one, and
+    ``test_every_pattern_that_scores_an_element_is_built_from_the_one_alternation``
+    -- which asserts this fragment appears verbatim in each pattern -- becomes
+    the assertion that all three end their names correctly, with nothing added
+    to it.
+
+    ⚠️ **The assertion is a LOOKAHEAD and consumes nothing**, so it sits inside
+    the caller's capturing parenthesis without changing what group 1 holds or
+    what ``\1`` closes.
     """
     alternation = "|".join(sorted(names, key=lambda name: (-len(name), name)))
-    return _XML_NAME_PREFIX + "(?:" + alternation + ")"
+    return _XML_NAME_PREFIX + "(?:" + alternation + ")" + _XML_NAME_END
 
 
 def _local_name(tag: str) -> str:
@@ -1203,11 +1607,11 @@ it encloses denotes anything.
 """
 
 _GRAMPS_FILLED_ELEMENT = re.compile(
-    r"<(" + _qualified(*_GRAMPS_ALL_ELEMENTS) + r")\b[^>]*>"
+    r"<(" + _qualified(*_GRAMPS_ALL_ELEMENTS) + r")[^>]*>"
     r"((?:" + _NOT_ENDING_AN_ELEMENT + r"|[^<])+)</\1\s*>",
     re.IGNORECASE | re.DOTALL,
 )
-"""An element with content of its own: this is data rather than a mention.
+r"""An element with content of its own: this is data rather than a mention.
 
 Two groups: the tag and the content. The content alternative admits every
 member of the table above, because none of them ends an element -- a CDATA
@@ -1219,13 +1623,29 @@ tag, so the element was not merely mis-scored, it was invisible.
 The attributes used to be captured as a third group, for a short-prose
 discriminator that read them. Nothing reads them now -- see ``_DRAWING`` -- and
 a captured group nobody consumes is machinery pretending to be a rule.
+
+⚠️ **The name ends where ``_XML_NAME_END`` says it does, and the ETag's ``\s*``
+is a RECORDED approximation rather than a leftover.** ``</\1\s*>`` reads XML's
+``S?`` loosely, and in a scorer that errs toward reading an element where XML
+reads none, which errs toward reporting; transcribing it would subtract a catch
+on a malformed paste and buy no false positive back. The licence table asserts
+that this is the only shorthand this pattern holds.
 """
 
 _GRAMPS_ATTRIBUTED_ELEMENT = re.compile(
-    r"<(" + _qualified(*_GRAMPS_ALL_ELEMENTS) + r")\b[^>]*?\w+\s*=\s*[\"'][^>]*>", re.IGNORECASE
+    r"<(" + _qualified(*_GRAMPS_ALL_ELEMENTS) + r")[^>]*?\w+\s*=\s*[\"'][^>]*>", re.IGNORECASE
 )
-"""An element carrying a quoted attribute -- a handle or an id is export syntax,
-not something a specification writes in passing."""
+r"""An element carrying a quoted attribute -- a handle or an id is export syntax,
+not something a specification writes in passing.
+
+⚠️ **``[^>]*?\w+\s*=\s*["']`` IS the ``<[^<>]*xmlns=`` shape the marker block
+condemns, and it is left standing on purpose.** There it decides whether a
+document has DECLARED something, where a loose reading invents a declaration;
+here it decides whether an element carries an attribute, where a loose reading
+is one more finding rather than one fewer. Recorded in the licence table so the
+next reader sees it was weighed, not missed -- and so a fifth round finds it
+already dispositioned rather than reporting it again.
+"""
 
 _GRAMPS_PROSE_LENGTH = 20
 """How much text makes a prose container prose rather than a label.
@@ -1749,7 +2169,9 @@ def _gedcom_x_identity_score(text: str) -> tuple[int, int] | None:
     return score, min(offsets)
 
 
-_DRAWING = re.compile(r"<svg\b[^>]*>.*?</svg\s*>", re.IGNORECASE | re.DOTALL)
+_DRAWING = re.compile(
+    "<svg" + _XML_NAME_END + "[^>]*>.*?</svg" + _XML_S + "*>", re.IGNORECASE | re.DOTALL
+)
 r"""A drawing, inside which a short text element is a label and not a note.
 
 ⚠️ **THE UNPREFIXED SPELLING ONLY, AND IT DOES NOT USE THE SHARED ALTERNATION.
@@ -1784,16 +2206,44 @@ structural guard over what the preview EMITS can answer "is this really a
 drawing", and that is where the question goes, rather than into a condition
 bolted onto an exemption here.
 
-**How it actually rejects a prefixed drawing -- verified mechanically, not
-assumed.** ``<svg\b`` still matches the OPENING tag of ``<svg:svg>``: the word
-boundary sits between the ``g`` and the colon, and ``[^>]*`` then swallows the
-rest. It is the CLOSER that rejects it -- ``</svg\s*>`` cannot match
-``</svg:svg>`` -- so the container has no match and is not a drawing.
-⚠️ **Do not "tidy" the opener into something like ``<svg[^:>]`` without
-measuring it:** the rejection is a property of the closing tag, and moving it
-to the opening one is a different pattern with a different failure set. A
-document mixing a prefixed opener with a later UNPREFIXED ``</svg>`` can still
-span between them; that predates this change and is out of scope for it.
+**How it rejects a prefixed drawing -- and THE OPENER IS NOW WHAT DOES IT.**
+``<svg`` + ``_XML_NAME_END`` refuses the colon, so ``<svg:svg>`` is not an
+opening tag here at all. The verdict is unchanged and the mechanism is not.
+
+⚠️ **This paragraph used to say the opposite, and that reading was true of the
+pattern it described.** ``<svg\b`` matched the opening tag of ``<svg:svg>`` --
+the word boundary sits between the ``g`` and the colon -- and it was the closer
+``</svg\s*>``, unable to match ``</svg:svg>``, that withheld the exemption. It
+also warned against moving the rejection to the opener without measuring it.
+**The warning was right and the measurement has now been done**, because
+``\b`` was not merely imprecise here: it is the same shorthand standing in for
+the same production that this module has now been wrong about five times, and
+in an EXEMPTION it fails open.
+
+**What moving it buys, and it is a live fail-open closed rather than a tidy-up:**
+
+* ``<svg-chart …>`` was an ``svg``. ``-`` legally continues an XML name and
+  satisfies ``\b``, so a name, a date of birth and a place wrapped between it
+  and a later ``</svg>`` were suppressed **entirely** -- a whole identity going
+  from a finding to nothing, which is the exact shape the fourth scoring site
+  was deleted for. Every ``NameChar`` that is not a ``\w`` character did this:
+  ``.``, the middle dot, a combining mark, an undertie -- nineteen of them,
+  measured.
+* The case this paragraph itself named as still open -- a document mixing a
+  prefixed opener with a later UNPREFIXED ``</svg>`` -- is closed by the same
+  move, because the opener no longer matches ``<svg:``.
+
+**And the closer reads ``_XML_S``, which is the same repair at the other end.**
+``</svg\s*>`` accepted ``</svg`` + U+00A0 + ``>``, where XML reads no ``ETag``
+at all. A broader closer spans further, and in an exemption spanning further
+suppresses more.
+
+⚠️ **Neither half is built from the shared alternation, and that is unchanged.**
+The exclusion above is about ``_qualified``'s optional PREFIX, which is matched
+by shape and never resolved; ``_XML_NAME_END`` asserts where a name stops and
+resolves nothing, so reading it here narrows the exemption and cannot widen it.
+``test_every_pattern_that_scores_an_element_is_built_from_the_one_alternation``
+still asserts the alternation itself is absent.
 
 ⚠️ **This replaced "the element carries an attribute", which asked the wrong
 question and so let data out whatever the answer.** The discriminator has to
@@ -1829,11 +2279,20 @@ def _gramps_identity_score(text: str) -> tuple[int, int] | None:
     a quoted attribute counts too, at structural weight, because a handle or an
     id is export syntax rather than something a specification writes in
     passing.
+
+    ⚠️ **A spelling this audit ADDED counts only where the text names the
+    format**, because some of what the schema declares are ordinary XML names --
+    ``type``, ``file``, ``status``, ``description`` -- and four filled ones in a
+    document about unrelated XML reached the threshold. See
+    ``_SPELLINGS_THE_DERIVATION_ADDED`` for why the condition is on rows rather
+    than on the file, and ``_names_the_gramps_format`` for what the marker is.
     """
     score = 0
     first: int | None = None
     filled: list[tuple[int, int]] = []
     drawings = [match.span() for match in _DRAWING.finditer(text)]
+    # Once per call, not once per element: the answer is a property of the text.
+    names_the_format = _names_the_gramps_format(text)
 
     for match in _GRAMPS_FILLED_ELEMENT.finditer(text):
         # Group 1 holds the WHOLE qualified tag, because the backreference that
@@ -1845,6 +2304,16 @@ def _gramps_identity_score(text: str) -> tuple[int, int] | None:
         # here threw that away before the question was asked.
         content = match.group(2).strip()
         filled.append(match.span())
+        if tag in _SPELLINGS_THE_DERIVATION_ADDED and not names_the_format:
+            # THE GATE, and it sits BEFORE the prose branch on purpose: a prose
+            # row the derivation adds later is gated with nothing edited here.
+            #
+            # Two properties copied from the unweighted branch below, and
+            # load-bearing for the same reasons: the filled span STAYS recorded
+            # above, so the attributed pass cannot score the same element again;
+            # and ``first`` is NOT set, so no finding ever points at an element
+            # that contributed nothing.
+            continue
         if tag in _GRAMPS_PROSE_ELEMENTS:
             # Measured by what the content DENOTES, exactly as the JSON side
             # measures its values -- the floor is a property of prose, not of a
@@ -1864,7 +2333,17 @@ def _gramps_identity_score(text: str) -> tuple[int, int] | None:
             else:
                 score += _GRAMPS_PROSE_WEIGHT
         else:
-            score += _CATEGORY_WEIGHT[_GRAMPS_CATEGORY_OF[tag]]
+            weight = _CATEGORY_WEIGHT[_GRAMPS_CATEGORY_OF[tag]]
+            if not weight:
+                # A deliberately-unweighted spelling: see the category at the
+                # foot of the vocabulary. The span STAYS recorded above, so the
+                # attributed pass cannot pick the same element up again, but it
+                # must not become the offset a finding points at -- a report
+                # whose line names evidence worth nothing is a report nobody
+                # can act on, which is the failure this category exists to
+                # avoid in the first place.
+                continue
+            score += weight
         first = match.start() if first is None else first
 
     for match in _GRAMPS_ATTRIBUTED_ELEMENT.finditer(text):
@@ -1876,7 +2355,17 @@ def _gramps_identity_score(text: str) -> tuple[int, int] | None:
         # weighed the same as a bare person element -- one principle stated in
         # the comment at the top and honoured by only one of the two loops
         # beneath it.
-        score += _CATEGORY_WEIGHT[_GRAMPS_CATEGORY_OF[_local_name(match.group(1))]]
+        tag = _local_name(match.group(1))
+        if tag in _SPELLINGS_THE_DERIVATION_ADDED and not names_the_format:
+            # The gate again, in the second pass, for the reason it is in the
+            # first: a rule taught to one of these two loops and not the other
+            # is the partial application this whole table exists to end.
+            continue
+        weight = _CATEGORY_WEIGHT[_GRAMPS_CATEGORY_OF[tag]]
+        if not weight:
+            # The same rule as the pass above, for the same reason.
+            continue
+        score += weight
         first = match.start() if first is None else first
 
     if _GRAMPS_XML_NAMESPACE in text:
@@ -1902,19 +2391,429 @@ _GENEALOGY_TEXT_SIGNATURES: tuple[tuple[str, re.Pattern[str]], ...] = (
         # The same alternation as the two element patterns, for a table of one
         # spelling: an export that binds the namespace to an alias writes
         # `<g:database …>` and was not recognised as the format at all.
+        #
+        # ⚠️ Its name now ends where `_XML_NAME_END` says it does, because the
+        # alternation emits that -- a DELIBERATE reach outside this round's
+        # subject, measured rather than assumed. The effect on every genuine
+        # input is nil: `<database` is followed by whitespace or `>` in every
+        # export. What stops is `<database-x … gramps…>`, `<database.new …>`,
+        # `<database:extra …>` and `<database` + a combining mark, none of which
+        # is an element named `database` and all of which were signatures.
         re.compile(
-            _LINE_PREFIX + r"<" + _qualified("database") + r"\b[^>]*gramps",
+            _LINE_PREFIX + r"<" + _qualified("database") + r"[^>]*gramps",
             re.IGNORECASE | re.MULTILINE,
         ),
     ),
 )
 
-_XML_PROLOG = re.compile(r"\A\s*<\?xml\b")
+# `_XML_PROLOG` stood here -- `\A\s*<\?xml\b`, TWO approximations of two XML
+# productions -- and NOTHING IN THE REPOSITORY READ IT. It was deleted rather
+# than transcribed: machinery nobody reads is a candidate for deletion, not for
+# hardening, and an approximation with no reader is surface for the next review
+# round and nothing else. The licence table would otherwise have carried a row
+# that can never be exercised.
+#
 # Assembled, not written. Once the namespace stopped requiring a prolog at the
 # start of the file, a module holding it as a literal reported itself -- the
 # same self-report the patterns above are composed from constants to avoid, and
 # it appeared the moment the anchor came off.
 _GRAMPS_XML_NAMESPACE = "gramps-project" + ".org" + _SEPARATOR + "xml"
+
+_GRAMPS_NAMESPACE_SCHEME = "ht" + "tp"
+"""The scheme the schema serves its own ``#FIXED`` namespace value over.
+
+Split for the reason the constant above it is, and placed beside it for the
+same reason: it is a piece of the frozen value, composed in this module and
+**bound to `FIXED_ATTRIBUTE_DEFAULTS` by test** rather than imported -- see the
+block below on why nothing here reads `_specified_containers` at runtime.
+
+⚠️ **It is a SCHEME, not a prefix**: the tolerance table below joins it to its
+colon and to the authority marker, so no tracked file holds the two together.
+"""
+
+# ---------------------------------------------------------------------------
+# WHAT COUNTS AS THE DOCUMENT SAYING IT IS GRAMPS. ONE SPELLING, DERIVED FROM A
+# CLOSED SOURCE.
+#
+# ⚠️ **A hand-written list of markers would be the same defect the derivation
+# just removed, one level up.** The container list stopped being a judgement in
+# #4's Change C1; a gate on "is this Gramps" resting on spellings somebody chose
+# would put the judgement straight back, in the place that decides whether ~80
+# rows score at all. So the marker names its source and is bound to it by test:
+#
+#   the declared namespace  -- the `#FIXED` default the schema gives the
+#                              `xmlns` attribute of its document element,
+#                              emitted into the frozen table as
+#                              `FIXED_ATTRIBUTE_DEFAULTS`
+#
+# ⚠️ **SHAPE AND VALUE, TOGETHER, IN ONE CONDITION. THE GATE HAS BEEN WRONG
+# THREE TIMES ON THIS ONE AXIS AND EACH TIME IT HELD LESS THAN BOTH HALVES.**
+#
+#   * **Shape without value.** The gate read a doctype whose `Name` was the
+#     document element, and that element carrying an `xmlns` attribute at all.
+#     Both checked that something was PRESENT and never what it said, so
+#     `<database xmlns="urn:unrelated">` beside four filled `<type>` elements --
+#     a document that has explicitly named ANOTHER format -- re-enabled every
+#     derived row and scored a P2.
+#   * **Value without shape.** Those two were deleted and a plain substring test
+#     over the decoded text was left. A PROSE SENTENCE naming the namespace --
+#     an import note, a changelog entry, this project's own documents -- beside
+#     four generic `<type>` elements then scored 6 and was reported.
+#   * **Value in the right shape and the wrong PLACE inside it.** The shape was
+#     transcribed and the VALUE was still read as a substring, now of the
+#     `AttValue` rather than of the file. So `xmlns="urn:not-gramps:…"` --
+#     a declaration naming a different namespace that happens to contain this
+#     one -- was read as Gramps. **A substring test is a substring test however
+#     deeply it is nested**, and this is what `_namespace_value_of` closes.
+#
+# Each was rejected only for lacking what the next one added, so the marker
+# below requires all of it **at one position**: the schema-fixed value, as the
+# WHOLE value of an `xmlns` attribute, reachable from a start tag's name through
+# complete attributes.
+#
+# **What is transcribed here, and what each transcription bought:**
+#
+#   `S`        XML 1.0 §2.3  -- U+00A0 in the separator was a declaration
+#   `NCName`   Namespaces §3 -- a combining-mark alias was invisible
+#   `STag`, `Attribute`, `Eq`, `AttValue`
+#              XML 1.0 §3.1  -- the namespace inside ANOTHER attribute's value
+#
+# Every one of them replaced a Python shorthand, every one was reported as a
+# bypass first, and `test_no_pattern_reading_an_xml_production_uses_a_python_shorthand`
+# is what stops the list needing another entry.
+#
+# ⚠️ **`scheme`, RFC 3986 §3.1, WAS on that list and is RETIRED rather than
+# dropped, and the difference is the whole of this note.** It bought the
+# `urn:not-gramps:…` refusal -- a scheme followed by anything other than `//`
+# cannot reach the base -- and **that input is still refused**, now by the
+# tolerance table below rather than by the production. The transcription itself
+# had to go because it was the loose element: transcribed FAITHFULLY, `scheme`
+# admits every syntactically valid scheme, so the base served over `ftp` named
+# this format. A document that silently dropped the credit would leave the next
+# reader thinking the property was lost with it.
+#
+# ⚠️ **AND THAT IS ONE COMPILED PATTERN, NOT A COMPOSITION.** An `or` over two
+# results is the defect above wearing a conjunction. An `and` is wrong too, and
+# it is the wrong one worth naming: `shape.search(text) and value in text` is
+# satisfied by `<database xmlns="urn:unrelated">` in a file that mentions the
+# Gramps namespace three paragraphs down. **Two conditions verified at two
+# positions are not one condition.** Only a single pattern makes *the value
+# occurs in the declaration* structural rather than a property of how two
+# results were combined.
+#
+# ---------------------------------------------------------------------------
+# ⭐ **HOW THIS GATE CAME TO BE A BARE SUBSTRING TEST, BECAUSE THE NEXT READER'S
+# CHEAPEST MOVE IS TO SIMPLIFY IT BACK TO ONE.**
+#
+#   1. The conductor prescribed *bind the structural marker to the namespace
+#      value*.
+#   2. The plan gate DISPUTED it, and was right: bound to the value, a shape
+#      marker is a strict SUBSET of the substring test and can never add a
+#      match. Tightened they were dead weight; loose they were the false
+#      positive. So they were deleted rather than tightened.
+#   3. **That proof was valid and its premise was unsound.** It holds only
+#      because the substring test matched ANYWHERE, and the unrestricted reach
+#      it was measured against is itself the defect the next round found.
+#      Nobody questioned the premise, including the conductor who approved the
+#      dispute.
+#
+# **A subset argument is only as good as the set it is taken inside.** The
+# review that produced step 2 was correct about the deduction and silent about
+# the assumption, which stands as evidence that a DISPUTE needs re-examination
+# on the same terms a prescription does.
+# ---------------------------------------------------------------------------
+#
+# ⚠️ **The doctype could not be bound either way**, which is why it is gone
+# rather than anchored: the only Gramps-specific evidence it carries beyond the
+# namespace is the public identifier, which appears in no artifact this
+# repository has frozen -- the DTD does not declare its own -- so correcting it
+# would need exactly the hand-typed literal this design forbids.
+#
+# **What that costs, recorded rather than discovered.** A genuine document
+# naming itself ONLY by a PUBLIC-only doctype, with no namespace anywhere, no
+# longer enables derived rows. Round 1's own honest note recorded that this
+# single case was the doctype marker's entire reach -- a whole export carrying a
+# doctype or a namespaced document element already trips
+# `_GENEALOGY_TEXT_SIGNATURES` above, which short-circuits `_sniff_genealogy`
+# before any scorer runs. Measured in CONTRIBUTING and in the derivation note.
+#
+# **Anchoring costs two more, both measured rather than assumed and both
+# recorded in CONTRIBUTING §(c):**
+#
+#   * a genuine fragment quoted beside a bare MENTION of the namespace is no
+#     longer caught -- the third residual of one family, and the direct price of
+#     closing the reproduction above;
+#   * a declaration whose quotes are JSON-ESCAPED -- `xmlns=\"…\"` inside a JSON
+#     string -- escapes the pattern, because `_decoded` deliberately leaves a
+#     `\"` alone. **The pattern is NOT widened to absorb it.** Spelling-folding
+#     belongs at `_decoded`, in one place, and teaching one more spelling to
+#     every pattern that reads text is the enumeration this module refuses; that
+#     is `#50`'s root cause rather than this gate's, and it is filed there.
+#
+# ⚠️ **The prefixed case is carried by the SHARED `NCName`, not by blindness.**
+# The substring test was blind to prefixes by construction, which made Change
+# A's equivalence property free and is now no longer available. `<x:database
+# xmlns:x="…">` names the format because the declaration's name is `xmlns:` plus
+# the same transcribed `NCName` the element patterns read -- one production,
+# three readers, no second table to keep in step.
+#
+# ⚠️ **Case-sensitive, deliberately.** XML is: `XMLNS=` is not a namespace
+# declaration and an upper-cased host is not this namespace. The substring test
+# being replaced was case-sensitive too, so nothing moves.
+#
+# **A comment or a CDATA section quoting a start tag is read as a declaration**,
+# and that is a residual rather than a repair postponed. It fails toward
+# REPORTING, which is the direction a guard may fail in, and closing it needs a
+# comment stripper -- machinery this project has watched fail open before. Its
+# sharpest spelling is not reachable in any case: a comment quoting the real
+# `<database … gramps…>` line trips `_GENEALOGY_TEXT_SIGNATURES` above, which
+# short-circuits `_sniff_genealogy` before any scorer runs.
+#
+# ⚠️ **NOTHING HERE IMPORTS `_specified_containers`.** That module's docstring
+# says it is data rather than behaviour and that the scan does not change if it
+# is deleted, and that stays true: the marker is a composed constant in this
+# module, BOUND BY TEST to the frozen table -- exactly the standing the
+# vocabulary itself has, which is also placed here and bound by
+# `test_every_container_the_published_schema_declares_has_a_weight`. "Derived"
+# in this project means *nothing is maintained by hand without a test that would
+# fail*, not *imported at runtime*.
+# ---------------------------------------------------------------------------
+
+_GRAMPS_DOCUMENT_ELEMENT = "database"
+"""The element the schema attaches its namespace declaration to.
+
+Placed here rather than imported, for the reason in the block above. It is what
+SELECTS the `FIXED_ATTRIBUTE_DEFAULTS` row the marker is read from, and the
+frozen table is asserted to name **exactly one** such element and to name this
+one -- so a schema that moved or duplicated the declaration fails a test instead
+of leaving the gate quietly pointing at an element that declares nothing.
+"""
+
+_XMLNS_DECLARATION = _XML_S + "+xmlns(?::" + _XML_NCNAME + ")?" + _XML_EQ
+r"""``S 'xmlns' (':' NCName)? Eq`` -- a namespace declaration up to its value.
+
+One `Attribute` like any other, spelled out because its `Name` is the fixed
+`xmlns` rather than an arbitrary one, and because the optional prefix is the
+whole of Change A's equivalence property at this site: it is the SAME `NCName`
+the element patterns read.
+
+⚠️ **THE THIRD SITE THAT SPELLS ``S``, AND THE ONE A REPAIR TO THE OTHER TWO
+MISSES.** The reviewer who found `\s` standing in for the production named
+`_XML_EQ` and `_XML_ATTRIBUTE`. A declaration with no ordinary attribute in
+front of it never reaches `_XML_ATTRIBUTE` at all -- `(S Attribute)*` matches
+empty -- so this separator is the one the reproduction actually walked through,
+and fixing the two that were reported would have left it open. It reads
+`_XML_S` for that reason, and the licence table asserts that none of the three
+can drift back.
+"""
+
+# ---------------------------------------------------------------------------
+# ⭐ **THE VALUE IS THE FIXED VALUE PLUS A DECLARED LIST OF RELAXATIONS, AND
+# THAT ORDERING IS THE POINT.**
+#
+# The three rounds before this one each found a new dimension of looseness in
+# this one check and each closed that dimension only: the namespace anywhere in
+# the text, then any URI CONTAINING it, then any SCHEME whatever. That is the
+# signature of a rule built permissively and narrowed by findings, and the
+# module has already run the experiment on how to end one: five rounds repaired
+# one Python shorthand at a time and what closed the set was
+# `_XML_SHORTHAND_LICENCE` -- a row per pattern, a reason per row, walked off
+# the module so the next entry has to pass a rule rather than be noticed.
+#
+# So the value below is **equality with the reassembled `#FIXED` value, THEN
+# these five declared relaxations** -- not a pattern widened until the known
+# spellings fit. ⚠️ Implemented the other way round it would pin `1.7.2`, or
+# admit whatever the widening happened to reach; the tail row is exactly the
+# first relaxation and it is why equality alone is not what is written.
+#
+# **What this buys over simply constraining the scheme is the ARTIFACT, not the
+# pattern: the two compile to the SAME REGEX.** After the scheme is constrained
+# there is no loose element left in the prefix either, so "a fourth dimension
+# can appear" is a weaker argument here than it looks. What the table adds is a
+# tolerance somebody has to justify in writing, held closed by a test that
+# objects to a blank reason and to a row that has stopped earning its place.
+#
+# **The argument AGAINST it, recorded rather than skipped:** the table is new
+# machinery, and machinery added in response to a finding is the next round's
+# surface. Its mitigations are that it is plain data feeding the ONE compiled
+# pattern that already existed -- no second reader, no second pattern -- and
+# that constraining the scheme is a strict SIMPLIFICATION of it. If a later
+# round finds against the table, the retreat is one commit rather than more
+# hardening, which is what makes this choice reversible rather than merely
+# defended.
+# ---------------------------------------------------------------------------
+
+_NAMESPACE_TOLERANCES: tuple[tuple[str, str, str], ...] = (
+    (
+        "prefix",
+        _GRAMPS_NAMESPACE_SCHEME + ":" + _SEPARATOR * 2,
+        "the #FIXED value's OWN scheme and authority marker: the canonical spelling, and the "
+        "only one the specification's exact-match rule endorses. Bound to "
+        "FIXED_ATTRIBUTE_DEFAULTS by test, so a schema revision that moved the format to "
+        "another transport fails a test instead of silently blinding the gate",
+    ),
+    (
+        "prefix",
+        _GRAMPS_NAMESPACE_SCHEME + "s" + ":" + _SEPARATOR * 2,
+        "the same authority over TLS. ⚠️ THIS IS THE ONE ROW WHOSE FRAGMENT IS THE FIXED SCHEME "
+        "PLUS A HAND-WRITTEN 's', AND ITS REASON IS THE WEAKEST OF THE FIVE -- under exact-string "
+        "comparison it is as different a namespace as ftp is. It stays because the marker "
+        "identifies the format a document is ABOUT rather than the namespace a parser would "
+        "bind, and because the tolerance fails toward REPORTING, which is the direction this "
+        "guard may fail in. Dropping it costs this row and one line of "
+        "_uris_that_are_the_namespace",
+    ),
+    (
+        "prefix",
+        _SEPARATOR * 2,
+        "protocol-relative: a document may quote the namespace without committing to a transport",
+    ),
+    (
+        "prefix",
+        "",
+        "the bare base. An export or a quotation may write it alone, and this tolerance is "
+        "already load-bearing and already tested -- it is what the marker gate was built on "
+        "before any of the anchoring rounds",
+    ),
+    (
+        "tail",
+        _SEPARATOR,
+        "what OPENS the version segment, after which everything is free -- SO A LATER SCHEMA "
+        "REVISION STILL NAMES THE FORMAT. _GRAMPS_XML_NAMESPACE deliberately stops short of the "
+        "version, and equality with the whole fixed value would pin 1.7.2. This used to be an "
+        "emergent property of the pattern and is a declared row now, so removing it BREAKS the "
+        "three version spellings rather than quietly narrowing the gate",
+    ),
+)
+"""``(position, fragment, reason)`` -- every relaxation of the fixed value, declared.
+
+``position`` is ``"prefix"`` (what may stand before the base) or ``"tail"``
+(what may open the free segment after it). The fragment is a LITERAL, escaped
+where it is compiled, and every one of them is a transformation of the frozen
+value rather than a string typed beside it.
+
+⚠️ **A row is not a dispensation, it is a recorded decision**, exactly as a
+licence row is: the reason is the artifact, and
+`test_every_namespace_tolerance_is_declared_with_a_reason_and_earns_its_row`
+is what stops the list growing by accident, going vacuous, or keeping a row
+that has stopped mattering.
+"""
+
+
+def _namespace_value_of(tolerances: Sequence[tuple[str, str, str]]) -> str:
+    r"""An ``AttValue`` that IS the Gramps namespace, rather than one containing it.
+
+    ⚠️ **THE VALUE OCCUPIES THE WHOLE ``AttValue``, and that is the older half
+    of the repair.** This used to be ``_att_value(re.escape(…))`` -- body,
+    namespace, body -- which is a **bare substring test wearing an
+    ``AttValue``'s quotes**, so a declaration whose value was ``urn:not-gramps:``
+    followed by the base named a namespace that is explicitly not this one and
+    the gate read it as Gramps. (Spelled that way round on purpose: writing the
+    reproduction out would put the value contiguously into a tracked file,
+    which this module's own sweep catches.)
+
+    ⚠️ **What may PRECEDE the base is now a closed alternation** rather than an
+    optional ``scheme://``, and that is this round's half. The RFC production
+    admits every syntactically valid scheme, so the base served over ``ftp`` was
+    read as this namespace -- and namespace names are compared by exact string
+    match, so it is not.
+
+    **Emitted LONGEST-FIRST with the empty alternative last**, reusing
+    ``_qualified``'s ordering convention rather than inventing one: a shorter
+    spelling must never shadow a longer one it begins with, and the empty
+    tolerance begins every other. Asserted structurally, the way that helper's
+    ordering is, because nothing behavioural can see it while the table is
+    small.
+
+    ⚠️ **NO VERSION IS PINNED.** The tail is the table's one ``tail`` row and
+    everything after it is free, so an export written against a schema revision
+    this project has never seen still names the format.
+
+    A pure function of the table so the test can feed it a fabricated one and
+    SHOW what each row is holding up -- the shape ``_unlicensed`` already uses.
+    """
+    prefixes = sorted(
+        (fragment for position, fragment, _ in tolerances if position == "prefix"),
+        key=lambda fragment: (-len(fragment), fragment),
+    )
+    tails = [fragment for position, fragment, _ in tolerances if position == "tail"]
+    before = "(?:" + "|".join(re.escape(fragment) for fragment in prefixes) + ")"
+    return _att_value_of(
+        lambda body: (
+            before
+            + re.escape(_GRAMPS_XML_NAMESPACE)
+            + "".join("(?:" + re.escape(tail) + body + ")?" for tail in tails)
+        )
+    )
+
+
+def _marker_reading(tolerances: Sequence[tuple[str, str, str]]) -> re.Pattern[str]:
+    """The one marker, compiled from ``tolerances``: the namespace, declared.
+
+    ⚠️ **ONE compiled pattern, and the block above says why.** An ``or`` over
+    two results is the shape-without-value defect wearing a conjunction, and an
+    ``and`` is worse: ``shape.search(text) and value in text`` is satisfied by
+    an unrelated declaration in a file that mentions this namespace three
+    paragraphs down.
+
+    ⚠️ **The element name is NOT required to be `database`.** A fragment
+    declares the namespace on whatever wrapper it has, and requiring the
+    document element would put back the structural judgement an earlier round
+    removed. `_GRAMPS_DOCUMENT_ELEMENT` keeps the job it actually has: selecting
+    the `FIXED_ATTRIBUTE_DEFAULTS` row the value is read from.
+
+    ⚠️ **The closing `>` is not required either**, and that is the safe
+    direction: a truncated paste of a real export still names itself. What the
+    pattern insists on is the path to the declaration -- a start tag's name,
+    then complete attributes -- because that is the half a mention can never
+    satisfy.
+
+    Nothing here is hand-typed and the value is never spelled contiguously;
+    `re.escape` splits it with backslashes at runtime as well.
+    """
+    return re.compile(
+        "<"  # STag
+        + _XML_NAME_PREFIX
+        + _XML_NCNAME  # ...its Name
+        + _XML_ATTRIBUTE_SEQUENCE  # ...(S Attribute)*
+        + _XMLNS_DECLARATION  # ...then the declaration
+        + _namespace_value_of(tolerances)  # ...whose value IS the namespace
+    )
+
+
+_NAMES_THE_GRAMPS_FORMAT = _marker_reading(_NAMESPACE_TOLERANCES)
+"""The marker the scan reads, compiled once from the declared tolerance table.
+
+Accepted: the bare base, any version segment after a ``/``, the schema's own
+scheme, that scheme over TLS, ``//`` alone, and either quoting. Refused: any
+other scheme, a scheme with no ``//``, the base sitting in another host's PATH,
+a host that merely ends with the base, and a host or path segment that merely
+begins with it.
+"""
+
+
+def _names_the_gramps_format(text: str) -> bool:
+    """Whether ``text`` says it is Gramps -- the condition a derived row scores under.
+
+    ⚠️ **One marker, one pattern, one search -- and the block above says why.**
+    Not a substring test, not two conditions combined: a document that MENTIONS
+    the namespace has not declared it, and the difference is the whole gate.
+
+    ⚠️ **"The file" is the string the scorer was handed, and nothing else.** No
+    cross-file state and no cross-commit state, which keeps one answer per scan
+    path: the tip scan asks it of the whole decoded blob, the history walk of
+    that blob **at that commit** rather than of the tip's copy, and `scan_text`
+    of the text it was given.
+
+    ⚠️ **The committed NAME is the hole in that, and it is stated rather than
+    smoothed over.** `scan_blob` also runs the genealogy properties over the
+    path string, and one short filename can essentially never carry a marker --
+    so a derived row will never score on a name. That is a residual of the gate
+    rather than a defect in its scoping, and it costs nothing today, because the
+    name that is a finding is a GEDCOM record and rests on the record signature.
+    """
+    return _NAMES_THE_GRAMPS_FORMAT.search(text) is not None
+
 
 # The known-SAFE side of the classification. Everything not on it is a finding.
 #
@@ -2607,6 +3506,18 @@ def scan_blob(
         ]
 
     findings = list(_scan_line_for_text(path_text, 1, reported_as, entries))
+    # And the genealogy properties over the same name, which is the one family
+    # of rules that used to stop at the bytes. A name is published exactly as
+    # the contents are -- an export dumped one record per file names its files
+    # after the records -- so the question "is this genealogy data" is asked of
+    # both or the answer is about half the entry.
+    #
+    # ⚠️ **HERE rather than inside ``_scan_line_for_text``**, which also runs
+    # per line of a file's contents. Sniffing a document line by line is a
+    # different property with a different false-positive profile: the density
+    # rule counts records ACROSS a file and the scorers weigh a whole document,
+    # and neither means anything applied to one line at a time.
+    findings.extend(_sniff_genealogy(path_text, reported_as))
     if content is not None:
         findings.extend(
             _classify_content(

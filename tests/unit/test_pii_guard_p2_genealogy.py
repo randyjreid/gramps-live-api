@@ -12,24 +12,41 @@ from __future__ import annotations
 
 import re
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
+from gramps_live_api.core import pii_guard
+from gramps_live_api.core._specified_containers import (
+    FIXED_ATTRIBUTE_DEFAULTS,
+    MARKUP_ELEMENT_NAMES,
+    SPECIFIED_ATTRIBUTES,
+    SPECIFIED_ELEMENTS,
+)
 from gramps_live_api.core.pii_guard import (
     _CATEGORY_WEIGHT,
     _DRAWING,
     _GENEALOGY_TEXT_SIGNATURES,
     _GRAMPS_ALL_ELEMENTS,
     _GRAMPS_ATTRIBUTED_ELEMENT,
+    _GRAMPS_CATEGORY_OF,
+    _GRAMPS_DOCUMENT_ELEMENT,
     _GRAMPS_FILLED_ELEMENT,
+    _GRAMPS_NAMESPACE_SCHEME,
     _GRAMPS_PROSE_LENGTH,
     _GRAMPS_XML_NAMESPACE,
+    _NAMESPACE_TOLERANCES,
     _NCNAME_CONTINUE_RANGES,
     _NCNAME_START_RANGES,
+    _SPELLINGS_THE_DERIVATION_ADDED,
     _VOCABULARY,
+    _WEIGHTS_BEFORE_THE_DERIVATION,
+    _XML_NAME_END,
     _XML_NAME_PREFIX,
     _gedcom_x_identity_score,
     _gramps_identity_score,
+    _marker_reading,
+    _names_the_gramps_format,
+    _namespace_value_of,
     _qualified,
     scan_blob,
     scan_paths,
@@ -38,6 +55,7 @@ from gramps_live_api.core.pii_guard import (
 from tests.fixtures.expectations import rules
 from tests.fixtures.synthetic import (
     _level,
+    a_prose_mention_of_the_namespace,
     gedcom_document,
     gedcom_walkthrough,
     gedcom_x_biography_and_address,
@@ -50,13 +68,20 @@ from tests.fixtures.synthetic import (
     gedcom_x_note_only,
     gedcom_x_notes_holding,
     gedcom_x_short_note,
+    genealogy_record_as_a_filename,
+    generic_xml_names_beside_a_prose_mention,
+    generic_xml_names_under_an_unrelated_doctype,
+    generic_xml_names_under_an_unrelated_namespace,
     gramps_address_block,
     gramps_attributed_identity,
     gramps_biography_and_address,
     gramps_biography_in_cdata,
     gramps_caption_spelled_with_character_references,
     gramps_contact_url,
+    gramps_events_block,
+    gramps_generic_xml_names,
     gramps_importer_spec,
+    gramps_issue_address_payload,
     gramps_name_block,
     gramps_namespace_fragment,
     gramps_namespace_url,
@@ -66,6 +91,7 @@ from tests.fixtures.synthetic import (
     gramps_person_fragment,
     gramps_prose_holding_only,
     gramps_reference_fragment,
+    gramps_researcher_block,
     gramps_short_notes,
     gramps_short_notes_with_attributes,
     gramps_xml_database_element,
@@ -75,11 +101,13 @@ from tests.fixtures.synthetic import (
     json_string_spellings,
     labelled_diagram,
     labelled_diagram_holding,
+    names_the_gramps_format,
     notes_inside_a_container,
     positioned_notes_outside_a_drawing,
     prose_describing_json_keys_with_escaped_quotes,
     sqlite_bytes,
     unclassifiable_bytes,
+    unrelated_xml_document,
     utf16le_gedcom_bytes,
     worded_diagram,
     xml_content_spellings,
@@ -103,10 +131,64 @@ _PROBE_COPIES = (4, 5)
 """Four clears the threshold even at the smallest weight; five is one more."""
 
 
-def _gramps_probe(spelling: str, copies: int) -> str:
+_CARRIER_SPELLING = "surname"
+_CARRIER_COPIES = 3
+"""A fixed score every Gramps probe carries, so the probe never rests on the row.
+
+⚠️ **Without this a row weighing NOTHING cannot be measured, only crashed
+into.** The difference method needs two scores; a spelling worth zero produces
+no score at all in either probe, so the helper below used to stop at *"does not
+clear the threshold even in quantity"* -- which is the right diagnosis when a
+category has been lost in compilation, and the wrong one when the table says
+zero on purpose. The derivation adds rows that say exactly that: a spelling the
+published markup indexes also use is deliberately unweighted.
+
+Three filled identity elements is six against a threshold of four, so every
+probe scores whatever the row under test is worth. Being CONSTANT is the whole
+mechanism -- it appears identically in the four-copy and five-copy probes, so
+it cancels out of the difference and what remains is still the weight of
+exactly one element. It cancels for the row that IS the carrier too.
+
+This is the one pre-existing helper the derivation changed, and it is recorded
+in CONTRIBUTING as a deliberate edit. It **strengthens** what the tests can
+say: a spelling that scores nothing is now reported by name as a disagreement
+with its declared weight, rather than raising about a threshold.
+"""
+
+
+def _carrier() -> str:
+    """The constant score, assembled like everything else here."""
     return "".join(
+        "<" + _CARRIER_SPELLING + ">" + _PROBE_PAYLOAD + "</" + _CARRIER_SPELLING + ">\n"
+        for _ in range(_CARRIER_COPIES)
+    )
+
+
+def _gramps_probe(spelling: str, copies: int) -> str:
+    return _carrier() + "".join(
         "<" + spelling + ">" + _PROBE_PAYLOAD + "</" + spelling + ">" for _ in range(copies)
     )
+
+
+def _marked_gramps_probe(spelling: str, copies: int) -> str:
+    """The same probe, in a text that names the Gramps format.
+
+    ⚠️ **What a row is WORTH and whether the gate lets it score are two
+    questions, and this probe is how they stay apart.** A spelling the schema
+    derivation added scores only where the format is named, so an unmarked probe
+    measures every such row at 0 -- correct, and useless for asking whether the
+    compiled scorer agrees with the weight its category declares. The tests that
+    ask *that* question use this; the one test that asks about the gate itself
+    uses the bare probe above, which is exactly its point.
+
+    The marker is CONSTANT across the four-copy and five-copy probes, so the two
+    it adds for naming the namespace cancel out of ``_observed_weight``'s
+    difference exactly as ``_carrier`` does. It is therefore safe for an
+    UNGATED row too, which is why these tests do not have to select a probe per
+    spelling -- a selection that would quietly stop marking a row the day it was
+    added to the attested snapshot.
+    """
+    return names_the_gramps_format() + "\n" + _gramps_probe(spelling, copies)
 
 
 _NAMESPACE_PREFIX = "g"
@@ -182,7 +264,14 @@ def _gramps_attributed_probe(spelling: str, copies: int) -> str:
     by the same difference method as the filled probe, so it needs no knowledge
     of what the pass charges.
     """
-    return "".join("<" + spelling + ' val="' + _PROBE_PAYLOAD + '"/>' for _ in range(copies))
+    return _carrier() + "".join(
+        "<" + spelling + ' val="' + _PROBE_PAYLOAD + '"/>' for _ in range(copies)
+    )
+
+
+def _marked_gramps_attributed_probe(spelling: str, copies: int) -> str:
+    """The attributed probe, in a text that names the format -- see its filled twin."""
+    return names_the_gramps_format() + "\n" + _gramps_attributed_probe(spelling, copies)
 
 
 _DRAWING_PREFIX = "svg"
@@ -203,6 +292,33 @@ here for the reason it is in ``_NAMESPACE_PREFIXES``: this site failed under a
 combining mark too, and it is the site that fails CLOSED.
 """
 
+_NOT_THE_GRAMPS_NAMESPACE = "urn" + ":" + "example" + ":" + "ledger"
+"""A namespace that is not the Gramps one: the gate's NEGATIVE probe.
+
+Assembled like everything else here. It arrived to assert the two structural
+markers on their own, because a probe carrying the real namespace satisfies the
+gate through the substring marker whatever those two patterns did -- *"a test
+that passes with those patterns deleted"*, in its own words.
+
+⚠️ **That observation was the reason they WERE deleted, one round later.** Read
+the other way round it says a structural marker bound to the namespace is a
+strict subset of the substring test, and unbound it reads an unrelated format as
+Gramps -- which is what a document carrying this value is. So the constant keeps
+its place and changes sides: every probe built from it must now name the format
+in nothing, prefixed or bare, doctype or document element.
+"""
+
+_MARKER_WRAPPER = "catalogue"
+"""The element the marker probes hang their declaration on.
+
+⚠️ **Deliberately NOT ``database``.** That spelling is a genealogy TEXT
+SIGNATURE, which short-circuits ``_sniff_genealogy`` before any scorer runs, so
+a probe wrapped in one cannot tell an open gate from a closed one. It is the
+same choice ``names_the_gramps_format`` makes and for the same reason -- and it
+is asserted below rather than assumed, because a name the schema does not
+declare today is a name a later schema version may.
+"""
+
 _NOT_THE_SVG_NAMESPACE = "urn" + ":" + "example" + ":" + "quarterly-rollup"
 """A namespace that is not SVG, for an alias shaped exactly like SVG's.
 
@@ -220,8 +336,21 @@ def _alternatives_of(fragment: str) -> list[str]:
     Reads the helper's own output rather than a pattern that embeds it, so a
     change to the helper's shape fails this loudly instead of quietly returning
     something else.
+
+    ⚠️ **The name's END is stripped first, and it is stripped by the guard's own
+    constant rather than by a suffix written here.** ``_qualified`` used to
+    finish at its alternation's closing parenthesis and now emits
+    ``_XML_NAME_END`` after it, so the tail this reads is no longer the
+    alternation's. Asserting the fragment ends with that constant, and removing
+    exactly it, keeps the helper bound to what the module actually emits -- a
+    hand-written suffix here would be the second copy of a production that this
+    whole round exists to stop.
     """
-    return fragment.rsplit("(?:", 1)[1].rstrip(")").split("|")
+    assert fragment.endswith(_XML_NAME_END), (
+        "_qualified no longer ends with the transcribed name end, so this helper is reading "
+        f"something other than its alternation: {fragment[-40:]!r}"
+    )
+    return fragment[: -len(_XML_NAME_END)].rsplit("(?:", 1)[1].rstrip(")").split("|")
 
 
 def _gedcom_x_probe(spelling: str, copies: int) -> str:
@@ -245,11 +374,16 @@ def _observed_weight(
     probe: Callable[[str, int], str],
     spelling: str,
 ) -> int:
-    """What one filled key or element of ``spelling`` is actually worth."""
+    """What one filled key or element of ``spelling`` is actually worth.
+
+    Zero is a MEASUREMENT here, not a crash: the Gramps probes carry a constant
+    score of their own, so a deliberately-unweighted row measures 0 and is
+    reported by its caller against the weight it declares. See ``_carrier``.
+    """
     low, high = (scorer(probe(spelling, copies)) for copies in _PROBE_COPIES)
     assert low is not None and high is not None, (
-        f"{spelling!r} does not clear the threshold even in quantity, so the compiled "
-        "scorer scores it at nothing -- the category is lost, not mis-weighted"
+        f"{spelling!r} produced no score in a probe that carries one of its own, so the probe "
+        "itself is broken rather than the row being unweighted"
     )
     return int(high[0]) - int(low[0])
 
@@ -710,6 +844,32 @@ def test_a_populated_address_is_a_finding() -> None:
     assert rules(findings) == ["P2"], f"an address locates a person, got {findings}"
 
 
+def test_the_address_payload_issue_four_was_filed_with_is_a_finding() -> None:
+    """⚠️ **GREEN ON ARRIVAL, and that is the result rather than a failure of TDD.**
+
+    Issue #4 item 1 reported this exact payload scoring **1** -- only the dated
+    element was recognised, so street, city, postal and phone, which are pure
+    identity, scored nothing and a complete personal address passed. The audit
+    that item belongs to re-measures every item before fixing any of them,
+    because the issue predates several fix rounds and a fix applied twice is
+    its own defect.
+
+    Re-measured on this head: **9** against a threshold of 4 -- eight from the
+    four filled address children and one from the attributed dated element.
+    The address row reached the vocabulary in the round that ended the
+    per-format split, which closed this item without naming it.
+
+    So this test is not the red that demanded code. It is the measurement that
+    says no code is owed, committed because an unasserted claim that something
+    is already fixed is exactly how a closed item comes back.
+    """
+    findings = scan_text(gramps_issue_address_payload(), source="notes.md")
+
+    assert rules(findings) == ["P2"], (
+        f"the payload this item was filed with is still not caught, got {findings}"
+    )
+
+
 def test_json_prose_is_weighed_as_prose_and_not_as_an_address() -> None:
     """The compiled table disagreeing with itself.
 
@@ -742,6 +902,1200 @@ def test_a_short_json_note_is_not_a_biography() -> None:
     )
 
 
+_THE_ATTESTED_SPELLINGS = (
+    "address",
+    "attribute",
+    "birth",
+    "childref",
+    "citation",
+    "city",
+    "country",
+    "county",
+    "dateval",
+    "death",
+    "email",
+    "eventref",
+    "family",
+    "first",
+    "gender",
+    "name",
+    "note",
+    "noteref",
+    "person",
+    "phone",
+    "placeobj",
+    "pname",
+    "postal",
+    "ptitle",
+    "state",
+    "street",
+    "surname",
+    "text",
+    "url",
+)
+"""The membership of the frozen snapshot, pinned HERE and nowhere else.
+
+⚠️ **This tuple is what pays for moving ``_WEIGHTS_BEFORE_THE_DERIVATION`` into
+the guard, and without it that move is a loss.** The snapshot used to live in
+this file, so the invariant-1 test below compared the compiled scorer against an
+object the scorer had never seen. The marker gate reads the same snapshot -- a
+spelling in it is ungated -- so the guard now owns it, and the test that checks
+"nothing was retracted" would otherwise be checking the guard against itself.
+
+The independence is restored by pinning the MEMBERSHIP separately. Adding a
+spelling to the module's snapshot silently un-gates it and would silently widen
+the ungated domain; it fails here instead, by name, and whoever added it has to
+say why a row this audit added belongs in a record of the moment before it.
+
+The WEIGHTS stay in the module rather than being pinned twice: two copies of a
+historical snapshot is the drift this project keeps paying for, and it is the
+membership, not the numbers, that the gate's domain is cut from.
+"""
+
+
+def test_the_attested_snapshot_still_records_the_moment_it_claims_to() -> None:
+    """The frozen record's membership, against the pin above.
+
+    Sorted on both sides, so this is a claim about WHICH spellings are attested
+    and not about the order somebody typed them in.
+    """
+    recorded = tuple(sorted(_WEIGHTS_BEFORE_THE_DERIVATION))
+
+    assert recorded == _THE_ATTESTED_SPELLINGS, (
+        "the snapshot of the vocabulary before #4's audit is a record of a moment that has "
+        "passed, and the gate's ungated domain is cut from it, so it does not grow: "
+        f"{sorted(set(recorded) ^ set(_THE_ATTESTED_SPELLINGS))}"
+    )
+
+
+def test_no_spelling_the_vocabulary_already_had_changes_what_it_scores() -> None:
+    """⭐ **Invariant 1 of the derivation, asserted rather than promised.**
+
+    The audit widens the vocabulary from what reviewers happened to name to
+    what the published schema declares, and the affordability problem it runs
+    into -- schema spellings that are also ordinary markup element names -- is
+    answered by a deliberately-unweighted category. That answer is safe only
+    while the zero is a condition on rows the audit ADDS. Applied to a row the
+    guard already catches, the very same mechanism is a retraction: ``<text>``
+    is an SVG element name too, and zeroing it would drop the note-carrying-a-
+    biography catch entirely while every number in the measurement improved.
+
+    So the snapshot is the control. Scored through the compiled scorer rather
+    than read out of the table, because the claim is about what the guard
+    DOES.
+
+    ⚠️ **The probe here carries NO marker, and that is the invariant rather
+    than an oversight.** The marker gate added since makes a row the derivation
+    added score only where the format is named; every other per-row test
+    therefore uses ``_marked_gramps_probe``. This one must not, because what it
+    asserts is precisely that an attested row still scores **without** one --
+    a gate reaching a pre-existing catch is the retraction this test exists to
+    refuse, and it would be invisible to a marked probe.
+    """
+    retracted = []
+
+    for spelling, expected in sorted(_WEIGHTS_BEFORE_THE_DERIVATION.items()):
+        observed = _observed_weight(_gramps_identity_score, _gramps_probe, spelling)
+        if observed != expected:
+            retracted.append(f"<{spelling}>: was {expected}, now {observed}")
+
+    assert retracted == [], (
+        "this audit adds rows and retracts none, and these spellings scored less than they did "
+        f"before it: {retracted}"
+    )
+
+
+def test_generic_xml_names_are_not_genealogy_without_the_format() -> None:
+    """⭐ **The reproduction the marker gate was built for.**
+
+    #4's Change C1 weighted every container the published schema declares, and
+    some of those containers are ordinary XML names. ``<type>`` is one: four
+    filled ones reach the threshold, so any document showing a type in an
+    example was reported as a family tree.
+
+    ⚠️ **Q1's ruling could not see this, and that is why a second answer was
+    needed.** The deliberately-unweighted category zeroes a schema spelling the
+    published HTML or SVG element index also lists -- and ``type`` is in
+    neither. The collision set answered the collision it was shown.
+    """
+    findings = scan_text(gramps_generic_xml_names(), source="notes.md")
+
+    assert findings == [], (
+        "four filled elements of an ordinary XML name are not evidence of a family tree "
+        f"without the format saying so: got {findings}"
+    )
+
+
+def test_a_document_about_unrelated_xml_is_not_a_finding() -> None:
+    """The same defect without ``<type>`` doing all the work.
+
+    ``file``, ``status`` and ``description`` are schema spellings too, and a
+    build manifest that uses all four is not about anybody. Written separately
+    from the test above because a repair that special-cased one spelling would
+    pass that one and fail this one.
+    """
+    findings = scan_text(unrelated_xml_document(), source="pipeline.md")
+
+    assert findings == [], (
+        "a manifest naming a file, its status, its description and its type is a manifest: "
+        f"got {findings}"
+    )
+
+
+def test_an_unrelated_namespace_does_not_name_the_gramps_format() -> None:
+    """⭐ **The reproduction: the gate reading a document that named ANOTHER format.**
+
+    ``<database xmlns="urn:...">`` around four filled ``<type>`` elements. The
+    document-element marker checked that an ``xmlns`` attribute was *there* and
+    never what it said, so a document explicitly declaring an unrelated
+    namespace re-enabled every derived row and scored 5 -- exactly the
+    generic-XML false positive the gate was built to remove, restored by the
+    gate itself.
+    """
+    findings = scan_text(
+        generic_xml_names_under_an_unrelated_namespace(namespace=_NOT_THE_GRAMPS_NAMESPACE),
+        source="notes.md",
+    )
+
+    assert findings == [], (
+        "a document that declares a namespace which is NOT the Gramps one has named a different "
+        f"format, and it was read as Gramps: got {findings}"
+    )
+
+
+def test_an_unrelated_doctype_does_not_name_the_gramps_format() -> None:
+    """The same defect in the doctype spelling, and that one could not be repaired.
+
+    A doctype's ``Name`` is the document element, so a doctype naming an
+    unrelated identifier matched a marker that read the name and nothing else.
+    Binding it to Gramps-specific evidence would need the **public
+    identifier**, which appears in no artifact this repository has frozen --
+    the DTD does not declare its own -- so correcting it would mean the
+    hand-typed literal the gate's whole design forbids.
+
+    Written separately from the test above because a repair reaching only the
+    namespace spelling would pass that one and fail this one.
+    """
+    findings = scan_text(
+        generic_xml_names_under_an_unrelated_doctype(identifier=_NOT_THE_GRAMPS_NAMESPACE),
+        source="notes.md",
+    )
+
+    assert findings == [], (
+        "a doctype naming an unrelated identifier has named a different format, and it was read "
+        f"as Gramps: got {findings}"
+    )
+
+
+def test_a_prose_mention_of_the_namespace_does_not_name_the_format() -> None:
+    """⭐ **The reproduction: a document that MENTIONS the namespace, not one that declares it.**
+
+    The gate was a plain substring test over the whole decoded text, so a
+    sentence naming the namespace -- an import note, a changelog entry, this
+    project's own design documents -- re-enabled every derived row. A prose
+    mention beside four filled ``<type>`` elements scored **6** and was
+    reported.
+
+    ⚠️ **The two halves of the gate failed in opposite directions and each was
+    rejected only for lacking the other.** A marker reading structure without a
+    value read the schema's document element declaring an *unrelated* namespace
+    as Gramps; a marker reading a value without structure reads this. The repair
+    is one condition requiring both at one position -- see the marker block in
+    ``pii_guard``.
+    """
+    findings = scan_text(generic_xml_names_beside_a_prose_mention(), source="notes.md")
+
+    assert findings == [], (
+        "a document that mentions the namespace has not declared it, and it was read as Gramps: "
+        f"got {findings}"
+    )
+
+
+def test_the_marker_must_occur_in_a_namespace_declaration() -> None:
+    """⭐ **What "in attribute position" MEANS, mechanically, in both directions at once.**
+
+    XML 1.0 §3.1 gives the production and the guard transcribes it: a start
+    tag's name, a sequence of complete attributes, then an ``xmlns`` attribute
+    whose value carries the namespace. The two halves are asserted in one test
+    on purpose -- **neither can be satisfied by weakening the other**, which is
+    how a gate that accepts everything, or one that accepts nothing, passes a
+    single-direction test.
+
+    ⚠️ **The nested case is the one a cheap approximation gets wrong.** A
+    pattern spelled ``<[^<>]*xmlns=…`` accepts the namespace quoted inside
+    ANOTHER attribute's value -- an element whose ``desc`` attribute *describes*
+    a declaration names nothing, and it is the first thing a reviewer constructs
+    after this lands. Requiring the attributes in between to be complete
+    ``Attribute`` productions is what refuses it, and it is why the production is
+    transcribed rather than approximated.
+
+    ⚠️ **Every probe here hangs on ``_MARKER_WRAPPER``**, a spelling the
+    vocabulary does not hold, so nothing in this file is a weighted element
+    written whole -- the rule at the top of the fixture module, applied to a
+    probe assembled here.
+    """
+    assert _MARKER_WRAPPER not in _GRAMPS_CATEGORY_OF, (
+        "the wrapper these probes hang a declaration on must carry no weight of its own, or a "
+        f"probe measures the wrapper rather than the gate: {_MARKER_WRAPPER!r} is now a row"
+    )
+
+    namespace = gramps_namespace_url()
+    declarations = []
+
+    for prefix in ("", *_NAMESPACE_PREFIXES):
+        element = _prefixed(_MARKER_WRAPPER, prefix) if prefix else _MARKER_WRAPPER
+        attribute = "xmlns:" + prefix if prefix else "xmlns"
+        for quote in ('"', chr(39)):
+            declarations.append(
+                "<" + element + " " + attribute + "=" + quote + namespace + quote + ">"
+            )
+
+    missed = [repr(probe) for probe in declarations if not _names_the_gramps_format(probe)]
+
+    nested = (
+        "<"
+        + _MARKER_WRAPPER
+        + " desc="
+        + '"'
+        + "binds xmlns="
+        + chr(39)
+        + namespace
+        + chr(39)
+        + '"'
+        + ">"
+    )
+    unrelated = "<" + _MARKER_WRAPPER + ' xmlns="' + _NOT_THE_GRAMPS_NAMESPACE + '">'
+    misread = [
+        repr(probe) for probe in (namespace, nested, unrelated) if _names_the_gramps_format(probe)
+    ]
+
+    assert missed == [], (
+        "the namespace names the format only as the value of an xmlns attribute in a start tag, "
+        f"and these were missed: {missed}"
+    )
+    assert misread == [], (
+        "the namespace names the format only as the value of an xmlns attribute in a start tag, "
+        f"and these are not declarations, but were read as Gramps: {misread}"
+    )
+
+
+def _declaring(value: str, *, quote: str = '"', prefix: str = "") -> str:
+    """``value`` declared as a namespace on the weightless wrapper.
+
+    Assembled here rather than taken from a fixture because the VALUE is what
+    varies, and every one of them is composed from the guard's own constant at
+    runtime: the namespace is never spelled contiguously in this file.
+    """
+    element = _prefixed(_MARKER_WRAPPER, prefix) if prefix else _MARKER_WRAPPER
+    attribute = "xmlns:" + prefix if prefix else "xmlns"
+    return "<" + element + " " + attribute + "=" + quote + value + quote + ">"
+
+
+def _uris_that_are_the_namespace() -> list[str]:
+    """Every spelling of the Gramps namespace the gate must accept.
+
+    ⚠️ **Three version segments, and that is the LATER-SCHEMA-REVISION property
+    asserted rather than argued.** ``_GRAMPS_XML_NAMESPACE`` deliberately stops
+    short of the version so an export written against a schema revision this
+    project has never seen still names the format; anchoring the value could
+    have closed that by accident, and it is the half that breaks silently.
+    """
+    base = _GRAMPS_XML_NAMESPACE
+    # ⚠️ Each scheme is composed WHOLE before the delimiter is joined to it: a
+    # single letter written against a colon and two slashes is a drive-letter
+    # absolute path to P1, and doing that here made this repository fail its own
+    # guard at 1. Same rule as the namespace, one detector along -- and the
+    # first draft of this comment failed it too, by spelling out the example.
+    scheme, secure = "ht" + "tp", "ht" + "tps"
+    return [
+        base,
+        base + "/1.7.1/",
+        base + "/1.7.2/",
+        base + "/2.0/",
+        scheme + "://" + base + "/1.7.1/",
+        secure + "://" + base + "/1.7.1/",
+        "//" + base + "/1.7.1/",
+    ]
+
+
+def _uris_that_merely_contain_the_namespace() -> list[str]:
+    """URIs holding the namespace as a substring while naming something else.
+
+    ⚠️ **Every one of them is a URI a real document could legitimately declare**,
+    which is what makes the substring reading wrong rather than merely loose:
+    ``urn:not-gramps:…`` names a different namespace ENTIRELY, and the gate read
+    it as this one.
+    """
+    base = _GRAMPS_XML_NAMESPACE
+    scheme = "ht" + "tp"
+    return [
+        "urn:not-gramps:" + base,
+        "urn:" + base,
+        scheme + "://example.invalid/" + base + "/",
+        scheme + "://not" + base + "/",
+        scheme + "://" + base + "x/",
+        scheme + "://" + base + ".example/1.7.1/",
+        "prefix" + base,
+        base + "x/1.7.1/",
+    ]
+
+
+def test_a_uri_that_merely_contains_the_namespace_does_not_name_the_format() -> None:
+    r"""⭐ **The reproduction: a declared URI that CONTAINS the namespace is not it.**
+
+    The gate reached the attribute POSITION -- a start tag's name, complete
+    attributes, then ``xmlns`` -- and then read its value as a bare substring
+    sitting anywhere inside the ``AttValue``. So
+    ``<wrapper xmlns="urn:not-gramps:…gramps-project…">`` declared a namespace
+    that is explicitly **not** this one, and the gate read it as Gramps and
+    re-enabled some eighty derived rows.
+
+    **This is the same defect as the two rounds before it, one turn further
+    out.** Round 3 found shape without value; round 4 found value without shape;
+    this is value in the right shape and in the wrong PLACE inside it. A
+    substring test is a substring test however deeply it is nested.
+
+    ⚠️ **The repair anchors where the base may SIT, and pins no version.** The
+    value must be the whole ``AttValue``: an optional scheme and authority
+    marker, then the base at a URI boundary, then optionally a ``/`` and the
+    rest. ``_GRAMPS_XML_NAMESPACE`` is untouched -- it still stops short of the
+    version segment, so a later schema revision still names the format, and the
+    positive half of this test is that property asserted rather than argued.
+
+    ⚠️ **Both halves, over both quotings and every alias**, because the negative
+    half alone is satisfied by a gate that accepts nothing and the positive half
+    alone by one that accepts everything.
+    """
+    spellings = [
+        {"quote": quote, "prefix": prefix}
+        for quote in ('"', chr(39))
+        for prefix in ("", *_NAMESPACE_PREFIXES)
+    ]
+
+    missed = [
+        f"{value!r} declared with {spelling}"
+        for value in _uris_that_are_the_namespace()
+        for spelling in spellings
+        if not _names_the_gramps_format(_declaring(value, **spelling))
+    ]
+    misread = [
+        f"{value!r} declared with {spelling}"
+        for value in _uris_that_merely_contain_the_namespace()
+        for spelling in spellings
+        if _names_the_gramps_format(_declaring(value, **spelling))
+    ]
+
+    assert missed == [], (
+        "these ARE the Gramps namespace -- the base at a URI boundary, with or without a "
+        f"scheme and with any version segment after it -- and the gate did not read them: {missed}"
+    )
+    assert misread == [], (
+        "and a URI that merely CONTAINS the namespace names something else: a different scheme, "
+        "a different host, a longer host, or the base sitting in another URI's path. These were "
+        f"read as the document declaring the Gramps format: {misread}"
+    )
+
+
+def _schemes_the_schema_does_not_fix() -> list[str]:
+    r"""Scheme spellings that are a DIFFERENT namespace from the one the schema fixes.
+
+    ⚠️ **Each is composed WHOLE before ``://`` is joined to it** -- see the
+    comment in ``_uris_that_are_the_namespace``: a single letter written against
+    a colon and two slashes is a drive-letter absolute path to P1.
+
+    ⚠️ **The last three are DERIVED from the fixed scheme rather than typed**,
+    which is what makes them the interesting ones. *Namespaces in XML* compares
+    namespace names by exact string match, so an upper-cased scheme is another
+    namespace and the gate is deliberately case-sensitive -- and the suffixed and
+    prefixed pair are the shape ``\b`` got wrong two rounds ago on a different
+    constant, where a name that merely BEGINS with a spelling was read as it.
+    """
+    scheme = "ht" + "tp"
+    return [
+        "ftp",
+        "gopher",
+        "x-made-up",
+        "javascript",
+        scheme.upper(),
+        scheme + "x",
+        "x" + scheme,
+    ]
+
+
+def test_a_scheme_the_schema_does_not_fix_does_not_name_the_format() -> None:
+    """⭐ **The reproduction: a URI whose SCHEME is not the fixed one is not this namespace.**
+
+    The value fragment read ``scheme`` as RFC 3986 §3.1 gives it -- every
+    syntactically valid scheme -- so a wrapper declaring the base over ``ftp``,
+    beside four filled ``<type>`` elements, named the format and produced a P2.
+    *Namespaces in XML* compares namespace names by **exact string match**, so
+    that document has declared a different namespace however similar its
+    authority and path, and it is the same class as the ``urn:not-gramps:…``
+    reproduction the round before this one closed.
+
+    **This is the third tightening of one check** -- anywhere in the text, then
+    any URI containing the base, then any scheme whatever -- which is the
+    signature of a rule built permissively and narrowed by findings. What
+    replaced the production is a **declared tolerance table**: the value is the
+    reassembled ``#FIXED`` value plus a finite list of relaxations, each with a
+    recorded reason, and the test below this one is what holds that list closed.
+
+    ⚠️ **Both directions in one table**, over both quotings and every alias,
+    because the negative half alone is satisfied by a gate that accepts nothing
+    and the positive half alone by one that accepts everything.
+    """
+    base = _GRAMPS_XML_NAMESPACE
+    spellings = [
+        {"quote": quote, "prefix": prefix}
+        for quote in ('"', chr(39))
+        for prefix in ("", *_NAMESPACE_PREFIXES)
+    ]
+    refused = [scheme + "://" + base + "/1.7.1/" for scheme in _schemes_the_schema_does_not_fix()]
+
+    misread = [
+        f"{value!r} declared with {spelling}"
+        for value in refused
+        for spelling in spellings
+        if _names_the_gramps_format(_declaring(value, **spelling))
+    ]
+    missed = [
+        f"{value!r} declared with {spelling}"
+        for value in _uris_that_are_the_namespace()
+        for spelling in spellings
+        if not _names_the_gramps_format(_declaring(value, **spelling))
+    ]
+
+    assert misread == [], (
+        "a namespace name is compared by exact string match, so the base served over another "
+        "scheme is another namespace -- and a document declaring one has named a different "
+        f"format, which these were read as naming this one: {misread}"
+    )
+    assert missed == [], (
+        "and every spelling the gate is required to accept still names the format, or the half "
+        f"above is satisfied by a gate that reads nothing: {missed}"
+    )
+
+
+def _spellings_stopped_by(
+    tolerances: Sequence[tuple[str, str, str]], required: Sequence[str]
+) -> list[str]:
+    """Which of ``required`` a gate built from ``tolerances`` no longer reads.
+
+    The marker is rebuilt from the table rather than patched into the module,
+    which is what lets a row be removed and the consequence MEASURED instead of
+    argued.
+    """
+    marker = _marker_reading(tolerances)
+    return [value for value in required if not marker.search(_declaring(value))]
+
+
+def _unearned(tolerances: Sequence[tuple[str, str, str]], required: Sequence[str]) -> list[str]:
+    """Every complaint the tolerance rule has about ``tolerances``, in four kinds.
+
+    A pure function of two arguments so the test can feed it a fabricated table
+    and SHOW that it complains, rather than asserting once against the real one
+    and hoping the assertion means something -- the shape ``_unlicensed`` uses,
+    and the reason this repository trusts that one.
+    """
+    complaints = []
+    positions = [position for position, _, _ in tolerances]
+
+    for index, (position, fragment, reason) in enumerate(tolerances):
+        if position not in ("prefix", "tail"):
+            complaints.append(
+                f"row {index} ({fragment!r}): {position!r} is not a position the compiler reads, "
+                "so the row is declared and does nothing"
+            )
+        if not reason.strip():
+            complaints.append(f"row {index} ({fragment!r}): tolerated with no reason recorded")
+
+    if positions.count("tail") != 1:
+        complaints.append(
+            f"the table declares {positions.count('tail')} tail rows, and what may follow the "
+            "base is exactly one of them -- none pins the version, two admit a spelling nobody "
+            "declared"
+        )
+
+    for index, (_, fragment, _) in enumerate(tolerances):
+        without = [row for offset, row in enumerate(tolerances) if offset != index]
+        if not _spellings_stopped_by(without, required):
+            complaints.append(
+                f"row {index} ({fragment!r}): removing it stops no spelling the gate is required "
+                "to accept, so it has stopped earning its row"
+            )
+
+    return complaints
+
+
+def test_every_namespace_tolerance_is_declared_with_a_reason_and_earns_its_row() -> None:
+    """⭐ **The artifact this round is for: the looseness is a list, and the list is held closed.**
+
+    Three rounds each found a new dimension of looseness in one check and each
+    closed that dimension only. What ends a sequence of that shape is not a
+    longer list of repairs but a rule the next entry has to pass -- which is
+    exactly what `_XML_SHORTHAND_LICENCE` did for the Python shorthands, in this
+    same module, one level down. This is that rule for the namespace value.
+
+    **Four ways the table could pass while saying nothing, each closed by name:**
+
+    * a row whose **reason** was deleted, leaving a tolerance nobody can audit;
+    * **no tail row, or two** -- none pins the version and quietly narrows the
+      gate, two admit a spelling nobody declared;
+    * a row at a **position the compiler does not read**, which is declared and
+      does nothing;
+    * a row that has **stopped earning its place** -- removing it must stop at
+      least one spelling the gate is required to accept, or it is licence with
+      no load.
+
+    ⚠️ **Removing the `tail` row must break the version spellings, and that is
+    the LATER-SCHEMA-REVISION property asserted rather than argued.**
+    `_GRAMPS_XML_NAMESPACE` deliberately stops short of the version segment so
+    an export written against a schema revision this project has never seen
+    still names the format. It used to be an emergent property of the pattern;
+    it is a declared row now, and this is what says the row is the one carrying
+    it.
+
+    ⚠️ **The checker is fed fabricated tables at the end**, because a checker
+    incapable of complaining is the fifth way this could pass while saying
+    nothing.
+    """
+    required = _uris_that_are_the_namespace()
+    base = _GRAMPS_XML_NAMESPACE
+
+    assert _NAMESPACE_TOLERANCES and required, (
+        "the tolerance table or the spellings it is measured against came out empty, so "
+        f"everything below compares nothing: {len(_NAMESPACE_TOLERANCES)} rows, {len(required)} "
+        "spellings"
+    )
+    assert _unearned(_NAMESPACE_TOLERANCES, required) == [], (
+        "every relaxation of the schema-fixed value is declared, reasoned and load-bearing, and "
+        f"the table disagrees: {_unearned(_NAMESPACE_TOLERANCES, required)}"
+    )
+
+    without_tail = [row for row in _NAMESPACE_TOLERANCES if row[0] != "tail"]
+    stopped = _spellings_stopped_by(without_tail, required)
+    versioned = [value for value in required if not value.endswith(base)]
+    unprefixed = [value for value in versioned if value.startswith(base)]
+
+    assert stopped == versioned and len(unprefixed) == 3, (
+        "the tail row is the later-schema-revision property: removing it must stop every "
+        f"spelling carrying a version segment, and {len(unprefixed)} of them are the version "
+        f"alone. Removing it stopped {stopped}, and the spellings with a tail are {versioned}"
+    )
+
+    shadowing = (
+        ("prefix", "//", "the shorter spelling, declared FIRST on purpose"),
+        ("prefix", "//x", "the longer one it is a prefix of"),
+        ("tail", "/", "a tail, so the fabricated table is otherwise well formed"),
+    )
+    emitted = _namespace_value_of(shadowing)
+    real = _namespace_value_of(_NAMESPACE_TOLERANCES)
+
+    assert "(?://x|//)" in emitted and "(?://|//x)" not in emitted, (
+        "the alternation is emitted longest-first, so a shorter spelling never shadows a longer "
+        f"one it begins with -- and this one is not: {emitted[:80]!r}"
+    )
+    assert real.count("|)") == 2, (
+        "and the EMPTY tolerance is emitted last, once per quoting, or the bare base shadows "
+        f"every spelling that has something in front of it: {real[:120]!r}"
+    )
+
+    tail = next(row for row in _NAMESPACE_TOLERANCES if row[0] == "tail")
+    silent = [
+        label
+        for label, table in (
+            ("a row whose reason was removed", [*without_tail, (tail[0], tail[1], "   ")]),
+            ("a table with no tail row", without_tail),
+            ("a table with two tail rows", [*_NAMESPACE_TOLERANCES, tail]),
+            (
+                "a row at a position nothing reads",
+                [*_NAMESPACE_TOLERANCES, ("middle", "x", "declared, and read by nothing")],
+            ),
+            (
+                "a row that earns nothing",
+                [*_NAMESPACE_TOLERANCES, ("prefix", "ftp" + "://", "a scheme nothing requires")],
+            ),
+        )
+        if not _unearned(table, required)
+    ]
+    assert silent == [], (
+        f"the check passes on tables it must reject, so the assertion above is worth nothing: "
+        f"{silent}"
+    )
+
+
+_XML_WHITESPACE = (0x20, 0x9, 0xD, 0xA)
+r"""``S ::= (#x20 | #x9 | #xD | #xA)+`` -- XML 1.0 §2.3, transcribed here too.
+
+⚠️ **Transcribed from the specification rather than read off the guard's own
+table, for the reason ``_XML_CHARACTER_BOUNDARIES`` is:** a table that
+recomputed the rule from the implementation would agree with a wrong
+implementation. Four characters, and the whole of finding 2 is that Python's
+``\s`` matches more than four.
+"""
+
+
+def _not_xml_whitespace() -> list[str]:
+    r"""Every character Python's ``\s`` matches that XML's ``S`` does not.
+
+    ⚠️ **Computed rather than listed**, which is the difference between asserting
+    a property and asserting six examples. A non-breaking space is the character
+    the reproduction was built from; a vertical tab, a form feed, an ogham space
+    mark, a line separator and an ideographic space are the ones nobody would
+    have thought to list -- and U+1680 is the sharpest of them, because it is
+    also a legal ``NameChar``, so it is whitespace to Python and part of the
+    element's own name to XML.
+
+    The sweep is the Basic Multilingual Plane, which is where every character
+    with the White_Space property lives; nothing above it can be missed.
+    """
+    matches_python = re.compile(r"\s")
+    return [
+        chr(code_point)
+        for code_point in range(0x10000)
+        if matches_python.match(chr(code_point)) and code_point not in _XML_WHITESPACE
+    ]
+
+
+_ABSORBED_BY_A_NAME = "an ordinary attribute's Eq"
+r"""The one position where a non-``S`` character need not serve as an ``S``.
+
+⚠️ **Found by this test failing on U+1680 after the repair, and it is a
+correction to the PROBE rather than to the guard.** In ``<catalogue id`` +
+U+1680 + ``="1" xmlns="…gramps…">`` the character is a legal ``NameChar``, so
+XML reads the attribute's ``Name`` as ``id`` + U+1680 -- and the space before
+``id`` is still the ``S`` the production wanted. The tag carries a genuine
+declaration and the marker is right to fire on it.
+
+The other four positions have no such escape: absorbing the character into the
+preceding ``Name`` leaves ``=`` or a quote exactly where the path to the
+declaration requires an ``S``, so the tag is not a declaration however it is
+read. That is why the negative sweep runs over those four and this one is
+asserted separately, in both directions, rather than dropped.
+"""
+
+
+def _declaration_separated_by(character: str) -> dict[str, str]:
+    """One start tag per position an ``S`` may occupy, each holding ``character``.
+
+    ⚠️ **Five positions, because the guard reads ``S`` at three constants and a
+    probe at one of them proves nothing about the other two.** The reviewer named
+    two -- the ``Eq`` fragment and the attribute separator. The third is the
+    namespace declaration's own leading whitespace, which the audit found: a
+    declaration with no ordinary attribute in front of it never reaches
+    ``_XML_ATTRIBUTE`` at all, so its separator is a fourth site wearing the same
+    defect.
+    """
+    namespace = gramps_namespace_url()
+    ordinary = 'id="1" '
+    return {
+        "the separator before the declaration": (
+            "<" + _MARKER_WRAPPER + character + 'xmlns="' + namespace + '">'
+        ),
+        "the separator before an ordinary attribute": (
+            "<" + _MARKER_WRAPPER + character + ordinary + 'xmlns="' + namespace + '">'
+        ),
+        "the declaration's Eq, before the equals": (
+            "<" + _MARKER_WRAPPER + " xmlns" + character + '="' + namespace + '">'
+        ),
+        "the declaration's Eq, after the equals": (
+            "<" + _MARKER_WRAPPER + " xmlns=" + character + '"' + namespace + '">'
+        ),
+        _ABSORBED_BY_A_NAME: (
+            "<" + _MARKER_WRAPPER + " id" + character + '="1" xmlns="' + namespace + '">'
+        ),
+    }
+
+
+def test_xml_separates_attributes_with_the_four_characters_the_production_names() -> None:
+    r"""⭐ **The reproduction: a non-breaking space is not XML whitespace.**
+
+    ``S ::= (#x20 | #x9 | #xD | #xA)+`` is four characters. Python's ``\s``
+    matches twenty-odd, so ``<wrapper`` + U+00A0 + ``xmlns="…gramps…">`` was read
+    as a namespace declaration in attribute position -- and it is not one. XML
+    reads that tag's name as ``wrapper`` + U+00A0 + ``xmlns``, an element that
+    declares nothing, so the marker fired on a document that never named the
+    format and re-enabled some eighty derived rows.
+
+    **Both directions, and the negative half is DERIVED rather than exampled.**
+    Listing the characters that must fail is the enumeration this module refuses
+    everywhere else: it is satisfied by six special cases and says nothing about
+    the seventh. Asking Python which characters IT calls whitespace, and
+    subtracting the four the production names, is the same question asked so
+    that a new one cannot be missed.
+
+    ⚠️ **At every position an ``S`` may occupy, because the guard spells it at
+    three constants** -- ``_XML_EQ``, ``_XML_ATTRIBUTE``'s leading separator and
+    ``_XMLNS_DECLARATION``'s. A repair reaching two of the three is the partial
+    application this module has paid for in every previous round.
+
+    ⚠️ **One of the five positions is excluded from the negative sweep and
+    asserted on its own instead** -- see ``_ABSORBED_BY_A_NAME``, which this test
+    discovered by failing there after the repair. At that position a legal
+    ``NameChar`` is absorbed by the attribute's own ``Name`` and the declaration
+    beside it stays genuine, so the marker firing is correct XML rather than the
+    defect. It is asserted in both directions, because "excluded" and "not
+    looked at" have to be different things.
+    """
+    outside = _not_xml_whitespace()
+
+    assert chr(0xA0) in outside and len(outside) > 5, (
+        "the negative set is derived from what Python calls whitespace, and it has come out "
+        f"empty or without the character the reproduction was built from: {ascii(''.join(outside))}"
+    )
+
+    missed = [
+        f"U+{ord(character):04X} at {where}"
+        for character in (chr(code_point) for code_point in _XML_WHITESPACE)
+        for where, probe in _declaration_separated_by(character).items()
+        if not _names_the_gramps_format(probe)
+    ]
+    misread = [
+        f"U+{ord(character):04X} at {where}"
+        for character in outside
+        for where, probe in _declaration_separated_by(character).items()
+        if where != _ABSORBED_BY_A_NAME and _names_the_gramps_format(probe)
+    ]
+
+    assert missed == [], (
+        "XML separates a start tag's parts with exactly the four characters its S production "
+        f"names, and a declaration written with one of them was not read as one: {missed}"
+    )
+    assert misread == [], (
+        "and a character Python calls whitespace which XML does not is part of the NAME, not a "
+        f"separator -- these are not declarations and were read as the format naming itself: "
+        f"{misread}"
+    )
+
+    absorbed = _declaration_separated_by(chr(0x1680))[_ABSORBED_BY_A_NAME]
+    refused = _declaration_separated_by(chr(0xA0))[_ABSORBED_BY_A_NAME]
+
+    assert _names_the_gramps_format(absorbed) and not _names_the_gramps_format(refused), (
+        "the excluded position, in both directions: U+1680 is a legal NameChar, so the "
+        "attribute's own Name absorbs it and the declaration beside it is genuine; U+00A0 is "
+        "not, so nothing there is a Name and the tag declares nothing. Excluding a position "
+        "from a sweep is only honest if it is asserted somewhere else"
+    )
+
+
+def test_a_fragment_quoted_beside_a_bare_mention_is_the_anchoring_cost() -> None:
+    """⭐ **What anchoring costs, asserted in BOTH directions rather than described.**
+
+    This is the third residual of one family, and it is the same trade the two
+    beside it record: a genuine Gramps fragment scoring only on rows this audit
+    added, quoted where the format is *named in prose* rather than declared, is
+    no longer caught. A researcher block copied out of an export into an import
+    note is exactly that document.
+
+    ⚠️ **The second half is what stops this being an assertion that the guard is
+    broken.** The same fragments under a real declaration are findings again.
+    What anchoring removed is the mention-only case, and nothing else.
+    """
+    mention = a_prose_mention_of_the_namespace()
+
+    for fragment in (gramps_researcher_block(), gramps_events_block()):
+        assert scan_text(mention + "\n" + fragment, source="notes.md") == [], (
+            "the accepted cost of anchoring: a genuine fragment beside a bare mention is no "
+            f"longer caught, and this one was: {fragment!r}"
+        )
+        declared = names_the_gramps_format() + "\n" + fragment
+        assert rules(scan_text(declared, source="notes.md")) == ["P2"], (
+            "and anchoring removed the MENTION-only case -- the same fragment under a real "
+            f"declaration is still a finding: {fragment!r}"
+        )
+
+
+def test_every_spelling_the_derivation_added_is_gated_on_the_format() -> None:
+    """⭐ **The gate, over the table rather than over the two reproductions.**
+
+    Derived, so a row a later schema version adds extends this property with no
+    test edited -- the same shape as the two tests that close #4's exit
+    condition, and for the same reason: a test naming four spellings is
+    satisfied by four special cases.
+
+    The domain is the vocabulary MINUS the frozen snapshot of what it held
+    before the audit, which is what makes invariant 1 hold by construction
+    rather than by measurement: a pre-existing row is not in the gate's domain
+    at all, so no measurement is needed to show the gate did not reach it.
+    """
+    scoring = []
+
+    for spelling in sorted(_SPELLINGS_THE_DERIVATION_ADDED):
+        observed = _observed_weight(_gramps_identity_score, _gramps_probe, spelling)
+        if observed != 0:
+            scoring.append(f"<{spelling}>: {observed}")
+
+    assert scoring == [], (
+        "a spelling this audit added is an ordinary XML name until the document says it is "
+        f"Gramps, and these score with no marker anywhere in the text: {scoring}"
+    )
+
+
+def test_every_spelling_the_derivation_added_scores_once_the_format_is_named() -> None:
+    """⭐ **The other half, and the half that stops the gate being a deletion.**
+
+    A gate that zeroed the derived rows outright would pass the test above and
+    would throw away everything #4's Change C1 was for. So every gated spelling
+    is measured again in a text that names the format, against the weight its
+    category declares -- not against zero, and not against itself.
+    """
+    disagreements = []
+
+    for spelling in sorted(_SPELLINGS_THE_DERIVATION_ADDED):
+        expected = _CATEGORY_WEIGHT[_GRAMPS_CATEGORY_OF[spelling]]
+        observed = _observed_weight(_gramps_identity_score, _marked_gramps_probe, spelling)
+        if observed != expected:
+            disagreements.append(f"<{spelling}>: {observed} != {expected}")
+
+    assert disagreements == [], (
+        "once the format is named a derived row scores exactly what its category declares, and "
+        f"these do not: {disagreements}"
+    )
+
+
+def test_the_only_marker_the_gate_reads_is_the_namespace_the_schema_fixes() -> None:
+    """⭐ **One marker, and the two beside it were removed rather than tightened.**
+
+    Round 1 read three. The other two -- a doctype naming the document element,
+    and that element carrying an ``xmlns`` at all -- checked that something was
+    *present* and never what it said, so a document declaring an unrelated
+    namespace or identifier was read as Gramps.
+
+    ⚠️ **Bound to the namespace they would have matched nothing new** -- because
+    the marker they were compared against matched the namespace *anywhere*, and
+    that unrestricted reach was itself the next defect. The one marker that
+    remains reads the value **in a declaration**, so the subset argument that
+    retired the other two no longer holds and is not what this test asserts. The
+    doctype could not be bound at all either way: the only Gramps-specific
+    evidence it carries beyond the namespace is the public identifier, which no
+    artifact this repository has frozen declares.
+
+    ⚠️ **``_GRAMPS_DOCUMENT_ELEMENT`` stays, and exactly one element declaring
+    ``xmlns`` is still asserted.** It selects the ``FIXED_ATTRIBUTE_DEFAULTS``
+    row the marker is read from, so a schema that moved or duplicated the
+    declaration still fails a test rather than leaving the gate pointing at an
+    element that declares nothing.
+    """
+    declaring = sorted(
+        {element for element, attribute, _ in SPECIFIED_ATTRIBUTES if attribute == "xmlns"}
+    )
+
+    assert declaring == [_GRAMPS_DOCUMENT_ELEMENT], (
+        "the marker is read from the one element the schema attaches a namespace declaration "
+        f"to, and the frozen table names {declaring}"
+    )
+
+    named = "TYPE " + _GRAMPS_DOCUMENT_ELEMENT + ' SYSTEM "' + _NOT_THE_GRAMPS_NAMESPACE + '">'
+    doctype = "<!DOC" + named
+    declares = "<" + _GRAMPS_DOCUMENT_ELEMENT + ' xmlns="' + _NOT_THE_GRAMPS_NAMESPACE + '">'
+    ordinary = (
+        "<" + _GRAMPS_DOCUMENT_ELEMENT + ">a table of them</" + _GRAMPS_DOCUMENT_ELEMENT + ">"
+    )
+    misread = [probe for probe in (doctype, declares, ordinary) if _names_the_gramps_format(probe)]
+
+    assert misread == [], (
+        "naming the schema's document element is not naming the format -- the VALUE is what says "
+        f"which format, and these were read as Gramps: {misread}"
+    )
+
+    fixed = [
+        pieces
+        for element, attribute, pieces in FIXED_ATTRIBUTE_DEFAULTS
+        if (element, attribute) == (_GRAMPS_DOCUMENT_ELEMENT, "xmlns")
+    ]
+
+    declared = "/".join(fixed[0]) if fixed else ""
+    in_a_declaration = "<" + _GRAMPS_DOCUMENT_ELEMENT + ' xmlns="' + declared + '">'
+
+    assert len(fixed) == 1 and _names_the_gramps_format(in_a_declaration), (
+        "and the value the schema FIXES that attribute at, DECLARED, does name the format, or "
+        f"the assertion above is satisfied by a gate that reads nothing: {fixed}"
+    )
+
+    assert not _names_the_gramps_format(declared), (
+        "while the same value written on its own does not -- the marker is that value in "
+        "ATTRIBUTE POSITION, and a document that mentions the namespace has not declared it"
+    )
+
+
+def test_the_namespace_the_gate_reads_is_the_default_the_schema_fixes() -> None:
+    """⭐ **The third marker, against the source the other two do not share.**
+
+    The doctype and the document element are bound to the frozen table and to a
+    transcribed production. The namespace is a **value**, and until the
+    derivation emitted it there was nothing in the table for it to be bound to
+    -- so the one constant the whole gate leans on hardest was the one thing in
+    it maintained by hand.
+
+    ``FIXED_ATTRIBUTE_DEFAULTS`` closes that: the schema FIXES the ``xmlns``
+    attribute of its document element at exactly one value, and the guard's
+    constant has to be part of it.
+
+    ⚠️ **A substring, not equality, and that is the constant's own decision.**
+    ``_GRAMPS_XML_NAMESPACE`` deliberately stops short of the version segment,
+    so an export written against a later schema revision still names the format.
+    Equality here would tie the guard to one revision of the DTD and quietly
+    blind it the day the project ships another.
+
+    ⚠️ **The second assertion places the value in a DECLARATION, and that is a
+    strictly stronger binding than the bare value it used to pass.** The gate
+    reads the schema-fixed namespace as the value of an ``xmlns`` attribute in a
+    start tag, so feeding it the value alone would now assert that the binding
+    is broken. The first assertion is untouched: it is the binding to the frozen
+    table, and it still holds exactly as written.
+
+    ⚠️ **The SCHEME is bound here too, and it is a separate claim from the host
+    and path above it.** The value fragment used to read RFC 3986's `scheme`
+    production, which admits every syntactically valid scheme -- so the base
+    served over `ftp` named this format, and a namespace name is compared by
+    exact string match. What replaced it is a declared tolerance table, and its
+    canonical row is built from this same frozen value's FIRST piece: a schema
+    revision that moved the format to another transport now fails a test
+    instead of silently blinding the gate.
+
+    ⚠️ Reassembled at runtime. The pieces are what the table holds, for the
+    reason recorded beside them: this file and that one are both scanned.
+    """
+    fixed = [
+        pieces
+        for element, attribute, pieces in FIXED_ATTRIBUTE_DEFAULTS
+        if (element, attribute) == (_GRAMPS_DOCUMENT_ELEMENT, "xmlns")
+    ]
+
+    assert len(fixed) == 1, (
+        "the schema fixes its document element's namespace at exactly one value, and the frozen "
+        f"table records {len(fixed)}"
+    )
+
+    declared = "/".join(fixed[0])
+
+    assert _GRAMPS_XML_NAMESPACE in declared, (
+        "the namespace the gate reads is the default the schema fixes, and the two have parted "
+        f"company: the table declares {len(declared)} characters that do not contain it"
+    )
+
+    assert fixed[0][0] == _GRAMPS_NAMESPACE_SCHEME + ":", (
+        "and so is the SCHEME it is served over: the constant the tolerance table is composed "
+        f"from is the frozen value's first piece, and the table holds {fixed[0][0]!r}"
+    )
+
+    canonical = "/".join(fixed[0][:2]) + "/"
+    tolerated = [
+        fragment for position, fragment, _ in _NAMESPACE_TOLERANCES if position == "prefix"
+    ]
+
+    assert canonical in tolerated, (
+        "the canonical prefix is a DECLARED row rather than a spelling the pattern happens to "
+        f"admit, and the table declares {tolerated} where the schema fixes {canonical!r}"
+    )
+
+    in_a_declaration = "<" + _GRAMPS_DOCUMENT_ELEMENT + ' xmlns="' + declared + '">'
+
+    assert _names_the_gramps_format(in_a_declaration), (
+        "and a document DECLARING that value names the format, or the binding above is a fact "
+        "about a string nothing reads"
+    )
+
+
+def test_a_prefixed_document_still_names_the_format() -> None:
+    """Change A's equivalence, carried into the gate -- and now true by construction.
+
+    A namespace prefix is the document's own alias, so a prefixed export is the
+    same export, and a gate blind to the prefixed spelling would silently zero
+    every derived row in one.
+
+    ⚠️ **This body is unchanged by the anchoring, and that is evidence rather
+    than luck.** It already built real declarations, prefixed and bare, so it
+    passed before and passes now. What moved is the REASON: the property used to
+    hold because a substring test over the whole text cannot see a prefix, and
+    it now holds because the declaration's name is ``xmlns:`` followed by the
+    same transcribed ``NCName`` the element patterns read -- one production,
+    three readers, and no second table to keep in step with four other patterns.
+
+    ⚠️ **In both directions, because the first half alone is satisfied by a gate
+    that accepts everything.** The same probes carrying a namespace that is not
+    the Gramps one name the format in none of their spellings.
+    """
+    missed = []
+    misread = []
+
+    for prefix in ("", *_NAMESPACE_PREFIXES):
+        element = (
+            _prefixed(_GRAMPS_DOCUMENT_ELEMENT, prefix) if prefix else _GRAMPS_DOCUMENT_ELEMENT
+        )
+        declaration = "xmlns:" + prefix if prefix else "xmlns"
+        genuine = "<" + element + " " + declaration + '="' + gramps_namespace_url() + '">'
+        unrelated = "<" + element + " " + declaration + '="' + _NOT_THE_GRAMPS_NAMESPACE + '">'
+        if not _names_the_gramps_format(genuine):
+            missed.append(repr(genuine))
+        if _names_the_gramps_format(unrelated):
+            misread.append(repr(unrelated))
+
+    assert missed == [], (
+        f"a prefixed document names the format exactly as an unprefixed one does: {missed}"
+    )
+    assert misread == [], (
+        "and a prefix is not evidence of anything on its own -- these carry an unrelated "
+        f"namespace and were read as Gramps: {misread}"
+    )
+
+
+def test_a_researcher_block_without_the_format_is_the_gates_recorded_cost() -> None:
+    """⭐ **The residual, asserted in BOTH directions rather than described.**
+
+    This is what the gate costs: a genuine Gramps fragment, quoted without its
+    marker, scoring only on rows this audit added, is no longer caught. The
+    researcher block is the sharpest case -- a name and a home address -- and it
+    is stated here rather than left in a document, because a cost recorded only
+    in prose is a cost nobody re-measures.
+
+    ⚠️ **The second half is what stops this being an assertion that the guard
+    is broken.** The same fragment, in a text that names the format, is a
+    finding again. What the gate removed is the unmarked case, and nothing else.
+
+    What is NOT lost is the reason the cost is affordable: the 29 attested
+    spellings -- the rows that name a person on their own -- score exactly as
+    they did, marker or no marker, and the test above this one is what says so.
+    """
+    for fragment in (gramps_researcher_block(), gramps_events_block()):
+        assert scan_text(fragment, source="notes.md") == [], (
+            "the accepted cost of the gate: a genuine fragment scoring only on rows this audit "
+            f"added is no longer caught without its marker, and this one was: {fragment[:60]!r}"
+        )
+        marked = names_the_gramps_format() + "\n" + fragment
+        assert rules(scan_text(marked, source="notes.md")) == ["P2"], (
+            "and the gate removed the UNMARKED case only -- named format, same fragment, still "
+            f"a finding: {fragment[:60]!r}"
+        )
+
+
+def test_a_committed_name_carrying_a_record_is_a_finding() -> None:
+    """Issue #4 item 5: committed pathnames were not scanned for genealogy.
+
+    The name is published exactly as the contents are -- ``scan_blob`` says so
+    in as many words, and already runs the path detectors and the deny-list
+    over it. The genealogy properties were the one family that stopped at the
+    bytes, so a file whose CONTENTS are innocuous and whose NAME is a record
+    went through.
+
+    The input is deliberately an ordinary one rather than a contrived one: an
+    export dumped one record per file names its files after the records, and
+    every character here is legal in a Git tree entry.
+    """
+    name = genealogy_record_as_a_filename()
+
+    findings = scan_blob(b"nothing to see\n", name)
+
+    assert rules(findings) == ["P2"], (
+        f"a committed name is published content, and this one is a record: got {findings}"
+    )
+
+
+def test_no_spelling_is_claimed_by_two_categories() -> None:
+    """A spelling in two rows takes the LAST one silently, and nothing says so.
+
+    Written because it happened while the schema's rows were being placed:
+    ``header`` was put in the structural row and again in the unweighted one,
+    and the category lookup -- a comprehension over the table in order -- simply
+    took the second. The per-row test caught it, but only because the two
+    weights differ. **Two rows of the same weight would disagree about what an
+    element MEANS and no test would see it**, and meaning is what this table
+    exists to record.
+    """
+    seen: dict[str, str] = {}
+    doubled = []
+
+    for category, shared, xml_only, _ in _VOCABULARY:
+        for spelling in shared + xml_only:
+            if spelling in seen:
+                doubled.append(f"<{spelling}>: {seen[spelling]} and {category}")
+            seen[spelling] = category
+
+    assert doubled == [], (
+        f"these spellings are claimed by two categories, and the later one wins silently: {doubled}"
+    )
+
+
+def test_every_container_the_published_schema_declares_has_a_weight() -> None:
+    """⭐ **The exit condition of issue #4, mechanically.**
+
+    The issue was filed with five items, grew to six, and its original exit
+    condition -- *every place in either format where a container can hold prose
+    or an identity field* -- is universally quantified over a format with no
+    way to say when it has been satisfied. It was re-specified: the container
+    list is DERIVED from the published specification and frozen as a committed
+    table, and the audit closes when every row of that table has a weight and a
+    test.
+
+    This is that sentence as an assertion. The frozen table is the checklist,
+    the vocabulary is the weighting, and a row present in one and absent from
+    the other is precisely the partial application the issue exists to end.
+    ``test_the_compiled_scorer_agrees_with_the_vocabulary_for_every_row``
+    supplies the other half -- that the weight the table declares is the weight
+    the compiled scorer charges -- so between them ~100 rows are covered
+    without ~100 hand-written tests, and a row added to the schema by a later
+    version extends both without either being edited.
+    """
+    unweighted = [
+        f"<{spelling}> ({model})"
+        for spelling, model in SPECIFIED_ELEMENTS
+        if spelling not in _GRAMPS_CATEGORY_OF
+    ]
+
+    assert unweighted == [], (
+        f"{len(unweighted)} containers the published schema declares carry no weight, so the "
+        f"vocabulary is still what reviewers happened to name: {unweighted}"
+    )
+
+
+def test_a_spelling_the_published_markup_indexes_also_use_earns_no_weight() -> None:
+    """⭐ **What makes the widening affordable, and it is the whole risk.**
+
+    The schema declares ``title``, ``style``, ``code``, ``map``, ``object``,
+    ``source`` and ``header``. **Those are HTML and SVG element names**, and
+    this repository is full of markup. Weighted at even the smallest weight,
+    four filled ones reach the threshold and an ordinary markup snippet is
+    reported -- so the rows that close the audit are also the rows that could
+    make the guard something contributors route around.
+
+    The answer is a deliberately-unweighted category, and it is accepted on
+    exactly the ground ``FILESYSTEM_ROOTS`` and the drawing exemption are:
+    the collision is read off two published element indexes, which are closed
+    and externally specified rather than a list somebody maintains.
+
+    ⚠️ **The alternative this docstring used to record as REJECTED was
+    afterwards ruled IN, and the probe below is where that shows.** A structural
+    marker gate -- score a derived spelling only in a text that names the format
+    -- is what answers the collisions the two indexes cannot see, ``type``,
+    ``file``, ``status`` and ``description`` among them. It does not replace
+    this category: with the gate in place an unmarked probe measures **every**
+    derived row at zero, so this test would pass with the category deleted.
+    What is left for the category to say -- and what it now says, through a
+    MARKED probe -- is that ``<title>`` and ``<source>`` earn nothing *inside a
+    document that has named the format*, which is the case the gate deliberately
+    lets through.
+
+    ⚠️ **The two exceptions are not exceptions to the rule; they are Invariant
+    1.** ``text`` and ``address`` were weighted before this audit, and the
+    twin test above is what keeps them that way.
+    """
+    earning = []
+
+    for spelling, _ in SPECIFIED_ELEMENTS:
+        if spelling not in MARKUP_ELEMENT_NAMES:
+            continue
+        if spelling in _WEIGHTS_BEFORE_THE_DERIVATION:
+            continue
+        observed = _observed_weight(_gramps_identity_score, _marked_gramps_probe, spelling)
+        if observed != 0:
+            earning.append(f"<{spelling}>: {observed}")
+
+    assert earning == [], (
+        "these spellings are ordinary markup element names, so a document using them is not "
+        f"evidence of anything, and they score: {earning}"
+    )
+
+
 def test_the_compiled_scorer_agrees_with_the_vocabulary_for_every_row() -> None:
     """⭐ **Every row of the table, both formats, against the weight it declares.**
 
@@ -757,13 +2111,21 @@ def test_the_compiled_scorer_agrees_with_the_vocabulary_for_every_row() -> None:
     needs to clear the threshold cancels and what remains is the weight of
     exactly one filled key or element. A spelling that scores nothing fails
     the threshold instead and is reported by name.
+
+    ⚠️ **The Gramps probe NAMES THE FORMAT, and that is a deliberate change
+    recorded in CONTRIBUTING.** The marker gate makes a row the derivation
+    added score only in a text that says it is Gramps, so an unmarked probe
+    would measure some sixty of these rows at zero and this test would be
+    asserting the gate rather than the weight. The marker is constant across
+    the two probes, so it cancels exactly as ``_carrier`` does and an attested
+    row measures what it always did.
     """
     disagreements = []
 
     for category, shared, xml_only, json_only in _VOCABULARY:
         expected = _CATEGORY_WEIGHT[category]
         for spelling in shared + xml_only:
-            observed = _observed_weight(_gramps_identity_score, _gramps_probe, spelling)
+            observed = _observed_weight(_gramps_identity_score, _marked_gramps_probe, spelling)
             if observed != expected:
                 disagreements.append(f"Gramps <{spelling}> is {category}: {observed} != {expected}")
         for spelling in shared + json_only:
@@ -800,15 +2162,19 @@ def test_a_namespace_prefix_does_not_change_what_a_filled_row_scores() -> None:
     same reason: an alias legal under ``NCName`` but outside ``\\w`` -- a
     combining mark -- was missed here at every row at once, and adding it as a
     one-off example would have asserted the example rather than the property.
+
+    ⚠️ **The probe names the format**, for the reason recorded against the test
+    above: unmarked, the gate would take every derived row to zero on both sides
+    of the comparison, and two zeros agree.
     """
     disagreements = []
 
     for _, shared, xml_only, _ in _VOCABULARY:
         for spelling in shared + xml_only:
-            bare = _observed_weight(_gramps_identity_score, _gramps_probe, spelling)
+            bare = _observed_weight(_gramps_identity_score, _marked_gramps_probe, spelling)
             for prefix in _NAMESPACE_PREFIXES:
                 prefixed = _observed_weight(
-                    _gramps_identity_score, _gramps_probe, _prefixed(spelling, prefix)
+                    _gramps_identity_score, _marked_gramps_probe, _prefixed(spelling, prefix)
                 )
                 if bare != prefixed:
                     disagreements.append(
@@ -828,15 +2194,23 @@ def test_a_namespace_prefix_does_not_change_what_an_attributed_row_scores() -> N
     one of them uses is precisely the partial application this vocabulary exists
     to make impossible. An export is not only its filled elements; it is also
     the links between them, and under a prefix those scored nothing either.
+
+    ⚠️ **The probe names the format**, for the reason recorded two tests above;
+    the gate runs in this pass too, and it has to, or an attributed derived
+    element would score where a filled one does not.
     """
     disagreements = []
 
     for _, shared, xml_only, _ in _VOCABULARY:
         for spelling in shared + xml_only:
-            bare = _observed_weight(_gramps_identity_score, _gramps_attributed_probe, spelling)
+            bare = _observed_weight(
+                _gramps_identity_score, _marked_gramps_attributed_probe, spelling
+            )
             for prefix in _NAMESPACE_PREFIXES:
                 prefixed = _observed_weight(
-                    _gramps_identity_score, _gramps_attributed_probe, _prefixed(spelling, prefix)
+                    _gramps_identity_score,
+                    _marked_gramps_attributed_probe,
+                    _prefixed(spelling, prefix),
                 )
                 if bare != prefixed:
                     disagreements.append(
@@ -930,6 +2304,333 @@ def test_every_pattern_that_scores_an_element_is_built_from_the_one_alternation(
     assert _qualified("svg") not in _DRAWING.pattern, (
         "the drawing exemption reads the shared alternation again, so a container whose "
         "alias this module never resolves suppresses every short element inside it"
+    )
+
+
+# ---------------------------------------------------------------------------
+# ⭐ THE LICENCE TABLE: which compiled pattern may hold which Python shorthand,
+# and why. Five review rounds on this module found the SAME defect five times --
+# a Python shorthand standing in for an XML production -- so the round that
+# transcribed the last of them owes an artifact that keeps the set closed.
+#
+# ⚠️ **A document cannot do that and this table is not one.** The audit that
+# enumerated the twenty sites is prose; prose does not fail when somebody adds
+# pattern twenty-one. This does, and the failure names the pattern.
+#
+# Every compiled pattern the module holds gets a row, INCLUDING the ones that
+# read no XML production at all: the row is where "this one is a GEDCOM record,
+# not an XML production" is written down, so its absence from the transcription
+# reads as a decision rather than as an oversight. A pattern with no row is a
+# failure, which is what makes a NEW pattern arrive through this table.
+# ---------------------------------------------------------------------------
+
+_PYTHON_SHORTHANDS = "bBdDsSwW"
+r"""The shorthands an XML production is approximated BY, every one of them.
+
+``\s`` for ``S``, ``\b`` for a name boundary, ``\w`` for ``NameChar`` -- the
+three that were actually wrong here -- plus their complements and the two digit
+classes, because the table is about the CLASS of substitution rather than about
+the three spellings that happened to be found.
+"""
+
+
+def _shorthands_in(pattern: str) -> frozenset[str]:
+    r"""Every shorthand ``pattern`` carries, with escapes read as escapes.
+
+    ⚠️ **Scanned rather than searched for, and the difference is a false
+    positive waiting to happen.** ``\\s`` is an escaped backslash followed by a
+    literal ``s``, it CONTAINS the substring ``\s``, and it is not one -- this
+    module composes patterns out of ``chr(92)`` runs precisely so a backslash
+    can be matched literally. Walking the string two characters at a time past
+    every escape is what tells the two apart.
+    """
+    backslash = chr(92)
+    found = set()
+    index = 0
+    while index < len(pattern):
+        if pattern[index] == backslash and index + 1 < len(pattern):
+            if pattern[index + 1] in _PYTHON_SHORTHANDS:
+                found.add(backslash + pattern[index + 1])
+            index += 2
+            continue
+        index += 1
+    return frozenset(found)
+
+
+def _compiled_patterns() -> dict[str, str]:
+    """Every compiled pattern the guard holds, by the name it is reachable under.
+
+    ⚠️ **Walked rather than listed, which is the whole of why the table cannot
+    pass vacuously.** A hand-written list of patterns to check is the same
+    enumeration pointed backwards that this module refuses everywhere else: a
+    pattern added tomorrow would simply not be on it, and the table would go on
+    reporting that everything it knows about is licensed.
+
+    A ``(label, pattern)`` pair is keyed by its LABEL rather than its index, so
+    inserting a row above it does not silently move another row's licence.
+    """
+    found: dict[str, str] = {}
+
+    def labelled(item: object) -> bool:
+        return (
+            isinstance(item, tuple)
+            and len(item) == 2
+            and isinstance(item[0], str)
+            and isinstance(item[1], re.Pattern)
+        )
+
+    def walk(name: str, value: object) -> None:
+        if isinstance(value, re.Pattern):
+            found[name] = value.pattern
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                walk(f"{name}[{key}]", item)
+        elif isinstance(value, (tuple, list)):
+            for index, item in enumerate(value):
+                if labelled(item):
+                    walk(f"{name}[{item[0]}]", item[1])
+                else:
+                    walk(f"{name}[{index}]", item)
+
+    for name, value in vars(pii_guard).items():
+        walk(name, value)
+    return found
+
+
+_NOT_AN_XML_PRODUCTION = "reads no XML production: "
+
+_XML_SHORTHAND_LICENCE: dict[str, tuple[frozenset[str], str]] = {
+    # --- patterns that read an XML production -------------------------------
+    "_NAMES_THE_GRAMPS_FORMAT": (
+        frozenset(),
+        "the marker, and it is transcribed end to end: STag, (S Attribute)*, Eq and AttValue "
+        "all read _XML_S, the name reads _XML_NCNAME, and the value reads a URI. Nothing here "
+        "is licensed, because every shorthand this pattern ever held was a reported defect",
+    ),
+    "_DRAWING": (
+        frozenset(),
+        "an EXEMPTION, where a loose reading suppresses rather than reports -- so it is the one "
+        "pattern that may hold no shorthand at all on principle rather than by accident. Its "
+        "opener reads _XML_NAME_END and its closer reads _XML_S",
+    ),
+    "_GRAMPS_FILLED_ELEMENT": (
+        frozenset({chr(92) + "s"}),
+        r"the ETag's `S?` in `</\1\s*>`, in a SCORER: loose means an element is read where XML "
+        "reads none, which errs toward REPORTING. Transcribing it subtracts a catch on a "
+        "malformed paste and buys no false positive back. The name's end is _XML_NAME_END",
+    ),
+    "_GRAMPS_ATTRIBUTED_ELEMENT": (
+        frozenset({chr(92) + "s", chr(92) + "w"}),
+        r"`[^>]*?\w+\s*=\s*[\"']` is the `<[^<>]*xmlns=` shape the marker block condemns -- but "
+        "in a SCORER, where reading an attribute that XML does not is one more finding rather "
+        "than one fewer. Recorded so the next reader sees it was weighed, not missed. The "
+        "name's end is _XML_NAME_END",
+    ),
+    "_GENEALOGY_TEXT_SIGNATURES[Gramps XML database element]": (
+        frozenset({chr(92) + "s"}),
+        r"_LINE_PREFIX's `^[\s>]*`, which is Markdown quoting decoration in front of the tag "
+        "rather than any part of XML. The tag itself reads the shared alternation, so its "
+        "name ends where _XML_NAME_END says it does",
+    ),
+    "_MARKUP_NODE": (
+        frozenset(),
+        "the content table's delimiters, `re.escape`d from the one table that holds them; "
+        "there is no production left to approximate",
+    ),
+    "_XML_CHARACTER_REFERENCE": (
+        frozenset(),
+        "`Reference`, narrowed to the five predefined entities and the numeric forms. The "
+        "NARROWING is the recorded approximation and it errs long; it is not a shorthand",
+    ),
+    # --- patterns that read no XML production at all -------------------------
+    "_SEPARATOR_RUN": (frozenset(), _NOT_AN_XML_PRODUCTION + "a run of path separators"),
+    "_PATH_POSITION": (
+        frozenset({chr(92) + "b", chr(92) + "s", chr(92) + "w"}),
+        _NOT_AN_XML_PRODUCTION + "identifiers and calls that mean a filesystem path follows",
+    ),
+    "_ABSOLUTE_PATH_PATTERNS[UNC]": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a UNC path; the class is _COMPONENT's, which excludes it",
+    ),
+    "_ABSOLUTE_PATH_PATTERNS[drive-letter]": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a drive-letter path; the class is _COMPONENT's",
+    ),
+    "_ABSOLUTE_PATH_PATTERNS[rooted]": (
+        frozenset({chr(92) + "s", chr(92) + "w"}),
+        _NOT_AN_XML_PRODUCTION + "a rooted path and the lookbehind that keeps it out of a word",
+    ),
+    "_ABSOLUTE_PATH_PATTERNS[path-bearing position]": (
+        frozenset({chr(92) + "b", chr(92) + "s", chr(92) + "w"}),
+        _NOT_AN_XML_PRODUCTION + "_PATH_POSITION under its second name; see that row",
+    ),
+    "_ABSOLUTE_PATH_PATTERNS[named home directory]": (
+        frozenset({chr(92) + "s", chr(92) + "w"}),
+        _NOT_AN_XML_PRODUCTION + "a tilde home directory and the lookbehind for a web path",
+    ),
+    "_ABSOLUTE_PATH_PATTERNS[file URL]": (
+        frozenset({chr(92) + "b", chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a file URL's scheme and authority",
+    ),
+    "_JSON_ESCAPE": (frozenset(), _NOT_AN_XML_PRODUCTION + "JSON string escapes"),
+    "_JSON_ESCAPE_IN_A_STRING": (frozenset(), _NOT_AN_XML_PRODUCTION + "the same, inside a string"),
+    "_DECORATION": (
+        frozenset({chr(92) + "d", chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "Markdown quoting, bullets and list numbering",
+    ),
+    "_GENEALOGY_RECORD": (
+        frozenset({chr(92) + "b", chr(92) + "d", chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a GEDCOM level line, whose grammar is not XML's",
+    ),
+    "_GENEALOGY_TEXT_SIGNATURES[GEDCOM header record]": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a GEDCOM header line under _LINE_PREFIX",
+    ),
+    "_GENEALOGY_TEXT_SIGNATURES[GEDCOM level-0 record]": (
+        frozenset({chr(92) + "b", chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a GEDCOM level-0 line under _LINE_PREFIX",
+    ),
+    "_GEDCOM_X_FILLED_KEY[identity]": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a JSON key and colon; JSON whitespace, not XML's S",
+    ),
+    "_GEDCOM_X_FILLED_KEY[address]": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a JSON key and colon; JSON whitespace, not XML's S",
+    ),
+    "_GEDCOM_X_FILLED_KEY[contact]": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a JSON key and colon; JSON whitespace, not XML's S",
+    ),
+    "_GEDCOM_X_FILLED_KEY[prose]": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a JSON key and colon; JSON whitespace, not XML's S",
+    ),
+    "_GEDCOM_X_TYPE_KEY": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a JSON key and colon; JSON whitespace, not XML's S",
+    ),
+    "_GEDCOM_X_VALUE_KEY": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a JSON key and colon; JSON whitespace, not XML's S",
+    ),
+    "_GEDCOM_X_STRUCTURAL_KEY": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "a JSON key and colon; JSON whitespace, not XML's S",
+    ),
+    "_PLAUSIBLE_PATH": (
+        frozenset({chr(92) + "s"}),
+        _NOT_AN_XML_PRODUCTION + "whether a reported string looks like a path at all",
+    ),
+}
+"""Pattern -> the shorthands it may hold, and the reason it may hold them."""
+
+
+def _unlicensed(
+    patterns: dict[str, str], licence: dict[str, tuple[frozenset[str], str]]
+) -> list[str]:
+    """Every complaint the table has about ``patterns``, in three kinds.
+
+    A pure function of two arguments so the test can feed it a fabricated
+    pattern and a stripped licence and SHOW that it complains, rather than
+    asserting once against the real module and hoping the assertion means
+    something.
+    """
+    complaints = []
+
+    for name in sorted(patterns):
+        if name not in licence:
+            complaints.append(f"{name}: no licence row, so its shorthands were never weighed")
+            continue
+        permitted, reason = licence[name]
+        if not reason.strip():
+            complaints.append(f"{name}: licensed with no reason recorded")
+        for shorthand in sorted(_shorthands_in(patterns[name]) - permitted):
+            complaints.append(f"{name}: {ascii(shorthand)} is not licensed here")
+
+    for name in sorted(set(licence) - set(patterns)):
+        complaints.append(f"{name}: a licence row for a pattern that no longer exists")
+
+    return complaints
+
+
+def test_no_pattern_reading_an_xml_production_uses_a_python_shorthand() -> None:
+    r"""⭐ **The artifact that keeps the approximation set closed. The audit does not.**
+
+    Five rounds found one defect five times: ``\s`` for ``S``, ``\b`` for the
+    end of a ``Name``, a bare substring for a URI, ``\w`` for ``NameChar``. Each
+    was repaired where it was reported, and the next round found the next one --
+    because what closes a set of this shape is not a longer list of repairs but
+    a rule that the next pattern has to pass.
+
+    **The rule, and it is decidable per pattern rather than per input:**
+    transcribe an approximation whose looseness ADDS structure the document does
+    not have -- a marker firing, an exemption applying, a name ending where XML
+    says it does not. LEAVE, with a recorded reason, one whose looseness only
+    makes the guard read more content as data.
+
+    ⚠️ **Four ways this could pass while saying nothing, and each is closed by
+    name:**
+
+    * a pattern **absent** from the table -- the enumeration is WALKED off the
+      module rather than listed, so pattern twenty-one has no row and fails;
+    * an **empty** table, or an enumerator that found nothing -- both asserted
+      non-empty before anything is compared;
+    * a row whose **reason** was deleted, leaving a bare licence nobody can
+      audit -- an empty reason is itself a complaint;
+    * the checker being **incapable of complaining** -- so the last three
+      assertions feed it a fabricated pattern, a widened one, and a stripped
+      row, and require it to object to all three.
+
+    ⚠️ **A licence row is not a dispensation, it is a recorded decision**, which
+    is why the rows for the GEDCOM, JSON and path patterns exist at all: "this
+    one reads no XML production" is exactly the sentence that has to be written
+    down, because its ABSENCE is indistinguishable from nobody having looked.
+    """
+    patterns = _compiled_patterns()
+
+    assert _XML_SHORTHAND_LICENCE, (
+        "the licence table is empty, so it licenses nothing and asks for nothing"
+    )
+    assert len(patterns) > 20, (
+        "the walk over the module found almost no compiled patterns, so the table below is "
+        f"being compared against nothing: {sorted(patterns)}"
+    )
+
+    assert _unlicensed(patterns, _XML_SHORTHAND_LICENCE) == [], (
+        "a compiled pattern holds a Python shorthand it is not licensed for, which is the one "
+        "defect five review rounds on this module have found five times -- a shorthand standing "
+        f"in for an XML production: {_unlicensed(patterns, _XML_SHORTHAND_LICENCE)}"
+    )
+
+    transcribed = sorted(
+        name for name in ("_NAMES_THE_GRAMPS_FORMAT", "_DRAWING") if _XML_SHORTHAND_LICENCE[name][0]
+    )
+    assert transcribed == [], (
+        "the marker and the exemption are licensed for NOTHING -- one decides whether ~80 rows "
+        "score and the other decides what is suppressed, so neither may hold an approximation "
+        f"at all: {transcribed}"
+    )
+
+    unweighed = dict(patterns)
+    unweighed["_A_PATTERN_NOBODY_WEIGHED"] = "<name" + chr(92) + "b>"
+    widened = dict(patterns)
+    widened["_NAMES_THE_GRAMPS_FORMAT"] = patterns["_NAMES_THE_GRAMPS_FORMAT"] + chr(92) + "s"
+    unreasoned = dict(_XML_SHORTHAND_LICENCE)
+    unreasoned["_NAMES_THE_GRAMPS_FORMAT"] = (frozenset(), "   ")
+
+    silent = [
+        label
+        for label, complaints in (
+            ("a new pattern with no row", _unlicensed(unweighed, _XML_SHORTHAND_LICENCE)),
+            ("a licensed pattern widened", _unlicensed(widened, _XML_SHORTHAND_LICENCE)),
+            ("a row whose reason was removed", _unlicensed(patterns, unreasoned)),
+        )
+        if not complaints
+    ]
+    assert silent == [], (
+        "the check passes on inputs it must reject, so the assertion above is worth nothing: "
+        f"{silent}"
     )
 
 
@@ -1046,6 +2747,133 @@ def test_the_prefix_class_cannot_match_markup() -> None:
     )
 
 
+def _name_characters_python_calls_a_boundary() -> list[str]:
+    r"""``NameChar``s that Python's ``\b`` treats as the end of a word.
+
+    ⚠️ **Derived from the range BOUNDARIES of the production the guard already
+    holds**, filtered to the characters Python's ``\w`` does not match -- because
+    ``\b`` is defined as the edge between a ``\w`` and a non-``\w``, so those are
+    exactly the characters that legally continue an XML name and satisfy a word
+    boundary anyway. Listing them would be the enumeration this module refuses:
+    it is satisfied by the seven anybody would think of and silent about the
+    eighth.
+
+    ``:`` is appended rather than derived, because the table is ``NameChar``
+    **minus the colon** -- and the colon is the sharpest case of all. ``<type:x>``
+    is a legal ``QName`` whose local name is ``x``; a pattern that reads it as
+    ``type`` has scored an element the document never wrote.
+    """
+    word = re.compile(r"\w")
+    found = {
+        chr(code_point)
+        for first, last in _NCNAME_CONTINUE_RANGES
+        for code_point in (first, last)
+        if not word.match(chr(code_point))
+    }
+    return sorted(found) + [":"]
+
+
+def _longer_name(suffix: str, *, attributed: bool) -> Callable[[str, int], str]:
+    r"""A probe whose OPENING tag is ``spelling`` continued by ``suffix`` + ``x``.
+
+    ⚠️ **The filled shape closes with the SHORT name and that is the defect, not
+    a malformed fixture.** ``</\1\s*>`` closes whatever group 1 captured, so if
+    the opener is read as ``<type>`` then ``</type>`` closes it and the element
+    is scored -- an exact reproduction of what a truncated or hand-edited paste
+    looks like. Written the other way, with both tags long, the backreference
+    would refuse the pair for a reason that has nothing to do with the name's
+    end, and the test would pass without ever reaching the question.
+
+    The trailing ``x`` keeps every spelling a legal XML name in its own right,
+    including the colon case: ``type:x`` is a ``QName`` whose local name is ``x``.
+    """
+
+    def build(spelling: str, copies: int) -> str:
+        longer = spelling + suffix + "x"
+        if attributed:
+            body = "".join("<" + longer + ' val="' + _PROBE_PAYLOAD + '"/>' for _ in range(copies))
+        else:
+            body = "".join(
+                "<" + longer + ">" + _PROBE_PAYLOAD + "</" + spelling + ">" for _ in range(copies)
+            )
+        return names_the_gramps_format() + "\n" + _carrier() + body
+
+    return build
+
+
+def test_a_vocabulary_spelling_is_not_the_prefix_of_a_longer_name() -> None:
+    r"""⭐ **The reproduction: ``<type-extra>`` is not a ``<type>``.**
+
+    ``\b`` is Python's word boundary and XML has no such production. Hyphen,
+    dot, middle dot, a combining mark, an undertie -- every one of them legally
+    CONTINUES an XML name and every one of them satisfies ``\b``, so a
+    vocabulary spelling was accepted as the PREFIX of a longer name and the
+    guard scored an element the document never wrote.
+
+    ⚠️ **The combining-mark case is the one this module has already paid for,
+    at the other end of the same name.** ``<type`` + U+0301 is a legal element
+    name whose local name is not ``type``; U+0301 is a ``NameChar`` and is not a
+    ``\w`` character. That is the exact class that made ``[^\W\d][\w.\-]*`` a
+    live fail-open for namespace PREFIXES in Change A -- the same production
+    approximated by the same shorthand, missed once at the front of the name and
+    once at the back.
+
+    **Over every row, in both shapes, because the reviewer named one of each.**
+    Finding 3 was reported against the attributed matcher with ``<type-extra
+    id="x"/>``. The filled matcher ends its name the same way and nobody looked;
+    a repair to the reported site alone leaves half the defect standing, which
+    is the partial application this module has paid for in every round so far.
+
+    ⚠️ **The non-collision assertion is what stops this passing for the wrong
+    reason.** If ``spelling`` + suffix were itself a vocabulary row the probe
+    would be measuring a legitimate row rather than a mis-read one.
+    """
+    suffixes = _name_characters_python_calls_a_boundary()
+    rows = sorted(_GRAMPS_CATEGORY_OF)
+
+    assert ":" in suffixes and chr(0x300) in suffixes and len(suffixes) > 7, (
+        "the suffix set is derived from the production's own range boundaries, and it has come "
+        "out without the cases the reproduction and Change A were about: "
+        f"{ascii(''.join(suffixes))}"
+    )
+
+    collisions = [
+        f"<{spelling}{ascii(suffix)}x>"
+        for spelling in rows
+        for suffix in suffixes
+        if spelling + suffix + "x" in _GRAMPS_CATEGORY_OF
+    ]
+    assert collisions == [], (
+        f"a probe name is itself a vocabulary row, so this test can pass by collision: {collisions}"
+    )
+
+    unreadable = []
+    scoring = []
+
+    for shape, attributed in (("filled", False), ("attributed", True)):
+        bare = _marked_gramps_attributed_probe if attributed else _marked_gramps_probe
+        for spelling in rows:
+            declared = _CATEGORY_WEIGHT[_GRAMPS_CATEGORY_OF[spelling]]
+            if declared and not _observed_weight(_gramps_identity_score, bare, spelling):
+                unreadable.append(f"{shape} <{spelling}>")
+            for suffix in suffixes:
+                observed = _observed_weight(
+                    _gramps_identity_score, _longer_name(suffix, attributed=attributed), spelling
+                )
+                if observed:
+                    scoring.append(f"{shape} <{spelling}{ascii(suffix)}x>: {observed}")
+
+    assert unreadable == [], (
+        "the control: a weighted spelling written as ITSELF still scores, or every measurement "
+        f"below is zero because the probe is broken rather than because the name ends: {unreadable}"
+    )
+    assert scoring == [], (
+        "a vocabulary spelling followed by a character that legally CONTINUES an XML name is a "
+        "different element, and these were scored as the shorter spelling the document does not "
+        f"contain -- {len(scoring)} of them, the first twelve being {scoring[:12]}"
+    )
+
+
 def test_a_prefixed_drawing_is_not_a_drawing() -> None:
     """The site that was withdrawn, asserted rather than left to the comment.
 
@@ -1065,6 +2893,84 @@ def test_a_prefixed_drawing_is_not_a_drawing() -> None:
     assert matched == [], (
         "a drawing is a drawing by its unprefixed spelling; an alias this module never "
         f"resolves does not buy an exemption: {matched}"
+    )
+
+
+def test_a_container_whose_name_merely_begins_with_svg_is_not_a_drawing() -> None:
+    r"""⭐ **The live fail-open: ``<svg-chart …>`` opened a drawing, and it is not one.**
+
+    ``_DRAWING`` is the module's one EXEMPTION, and its direction of failure is
+    the opposite of every scorer's: reading more containers means more
+    SUPPRESSION. Its opener was ``<svg\b`` and its closer ``</svg\s*>``, and both
+    shorthands are loose in exactly that direction.
+
+    * **The opener.** ``-``, ``.``, a combining mark and every other ``NameChar``
+      that satisfies ``\b`` made ``<svg-chart>`` an ``svg``. A name, a date of
+      birth and a place, wrapped between it and a later ``</svg>``, were
+      suppressed entirely -- a whole identity going from a finding to nothing.
+    * **The closer.** ``\s*`` is Python's whitespace, so ``</svg`` + U+00A0 +
+      ``>`` closed a drawing. XML reads no ``ETag`` there at all; a broader
+      closer spans further, and spanning further suppresses more.
+
+    Both derived from the sets the two tests above already build, rather than
+    exampled: the ``NameChar``s ``\b`` gets wrong, and the characters Python
+    calls whitespace and XML does not.
+
+    ⚠️ **The three controls are what stop this being an assertion that the
+    exemption is broken.** The payload must be a finding unwrapped, an ordinary
+    drawing must still exempt it, and a closer written with a REAL XML space
+    must still close. Without them a change that simply deleted ``_DRAWING``
+    would pass everything above.
+    """
+    payload = gramps_short_notes()
+    unwrapped = rules(scan_text(payload, source="notes.md"))
+    exempt = rules(scan_text(notes_inside_a_container(), source="notes.md"))
+    spaced = rules(
+        scan_text(
+            "<" + _DRAWING_PREFIX + ">" + payload + "</" + _DRAWING_PREFIX + " >",
+            source="notes.md",
+        )
+    )
+
+    assert unwrapped == ["P2"], (
+        f"the premise: three short notes are a whole identity on their own, got {unwrapped}"
+    )
+    assert exempt == [] and spaced == [], (
+        "the controls: an ordinary drawing still exempts its labels, and an ETag written with a "
+        f"real XML space still closes one. Got {exempt} and {spaced}"
+    )
+
+    suppressed = [
+        f"<{_DRAWING_PREFIX}{ascii(suffix)}x> ... </{_DRAWING_PREFIX}>"
+        for suffix in _name_characters_python_calls_a_boundary()
+        if rules(
+            scan_text(
+                "<" + _DRAWING_PREFIX + suffix + "x>" + payload + "</" + _DRAWING_PREFIX + ">",
+                source="notes.md",
+            )
+        )
+        != ["P2"]
+    ]
+    spanned = [
+        f"</{_DRAWING_PREFIX}{ascii(character)}>"
+        for character in _not_xml_whitespace()
+        if rules(
+            scan_text(
+                "<" + _DRAWING_PREFIX + ">" + payload + "</" + _DRAWING_PREFIX + character + ">",
+                source="notes.md",
+            )
+        )
+        != ["P2"]
+    ]
+
+    assert suppressed == [], (
+        "a container whose name merely BEGINS with the drawing spelling is a different element, "
+        "and these opened an exemption that swallowed a name, a date of birth and a place: "
+        f"{suppressed}"
+    )
+    assert spanned == [], (
+        "and XML closes an element with its own name followed by S, which these are not -- so "
+        f"the drawing has no closer and cannot span to one: {spanned}"
     )
 
 

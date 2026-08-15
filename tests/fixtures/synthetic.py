@@ -366,6 +366,40 @@ def gramps_address_block() -> str:
     )
 
 
+def gramps_issue_address_payload() -> str:
+    """The address payload issue #4 item 1 was filed with, assembled.
+
+    Kept apart from ``gramps_address_block`` deliberately: that one is the
+    property's own fixture and may be rewritten with it, while this is a
+    RE-MEASUREMENT of a specific reported input and has to stay the input that
+    was reported. It carries the dated element the issue wrote and one more
+    address child than the block does.
+    """
+    return _element(
+        "address",
+        body="".join(
+            (
+                _element("dateval", attributes='val="1893-04-02"', empty=True),
+                _element("street", body="12 Zephyrglass Lane"),
+                _element("city", body="Thornwick"),
+                _element("postal", body="ZX1"),
+                _element("phone", body="555-0100"),
+            )
+        ),
+    )
+
+
+def genealogy_record_as_a_filename() -> str:
+    """A committed NAME that is itself a genealogy record.
+
+    Assembled like every record here. The characters are all legal in a Git
+    tree entry, which is the point: a name is published exactly as its file's
+    contents are, and an export dumped one-record-per-file names its files
+    after the records.
+    """
+    return _level(0, "@I1@ INDI") + ".md"
+
+
 def gramps_reference_fragment() -> str:
     """An export's links: elements with handles and no content of their own.
 
@@ -475,6 +509,159 @@ def gramps_xml_database_element(*, prefix: str = "") -> str:
     qualifier = prefix + ":" if prefix else ""
     declaration = "xmlns:" + prefix if prefix else "xmlns"
     return _element(qualifier + "database", attributes=f'{declaration}="{namespace}"')
+
+
+def names_the_gramps_format() -> str:
+    """The declared namespace, IN a declaration: the marker, and nothing else with it.
+
+    A spelling the schema derivation ADDED scores only in a text that names the
+    format. This is the cheapest such text, and it is deliberately the *only*
+    marker these fixtures carry.
+
+    ⚠️ **This used to return the namespace on its own, and that stopped being a
+    marker.** The gate reads the schema-fixed value as the VALUE of an ``xmlns``
+    attribute in a start tag, because a document that merely *mentions* the
+    namespace has not declared it -- a prose sentence naming it beside four
+    generic ``<type>`` elements scored 6 and was reported. See the marker block
+    in ``pii_guard`` for why the gate is anchored. Left returning the bare URL,
+    every probe built on this would measure a CLOSED gate and every test using
+    one would go red for the right reason and the wrong cause.
+
+    ⚠️ **Deliberately NOT the document element.** ``<database … gramps…>`` is a
+    genealogy TEXT SIGNATURE, and a signature short-circuits ``_sniff_genealogy``
+    before any scorer runs -- so a fixture marked that way would report for a
+    reason that has nothing to do with the gate, and a test using it could not
+    tell an open gate from a closed one. ``catalogue`` is a name the published
+    schema does not declare, so the wrapper carries no weight of its own and
+    leaves the scorer the thing being measured.
+
+    Composed inside itself, like every other spelling of it here: the guard
+    recognises that string wherever it appears, so a contiguous copy in a
+    tracked file is a genuine finding.
+    """
+    return _element("catalogue", attributes='xmlns="' + gramps_namespace_url() + '"')
+
+
+def a_prose_mention_of_the_namespace() -> str:
+    """A sentence naming the namespace, with no markup anywhere around it.
+
+    What a document *about* the format contains, and what the gate must not
+    read as the format declaring itself. Distinct from
+    ``gramps_importer_spec`` on purpose: that one is a whole design note, and
+    this is the one sentence, so a repair that rests on anything else in the
+    note fails here.
+    """
+    return (
+        "# Import notes\n\nExports identify themselves with the namespace "
+        + gramps_namespace_url()
+        + ",\nwhich is how the importer recognises one.\n"
+    )
+
+
+def generic_xml_names_beside_a_prose_mention() -> str:
+    """The reproduction: that sentence, then four filled ``<type>`` elements.
+
+    A mention is not a declaration, so the four generic names after it are as
+    ordinary as they are in the bare reproduction. Written as the sentence plus
+    the existing builder rather than as a new document, so the only thing this
+    adds to that reproduction is the mention.
+    """
+    return a_prose_mention_of_the_namespace() + "\n" + gramps_generic_xml_names()
+
+
+def gramps_generic_xml_names() -> str:
+    """Four filled ``<type>`` elements in a document about unrelated XML.
+
+    The reproduction the marker gate was built for. ``type`` is a schema
+    spelling AND an ordinary XML name, so it is in neither published markup
+    index and the deliberately-unweighted category never sees it -- four filled
+    ones reached the threshold in any document that happened to show a type.
+    """
+    values = ("string", "integer", "boolean", "date")
+    return "\n".join(_element("type", body=value) for value in values) + "\n"
+
+
+def generic_xml_names_under_an_unrelated_namespace(*, namespace: str) -> str:
+    """The reproduction: an unrelated format's namespace on the schema's document element.
+
+    ``<database xmlns="...">`` wrapping the four filled ``<type>`` elements
+    above. A document that declares a namespace which is **not** the Gramps one
+    has named a different format, so the four generic names inside it are as
+    ordinary as they are in the bare reproduction.
+
+    The namespace is passed in rather than written here, exactly as
+    ``notes_inside_a_container`` takes one: what it names does not matter, only
+    that it is not the value the schema fixes.
+    """
+    return _element(
+        "database",
+        attributes='xmlns="' + namespace + '"',
+        body="\n" + gramps_generic_xml_names(),
+    )
+
+
+def generic_xml_names_under_an_unrelated_doctype(*, identifier: str) -> str:
+    """The same reproduction, spelled as a doctype naming an unrelated identifier.
+
+    A doctype's ``Name`` is the document element, so a document declaring one
+    named ``database`` is not thereby a Gramps document: the identifier beside
+    it is what says which format, and this one names another.
+
+    ⚠️ **``<!DOCTYPE`` is assembled**, like every other marker-shaped string in
+    this module: written whole beside four filled containers it would be a
+    marker in a tracked file rather than a fixture.
+    """
+    opening = "<!DOC" + "TYPE database SYSTEM " + '"' + identifier + '">'
+    return opening + "\n" + gramps_generic_xml_names()
+
+
+def unrelated_xml_document() -> str:
+    """A build manifest: a file, its status, a description and a type.
+
+    The second reproduction, and the one that shows the problem is not about
+    ``<type>`` in particular. Not one of these four spellings is a Gramps word;
+    every one of them is a row the schema derivation added.
+    """
+    fields = (
+        ("file", "quarterly-rollup.csv"),
+        ("status", "complete"),
+        ("description", "regenerated nightly from the ledger export"),
+        ("type", "scheduled"),
+    )
+    return "\n".join(_element(name, body=value) for name, value in fields) + "\n"
+
+
+def gramps_researcher_block() -> str:
+    """The researcher block: a name and a home address, invented.
+
+    ⭐ **This is the accepted COST of the gate, not a false positive.** Every
+    spelling in it -- ``resname``, ``rescity``, ``respostal`` -- is a row the
+    derivation added, so quoted without its marker it is no longer caught. The
+    number is measured and recorded in CONTRIBUTING rather than argued.
+    """
+    return _element(
+        "researcher",
+        body=(
+            _element("resname", body="Elowen Ashenmoor")
+            + _element("rescity", body="Thornwick")
+            + _element("respostal", body="ZX1")
+        ),
+    )
+
+
+def gramps_events_block() -> str:
+    """Two events, each with a type and a description.
+
+    The second half of the residual, and it takes TWO events: one event is two
+    filled structural elements and scores 2, which is below the threshold and so
+    was never a finding to lose. Assembled from the count rather than written
+    twice, so the reason the count is two stays visible.
+    """
+    event = _element(
+        "event",
+        body=_element("type", body="Birth") + _element("description", body="parish register"),
+    )
+    return _element("events", body=event * 2)
 
 
 def utf16le_gedcom_bytes() -> bytes:
