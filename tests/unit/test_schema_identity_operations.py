@@ -177,6 +177,38 @@ def test_the_place_authority_probe_fires_when_its_phase_allows_it() -> None:
     assert not result.well_formed, "the probe does not fire even when permitted; it proves nothing"
 
 
+def test_update_name_is_a_sourced_claim_about_a_person_not_a_string_edit() -> None:
+    spec = _registered("update_name")
+
+    assert "update_name" in schema.FACT_ASSERTING, (
+        "update_name is FACT_ASSERTING. The tempting error is to file it as "
+        "NON_FACT because it 'only changes a string' -- which confuses the "
+        "MECHANISM, a string edit, with the CONTENT: 'this person was called "
+        "X' is an assertion about a person that evidence can support, and a "
+        "spelling correction taken from a transcription is warranted by the "
+        "record it was read out of. A name variant is precisely where "
+        "competing sources disagree, which is the case provenance exists for"
+    )
+    assert spec.citation_field is not None, (
+        "a fact-asserting operation declares the field carrying its "
+        "provenance, and for update_name that is where the corrected spelling "
+        "was read: a correction on nobody's authority is the failure mode this "
+        "project exists to avoid, not a tidy-up"
+    )
+
+
+def test_update_name_records_the_name_of_a_person() -> None:
+    # Internal consistency, and it costs nothing to declare: the field metadata
+    # says what the reference must point at, and _reference_wrong_type reads
+    # that metadata rather than being written per type.
+    expects = schema.expected_object_types(_registered("update_name").cls)
+
+    assert expects.get("target") == "person", (
+        "a name belongs to a person, so the target says so and REFERENCE_WRONG_TYPE "
+        f"reports a reference aimed elsewhere; got {expects.get('target')!r}"
+    )
+
+
 def test_every_registered_type_records_why_it_is_classified_as_it_is() -> None:
     recorded = _recorded_rationales()
     missing = sorted(
