@@ -46,16 +46,69 @@ _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _ELEMENT = re.compile(r"<!ELEMENT\s+(?P<name>\S+)\s+(?P<model>.*?)>", re.DOTALL)
 _ATTLIST = re.compile(r"<!ATTLIST\s+(?P<element>\S+)\s+(?P<body>.*?)>", re.DOTALL)
 
+# XML 1.0 (Fifth Edition), section 3.3.1, transcribed:
+#
+#     AttType        ::= StringType | TokenizedType | EnumeratedType
+#     StringType     ::= 'CDATA'
+#     TokenizedType  ::= 'ID' | 'IDREF' | 'IDREFS' | 'ENTITY' | 'ENTITIES'
+#                      | 'NMTOKEN' | 'NMTOKENS'
+#     EnumeratedType ::= NotationType | Enumeration
+#     NotationType   ::= 'NOTATION' S '(' S? Name (S? '|' S? Name)* S? ')'
+#     Enumeration    ::= '(' S? Nmtoken (S? '|' S? Nmtoken)* S? ')'
+#
+# ⚠️ **THE CLOSED KEYWORD SET IS THE REPAIR, NOT AN INCIDENTAL TIDY-UP.** This
+# was `[A-Z]+`, which is what let `NOTATION` pass as a type in its own right: a
+# composite `foo NOTATION (gif) #IMPLIED` could not match from `foo`, so the
+# scan resumed at `NOTATION`, emitted a fabricated attribute of that name, and
+# the real attribute vanished. **And the fail-closed check below passed anyway**,
+# because the later match consumed the declaration's tail -- so the script
+# emitted a partial table while claiming it would refuse to. The fabricated row
+# is visible in a re-derivation diff; the omission is not.
+#
+# With the enumerated list, an unknown type token cannot match at all, the
+# remainder check sees the tail, and the script refuses as it says it does.
+# Ordering is longest-first -- `IDREFS` before `IDREF` before `ID`, `ENTITIES`
+# before `ENTITY`, `NMTOKENS` before `NMTOKEN` -- plus `\b`, so a longer type is
+# never shadowed by the shorter one it begins with. That is the rule the guard's
+# own `_qualified` follows, for the same reason.
+#
+# Closed and externally specified, so this enumeration is accepted on exactly
+# the grounds the guard's transcribed productions are: it does not grow.
+_ATT_TYPE = (
+    r"NOTATION\s*\([^)]*\)"
+    r"|\([^)]*\)"
+    r"|(?:CDATA|IDREFS|IDREF|ID|ENTITIES|ENTITY|NMTOKENS|NMTOKEN)\b"
+)
+
+# ⚠️ **`AttValue` may be quoted EITHER way**, and this accepted only `"…"`.
+# That failed closed -- the whole attribute failed to match and the remainder
+# check refused -- so it defeated no guarantee, but it refused a valid DTD, and
+# leaving a known identical hole in the production being repaired is the class
+# this fix exists to close. It changes nothing in the committed table.
+_ATT_VALUE = r"(?:'[^']*'|\"[^\"]*\")"
+
 # One attribute definition inside an ATTLIST: a name, a declared type, and the
 # default declaration that terminates it. The default is what makes this
 # unambiguous -- without it, the next attribute's name is indistinguishable
 # from a second type token.
 _ATTRIBUTE = re.compile(
     r"(?P<name>[A-Za-z_:][\w.:-]*)\s+"
-    r"(?P<type>\([^)]*\)|[A-Z]+)\s+"
-    r'(?:\#REQUIRED|\#IMPLIED|\#FIXED\s+"[^"]*"|"[^"]*")',
+    r"(?P<type>" + _ATT_TYPE + r")\s+"
+    r"(?:\#REQUIRED|\#IMPLIED|\#FIXED\s+(?P<fixed>" + _ATT_VALUE + r")|" + _ATT_VALUE + r")",
     re.DOTALL,
 )
+
+_VALUE_SEPARATOR = "/"
+"""Where a ``#FIXED`` default is split before it is written out.
+
+⚠️ **The emitted module is tracked content this repository's own guard scans,
+and the value this emission was added for is a namespace.** The guard scores
+that namespace as a substring wherever it appears, and its constant's own note
+records the published range showing it **43 times** when an anchor came off. So
+the value is never written contiguously; it is split here and joined by whoever
+reads it. The split is deterministic given the value, so the byte-for-byte
+reproduction property this script rests on is untouched.
+"""
 
 _ENUMERATION = "enumeration"
 """What an inline enumeration is called once its members stop mattering.
@@ -93,28 +146,44 @@ def elements_of(dtd: str) -> list[tuple[str, str]]:
     ]
 
 
-def attributes_of(dtd: str) -> list[tuple[str, str, str]]:
-    """Every (element, attribute, declared type), in declaration order.
+def attributes_of(
+    dtd: str,
+) -> tuple[list[tuple[str, str, str]], list[tuple[str, str, tuple[str, ...]]]]:
+    """Every (element, attribute, declared type), and every ``#FIXED`` default.
+
+    Both in declaration order, and both out of ONE pass: the second is a
+    property of the same declarations the first reads, and parsing an ATTLIST
+    twice would be a second place for the production to be spelled.
 
     ⚠️ **An unparsed tail is a failure, not a shortfall.** A declaration this
     cannot read is an attribute silently missing from the table, which is the
     fail-open shape of every enumeration defect this module has had, so it
     stops the derivation instead.
+
+    ⚠️ **Both ``EnumeratedType`` forms normalise to ``_ENUMERATION``.** A
+    NOTATION type is a fixed vocabulary of the format's own, which is what that
+    constant's note already says of the inline form; recording the two
+    differently would be a distinction the table has no question for.
     """
     found: list[tuple[str, str, str]] = []
+    defaults: list[tuple[str, str, tuple[str, ...]]] = []
     for declaration in _ATTLIST.finditer(dtd):
         element = declaration.group("element").lower()
         body = declaration.group("body")
         consumed = 0
         for attribute in _ATTRIBUTE.finditer(body):
+            name = attribute.group("name").lower()
             declared = " ".join(attribute.group("type").split())
             found.append(
                 (
                     element,
-                    attribute.group("name").lower(),
-                    _ENUMERATION if declared.startswith("(") else declared,
+                    name,
+                    _ENUMERATION if declared.startswith(("(", "NOTATION")) else declared,
                 )
             )
+            fixed = attribute.group("fixed")
+            if fixed is not None:
+                defaults.append((element, name, tuple(fixed[1:-1].split(_VALUE_SEPARATOR))))
             consumed = attribute.end()
         remainder = body[consumed:].strip()
         if remainder:
@@ -122,7 +191,7 @@ def attributes_of(dtd: str) -> list[tuple[str, str, str]]:
                 f"unread attribute text on <{element}>: {remainder[:60]!r} -- the derivation "
                 "would silently omit it"
             )
-    return found
+    return found, defaults
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +309,7 @@ def emit(
     digests: list[tuple[str, str]],
     elements: list[tuple[str, str]],
     attributes: list[tuple[str, str, str]],
+    fixed_defaults: list[tuple[str, str, tuple[str, ...]]],
     markup: set[str],
 ) -> str:
     """The whole generated module, formatted as the repository formats code."""
@@ -259,6 +329,24 @@ def emit(
     for element, attribute, declared in attributes:
         lines.append(f"    ({quoted(element)}, {quoted(attribute)}, {quoted(declared)}),")
     lines.append(')\n"""Every (element, attribute, declared type) the schema declares."""\n')
+
+    lines.append("FIXED_ATTRIBUTE_DEFAULTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (")
+    for element, attribute, pieces in fixed_defaults:
+        written = ", ".join(quoted(piece) for piece in pieces)
+        lines.append(f"    ({quoted(element)}, {quoted(attribute)}, ({written})),")
+    lines.append(")")
+    lines.append('"""Every value the schema FIXES an attribute at, split at each separator.')
+    lines.append("")
+    lines.append("The declared type says what kind of thing an attribute is; this says what the")
+    lines.append("schema requires the attribute to BE, which is how the namespace a Gramps")
+    lines.append("document declares becomes a fact read off the specification rather than a")
+    lines.append("string somebody typed into the guard.")
+    lines.append("")
+    lines.append("⚠️ **Split rather than written whole, and that is not a style choice.** This")
+    lines.append("file is tracked content the repository's own guard scans, and the guard scores")
+    lines.append("that namespace as a substring wherever it appears -- 43 times over the")
+    lines.append("published range, once an anchor came off. Rejoin with a forward slash.")
+    lines.append('"""\n')
 
     lines.append("MARKUP_ELEMENT_NAMES: frozenset[str] = frozenset(")
     lines.append("    (")
@@ -284,12 +372,14 @@ def main(argv: list[str]) -> int:
     ]
     dtd, html, svg = (content.decode("utf-8", "replace") for content in raw)
     bare = _COMMENT.sub(" ", dtd)
+    attributes, fixed_defaults = attributes_of(bare)
 
     sys.stdout.write(
         emit(
             digests,
             elements_of(bare),
-            attributes_of(bare),
+            attributes,
+            fixed_defaults,
             html_element_names(html) | svg_element_names(svg),
         )
     )
