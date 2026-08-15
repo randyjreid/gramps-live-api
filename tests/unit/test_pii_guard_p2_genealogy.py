@@ -21,11 +21,11 @@ from gramps_live_api.core._specified_containers import (
 )
 from gramps_live_api.core.pii_guard import (
     _CATEGORY_WEIGHT,
-    _GRAMPS_CATEGORY_OF,
     _DRAWING,
     _GENEALOGY_TEXT_SIGNATURES,
     _GRAMPS_ALL_ELEMENTS,
     _GRAMPS_ATTRIBUTED_ELEMENT,
+    _GRAMPS_CATEGORY_OF,
     _GRAMPS_FILLED_ELEMENT,
     _GRAMPS_PROSE_LENGTH,
     _GRAMPS_XML_NAMESPACE,
@@ -888,6 +888,31 @@ def test_no_spelling_the_vocabulary_already_had_changes_what_it_scores() -> None
     assert retracted == [], (
         "this audit adds rows and retracts none, and these spellings scored less than they did "
         f"before it: {retracted}"
+    )
+
+
+def test_no_spelling_is_claimed_by_two_categories() -> None:
+    """A spelling in two rows takes the LAST one silently, and nothing says so.
+
+    Written because it happened while the schema's rows were being placed:
+    ``header`` was put in the structural row and again in the unweighted one,
+    and the category lookup -- a comprehension over the table in order -- simply
+    took the second. The per-row test caught it, but only because the two
+    weights differ. **Two rows of the same weight would disagree about what an
+    element MEANS and no test would see it**, and meaning is what this table
+    exists to record.
+    """
+    seen: dict[str, str] = {}
+    doubled = []
+
+    for category, shared, xml_only, _ in _VOCABULARY:
+        for spelling in shared + xml_only:
+            if spelling in seen:
+                doubled.append(f"<{spelling}>: {seen[spelling]} and {category}")
+            seen[spelling] = category
+
+    assert doubled == [], (
+        f"these spellings are claimed by two categories, and the later one wins silently: {doubled}"
     )
 
 

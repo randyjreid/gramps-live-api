@@ -873,17 +873,39 @@ _VOCABULARY: tuple[tuple[str, tuple[str, ...], tuple[str, ...], tuple[str, ...]]
     # the defect this table exists to make impossible -- so anything the two
     # formats call by the same name is written ONCE, and the per-format columns
     # hold only what genuinely differs.
-    ("identity", ("surname",), ("name", "first", "ptitle", "pname"), ("fullText", "given")),
+    (
+        "identity",
+        ("surname",),
+        (
+            "name",
+            "first",
+            "ptitle",
+            "pname",
+            # The rest of what the schema calls a person by, and the one name
+            # in the researcher block: a call name, the nicknames, the suffix,
+            # the surname group, and the author a source is credited to.
+            "call",
+            "nick",
+            "familynick",
+            "suffix",
+            "group",
+            "sauthor",
+            "resname",
+        ),
+        ("fullText", "given"),
+    ),
     (
         # Where somebody lives locates them as surely as what they are called.
         "address",
         ("street", "city", "county", "state", "postal", "country", "phone"),
-        (),
+        # The schema's own address spellings, and the researcher block, which
+        # is a home address belonging to a named person by construction.
+        ("locality", "resaddr", "reslocality", "rescity", "resstate", "rescountry", "respostal"),
         ("postalCode",),
     ),
     # A way to reach a person names them at least as directly as a home
     # directory does, which P1 already treats as identity.
-    ("contact", ("url", "email"), (), ("emails",)),
+    ("contact", ("url", "email"), ("resphone", "resemail"), ("emails",)),
     ("prose", ("text", "note"), (), ()),
     (
         "structure",
@@ -902,12 +924,128 @@ _VOCABULARY: tuple[tuple[str, tuple[str, ...], tuple[str, ...], tuple[str, ...]]
             "childref",
             "noteref",
             "attribute",
+            # Everything else the schema declares. Structural weight is not a
+            # shrug: a document made of four of these is an export whatever
+            # they are, which is the density question, while no single one of
+            # them names anybody -- which is the whole distinction this table
+            # was rewritten around.
+            #
+            # ⚠️ Three of these are the ones a reader will want to promote --
+            # `description`, `cause` and `page` can hold a sentence, and
+            # `<description>` in particular reads like prose. They stay at
+            # structural weight deliberately. Prose weight is for containers
+            # whose PURPOSE is narrative about a person, which the schema says
+            # of `note` and `text` and does not say of a caption on a media
+            # object or a URL. Promoting them costs a threshold-clearing score
+            # for one filled element in any schema document that shows an
+            # example, which is the document Phase 1 is about to write.
+            "database",
+            "created",
+            "researcher",
+            "mediapath",
+            "people",
+            "personref",
+            "childof",
+            "parentin",
+            "families",
+            "father",
+            "mother",
+            "rel",
+            "events",
+            "event",
+            "type",
+            "sources",
+            "stitle",
+            "spubinfo",
+            "sabbrev",
+            "places",
+            "coord",
+            "location",
+            "objects",
+            "file",
+            "repositories",
+            "repository",
+            "rname",
+            "reporef",
+            "notes",
+            "range",
+            "tags",
+            "tag",
+            "tagref",
+            "citations",
+            "citationref",
+            "sourceref",
+            "srcattribute",
+            "bookmarks",
+            "bookmark",
+            "namemaps",
+            "name-formats",
+            "format",
+            "daterange",
+            "datespan",
+            "datestr",
+            "page",
+            "confidence",
+            "place",
+            "placeref",
+            "cause",
+            "description",
+            "objref",
+            "region",
+            "data_item",
+            "lds_ord",
+            "temple",
+            "status",
+            "sealed_to",
         ),
         ("persons", "names", "nameForms", "relationships", "facts", "notes", "addresses"),
     ),
+    (
+        # ⚠️ **DELIBERATELY UNWEIGHTED, AND THE WIDENING IS UNAFFORDABLE
+        # WITHOUT IT.** These are element names the published schema declares
+        # AND the published HTML and SVG element indexes also list. At even the
+        # smallest weight, four filled ones reach the threshold -- and this
+        # repository is full of markup, so an ordinary snippet would be
+        # reported and the gate would become something contributors route
+        # around, which is a security failure here rather than an ergonomic
+        # one.
+        #
+        # Accepted on exactly the ground ``FILESYSTEM_ROOTS`` and the drawing
+        # exemption are: the collision is read off two published indexes, which
+        # are closed and externally specified rather than a list maintained
+        # here. The membership is asserted against those indexes by test.
+        #
+        # **The failure mode taken, stated rather than discovered:** a real
+        # export earns nothing from its `<title>` or `<source>` elements. That
+        # costs nothing, because such an export is caught many times over by
+        # the spellings that collide with nothing -- `person`, `surname`,
+        # `placeobj`, `childref` and eighty others.
+        #
+        # **The rejected alternative, recorded so it is not re-proposed:** a
+        # document-level structural gate, scoring these only once the file has
+        # proved it is Gramps. It is the more precise answer and it is a second
+        # document-level condition on the XML scorer. If measurement ever shows
+        # a real export slipping, that is the thing to refile.
+        #
+        # ⚠️ **This category is for rows this audit ADDS, and never a
+        # retraction.** `text` and `address` collide too and are NOT here: they
+        # were weighted before the derivation, and zeroing them would drop
+        # existing catches while every number in the measurement improved.
+        "collides",
+        (),
+        ("title", "style", "code", "map", "object", "source", "header"),
+        (),
+    ),
 )
 
-_CATEGORY_WEIGHT = {"identity": 2, "address": 2, "contact": 2, "prose": 4, "structure": 1}
+_CATEGORY_WEIGHT = {
+    "identity": 2,
+    "address": 2,
+    "contact": 2,
+    "prose": 4,
+    "structure": 1,
+    "collides": 0,
+}
 
 
 def _elements_of(*categories: str) -> tuple[str, ...]:
@@ -1864,7 +2002,17 @@ def _gramps_identity_score(text: str) -> tuple[int, int] | None:
             else:
                 score += _GRAMPS_PROSE_WEIGHT
         else:
-            score += _CATEGORY_WEIGHT[_GRAMPS_CATEGORY_OF[tag]]
+            weight = _CATEGORY_WEIGHT[_GRAMPS_CATEGORY_OF[tag]]
+            if not weight:
+                # A deliberately-unweighted spelling: see the category at the
+                # foot of the vocabulary. The span STAYS recorded above, so the
+                # attributed pass cannot pick the same element up again, but it
+                # must not become the offset a finding points at -- a report
+                # whose line names evidence worth nothing is a report nobody
+                # can act on, which is the failure this category exists to
+                # avoid in the first place.
+                continue
+            score += weight
         first = match.start() if first is None else first
 
     for match in _GRAMPS_ATTRIBUTED_ELEMENT.finditer(text):
@@ -1876,7 +2024,11 @@ def _gramps_identity_score(text: str) -> tuple[int, int] | None:
         # weighed the same as a bare person element -- one principle stated in
         # the comment at the top and honoured by only one of the two loops
         # beneath it.
-        score += _CATEGORY_WEIGHT[_GRAMPS_CATEGORY_OF[_local_name(match.group(1))]]
+        weight = _CATEGORY_WEIGHT[_GRAMPS_CATEGORY_OF[_local_name(match.group(1))]]
+        if not weight:
+            # The same rule as the pass above, for the same reason.
+            continue
+        score += weight
         first = match.start() if first is None else first
 
     if _GRAMPS_XML_NAMESPACE in text:
