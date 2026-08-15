@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from gramps_live_api.core import pii_guard
@@ -33,6 +33,7 @@ from gramps_live_api.core.pii_guard import (
     _GRAMPS_FILLED_ELEMENT,
     _GRAMPS_PROSE_LENGTH,
     _GRAMPS_XML_NAMESPACE,
+    _NAMESPACE_TOLERANCES,
     _NCNAME_CONTINUE_RANGES,
     _NCNAME_START_RANGES,
     _SPELLINGS_THE_DERIVATION_ADDED,
@@ -42,7 +43,9 @@ from gramps_live_api.core.pii_guard import (
     _XML_NAME_PREFIX,
     _gedcom_x_identity_score,
     _gramps_identity_score,
+    _marker_reading,
     _names_the_gramps_format,
+    _namespace_value_of,
     _qualified,
     scan_blob,
     scan_paths,
@@ -1369,6 +1372,154 @@ def test_a_scheme_the_schema_does_not_fix_does_not_name_the_format() -> None:
     assert missed == [], (
         "and every spelling the gate is required to accept still names the format, or the half "
         f"above is satisfied by a gate that reads nothing: {missed}"
+    )
+
+
+def _spellings_stopped_by(
+    tolerances: Sequence[tuple[str, str, str]], required: Sequence[str]
+) -> list[str]:
+    """Which of ``required`` a gate built from ``tolerances`` no longer reads.
+
+    The marker is rebuilt from the table rather than patched into the module,
+    which is what lets a row be removed and the consequence MEASURED instead of
+    argued.
+    """
+    marker = _marker_reading(tolerances)
+    return [value for value in required if not marker.search(_declaring(value))]
+
+
+def _unearned(tolerances: Sequence[tuple[str, str, str]], required: Sequence[str]) -> list[str]:
+    """Every complaint the tolerance rule has about ``tolerances``, in four kinds.
+
+    A pure function of two arguments so the test can feed it a fabricated table
+    and SHOW that it complains, rather than asserting once against the real one
+    and hoping the assertion means something -- the shape ``_unlicensed`` uses,
+    and the reason this repository trusts that one.
+    """
+    complaints = []
+    positions = [position for position, _, _ in tolerances]
+
+    for index, (position, fragment, reason) in enumerate(tolerances):
+        if position not in ("prefix", "tail"):
+            complaints.append(
+                f"row {index} ({fragment!r}): {position!r} is not a position the compiler reads, "
+                "so the row is declared and does nothing"
+            )
+        if not reason.strip():
+            complaints.append(f"row {index} ({fragment!r}): tolerated with no reason recorded")
+
+    if positions.count("tail") != 1:
+        complaints.append(
+            f"the table declares {positions.count('tail')} tail rows, and what may follow the "
+            "base is exactly one of them -- none pins the version, two admit a spelling nobody "
+            "declared"
+        )
+
+    for index, (_, fragment, _) in enumerate(tolerances):
+        without = [row for offset, row in enumerate(tolerances) if offset != index]
+        if not _spellings_stopped_by(without, required):
+            complaints.append(
+                f"row {index} ({fragment!r}): removing it stops no spelling the gate is required "
+                "to accept, so it has stopped earning its row"
+            )
+
+    return complaints
+
+
+def test_every_namespace_tolerance_is_declared_with_a_reason_and_earns_its_row() -> None:
+    """⭐ **The artifact this round is for: the looseness is a list, and the list is held closed.**
+
+    Three rounds each found a new dimension of looseness in one check and each
+    closed that dimension only. What ends a sequence of that shape is not a
+    longer list of repairs but a rule the next entry has to pass -- which is
+    exactly what `_XML_SHORTHAND_LICENCE` did for the Python shorthands, in this
+    same module, one level down. This is that rule for the namespace value.
+
+    **Four ways the table could pass while saying nothing, each closed by name:**
+
+    * a row whose **reason** was deleted, leaving a tolerance nobody can audit;
+    * **no tail row, or two** -- none pins the version and quietly narrows the
+      gate, two admit a spelling nobody declared;
+    * a row at a **position the compiler does not read**, which is declared and
+      does nothing;
+    * a row that has **stopped earning its place** -- removing it must stop at
+      least one spelling the gate is required to accept, or it is licence with
+      no load.
+
+    ⚠️ **Removing the `tail` row must break the version spellings, and that is
+    the LATER-SCHEMA-REVISION property asserted rather than argued.**
+    `_GRAMPS_XML_NAMESPACE` deliberately stops short of the version segment so
+    an export written against a schema revision this project has never seen
+    still names the format. It used to be an emergent property of the pattern;
+    it is a declared row now, and this is what says the row is the one carrying
+    it.
+
+    ⚠️ **The checker is fed fabricated tables at the end**, because a checker
+    incapable of complaining is the fifth way this could pass while saying
+    nothing.
+    """
+    required = _uris_that_are_the_namespace()
+    base = _GRAMPS_XML_NAMESPACE
+
+    assert _NAMESPACE_TOLERANCES and required, (
+        "the tolerance table or the spellings it is measured against came out empty, so "
+        f"everything below compares nothing: {len(_NAMESPACE_TOLERANCES)} rows, {len(required)} "
+        "spellings"
+    )
+    assert _unearned(_NAMESPACE_TOLERANCES, required) == [], (
+        "every relaxation of the schema-fixed value is declared, reasoned and load-bearing, and "
+        f"the table disagrees: {_unearned(_NAMESPACE_TOLERANCES, required)}"
+    )
+
+    without_tail = [row for row in _NAMESPACE_TOLERANCES if row[0] != "tail"]
+    stopped = _spellings_stopped_by(without_tail, required)
+    versioned = [value for value in required if not value.endswith(base)]
+    unprefixed = [value for value in versioned if value.startswith(base)]
+
+    assert stopped == versioned and len(unprefixed) == 3, (
+        "the tail row is the later-schema-revision property: removing it must stop every "
+        f"spelling carrying a version segment, and {len(unprefixed)} of them are the version "
+        f"alone. Removing it stopped {stopped}, and the spellings with a tail are {versioned}"
+    )
+
+    shadowing = (
+        ("prefix", "//", "the shorter spelling, declared FIRST on purpose"),
+        ("prefix", "//x", "the longer one it is a prefix of"),
+        ("tail", "/", "a tail, so the fabricated table is otherwise well formed"),
+    )
+    emitted = _namespace_value_of(shadowing)
+    real = _namespace_value_of(_NAMESPACE_TOLERANCES)
+
+    assert "(?://x|//)" in emitted and "(?://|//x)" not in emitted, (
+        "the alternation is emitted longest-first, so a shorter spelling never shadows a longer "
+        f"one it begins with -- and this one is not: {emitted[:80]!r}"
+    )
+    assert real.count("|)") == 2, (
+        "and the EMPTY tolerance is emitted last, once per quoting, or the bare base shadows "
+        f"every spelling that has something in front of it: {real[:120]!r}"
+    )
+
+    tail = next(row for row in _NAMESPACE_TOLERANCES if row[0] == "tail")
+    silent = [
+        label
+        for label, table in (
+            ("a row whose reason was removed", [*without_tail, (tail[0], tail[1], "   ")]),
+            ("a table with no tail row", without_tail),
+            ("a table with two tail rows", [*_NAMESPACE_TOLERANCES, tail]),
+            (
+                "a row at a position nothing reads",
+                [*_NAMESPACE_TOLERANCES, ("middle", "x", "declared, and read by nothing")],
+            ),
+            (
+                "a row that earns nothing",
+                [*_NAMESPACE_TOLERANCES, ("prefix", "ftp" + "://", "a scheme nothing requires")],
+            ),
+        )
+        if not _unearned(table, required)
+    ]
+    assert silent == [], (
+        f"the check passes on tables it must reject, so the assertion above is worth nothing: "
+        f"{silent}"
     )
 
 
