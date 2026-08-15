@@ -24,12 +24,15 @@ property unfalsifiable.
 
 from __future__ import annotations
 
+import bisect
 import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from enum import Enum
 from types import MappingProxyType
 from typing import TypeVar, get_args, get_type_hints
+
+from gramps_live_api.core._unrenderable import UNRENDERABLE_RANGES
 
 # ---------------------------------------------------------------------------
 # References -- D2, answered
@@ -78,21 +81,68 @@ _PREVIEW_TEXT_LIMIT = 60
 """How much of a free-text value a one-line preview carries before eliding."""
 
 
-def _named(reference: ObjectRef | None) -> str:
+@dataclass(frozen=True, slots=True)
+class Fragment:
+    """One piece of a rendered sentence, and the field whose value it is.
+
+    ⚠️ **A renderer returns pieces rather than a string so that WHICH FIELD
+    PRODUCED WHICH TEXT survives into the guard.** The alternative -- render a
+    flat string, then match an offending character back against the operation's
+    values -- cannot answer the question it is being asked: two fields carrying
+    the same character are indistinguishable to a search, so it reports whichever
+    the walk reaches first. That is an attribution by declaration order dressed
+    up as an attribution by evidence, and it named fields whose correction
+    changed nothing.
+
+    ``field_path`` is the dotted path of the field this text came from, or
+    ``None`` for the wording this module wrote itself. Both cases are
+    load-bearing: the second is how the guard knows a character came from *our*
+    renderer rather than from a payload, and so must not name a field at all.
+    """
+
+    text: str
+    field_path: str | None = None
+
+
+def _own(text: str) -> Fragment:
+    """Wording this module wrote. No field carries it, so none is named for it."""
+    return Fragment(text)
+
+
+def _carried(path: str, text: str) -> Fragment:
+    """Text that came from the field at ``path``, which is what a refusal names.
+
+    ⚠️ **``path`` must be spelled as ``required_paths`` spells it**, because
+    that is the vocabulary every other message in this module reports in.
+    Asserted per registered type, so a mistyped prefix fails a test rather than
+    reaching a reader as a field they cannot find.
+    """
+    return Fragment(text, path)
+
+
+def _named(reference: ObjectRef | None, path: str) -> tuple[Fragment, ...]:
     """A reference as a person reads it: what kind of thing, and which one.
 
     ⚠️ **The handle is deliberately absent and must stay absent.** It is
     machine identity; naming it here is the one thing criterion 7 rules out
     outright, because an operation identified by an opaque string cannot be
-    checked against a record by the person approving it.
+    checked against a record by the person approving it. It contributes no
+    fragment, which is also why no refusal can name it: a field the sentence
+    never carries is not one the rendering guard has anything to say about.
     """
     if reference is None:
-        return "an object that was not named"
-    kind = reference.object_type or "object"
-    return f"{kind} {reference.gramps_id}" if reference.gramps_id else f"an unidentified {kind}"
+        return (_own("an object that was not named"),)
+    kind = (
+        _carried(f"{path}.object_type", reference.object_type)
+        if reference.object_type
+        else _own("object")
+    )
+    if reference.gramps_id:
+        return (kind, _own(" "), _carried(f"{path}.gramps_id", reference.gramps_id))
+    return (_own("an unidentified "), kind)
 
 
-def _identified(reference: ObjectRef | None) -> str:
+def _identified(reference: ObjectRef | None, path: str) -> tuple[Fragment, ...]:
     """A reference where the sentence has already said what kind of thing it is.
 
     ``cite citation C0042`` is what naming the kind twice reads like, and a
@@ -100,18 +150,30 @@ def _identified(reference: ObjectRef | None) -> str:
     ``_named``: the identifier, never the handle.
     """
     if reference is None:
-        return "an object that was not named"
-    return reference.gramps_id or f"an unidentified {reference.object_type or 'object'}"
+        return (_own("an object that was not named"),)
+    if reference.gramps_id:
+        return (_carried(f"{path}.gramps_id", reference.gramps_id),)
+    if reference.object_type:
+        return (_own("an unidentified "), _carried(f"{path}.object_type", reference.object_type))
+    return (_own("an unidentified object"),)
 
 
-def _shortened(text: str) -> str:
-    """Free text, quoted, and cut to something a single line can hold."""
+def _shortened(text: str, path: str) -> tuple[Fragment, ...]:
+    """Free text, quoted, and cut to something a single line can hold.
+
+    ⚠️ **Only what survives the elision is attributed**, because only that
+    reaches the sentence. The recorded residual -- a character past the limit is
+    never emitted, and a guard over what we DISPLAY has nothing to say about it
+    -- is true here by construction rather than by the guard happening to scan
+    a string the elision had already shortened.
+    """
     collapsed = " ".join(text.split())
     if not collapsed:
-        return "(no text)"
+        return (_own("(no text)"),)
     if len(collapsed) > _PREVIEW_TEXT_LIMIT:
-        collapsed = collapsed[: _PREVIEW_TEXT_LIMIT - 1].rstrip() + "…"
-    return f"“{collapsed}”"
+        kept = collapsed[: _PREVIEW_TEXT_LIMIT - 1].rstrip()
+        return (_own("“"), _carried(path, kept), _own("…”"))
+    return (_own("“"), _carried(path, collapsed), _own("”"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,12 +209,22 @@ class Operation:
     once -- and it puts the refusal somewhere no field path can reach.
     """
 
-    def render(self) -> str:
-        """One sentence describing what this operation would do.
+    def render(self) -> tuple[Fragment, ...]:
+        """One sentence describing what this operation would do, in pieces.
 
-        Called only through ``preview``, which applies the single-line rule.
-        An override returns whatever reads best; it does not have to remember
-        to strip newlines, and that is the point of the choke point.
+        Called only through ``preview``, which joins the pieces and applies the
+        single-line rule. An override returns whatever reads best; it does not
+        have to remember to strip newlines, and that is the point of the choke
+        point.
+
+        ⚠️ **Every piece built from a field's value names that field.** The
+        rendering guard reports the field a refused character came from, and it
+        reads that off these fragments rather than searching the operation for
+        the character afterwards -- a search cannot tell two rendered fields
+        carrying the same character apart, and answers by declaration order. A
+        renderer that inlines a value without naming its path leaves the guard
+        with nothing to name, which fails the generated matrix in
+        ``test_schema_preview_guard.py`` rather than degrading quietly.
         """
         raise NotImplementedError
 
@@ -364,8 +436,13 @@ class AddCitation(Operation):
     target: ObjectRef | None = None
     citation: ObjectRef | None = field(default=None, metadata={_EXPECTS: OBJECT_TYPE_CITATION})
 
-    def render(self) -> str:
-        return f"cite {_identified(self.citation)} as evidence for {_named(self.target)}"
+    def render(self) -> tuple[Fragment, ...]:
+        return (
+            _own("cite "),
+            *_identified(self.citation, "citation"),
+            _own(" as evidence for "),
+            *_named(self.target, "target"),
+        )
 
 
 @_register("add_note", citation_field=None)
@@ -381,8 +458,15 @@ class AddNote(Operation):
     note_type: str = ""
     text: str = ""
 
-    def render(self) -> str:
-        return f"add a {self.note_type} note to {_named(self.target)}: {_shortened(self.text)}"
+    def render(self) -> tuple[Fragment, ...]:
+        return (
+            _own("add a "),
+            _carried("note_type", self.note_type),
+            _own(" note to "),
+            *_named(self.target, "target"),
+            _own(": "),
+            *_shortened(self.text, "text"),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -795,6 +879,256 @@ def _reference_from(name: str, value: object) -> ObjectRef | None:
     return ObjectRef(**value)
 
 
+# ---------------------------------------------------------------------------
+# What a preview may put on screen
+#
+# ``preview`` renders the one sentence a person reads and approves BEFORE
+# anything is written to a tree, which is this project's whole review model:
+# what was agreed and what is written are provably the same thing. A character
+# that REORDERS or HIDES part of that sentence -- a bidirectional override, a
+# zero-width character -- attacks the agreement step itself, because the
+# reviewer approves one sentence and a different one is what the operation says.
+#
+# ⚠️ **The guard is over what ``preview`` EMITS, not over what any field may
+# hold.** It reads the rendered sentence, so every rendered field is covered at
+# once and a field added to an operation later is covered without this being
+# edited. The alternative -- a character rule per field at validation time --
+# was weighed and rejected: nothing here can establish what characters Gramps
+# emits in an opaque identifier, and a rendering guard does not need to. It
+# constrains what we DISPLAY, not what we accept.
+#
+# ---------------------------------------------------------------------------
+# What this costs, and what it does not reach. Recorded rather than carved
+# around, because each of these is a residual somebody should meet here instead
+# of discovering it.
+#
+# ⚠️ **The class refuses characters some scripts need.** The zero-width
+# non-joiner and joiner (U+200C, U+200D) are required by Persian and Indic
+# text, and they are the same general category as the ones that hide a sentence
+# from its reader. **So a legitimate note in those scripts becomes
+# unpreviewable, and therefore unapprovable.** That is a real cost and it is
+# taken as a stated trade: no published definition separates
+# invisible-and-dangerous from invisible-and-legitimate, because the same
+# characters are both. Carving the joiners out by hand would be the enumeration
+# pointed backwards -- a known-safe list, failing by admitting whatever nobody
+# carved. If this ever needs narrowing it needs a ruling with evidence, not an
+# exemption added here.
+#
+# ⭐ **That cost is WIDER since the class became the union with
+# Default_Ignorable_Code_Point, and the extra characters are ordinary script
+# data, not formatting.** Refused now, and every one of them is used
+# legitimately:
+#
+#   - the **Mongolian free variation selectors** (U+180B-U+180D, U+180F), which
+#     select the positional form of a Mongolian letter;
+#   - the **variation selectors** (U+FE00-U+FE0F, U+E0100-U+E01EF), which are
+#     how an ideographic variation sequence names one of several published
+#     glyphs for a Han character -- exactly the kind of thing a genealogical
+#     source spells a surname with;
+#   - the **Hangul fillers** (U+115F, U+1160, U+3164, U+FFA0), which stand in
+#     for an absent jamo in an incomplete syllable;
+#   - the **combining grapheme joiner** (U+034F) and the Khmer vowel inherent
+#     signs (U+17B4-U+17B5).
+#
+# **This is a real cost to legitimate script data and it is not negligible.**
+# The trade is taken deliberately and on one ground: in a *rendered identifier*
+# an invisible character is precisely the risk this guard exists for. A
+# reviewer approves a sentence they can read, and a character that occupies no
+# space is one the sentence does not show them -- whatever role it plays in a
+# font. A reader who needs this reversed should find the reasoning here rather
+# than a shrug: it needs a ruling with evidence, and the evidence would be
+# about which of these can appear in a Gramps identifier or a note that a
+# person still has to check against a record.
+#
+# ⚠️ **Truncation means a hidden character can go unrefused, and that is
+# correct.** ``_shortened`` elides free text, so a character past the limit is
+# never emitted -- and a guard over what we DISPLAY has nothing to say about a
+# character that reaches no screen. Stated so it is not later mistaken for a
+# bypass.
+#
+# ⚠️ **Implicit reordering is not covered, and must not be.** A strong
+# right-to-left letter -- an ordinary name, category Lo -- reorders the neutral
+# characters around it under UAX #9 with no formatting character present at
+# all, and it is nowhere near this class. Covering it would mean refusing
+# legitimate names, in a genealogy tool. That mitigation belongs to whatever
+# eventually displays the sentence, which can isolate each field; it is not
+# available to a function that returns a string.
+#
+# ⚠️ **The class no longer depends on the interpreter, and what it costs
+# instead is a PIN.** The verdict used to move between the Unicode databases
+# CPython bundles -- 139,742 / 139,744 / 139,751 code points on 3.10 / 3.11 /
+# 3.12, nine of them flipping, with the older interpreter the permissive side.
+# It is now a committed derived table (``_unrenderable.py``, generated by
+# ``scripts/derive_unrenderable.py``, provenance in
+# ``docs/schema-render-guard-derivation.md``): 143,787 code points, identical
+# on all three, measured rather than argued. The two prices of that:
+#
+#   - **The table is pinned NEWER than any interpreter here bundles**, at
+#     Unicode 17.0.0 against UCD 13.0.0 / 14.0.0 / 15.0.0. So the guard refuses
+#     code points the running interpreter calls unassigned -- **3,779 / 3,776 /
+#     3,769** of them respectively. That is deliberate and it is fail-closed:
+#     the standard has assigned them, and a display stack newer than the
+#     service will act on them. It is the direction the old residual could not
+#     choose, because the old class had no version of its own.
+#   - **The class is a fact about ONE release and does not track a later one
+#     until somebody re-derives it.** That is the mirror image of the residual
+#     this replaces: determinism bought with staleness. A character assigned
+#     after 17.0.0 is emitted until the table is regenerated -- a fail-OPEN,
+#     bounded by the standard's release cadence and visible in a diff, which
+#     the old dependence was neither. Re-derivation is one command over two
+#     artifacts and it is written down.
+#
+# **Both deterministic alternatives were still weighed and rejected, and this
+# stays so the next reader does not reach for them.** Pinning an explicit set
+# of format characters *here* is the enumeration this module refuses
+# everywhere else -- it fails open on whatever the standard assigns next, with
+# nothing to re-derive. Inverting to a safe-to-display set is that enumeration
+# pointed backwards, failing closed on legitimate text nobody listed. **A
+# derived table is neither**: what it enumerates is a published property at a
+# named version, so it fails open only until it is regenerated, and the
+# regeneration is mechanical.
+# ---------------------------------------------------------------------------
+
+_RANGE_STARTS: tuple[int, ...] = tuple(first for first, _, _ in UNRENDERABLE_RANGES)
+"""Where each committed range begins, for the lookup below.
+
+Derived from the table rather than written beside it, so the two cannot drift.
+A frozenset of the ~139,700 code points was rejected on memory grounds; a
+bisect over 41 rows answers in ``O(log n)``.
+"""
+
+
+def _class_of(character: str) -> str | None:
+    """Which published fact puts ``character`` in the class, or ``None``.
+
+    **The class is a committed derived table, not a question put to the running
+    interpreter.** ``_unrenderable.py`` is generated by
+    ``scripts/derive_unrenderable.py`` from two artifacts of one published
+    Unicode release, whose digests the module carries and whose provenance is
+    in ``docs/schema-render-guard-derivation.md``. The verdict is therefore a
+    fact about the standard, and the same operation previews the same way on
+    every interpreter this project supports -- measured, not assumed.
+
+    **The class is the UNION of two published facts**, because neither contains
+    the other:
+
+    - the General_Category values ``Cc``, ``Cf``, ``Co`` and ``Cs`` of UAX #44,
+      where the explicit directional formatting characters of the Bidirectional
+      Algorithm (UAX #9) live, along with the zero-width characters, the
+      controls, the surrogates and the private-use areas;
+    - the derived core property ``Default_Ignorable_Code_Point``, which reaches
+      **outside** that group -- U+034F is ``Mn``, U+115F and U+1160 are ``Lo``,
+      and all three render as nothing at all.
+
+    A class written as the group alone emitted every one of those; a class
+    written as the property alone would emit the controls and the surrogates.
+
+    ⚠️ **``Cn`` is absent because nothing selects it, not because a clause
+    excludes it.** Unassigned code points ARE stated explicitly in the
+    general-category artifact; the derivation names the four categories it
+    wants, so unassigned and every readable category are left out by the same
+    structure. There is no ``!= "Cn"`` anywhere to get wrong, and round 3's
+    arithmetic about which direction that exclusion failed in no longer has
+    anything to weigh -- the class does not move between interpreters at all.
+
+    ⚠️ **Do not add a case here, and do not hand-edit the table.** A character
+    this guard should refuse and does not is a re-derivation against a newer
+    release, or a defect in the derivation script -- both of which are visible
+    in a diff. A case added by hand is the enumeration this module refuses
+    everywhere else, and it would make the committed table stop being the class.
+
+    Returns the label the table carries, which is what the refusal names, so a
+    caller never has to ask a second source what it just refused.
+    """
+    code_point = ord(character)
+    position = bisect.bisect_right(_RANGE_STARTS, code_point) - 1
+    if position < 0:
+        return None
+    _, last, label = UNRENDERABLE_RANGES[position]
+    return label if code_point <= last else None
+
+
+def _is_unrenderable(character: str) -> bool:
+    """Whether ``character`` can reorder or hide text in a sentence for review.
+
+    See ``_class_of``, which is the same question with the answer kept.
+    """
+    return _class_of(character) is not None
+
+
+class UnrenderableFieldError(SchemaError):
+    """A field whose value cannot be put in front of a reviewer as it stands.
+
+    Carries a field path for the reason ``UnknownFieldError`` does: a refusal
+    that does not say where the fault is, is one nobody can act on.
+
+    ⚠️ **The message names the field and the published fact that refused the
+    character, never the character itself** -- the rule on ``RuleViolation``,
+    which this obeys for the same reason. Naming the *class* is the same move
+    ``_field_wrong_type`` already makes when it names the arrived value's type:
+    what a caller needs to fix it, without echoing what arrived.
+
+    ⚠️ **``category`` is read off the committed table and is not a call to the
+    running interpreter.** It used to be ``unicodedata.category``, and under a
+    pinned table that would report ``Cn`` for a code point the table guards as
+    ``Cf`` -- a refusal naming the one category the class does not hold, which
+    is worse than naming nothing. So the value is a General_Category value or
+    ``Default_Ignorable_Code_Point``: the attribute keeps its meaning and gains
+    one value that is not a category, because one half of the class is not one.
+    """
+
+    def __init__(self, field_path: str, category: str) -> None:
+        super().__init__(
+            f"{field_path} carries a {category} character, "
+            "which can reorder or hide text in a sentence for review"
+        )
+        self.field_path = field_path
+        self.category = category
+
+
+def _emitted(fragment: Fragment) -> str:
+    """What ``fragment`` actually puts on screen, after the single-line rule.
+
+    ⚠️ **The same normalisation ``preview`` applies to the whole sentence, and
+    it must stay the same one.** Collapsing only deletes or normalises
+    whitespace, so the non-whitespace characters a fragment contributes are
+    identical either way -- which is what makes reading provenance off the
+    fragments equivalent to scanning the finished string, rather than a wider
+    check wearing its clothes. Scanning the raw text instead would newly refuse
+    the control characters that ARE whitespace, which the single-line rule
+    removes before anything reaches a screen.
+    """
+    return " ".join(fragment.text.split())
+
+
+def _refuse_unrenderable(fragments: Sequence[Fragment]) -> None:
+    """Refuse the sentence if a fragment carries a character that reorders or hides it.
+
+    Attribution is read off the fragment that produced the character, so a
+    refusal names the field whose correction changes the outcome. Deterministic
+    in both directions: the first fragment in the order a person READS the
+    sentence, and the first offending character within it. Sentence order rather
+    than declaration order is the tie-break on purpose -- when two rendered
+    fields both carry the character, the one the reader meets first is the one
+    the refusal is about.
+    """
+    for fragment in fragments:
+        for character in _emitted(fragment):
+            label = _class_of(character)
+            if label is None:
+                continue
+            if fragment.field_path is None:
+                # No field carries it, so this module's own renderer emitted it:
+                # a defect here rather than in the payload, and no field to name.
+                # Refused all the same -- a sentence nobody can trust is not
+                # shown because of where the character came from.
+                raise SchemaError(
+                    "the rendering itself carries a character that can reorder "
+                    "or hide text in a sentence for review"
+                )
+            raise UnrenderableFieldError(fragment.field_path, label)
+
+
 def preview(operation: Operation) -> str:
     """One line describing what ``operation`` would do, for a person to approve.
 
@@ -812,9 +1146,28 @@ def preview(operation: Operation) -> str:
     which is the second-vocabulary shape this module refuses everywhere else.
     The precondition is stated because an unstated one becomes somebody's defect
     later.
+
+    ⚠️ **The rendering guard below is NOT a second judge and does not weaken
+    that precondition.** It is about what a *valid* operation may put on screen:
+    an operation refused here is still well-formed, ``validate`` is unchanged,
+    and a test asserts exactly that.
+
+    **Refusing is the choice, rather than escaping or stripping the character.**
+    Stripping changes what the reviewer sees from what the operation holds,
+    which is the agreed-versus-written disagreement in miniature. Escaping is
+    lossless and still loses: it vacates the field-named, actionable signal
+    silently, and a sentence carrying an override escape is not a sentence a
+    person can check against a record -- which is the whole purpose of rendering
+    one. Refusing is how this function already treats an operation it cannot
+    render. The cost is real and is recorded rather than hidden: a *displayable*
+    operation becomes unpreviewable, and the class covers characters some
+    scripts need legitimately.
     """
     type_name_of(operation)  # refuses anything unregistered
-    return " ".join(operation.render().split())
+    fragments = operation.render()
+    rendered = " ".join("".join(fragment.text for fragment in fragments).split())
+    _refuse_unrenderable(fragments)
+    return rendered
 
 
 def validate(operation: Operation) -> WellFormedResult:
