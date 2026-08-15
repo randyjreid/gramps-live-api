@@ -73,7 +73,7 @@ deliberately does *not* apply.
 this criterion is universally quantified over all genealogy data, which is the unbounded spec this
 document exists to replace.
 
-`tests/unit/test_pii_guard_p2_genealogy.py` -- **66 tests**. The crux of each mechanism:
+`tests/unit/test_pii_guard_p2_genealogy.py` -- **75 tests**. The crux of each mechanism:
 
 | Mechanism | Named by |
 | --- | --- |
@@ -85,6 +85,21 @@ document exists to replace.
 The two formats are held to one vocabulary by
 `test_the_compiled_scorer_agrees_with_the_vocabulary_for_every_row` and
 `test_one_life_is_judged_the_same_in_both_formats`.
+
+⚠️ **That count is the FILE's, and it is not the number of tests carrying B2. It moves for
+reasons this criterion is not about, and it has just moved for one.** Nine of the seventy-five
+arrived with #4 item 4, which taught the four compiled patterns that read an element name to read
+a namespace-prefixed tag. That is a change to what the matcher can **see**, not to what B2 claims,
+and the nine divide three ways:
+
+| The nine | What they are |
+| --- | --- |
+| `test_a_namespace_prefix_does_not_change_what_a_filled_row_scores`, its attributed twin, and `test_a_prefixed_database_element_names_the_format_the_same_way` | **three**, and B2 evidence in the ordinary way -- a prefixed export is the same export. Derived from the vocabulary rather than exampled, so a new row extends them unedited |
+| the drawing exemption's two directions -- a prefixed chart is not reported, a chart whose tags disagree about the prefix is | **two**, and the first of them constrains what the guard must *not* report, which is B8's concern rather than this one |
+| the shared alternation's construction: one site for four patterns, longest-first ordering, `_DRAWING` matching a prefixed drawing, and the namespace fallback still reading a prefixed declaration | **four**, asserting how the patterns are built rather than what a scan returns. They carry no criterion on their own |
+
+So the nine are not this criterion growing. What carries B2 is the four mechanisms in the table
+above and the two agreements beneath it; the number is a file's length, and the file is shared.
 
 ### B3
 
