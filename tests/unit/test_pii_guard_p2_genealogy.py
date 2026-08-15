@@ -2640,6 +2640,84 @@ def test_a_prefixed_drawing_is_not_a_drawing() -> None:
     )
 
 
+def test_a_container_whose_name_merely_begins_with_svg_is_not_a_drawing() -> None:
+    r"""⭐ **The live fail-open: ``<svg-chart …>`` opened a drawing, and it is not one.**
+
+    ``_DRAWING`` is the module's one EXEMPTION, and its direction of failure is
+    the opposite of every scorer's: reading more containers means more
+    SUPPRESSION. Its opener was ``<svg\b`` and its closer ``</svg\s*>``, and both
+    shorthands are loose in exactly that direction.
+
+    * **The opener.** ``-``, ``.``, a combining mark and every other ``NameChar``
+      that satisfies ``\b`` made ``<svg-chart>`` an ``svg``. A name, a date of
+      birth and a place, wrapped between it and a later ``</svg>``, were
+      suppressed entirely -- a whole identity going from a finding to nothing.
+    * **The closer.** ``\s*`` is Python's whitespace, so ``</svg`` + U+00A0 +
+      ``>`` closed a drawing. XML reads no ``ETag`` there at all; a broader
+      closer spans further, and spanning further suppresses more.
+
+    Both derived from the sets the two tests above already build, rather than
+    exampled: the ``NameChar``s ``\b`` gets wrong, and the characters Python
+    calls whitespace and XML does not.
+
+    ⚠️ **The three controls are what stop this being an assertion that the
+    exemption is broken.** The payload must be a finding unwrapped, an ordinary
+    drawing must still exempt it, and a closer written with a REAL XML space
+    must still close. Without them a change that simply deleted ``_DRAWING``
+    would pass everything above.
+    """
+    payload = gramps_short_notes()
+    unwrapped = rules(scan_text(payload, source="notes.md"))
+    exempt = rules(scan_text(notes_inside_a_container(), source="notes.md"))
+    spaced = rules(
+        scan_text(
+            "<" + _DRAWING_PREFIX + ">" + payload + "</" + _DRAWING_PREFIX + " >",
+            source="notes.md",
+        )
+    )
+
+    assert unwrapped == ["P2"], (
+        f"the premise: three short notes are a whole identity on their own, got {unwrapped}"
+    )
+    assert exempt == [] and spaced == [], (
+        "the controls: an ordinary drawing still exempts its labels, and an ETag written with a "
+        f"real XML space still closes one. Got {exempt} and {spaced}"
+    )
+
+    suppressed = [
+        f"<{_DRAWING_PREFIX}{ascii(suffix)}x> ... </{_DRAWING_PREFIX}>"
+        for suffix in _name_characters_python_calls_a_boundary()
+        if rules(
+            scan_text(
+                "<" + _DRAWING_PREFIX + suffix + "x>" + payload + "</" + _DRAWING_PREFIX + ">",
+                source="notes.md",
+            )
+        )
+        != ["P2"]
+    ]
+    spanned = [
+        f"</{_DRAWING_PREFIX}{ascii(character)}>"
+        for character in _not_xml_whitespace()
+        if rules(
+            scan_text(
+                "<" + _DRAWING_PREFIX + ">" + payload + "</" + _DRAWING_PREFIX + character + ">",
+                source="notes.md",
+            )
+        )
+        != ["P2"]
+    ]
+
+    assert suppressed == [], (
+        "a container whose name merely BEGINS with the drawing spelling is a different element, "
+        "and these opened an exemption that swallowed a name, a date of birth and a place: "
+        f"{suppressed}"
+    )
+    assert spanned == [], (
+        "and XML closes an element with its own name followed by S, which these are not -- so "
+        f"the drawing has no closer and cannot span to one: {spanned}"
+    )
+
+
 def test_labels_in_a_prefixed_drawing_are_reported() -> None:
     """The behavioural half, and the wanted direction is DISAGREEMENT.
 
