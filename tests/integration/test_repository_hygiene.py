@@ -19,14 +19,25 @@ import pytest
 from gramps_live_api.core.pii_guard import main
 from tests.fixtures.repositories import commit_all, git, init_repository
 from tests.fixtures.synthetic import gedcom_document
+from tests.fixtures.workflow import (
+    GUARD_MODULE,
+    REPOSITORY_ROOT,
+    guard_invocation,
+    scan_steps,
+    step_blocks,
+    step_name,
+    workflow_text,
+)
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-
-GUARD_MODULE = "gramps_live_api.core.pii_guard"
-
-# The workflow's steps are indented by six spaces, so this is where one begins.
-# Both range tests below already split the file this way.
-STEP_SEPARATOR = "      - name: "
+# The step-level readers above were MOVED to tests/fixtures/workflow.py, where
+# tests/integration/test_pushed_range.py -- which executes these steps rather
+# than reading them -- imports the same ones. Two parsers would be two ideas
+# about what a step is, and this module records what that costs elsewhere.
+#
+# shell_bodies() below stays here: it answers a different question -- every line
+# of every run: block, with line numbers, across both jobs and including unnamed
+# steps -- and it exists to scan for interpolation rather than to execute
+# anything.
 
 
 def tracked_files() -> set[str]:
@@ -213,32 +224,6 @@ def test_no_workflow_expression_is_interpolated_into_a_shell_body() -> None:
         "these shell bodies have a workflow expression substituted into them before "
         f"Bash sees the script; pass the value through env: and quote it instead: {interpolated}"
     )
-
-
-def workflow_text() -> str:
-    return (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-
-
-def step_blocks() -> list[str]:
-    """Every step of the workflow, as text. The first chunk is the file header."""
-    return workflow_text().split(STEP_SEPARATOR)[1:]
-
-
-def step_name(block: str) -> str:
-    return block.splitlines()[0].strip()
-
-
-def guard_invocation(block: str) -> str:
-    """The block's ``run:`` line if it runs the guard, otherwise the empty string."""
-    for line in block.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("run:") and GUARD_MODULE in stripped:
-            return stripped
-    return ""
-
-
-def scan_steps() -> list[str]:
-    return [block for block in step_blocks() if guard_invocation(block)]
 
 
 def test_no_scan_step_reads_only_the_tip() -> None:

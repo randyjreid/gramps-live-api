@@ -234,14 +234,50 @@ opposite of what this document is for.
 | tag push | `test_a_tag_push_does_not_report_clean_over_a_deleted_ancestor` |
 | the job refuses a checkout it cannot prove is complete | `test_the_job_refuses_a_checkout_it_cannot_prove_is_complete` |
 
-⚠️ **The zero-SHA first push and the force push are the thin spot, and this document says so rather
-than citing a test that does not exist.** Both are handled in a shell step that resolves the pushed
-range, and **no test drives that step directly.** What is asserted is the guard side of the same
-guarantee -- that a range covering no commits and a range that cannot be resolved are both refused
-rather than reported clean (B6 above) -- together with the blanket
-`test_no_scan_step_reads_only_the_tip`. A defect confined to the shell arithmetic would be caught by
-those refusals only if it produced an empty or unresolvable range, and not if it produced a range
-that is merely too narrow.
+**The step that computes the range is driven, not read** -- `tests/integration/test_pushed_range.py`,
+**13 tests**, the whole file, all of them for this criterion. Issue #18. The count is the file's and
+the criterion's at this commit, and the two drift apart for the reason B1's paragraph gives; what the
+criterion rests on is the split below, not the number. Seven drive the six published-range cases,
+three assert which step an event reaches, one asserts that the script being driven is the workflow's
+own, and two are the controls that keep the rest from holding vacuously. Three of the thirteen are
+parametrized, so `pytest` collects **18** items from the file -- a number that moves for reasons this
+criterion has nothing to do with.
+
+Each case is a real push into a scratch remote, and the range the workflow's own shell body computes
+is compared against an oracle: the commits the remote actually gained, `git rev-list <new> --not
+<every ref the remote held before>`, which reads nothing the step reads. The relation asserted is
+**coverage, not equality** -- every commit the event publishes lies inside the range -- because two
+arms widen deliberately and only narrowing is a defect.
+
+| Claim | Named by |
+| --- | --- |
+| first push, zero before-SHA, on the default branch and on a new branch | `test_a_first_push_of_the_default_branch_scans_everything_it_publishes`, `test_a_first_push_of_a_new_branch_covers_every_commit_it_publishes` |
+| no baseline resolvable at all: the job fails rather than scanning something narrower | `test_a_push_with_no_resolvable_baseline_refuses_rather_than_scanning_nothing` |
+| force push, where the before-SHA is not an ancestor of the after-SHA and is absent from the checkout | `test_a_force_push_covers_every_commit_it_publishes` |
+| several commits, the content added in one and removed in a later one | `test_a_push_that_adds_and_removes_a_tree_is_scanned_over_the_commit_that_held_it` |
+| a merge commit, where the range walked has more than one parent | `test_a_push_containing_a_merge_covers_both_parents` |
+| a pull request, over a real generated merge tip | `test_a_pull_request_covers_every_commit_the_branch_adds` |
+| `pull_request` versus `push`, and a tag push taking neither range | `test_a_push_and_a_pull_request_take_different_steps`, `test_a_tag_push_takes_neither_range_step` |
+| every event reaches exactly one scan, whose range is written by a step that runs for that event | `test_every_event_reaches_exactly_one_scan_step` |
+
+⚠️ **The arithmetic being driven does not mean every arm is equally covered.** What closed is the
+case B6's refusals cannot see: a range that resolves, covers commits, and still omits part of what
+the push published. `test_a_range_narrowed_to_one_commit_is_caught` injects exactly that -- in memory,
+against the step's own script -- and shows the guard reporting **clean** over a family tree the push
+publishes. Four things remain residual, stated rather than closed:
+
+* **The checkout is a stand-in.** A full clone over the real transport, which is why a superseded
+  force-pushed commit is genuinely absent from it. If `actions/checkout` ever stopped supplying
+  `origin/<default>`, the fallback arm would fail closed in CI while passing here.
+* **Routing is asserted through this suite's own evaluator**, not GitHub's. It refuses every
+  construct it does not implement -- asserted by
+  `test_a_condition_the_evaluator_cannot_read_is_refused` -- so it cannot silently approve a
+  condition; that it agrees with GitHub about the constructs it *does* implement is argued, not
+  measured.
+* **The whole-history arm computes no range**, so there is no arithmetic to drive: it is covered by
+  the routing rows above together with `test_a_tag_push_does_not_report_clean_over_a_deleted_ancestor`.
+* **A branch deletion push is not covered.** Its after-SHA is all zeros and the checkout fails
+  before any range is computed. It was deliberately left outside #18 rather than folded in.
 
 ### B8
 
@@ -311,7 +347,7 @@ repository rather than over this one.
 respellings of values the allowlist **already holds**; it says nothing about a safe document nobody
 has written yet. The second is a measurement of *this* repository at *this* commit, and it asserts
 everything reachable from the tip rather than the range any one push publishes -- that arithmetic
-lives in the workflow, which is the thin spot B7 states directly above. A closed corpus of
+lives in the workflow, and B7 above is where it is driven. A closed corpus of
 representative safe documents was the third candidate shape considered and was declined: it is the
 only one that grows without bound as a fixture-maintenance burden, and a corpus is only ever as
 strong as itself.
