@@ -2419,6 +2419,18 @@ _GENEALOGY_TEXT_SIGNATURES: tuple[tuple[str, re.Pattern[str]], ...] = (
 # it appeared the moment the anchor came off.
 _GRAMPS_XML_NAMESPACE = "gramps-project" + ".org" + _SEPARATOR + "xml"
 
+_GRAMPS_NAMESPACE_SCHEME = "ht" + "tp"
+"""The scheme the schema serves its own ``#FIXED`` namespace value over.
+
+Split for the reason the constant above it is, and placed beside it for the
+same reason: it is a piece of the frozen value, composed in this module and
+**bound to `FIXED_ATTRIBUTE_DEFAULTS` by test** rather than imported -- see the
+block below on why nothing here reads `_specified_containers` at runtime.
+
+⚠️ **It is a SCHEME, not a prefix**: the tolerance table below joins it to its
+colon and to the authority marker, so no tracked file holds the two together.
+"""
+
 # ---------------------------------------------------------------------------
 # WHAT COUNTS AS THE DOCUMENT SAYING IT IS GRAMPS. ONE SPELLING, DERIVED FROM A
 # CLOSED SOURCE.
@@ -2452,7 +2464,7 @@ _GRAMPS_XML_NAMESPACE = "gramps-project" + ".org" + _SEPARATOR + "xml"
 #     `AttValue` rather than of the file. So `xmlns="urn:not-gramps:…"` --
 #     a declaration naming a different namespace that happens to contain this
 #     one -- was read as Gramps. **A substring test is a substring test however
-#     deeply it is nested**, and this is what `_GRAMPS_NAMESPACE_VALUE` closes.
+#     deeply it is nested**, and this is what `_namespace_value_of` closes.
 #
 # Each was rejected only for lacking what the next one added, so the marker
 # below requires all of it **at one position**: the schema-fixed value, as the
@@ -2465,11 +2477,20 @@ _GRAMPS_XML_NAMESPACE = "gramps-project" + ".org" + _SEPARATOR + "xml"
 #   `NCName`   Namespaces §3 -- a combining-mark alias was invisible
 #   `STag`, `Attribute`, `Eq`, `AttValue`
 #              XML 1.0 §3.1  -- the namespace inside ANOTHER attribute's value
-#   `scheme`   RFC 3986 §3.1 -- `urn:not-gramps:…` was read as this namespace
 #
 # Every one of them replaced a Python shorthand, every one was reported as a
 # bypass first, and `test_no_pattern_reading_an_xml_production_uses_a_python_shorthand`
-# is what stops the list needing a sixth entry.
+# is what stops the list needing another entry.
+#
+# ⚠️ **`scheme`, RFC 3986 §3.1, WAS on that list and is RETIRED rather than
+# dropped, and the difference is the whole of this note.** It bought the
+# `urn:not-gramps:…` refusal -- a scheme followed by anything other than `//`
+# cannot reach the base -- and **that input is still refused**, now by the
+# tolerance table below rather than by the production. The transcription itself
+# had to go because it was the loose element: transcribed FAITHFULLY, `scheme`
+# admits every syntactically valid scheme, so the base served over `ftp` named
+# this format. A document that silently dropped the credit would leave the next
+# reader thinking the property was lost with it.
 #
 # ⚠️ **AND THAT IS ONE COMPILED PATTERN, NOT A COMPOSITION.** An `or` over two
 # results is the defect above wearing a conjunction. An `and` is wrong too, and
@@ -2586,82 +2607,188 @@ and fixing the two that were reported would have left it open. It reads
 can drift back.
 """
 
-_URI_SCHEME = "[A-Za-z][A-Za-z0-9+.\\-]*"
-r"""``scheme ::= ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`` -- RFC 3986 §3.1.
+# ---------------------------------------------------------------------------
+# ⭐ **THE VALUE IS THE FIXED VALUE PLUS A DECLARED LIST OF RELAXATIONS, AND
+# THAT ORDERING IS THE POINT.**
+#
+# The three rounds before this one each found a new dimension of looseness in
+# this one check and each closed that dimension only: the namespace anywhere in
+# the text, then any URI CONTAINING it, then any SCHEME whatever. That is the
+# signature of a rule built permissively and narrowed by findings, and the
+# module has already run the experiment on how to end one: five rounds repaired
+# one Python shorthand at a time and what closed the set was
+# `_XML_SHORTHAND_LICENCE` -- a row per pattern, a reason per row, walked off
+# the module so the next entry has to pass a rule rather than be noticed.
+#
+# So the value below is **equality with the reassembled `#FIXED` value, THEN
+# these five declared relaxations** -- not a pattern widened until the known
+# spellings fit. ⚠️ Implemented the other way round it would pin `1.7.2`, or
+# admit whatever the widening happened to reach; the tail row is exactly the
+# first relaxation and it is why equality alone is not what is written.
+#
+# **What this buys over simply constraining the scheme is the ARTIFACT, not the
+# pattern: the two compile to the SAME REGEX.** After the scheme is constrained
+# there is no loose element left in the prefix either, so "a fourth dimension
+# can appear" is a weaker argument here than it looks. What the table adds is a
+# tolerance somebody has to justify in writing, held closed by a test that
+# objects to a blank reason and to a row that has stopped earning its place.
+#
+# **The argument AGAINST it, recorded rather than skipped:** the table is new
+# machinery, and machinery added in response to a finding is the next round's
+# surface. Its mitigations are that it is plain data feeding the ONE compiled
+# pattern that already existed -- no second reader, no second pattern -- and
+# that constraining the scheme is a strict SIMPLIFICATION of it. If a later
+# round finds against the table, the retreat is one commit rather than more
+# hardening, which is what makes this choice reversible rather than merely
+# defended.
+# ---------------------------------------------------------------------------
 
-Transcribed, on the grounds every production in this module is: it is closed,
-externally specified, and it does not grow.
+_NAMESPACE_TOLERANCES: tuple[tuple[str, str, str], ...] = (
+    (
+        "prefix",
+        _GRAMPS_NAMESPACE_SCHEME + ":" + _SEPARATOR * 2,
+        "the #FIXED value's OWN scheme and authority marker: the canonical spelling, and the "
+        "only one the specification's exact-match rule endorses. Bound to "
+        "FIXED_ATTRIBUTE_DEFAULTS by test, so a schema revision that moved the format to "
+        "another transport fails a test instead of silently blinding the gate",
+    ),
+    (
+        "prefix",
+        _GRAMPS_NAMESPACE_SCHEME + "s" + ":" + _SEPARATOR * 2,
+        "the same authority over TLS. ⚠️ THIS IS THE ONE ROW WHOSE FRAGMENT IS THE FIXED SCHEME "
+        "PLUS A HAND-WRITTEN 's', AND ITS REASON IS THE WEAKEST OF THE FIVE -- under exact-string "
+        "comparison it is as different a namespace as ftp is. It stays because the marker "
+        "identifies the format a document is ABOUT rather than the namespace a parser would "
+        "bind, and because the tolerance fails toward REPORTING, which is the direction this "
+        "guard may fail in. Dropping it costs this row and one line of "
+        "_uris_that_are_the_namespace",
+    ),
+    (
+        "prefix",
+        _SEPARATOR * 2,
+        "protocol-relative: a document may quote the namespace without committing to a transport",
+    ),
+    (
+        "prefix",
+        "",
+        "the bare base. An export or a quotation may write it alone, and this tolerance is "
+        "already load-bearing and already tested -- it is what the marker gate was built on "
+        "before any of the anchoring rounds",
+    ),
+    (
+        "tail",
+        _SEPARATOR,
+        "what OPENS the version segment, after which everything is free -- SO A LATER SCHEMA "
+        "REVISION STILL NAMES THE FORMAT. _GRAMPS_XML_NAMESPACE deliberately stops short of the "
+        "version, and equality with the whole fixed value would pin 1.7.2. This used to be an "
+        "emergent property of the pattern and is a declared row now, so removing it BREAKS the "
+        "three version spellings rather than quietly narrowing the gate",
+    ),
+)
+"""``(position, fragment, reason)`` -- every relaxation of the fixed value, declared.
+
+``position`` is ``"prefix"`` (what may stand before the base) or ``"tail"``
+(what may open the free segment after it). The fragment is a LITERAL, escaped
+where it is compiled, and every one of them is a transformation of the frozen
+value rather than a string typed beside it.
+
+⚠️ **A row is not a dispensation, it is a recorded decision**, exactly as a
+licence row is: the reason is the artifact, and
+`test_every_namespace_tolerance_is_declared_with_a_reason_and_earns_its_row`
+is what stops the list growing by accident, going vacuous, or keeping a row
+that has stopped mattering.
 """
 
-_URI_BEFORE_THE_HOST = "(?:(?:" + _URI_SCHEME + ":)?" + _SEPARATOR * 2 + ")?"
-r"""What may precede a namespace URI's host: an optional ``scheme://``, or ``//``.
 
-⚠️ **Optional as a WHOLE, which is what admits the scheme-less spelling** -- the
-schema's own value has a scheme, an export may write the bare base, and both
-name the format. What it refuses is the shape the reproduction used: a scheme
-followed by anything other than ``//``. ``urn:not-gramps:…`` cannot reach the
-base through this, and neither can a host that merely ends with it.
-"""
+def _namespace_value_of(tolerances: Sequence[tuple[str, str, str]]) -> str:
+    r"""An ``AttValue`` that IS the Gramps namespace, rather than one containing it.
 
-_GRAMPS_NAMESPACE_VALUE = _att_value_of(
-    lambda body: (
-        _URI_BEFORE_THE_HOST + re.escape(_GRAMPS_XML_NAMESPACE) + "(?:" + _SEPARATOR + body + ")?"
+    ⚠️ **THE VALUE OCCUPIES THE WHOLE ``AttValue``, and that is the older half
+    of the repair.** This used to be ``_att_value(re.escape(…))`` -- body,
+    namespace, body -- which is a **bare substring test wearing an
+    ``AttValue``'s quotes**, so a declaration whose value was ``urn:not-gramps:``
+    followed by the base named a namespace that is explicitly not this one and
+    the gate read it as Gramps. (Spelled that way round on purpose: writing the
+    reproduction out would put the value contiguously into a tracked file,
+    which this module's own sweep catches.)
+
+    ⚠️ **What may PRECEDE the base is now a closed alternation** rather than an
+    optional ``scheme://``, and that is this round's half. The RFC production
+    admits every syntactically valid scheme, so the base served over ``ftp`` was
+    read as this namespace -- and namespace names are compared by exact string
+    match, so it is not.
+
+    **Emitted LONGEST-FIRST with the empty alternative last**, reusing
+    ``_qualified``'s ordering convention rather than inventing one: a shorter
+    spelling must never shadow a longer one it begins with, and the empty
+    tolerance begins every other. Asserted structurally, the way that helper's
+    ordering is, because nothing behavioural can see it while the table is
+    small.
+
+    ⚠️ **NO VERSION IS PINNED.** The tail is the table's one ``tail`` row and
+    everything after it is free, so an export written against a schema revision
+    this project has never seen still names the format.
+
+    A pure function of the table so the test can feed it a fabricated one and
+    SHOW what each row is holding up -- the shape ``_unlicensed`` already uses.
+    """
+    prefixes = sorted(
+        (fragment for position, fragment, _ in tolerances if position == "prefix"),
+        key=lambda fragment: (-len(fragment), fragment),
     )
-)
-r"""An ``AttValue`` that IS the Gramps namespace, rather than one containing it.
+    tails = [fragment for position, fragment, _ in tolerances if position == "tail"]
+    before = "(?:" + "|".join(re.escape(fragment) for fragment in prefixes) + ")"
+    return _att_value_of(
+        lambda body: (
+            before
+            + re.escape(_GRAMPS_XML_NAMESPACE)
+            + "".join("(?:" + re.escape(tail) + body + ")?" for tail in tails)
+        )
+    )
 
-⚠️ **THE VALUE OCCUPIES THE WHOLE ``AttValue``, and that is the repair.** This
-used to be ``_att_value(re.escape(_GRAMPS_XML_NAMESPACE))`` -- body, namespace,
-body -- which is a **bare substring test wearing an ``AttValue``'s quotes.** So
-a declaration whose value was ``urn:not-gramps:`` followed by the base named a
-namespace that is explicitly not this one, and the gate read it as Gramps: a
-document that has named ANOTHER format re-enabled some eighty derived rows.
-(Spelled that way round on purpose -- writing the reproduction out would put
-the value contiguously into a tracked file, which this module's own sweep
-catches and which is the rule every fixture here follows.)
 
-That is the third turn of one defect. Round 3 found shape without value; round
-4 found value without shape; this is the value in the right shape and in the
-wrong PLACE inside it. **A substring test is a substring test however deeply it
-is nested.**
+def _marker_reading(tolerances: Sequence[tuple[str, str, str]]) -> re.Pattern[str]:
+    """The one marker, compiled from ``tolerances``: the namespace, declared.
 
-⚠️ **What is anchored is where the base may SIT, and NO VERSION IS PINNED.**
-`_GRAMPS_XML_NAMESPACE` is untouched and still stops short of the version
-segment, so an export written against a schema revision this project has never
-seen still names the format -- the property that constant's own docstring
-records, and the one this change could have closed by accident. The tail is
-`(?:/ rest)?`: present, and free.
+    ⚠️ **ONE compiled pattern, and the block above says why.** An ``or`` over
+    two results is the shape-without-value defect wearing a conjunction, and an
+    ``and`` is worse: ``shape.search(text) and value in text`` is satisfied by
+    an unrelated declaration in a file that mentions this namespace three
+    paragraphs down.
 
-Accepted: the bare base, any version segment after a ``/``, with a scheme, with
-``//`` alone, and either quoting. Refused: another scheme with no ``//``, the
-base sitting in another host's PATH, a host that merely ends with the base, a
-host or a path segment that merely begins with it.
-"""
+    ⚠️ **The element name is NOT required to be `database`.** A fragment
+    declares the namespace on whatever wrapper it has, and requiring the
+    document element would put back the structural judgement an earlier round
+    removed. `_GRAMPS_DOCUMENT_ELEMENT` keeps the job it actually has: selecting
+    the `FIXED_ATTRIBUTE_DEFAULTS` row the value is read from.
 
-_NAMES_THE_GRAMPS_FORMAT = re.compile(
-    "<"  # STag
-    + _XML_NAME_PREFIX
-    + _XML_NCNAME  # ...its Name
-    + _XML_ATTRIBUTE_SEQUENCE  # ...(S Attribute)*
-    + _XMLNS_DECLARATION  # ...then the declaration
-    + _GRAMPS_NAMESPACE_VALUE  # ...whose value IS the namespace
-)
-r"""The one marker: the schema-fixed namespace, declared, in attribute position.
+    ⚠️ **The closing `>` is not required either**, and that is the safe
+    direction: a truncated paste of a real export still names itself. What the
+    pattern insists on is the path to the declaration -- a start tag's name,
+    then complete attributes -- because that is the half a mention can never
+    satisfy.
 
-Assembled from the productions above and from `_GRAMPS_XML_NAMESPACE`, so
-**nothing here is hand-typed and the value is never spelled contiguously** --
-`re.escape` splits it with backslashes at runtime as well.
+    Nothing here is hand-typed and the value is never spelled contiguously;
+    `re.escape` splits it with backslashes at runtime as well.
+    """
+    return re.compile(
+        "<"  # STag
+        + _XML_NAME_PREFIX
+        + _XML_NCNAME  # ...its Name
+        + _XML_ATTRIBUTE_SEQUENCE  # ...(S Attribute)*
+        + _XMLNS_DECLARATION  # ...then the declaration
+        + _namespace_value_of(tolerances)  # ...whose value IS the namespace
+    )
 
-⚠️ **The element name is NOT required to be `database`.** A fragment declares
-the namespace on whatever wrapper it has, and requiring the document element
-would put back the structural judgement the round before this one removed.
-`_GRAMPS_DOCUMENT_ELEMENT` keeps the job it actually has: selecting the
-`FIXED_ATTRIBUTE_DEFAULTS` row this constant is read from.
 
-⚠️ **The closing `>` is not required either**, and that is the safe direction:
-a truncated paste of a real export still names itself. What the pattern insists
-on is the path to the declaration -- a start tag's name, then complete
-attributes -- because that is the half a mention can never satisfy.
+_NAMES_THE_GRAMPS_FORMAT = _marker_reading(_NAMESPACE_TOLERANCES)
+"""The marker the scan reads, compiled once from the declared tolerance table.
+
+Accepted: the bare base, any version segment after a ``/``, the schema's own
+scheme, that scheme over TLS, ``//`` alone, and either quoting. Refused: any
+other scheme, a scheme with no ``//``, the base sitting in another host's PATH,
+a host that merely ends with the base, and a host or path segment that merely
+begins with it.
 """
 
 
