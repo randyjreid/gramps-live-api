@@ -216,7 +216,7 @@ def test_update_name_records_the_name_of_a_person() -> None:
 # sharpest.
 # ---------------------------------------------------------------------------
 
-_LINK_TYPES = ("link_child_to_family",)
+_LINK_TYPES = ("link_child_to_family", "link_spouse_to_family")
 
 
 def _ends_of(type_name: str) -> tuple[str, ...]:
@@ -343,6 +343,17 @@ def test_link_child_to_family_asserts_the_relationship_it_records() -> None:
         "right -- the spec calls the relationships the actual product -- and "
         "one asserted on nobody's authority is exactly the failure mode it "
         "exists to avoid"
+    )
+
+
+def test_link_spouse_to_family_asserts_the_relationship_it_records() -> None:
+    _registered("link_spouse_to_family")
+
+    assert "link_spouse_to_family" in schema.FACT_ASSERTING, (
+        "a spousal relationship is a claim about two people that a record "
+        "attests, exactly as the parent-child link is -- the relationships are "
+        "what the tree is for, and one entered on nobody's authority is the "
+        "failure mode this project exists to avoid"
     )
 
 
