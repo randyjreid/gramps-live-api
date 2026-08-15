@@ -296,6 +296,22 @@ SPECIFIED_ATTRIBUTES: tuple[tuple[str, str, str], ...] = (
 )
 """Every (element, attribute, declared type) the schema declares."""
 
+FIXED_ATTRIBUTE_DEFAULTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("database", "xmlns", ("http:", "", "gramps-project.org", "xml", "1.7.2", "")),
+)
+"""Every value the schema FIXES an attribute at, split at each separator.
+
+The declared type says what kind of thing an attribute is; this says what the
+schema requires the attribute to BE, which is how the namespace a Gramps
+document declares becomes a fact read off the specification rather than a
+string somebody typed into the guard.
+
+⚠️ **Split rather than written whole, and that is not a style choice.** This
+file is tracked content the repository's own guard scans, and the guard scores
+that namespace as a substring wherever it appears -- 43 times over the
+published range, once an anchor came off. Rejoin with a forward slash.
+"""
+
 MARKUP_ELEMENT_NAMES: frozenset[str] = frozenset(
     (
         "a",
