@@ -38,6 +38,7 @@ from gramps_live_api.core.pii_guard import (
     _SPELLINGS_THE_DERIVATION_ADDED,
     _VOCABULARY,
     _WEIGHTS_BEFORE_THE_DERIVATION,
+    _XML_NAME_END,
     _XML_NAME_PREFIX,
     _gedcom_x_identity_score,
     _gramps_identity_score,
@@ -331,8 +332,21 @@ def _alternatives_of(fragment: str) -> list[str]:
     Reads the helper's own output rather than a pattern that embeds it, so a
     change to the helper's shape fails this loudly instead of quietly returning
     something else.
+
+    ⚠️ **The name's END is stripped first, and it is stripped by the guard's own
+    constant rather than by a suffix written here.** ``_qualified`` used to
+    finish at its alternation's closing parenthesis and now emits
+    ``_XML_NAME_END`` after it, so the tail this reads is no longer the
+    alternation's. Asserting the fragment ends with that constant, and removing
+    exactly it, keeps the helper bound to what the module actually emits -- a
+    hand-written suffix here would be the second copy of a production that this
+    whole round exists to stop.
     """
-    return fragment.rsplit("(?:", 1)[1].rstrip(")").split("|")
+    assert fragment.endswith(_XML_NAME_END), (
+        "_qualified no longer ends with the transcribed name end, so this helper is reading "
+        f"something other than its alternation: {fragment[-40:]!r}"
+    )
+    return fragment[: -len(_XML_NAME_END)].rsplit("(?:", 1)[1].rstrip(")").split("|")
 
 
 def _gedcom_x_probe(spelling: str, copies: int) -> str:

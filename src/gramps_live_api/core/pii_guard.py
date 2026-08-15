@@ -1292,6 +1292,37 @@ declaration would be a table somebody has to keep in step with this one, which
 is the shape every other duplication in this module has been removed for.
 """
 
+_XML_NAME_END = "(?!" + _character_class(_NCNAME_CONTINUE_RANGES) + "|:)"
+r"""Where a ``Name`` ENDS: not a character that could continue it, and not a colon.
+
+⚠️ **A TRANSCRIPTION of the production, and the approximation was a live
+fail-open at every site that read it.** This used to be ``\b`` at each call
+site. ``\b`` is Python's word boundary, and ``-``, ``.``, ``·``, a combining
+mark and an undertie all legally CONTINUE an XML name while satisfying it -- so
+``<type-extra id="x"/>`` was scored as ``<type>``, an element the document never
+wrote, and 103 vocabulary rows behaved that way under nineteen different
+suffixes in both scoring shapes.
+
+⚠️ **The combining mark is the SAME class this module already paid for at the
+other end of the same name.** ``<type`` + U+0301 is a legal element name whose
+local name is not ``type``; U+0301 is a ``NameChar`` and is not a ``\w``
+character, which is exactly what made ``[^\W\d][\w.\-]*`` a live fail-open for
+namespace PREFIXES in Change A. One production, one shorthand, missed at the
+front of the name and then again at the back.
+
+**The colon is refused as well, and it is a distinct defect rather than tidiness.**
+``<type:extra>`` is a legal ``QName`` whose local name is ``extra``; ``\b`` sits
+happily between ``e`` and ``:``, so the shared alternation read the PREFIX as
+the tag and scored ``type``. Refusing the colon here is what makes
+``_local_name`` -- which says the meaning is the local name and the prefix is an
+alias -- true of the match as well as of the string.
+
+**Built from ``_NCNAME_CONTINUE_RANGES``, which the module already holds**, so
+there is no second character class to keep in step; and emitted by
+``_qualified`` rather than written at the call sites, so a fourth scoring site
+cannot hand-roll its own and a repair cannot reach two readers out of three.
+"""
+
 _XML_NAME_PREFIX = "(?:" + _XML_NCNAME + ":)?"
 r"""An optional namespace prefix: an ``NCName``, then the colon.
 
@@ -1312,7 +1343,14 @@ positions would read ``<-9:name>`` as an element.
 
 The bound this constant has always claimed still holds and is now asserted
 rather than argued: the class cannot match ``<``, ``>``, ``/``, ``=``, a quote,
-whitespace or the colon.
+XML ``S`` or the colon.
+
+⚠️ **That last clause used to read "whitespace", and transcribing ``S`` made the
+word false.** ``NameChar`` admits U+1680 OGHAM SPACE MARK, which Python's ``\s``
+calls whitespace -- so the class DOES match something a reader of the old
+sentence would have been told it could not. The bound that is true, and the one
+the test asserts, is about the four characters XML's ``S`` names. A module
+asserting something untrue about itself is the defect, not the wording.
 
 **What is still not checked, deliberately: the alias is matched, never
 RESOLVED.** Whether the document actually binds it to the Gramps namespace is a
@@ -1454,15 +1492,30 @@ def _qualified(*names: str) -> str:
 
     Alternatives are ordered LONGEST FIRST, so a spelling is never shadowed by a
     shorter one it begins with: ``namemaps`` past ``name``, ``dateval`` past
-    ``date``, ``placeobj`` past ``place``. The trailing ``\b`` at each call site
-    makes the engine backtrack into the longer alternative anyway today;
-    ordering means the patterns do not DEPEND on that, which matters because
-    this table is about to be derived from a published schema rather than
-    written by hand. No behavioural test can see this until a colliding pair
-    exists, so it is asserted structurally instead.
+    ``date``, ``placeobj`` past ``place``. The trailing ``_XML_NAME_END`` makes
+    the engine backtrack into the longer alternative anyway today; ordering
+    means the patterns do not DEPEND on that, which matters because this table
+    is about to be derived from a published schema rather than written by hand.
+    No behavioural test can see this until a colliding pair exists, so it is
+    asserted structurally instead.
+
+    ⚠️ **THE NAME'S END IS EMITTED HERE, NOT AT THE CALL SITES, AND THAT IS THE
+    WHOLE POINT.** It used to be a ``\b`` written out at each of the three
+    sites -- and the paragraph four lines above warns against exactly the shape
+    that produces: a rule taught to some readers of a production and not the
+    rest. Every site that reads this alternation now gets the transcribed end
+    for free, a fourth site cannot hand-roll one, and
+    ``test_every_pattern_that_scores_an_element_is_built_from_the_one_alternation``
+    -- which asserts this fragment appears verbatim in each pattern -- becomes
+    the assertion that all three end their names correctly, with nothing added
+    to it.
+
+    ⚠️ **The assertion is a LOOKAHEAD and consumes nothing**, so it sits inside
+    the caller's capturing parenthesis without changing what group 1 holds or
+    what ``\1`` closes.
     """
     alternation = "|".join(sorted(names, key=lambda name: (-len(name), name)))
-    return _XML_NAME_PREFIX + "(?:" + alternation + ")"
+    return _XML_NAME_PREFIX + "(?:" + alternation + ")" + _XML_NAME_END
 
 
 def _local_name(tag: str) -> str:
@@ -1538,11 +1591,11 @@ it encloses denotes anything.
 """
 
 _GRAMPS_FILLED_ELEMENT = re.compile(
-    r"<(" + _qualified(*_GRAMPS_ALL_ELEMENTS) + r")\b[^>]*>"
+    r"<(" + _qualified(*_GRAMPS_ALL_ELEMENTS) + r")[^>]*>"
     r"((?:" + _NOT_ENDING_AN_ELEMENT + r"|[^<])+)</\1\s*>",
     re.IGNORECASE | re.DOTALL,
 )
-"""An element with content of its own: this is data rather than a mention.
+r"""An element with content of its own: this is data rather than a mention.
 
 Two groups: the tag and the content. The content alternative admits every
 member of the table above, because none of them ends an element -- a CDATA
@@ -1554,13 +1607,29 @@ tag, so the element was not merely mis-scored, it was invisible.
 The attributes used to be captured as a third group, for a short-prose
 discriminator that read them. Nothing reads them now -- see ``_DRAWING`` -- and
 a captured group nobody consumes is machinery pretending to be a rule.
+
+⚠️ **The name ends where ``_XML_NAME_END`` says it does, and the ETag's ``\s*``
+is a RECORDED approximation rather than a leftover.** ``</\1\s*>`` reads XML's
+``S?`` loosely, and in a scorer that errs toward reading an element where XML
+reads none, which errs toward reporting; transcribing it would subtract a catch
+on a malformed paste and buy no false positive back. The licence table asserts
+that this is the only shorthand this pattern holds.
 """
 
 _GRAMPS_ATTRIBUTED_ELEMENT = re.compile(
-    r"<(" + _qualified(*_GRAMPS_ALL_ELEMENTS) + r")\b[^>]*?\w+\s*=\s*[\"'][^>]*>", re.IGNORECASE
+    r"<(" + _qualified(*_GRAMPS_ALL_ELEMENTS) + r")[^>]*?\w+\s*=\s*[\"'][^>]*>", re.IGNORECASE
 )
-"""An element carrying a quoted attribute -- a handle or an id is export syntax,
-not something a specification writes in passing."""
+r"""An element carrying a quoted attribute -- a handle or an id is export syntax,
+not something a specification writes in passing.
+
+⚠️ **``[^>]*?\w+\s*=\s*["']`` IS the ``<[^<>]*xmlns=`` shape the marker block
+condemns, and it is left standing on purpose.** There it decides whether a
+document has DECLARED something, where a loose reading invents a declaration;
+here it decides whether an element carries an attribute, where a loose reading
+is one more finding rather than one fewer. Recorded in the licence table so the
+next reader sees it was weighed, not missed -- and so a fifth round finds it
+already dispositioned rather than reporting it again.
+"""
 
 _GRAMPS_PROSE_LENGTH = 20
 """How much text makes a prose container prose rather than a label.
@@ -2276,8 +2345,16 @@ _GENEALOGY_TEXT_SIGNATURES: tuple[tuple[str, re.Pattern[str]], ...] = (
         # The same alternation as the two element patterns, for a table of one
         # spelling: an export that binds the namespace to an alias writes
         # `<g:database …>` and was not recognised as the format at all.
+        #
+        # ⚠️ Its name now ends where `_XML_NAME_END` says it does, because the
+        # alternation emits that -- a DELIBERATE reach outside this round's
+        # subject, measured rather than assumed. The effect on every genuine
+        # input is nil: `<database` is followed by whitespace or `>` in every
+        # export. What stops is `<database-x … gramps…>`, `<database.new …>`,
+        # `<database:extra …>` and `<database` + a combining mark, none of which
+        # is an element named `database` and all of which were signatures.
         re.compile(
-            _LINE_PREFIX + r"<" + _qualified("database") + r"\b[^>]*gramps",
+            _LINE_PREFIX + r"<" + _qualified("database") + r"[^>]*gramps",
             re.IGNORECASE | re.MULTILINE,
         ),
     ),
