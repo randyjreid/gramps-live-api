@@ -81,8 +81,8 @@ note in this directory. Every row of that table has a weight and a test, which i
 reached; the previous formulation, *every place where a container can hold prose or an identity
 field*, was quantified over a format and could not be shown to have been satisfied.
 
-`tests/unit/test_pii_guard_p2_genealogy.py` -- **93 tests**. ⚠️ **That is the FILE's count and not
-this criterion's**; see the warning below, which is now on its fourth reason. The crux of each
+`tests/unit/test_pii_guard_p2_genealogy.py` -- **95 tests**. ⚠️ **That is the FILE's count and not
+this criterion's**; see the warning below, which is now on its fifth reason. The crux of each
 mechanism:
 
 | Mechanism | Named by |
@@ -100,7 +100,7 @@ The two formats are held to one vocabulary by
 `test_one_life_is_judged_the_same_in_both_formats`.
 
 ⚠️ **That count is the FILE's, and it is not the number of tests carrying B2. It moves for
-reasons this criterion is not about, and it has now moved for four.** Twelve of them
+reasons this criterion is not about, and it has now moved for five.** Twelve of them
 arrived with #4 item 4, which taught the compiled patterns that read an element name to read
 a namespace-prefixed tag: **nine** with the two commits that shared one alternation between the four
 sites it then had, and **three** more with the commit that replaced the prefix's character class with
@@ -141,7 +141,25 @@ divide the same three ways, and **only two of them carry B2**:
 | --- | --- |
 | `test_every_spelling_the_derivation_added_scores_once_the_format_is_named` and `test_a_prefixed_document_still_names_the_format` | **two**, and B2 evidence in the ordinary way. The first is what stops the gate being a deletion -- every added row is re-measured, with a marker present, against the weight its category declares, so a gate that simply zeroed those rows would pass the constraint tests and fail this one. The second carries the prefixed-export claim into the gate: a document's private alias must not cost it its own marker |
 | `test_generic_xml_names_are_not_genealogy_without_the_format`, `test_a_document_about_unrelated_xml_is_not_a_finding`, `test_every_spelling_the_derivation_added_is_gated_on_the_format`, and `test_a_researcher_block_without_the_format_is_the_gates_recorded_cost` | **four**, constraining what the guard must *not* report -- **B8's concern rather than this one**, exactly as the drawing rows and the markup-collision row are. The first two are the reproductions; the third is the same property derived over the table, so a row a later schema version adds is gated with no test edited. The fourth is the residual, asserted in both directions: the accepted cost is that a genuine fragment quoted *without* its marker is no longer caught, and its second half is the control that the gate removed the unmarked case and nothing else |
-| `test_the_attested_snapshot_still_records_the_moment_it_claims_to`, `test_each_marker_the_gate_reads_is_the_one_the_schema_declares`, and `test_the_namespace_the_gate_reads_is_the_default_the_schema_fixes` | **three**, asserting properties of the tables rather than what a scan returns. They carry no criterion on their own. The first pins the membership of the frozen pre-audit snapshot, which is what buys back the independence lost when that snapshot moved into the guard for the gate to read; the other two bind each marker to the source it is derived from, so none of them is a spelling somebody chose |
+| `test_the_attested_snapshot_still_records_the_moment_it_claims_to`, `test_the_only_marker_the_gate_reads_is_the_namespace_the_schema_fixes`, and `test_the_namespace_the_gate_reads_is_the_default_the_schema_fixes` | **three**, asserting properties of the tables rather than what a scan returns. They carry no criterion on their own. The first pins the membership of the frozen pre-audit snapshot, which is what buys back the independence lost when that snapshot moved into the guard for the gate to read; the other two bind the marker to the source it is derived from, so it is not a spelling somebody chose |
+
+**Two more arrived with the marker DELETION** -- the round that found the gate reading any namespace
+declaration on an element named `database`, so `<database xmlns="urn:example:ledger">` beside four
+filled `<type>` elements scored 5 and was reported. Two of the three markers read *structure* and
+never a value; they were removed rather than tightened, because bound to the namespace they matched
+nothing the substring marker does not. **Neither of the two carries B2:**
+
+| The two | What they are |
+| --- | --- |
+| `test_an_unrelated_namespace_does_not_name_the_gramps_format` and `test_an_unrelated_doctype_does_not_name_the_gramps_format` | **two**, constraining what the guard must *not* report -- **B8's concern rather than this one**, exactly as the four reproductions above are. They are the two spellings of one reproduction, written separately because a repair reaching only the namespace form would pass the first and fail the second |
+
+⚠️ **Two tests in this file were REWRITTEN by that round rather than added, and they are counted
+among the nine above, not here.** `test_each_marker_the_gate_reads_is_the_one_the_schema_declares`
+became `test_the_only_marker_the_gate_reads_is_the_namespace_the_schema_fixes` -- one marker instead
+of three, and its structural probes now assert the format is *not* named -- and
+`test_a_prefixed_document_still_names_the_format` gained its negative half, so a prefix carrying an
+unrelated namespace names nothing. **Both arrived in this branch's own repairs**, which is why
+rewriting them is a fix rather than the modification of a pre-existing test.
 
 ⚠️ **Two pre-existing tests in this file changed their probe and are not among the nine**, because
 they are not new. `test_the_compiled_scorer_agrees_with_the_vocabulary_for_every_row` and
@@ -152,9 +170,14 @@ The invariant-1 test deliberately did **not** change: what it claims is that an 
 scores with **no** marker present, and a marked probe cannot see that.
 
 ⚠️ **A separate file arrived with the same change and is counted nowhere above.**
-`tests/unit/test_derive_specified_containers.py` -- **7 tests** -- asserts the derivation script's
+`tests/unit/test_derive_specified_containers.py` -- **9 tests** -- asserts the derivation script's
 own properties. It carries no criterion here: it is about a build step's fail-closed guarantee, not
-about what a scan returns.
+about what a scan returns. ⚠️ **That is that FILE's count too, and it moved for the same kind of
+reason:** the marker-deletion round added
+`test_an_unreadable_definition_anywhere_in_a_list_stops_the_derivation` and
+`test_every_readable_definition_in_a_list_is_read`, the non-vacuity pair that replaced the script's
+match-and-check-the-tail scheme with a parser that cannot advance past a byte it did not match. Both
+are about a build step, so neither moves anything this document claims.
 
 ⚠️ **The count was UNCHANGED by the fourth site's deletion, and that is a coincidence rather
 than evidence nothing happened.** That change removed the test asserting a mismatched-prefix pair is
@@ -168,7 +191,18 @@ rather than carried forward.
 repair is filed as #36 rather than built here.** The count is corrected at the change that moved it,
 which is the cheapest place; what #36 owes is the mechanism that makes a stale one fail rather than
 read as considered. The sixth change to touch this file looked for this number **before** adding a
-test to it rather than after, which is the cheap half of that repair available today.
+test to it rather than after, which is the cheap half of that repair available today; so did the
+seventh, for **both** counts on this page.
+
+⚠️ **And a documented MEASUREMENT went stale the same way, which is the same defect wearing different
+clothes.** CONTRIBUTING's control table -- the retained side of the marker gate -- recorded
+`4 / 4 / 6 / 9` for four payloads. Re-walked at its own *Before* head those payloads measure
+`4 / 8 / 9`, and the fourth is not scored at all: it is reported by a genealogy text signature before
+any scorer runs. The three stale figures are the **pre-derivation** weights, carried forward from an
+earlier document rather than re-measured after the vocabulary went from 29 rows to 110. The claim the
+table makes was true throughout; only its evidence was wrong. #36 is scoped to counts, and a figure
+is not a count -- so this one is corrected where it was found, with the correction recorded beside
+it, and it is why the tables in that section are now marked *re-walked* rather than carried.
 
 ### B3
 

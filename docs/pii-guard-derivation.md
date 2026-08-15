@@ -67,9 +67,18 @@ the schema **fixes** it at, as `FIXED_ATTRIBUTE_DEFAULTS`. One row: the namespac
 the `xmlns` attribute of its document element to carry.
 
 That row is what stops the guard's namespace constant being the one thing in the marker gate
-maintained by hand. The gate reads three markers, and the other two are bound to the frozen table
-(the element `xmlns` is attached to) or to a transcribed production (XML 1.0 §2.8's `doctypedecl`).
-The namespace is a *value*, and until this emission there was nothing in the table to bind it to.
+maintained by hand. The namespace is a *value*, and until this emission there was nothing in the
+table to bind it to.
+
+⚠️ **The gate now reads that row and nothing else, and it used to read three markers.** The other
+two were a doctype whose `Name` was the document element, and that element carrying an `xmlns`
+attribute at all. Both read *structure* and never a value, so a document declaring an unrelated
+namespace or identifier was read as Gramps -- the generic-XML false positive the gate exists to
+remove. **Bound to this row they would have matched nothing the substring test does not**, since the
+guard's constant is asserted to be a substring of the reassembled value; the doctype could not be
+bound at all, because the only Gramps-specific evidence it carries beyond the namespace is the public
+identifier and the DTD does not declare its own. So they were deleted rather than tightened. The
+argument, the measurement and the residual it creates are in CONTRIBUTING.
 
 ⚠️ **The value is emitted SPLIT at each `/`, and is never written whole.** This module is tracked
 content the repository's own guard scans, and the guard scores that namespace as a substring
@@ -88,6 +97,24 @@ production, longest alternative first, so an unknown token cannot match and the 
 `DefaultDecl` also accepts a single-quoted `AttValue`, which it previously refused. Neither changed
 a byte of the committed table — the pinned schema declares no composite type and no single-quoted
 default — and both are asserted offline in `tests/unit/test_derive_specified_containers.py`.
+
+⚠️ **And the fail-closed guarantee is now STRUCTURAL rather than a check, which is the second
+repair to the same mechanism.** That remainder check validated the **tail** of an `ATTLIST` body and
+nothing else: given `bad WIDGET #IMPLIED good CDATA #IMPLIED`, the scan skipped the definition it
+could not read, the later match carried the consumed offset to the end, the remainder was empty, and
+the script emitted a partial table while reporting that it never would. Same shape as the defect
+above — something the pattern could not read was passed over and the check succeeded anyway — and the
+silent omission is again the exposure a re-derivation diff cannot show.
+
+So the mechanism was **replaced rather than given a third check**. `attributes_of` consumes the body
+left to right and **cannot advance past a byte it did not match**, which means *nothing was skipped*
+stops being a property somebody has to verify by reading two checks and confirming both are placed
+correctly. The refusal now quotes the *first* unreadable text rather than whatever survived to the
+tail. The two properties are asserted as a non-vacuity pair — an unreadable definition at the start,
+in the middle **and** at the end each stops the derivation, and a list of readable definitions is
+read whole and in declaration order — so neither can be satisfied by weakening the other. The
+committed table is again unchanged: the pinned schema has no gap for the repair to find, confirmed by
+a full re-derivation over digest-matching artifacts returning an empty diff.
 
 ## What is NOT committed, and why
 
@@ -143,6 +170,14 @@ edited.
   directions, in CONTRIBUTING. What is not lost, and what makes it affordable: the 29 spellings the
   vocabulary held before the derivation -- the rows that name a person on their own -- score exactly
   as they did, marker or no marker.
+- ⭐ **A genuine document naming itself ONLY by a PUBLIC-only doctype, with no namespace anywhere.**
+  The gate read three markers and now reads one, because the other two read structure rather than a
+  value and so read an unrelated format as Gramps. The price is this single case: a researcher block
+  under `<!DOCTYPE database PUBLIC "-//Gramps//DTD …">` goes from **6 to 0**, and an events block of
+  two events from **4 to 0**. Measured, both directions, in CONTRIBUTING. It is not a case newly
+  discovered by the deletion -- the doctype marker's own note recorded, when it was written, that
+  this *was* its entire reach, because any larger document carrying a doctype already trips a
+  genealogy text signature before a scorer runs.
 - **A committed NAME can essentially never carry a marker**, so a derived row will never score on
   one. That is a residual of the gate rather than a defect in its scoping; the committed name that
   is a finding today rests on the GEDCOM record signature, not on the XML scorer.

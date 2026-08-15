@@ -285,12 +285,19 @@ combining mark too, and it is the site that fails CLOSED.
 """
 
 _NOT_THE_GRAMPS_NAMESPACE = "urn" + ":" + "example" + ":" + "ledger"
-"""A namespace that is not the Gramps one, for the two structural markers.
+"""A namespace that is not the Gramps one: the gate's NEGATIVE probe.
 
-Assembled like everything else here. It exists so the doctype marker and the
-document-element marker are asserted **on their own** -- a probe carrying the
-real namespace would satisfy the gate through the substring marker whatever the
-other two patterns did, which is a test that passes with those patterns deleted.
+Assembled like everything else here. It arrived to assert the two structural
+markers on their own, because a probe carrying the real namespace satisfies the
+gate through the substring marker whatever those two patterns did -- *"a test
+that passes with those patterns deleted"*, in its own words.
+
+⚠️ **That observation was the reason they WERE deleted, one round later.** Read
+the other way round it says a structural marker bound to the namespace is a
+strict subset of the substring test, and unbound it reads an unrelated format as
+Gramps -- which is what a document carrying this value is. So the constant keeps
+its place and changes sides: every probe built from it must now name the format
+in nothing, prefixed or bare, doctype or document element.
 """
 
 _NOT_THE_SVG_NAMESPACE = "urn" + ":" + "example" + ":" + "quarterly-rollup"

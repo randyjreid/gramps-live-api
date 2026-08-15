@@ -584,17 +584,36 @@ narrowing. Cutting the gate's domain out of the frozen pre-audit snapshot makes 
 construction: a pre-existing row is not in the domain, so no measurement is needed to show the gate
 did not reach it.
 
-**What a marker is, and where each one comes from.** A hand-written list of markers would be the
+**What a marker is, and where it comes from.** A hand-written list of markers would be the
 enumeration this project refuses, one level up from the one the derivation just removed:
 
 | Marker | Source it is bound to, by test |
 | --- | --- |
-| the declared namespace | the `#FIXED` default the schema gives the `xmlns` attribute of its document element, now emitted into the frozen table as `FIXED_ATTRIBUTE_DEFAULTS` |
-| the doctype | XML 1.0 §2.8, `doctypedecl ::= '<!DOCTYPE' S Name …`, whose `Name` is the document element |
-| the document element declaring a namespace | the one element `SPECIFIED_ATTRIBUTES` attaches `xmlns` to — asserted to be exactly one |
+| the declared namespace | the `#FIXED` default the schema gives the `xmlns` attribute of its document element, emitted into the frozen table as `FIXED_ATTRIBUTE_DEFAULTS` |
 
-The last two read that element through the shared alternation, so a prefixed export names the
-format exactly as an unprefixed one does.
+⚠️ **This was THREE markers, and the other two were removed rather than tightened.** They read
+*structure* and never a value — a doctype whose `Name` was the document element, and that element
+carrying an `xmlns` attribute at all — so `<database xmlns="urn:example:ledger">` beside four filled
+`<type>` elements re-enabled every derived row and scored **5, reported**; the doctype spelling
+scored **4, reported**. A document that has explicitly named *another* format was read as Gramps,
+which is the generic-XML false positive this gate exists to remove, restored by the gate itself.
+
+**Tightening them was the obvious repair and it buys nothing.** The marker above is a plain
+substring test over the decoded text, and
+`test_the_namespace_the_gate_reads_is_the_default_the_schema_fixes` pins its constant as a substring
+of the reassembled `#FIXED` value — so any text satisfying a correctly-bound structural marker
+already satisfies this one. Bound, they are a strict
+subset adding no match ever; unbound, they are the false positive. **And the doctype could not be
+bound at all:** the only Gramps-specific evidence it carries beyond the namespace is the public
+identifier, which appears in no artifact this repository has frozen — the DTD does not declare its
+own — so correcting it would need exactly the hand-typed literal this design forbids. The choice was
+never *tighten or delete*; it was *delete, or keep something known-broken*.
+
+**The prefixed case gets stronger, not weaker.** A substring test over the whole text is blind to
+prefixes **by construction**, so `<x:database xmlns:x="…">` names the format exactly as the bare form
+does, for every alias — Change A's equivalence property with nothing left to keep in step. It is
+asserted in both directions anyway, because the positive half alone is satisfied by a gate that
+accepts everything.
 
 ⚠️ **`pii_guard` does not import `_specified_containers`.** That module is data, not behaviour, and
 the scan does not change if it is deleted. The markers are composed constants in the guard, bound by
@@ -603,24 +622,37 @@ test to the frozen table — the same standing the vocabulary itself has.
 #### Both directions, measured
 
 Every figure below is from a **Windows 11 Pro 10.0.26100 development machine, CPython 3.12.13 via
-`.venv\Scripts\python.exe`**, against the pre-change head `fcc56b2`. A runner is an order of
-magnitude faster on the history walk, for the reason recorded against B8.
+`.venv\Scripts\python.exe`**. The gate's own columns are against the pre-change head `fcc56b2`; the
+marker-deletion columns are against `3f9f46c`, the head the reviewer found on. **Every table was
+re-walked on the current head rather than carried forward**, and where a figure moved — or was wrong
+— it is corrected below rather than quietly adjusted. A runner is an order of magnitude faster on
+the history walk, for the reason recorded against B8.
 
 **(a) What the gate removes — the direction this change is for.**
 
-| Payload, no marker anywhere | Before | After |
-| --- | --- | --- |
-| four filled `<type>` elements | 4 — **reported** | 0 |
-| `<file>`, `<status>`, `<description>`, `<type>` | 4 — **reported** | 0 |
+| Payload, no marker anywhere | Before | After | Re-walked now |
+| --- | --- | --- | --- |
+| four filled `<type>` elements | 4 — **reported** | 0 | 0 |
+| `<file>`, `<status>`, `<description>`, `<type>` | 4 — **reported** | 0 | 0 |
 
 **(b) The retained side — the control, and the half that can break silently.**
 
-| Payload | Before | After |
+| Payload | Before (`fcc56b2`) | Now |
 | --- | --- | --- |
 | a bare name block, no marker | 4 | 4 |
-| a note holding a biography, no marker | 4 | 4 |
-| a person fragment, no marker | 6 | 6 |
-| a whole export | 9 | 9 |
+| a note holding a biography, no marker | 8 | 8 |
+| a person fragment, no marker | 9 | 9 |
+| a whole export | reported by the **database element signature**, before any scorer runs | unchanged |
+
+⚠️ **Three of those four figures were wrong when they were written, and the correction is recorded
+rather than made silently.** This table read `4 / 4 / 6 / 9`. Re-walked at `fcc56b2` — its own
+*Before* head — the same fixtures measure `4 / 8 / 9`, and the whole export is not scored at all: it
+trips `_GENEALOGY_TEXT_SIGNATURES`, which short-circuits `_sniff_genealogy` before the scorer, so a
+score for that row was never a thing to record. The three stale numbers are the pre-derivation
+weights, carried forward from an earlier document instead of re-measured after the vocabulary went
+from 29 rows to 110. **The claim the table makes was true and is still true** — every one of these is
+unchanged by the gate, by the marker deletion, and by the derivation repair — but a number that once
+matched is the worst kind of stale, because it reads as considered.
 
 Every row of the vocabulary is held to this by the per-row tests rather than by these four
 examples: the attested spellings are re-measured **without** a marker, and every added spelling is
@@ -628,14 +660,29 @@ re-measured **with** one against the weight its category declares.
 
 **(c) ⭐ The residual — the cost the owner ruled in, measured rather than described.**
 
-| Genuine Gramps fragment, quoted without its marker | Before | After |
-| --- | --- | --- |
-| a researcher block — `<researcher>` wrapping `<resname>`, `<rescity>`, `<respostal>` | 6 — **reported** | 0 |
-| an events block — two `<event>`s, each with a `<type>` and a `<description>` | 4 — **reported** | 0 |
-| the same researcher block, format named | 8 — reported | 8 — reported |
-| the same events block, format named | 6 — reported | 6 — reported |
+| Genuine Gramps fragment, quoted without its marker | Before | After | Re-walked now |
+| --- | --- | --- | --- |
+| a researcher block — `<researcher>` wrapping `<resname>`, `<rescity>`, `<respostal>` | 6 — **reported** | 0 | 0 |
+| an events block — two `<event>`s, each with a `<type>` and a `<description>` | 4 — **reported** | 0 | 0 |
+| the same researcher block, format named | 8 — reported | 8 — reported | 8 — reported |
+| the same events block, format named | 6 — reported | 6 — reported | 6 — reported |
 
-⚠️ **This is not negligible and is not described as such.** What makes it affordable is narrower and
+⭐ **A second residual arrived with the marker deletion, and it is the whole of what that deletion
+cost.** A genuine Gramps document naming itself **only** by a PUBLIC-only doctype — no namespace
+anywhere in the text — no longer enables derived rows. Measured against `3f9f46c`:
+
+| Genuine Gramps fragment under `<!DOCTYPE database PUBLIC "-//Gramps//DTD …">` | Before | After |
+| --- | --- | --- |
+| the same researcher block | 6 — **reported** | 0 |
+| the same events block | 4 — **reported** | 0 |
+
+⚠️ **This is not newly discovered, and it is not presented as such.** The marker block's own honest
+note recorded, when the doctype marker was written, that this single case *was* that marker's entire
+reach: a whole export carrying a doctype or a namespaced document element already trips
+`_GENEALOGY_TEXT_SIGNATURES`, which short-circuits `_sniff_genealogy` before any scorer runs. What
+the deletion removes is the case that note had already named.
+
+⚠️ **Neither residual is negligible and neither is described as such.** What makes it affordable is narrower and
 is stated precisely: **the 29 attested spellings — the rows that name a person on their own — score
 exactly as they do today, marker or no marker.** A fragment carrying `<person>`, `<name>`,
 `<first>`, `<surname>`, `<street>`, `<city>`, `<text>`, `<note>`, `<dateval>`, `<placeobj>` or
@@ -659,38 +706,64 @@ GEDCOM record and rests on the record signature rather than on the XML scorer.
 | Row | Result |
 | --- | --- |
 | tip — `python -m gramps_live_api.core.pii_guard .` | 0 findings over 45 tracked entries |
-| published range — `--range <root>..HEAD` | 0 findings over 98 commits, 187 entries scanned |
+| published range — `--range HEAD` | 0 findings over 102 commits, 198 entries scanned |
 | `test_every_commit_this_repository_publishes_is_clean` and `test_this_repository_is_clean` | both **ran** on a complete checkout, both passed |
+
+Both rows were **walked again** on the head that deletes the two markers and again on the head that
+records it, not inferred from the tip and not carried forward. **The verdict — 0 findings — is what
+must not move.** The commit and entry counts grow with the history and did: 98 → 102 commits and
+187 → 198 entries over the four commits since the gate landed, and the commit carrying this sentence
+necessarily adds one more, which is why the row above is read for its verdict rather than its
+arithmetic.
 
 **(e) ⚠️ The code's own constants, under every spelling the code treats as equivalent.** A sweep
 over tracked content does not read the values living inside the code, and that is exactly what let
 an earlier allowlist regression through a careful measurement. Every tracked file was read and
 searched for every vocabulary spelling as a filled and as an attributed element, and for the
-namespace and both structural markers, under **case** variants (the element patterns are
+namespace and for what the gate reads, under **case** variants (the element patterns are
 `IGNORECASE`), **prefixed and unprefixed** forms, **separator** variants — backslash, escaped
-solidus, doubled, percent-encoded — and the **escaped forms `_decoded` folds**:
+solidus, doubled, percent-encoded — and the **escaped forms `_decoded` folds** (`/`, `&#47;`).
+Re-walked on the head that deletes the two markers, against `3f9f46c`:
 
 | What the sweep found | Before | After |
 | --- | --- | --- |
-| the namespace, in any of seven spellings, in any tracked file | none | **none** |
+| the namespace, in any of **nine** spellings, in any tracked file | none | **none** |
 | filled vocabulary elements | one — `<title>` in `test_pii_guard_p1_paths.py`, weight 0 | unchanged |
-| attributed vocabulary elements | one — a `<database xmlns=…>` template in the fixture module | unchanged |
-| structural markers | one file — the same template | unchanged |
-| highest un-thresholded score of any tracked file | **1**, against a threshold of 4 | **1** |
+| attributed vocabulary elements | one — a `<database xmlns=…>` template in the fixture module | **nine** — see below |
+| **tracked files the gate reads as naming the format** | **two** — `CONTRIBUTING.md` and the fixture module | **none** |
+| highest un-thresholded score of any tracked file | **1**, against a threshold of 4 | **0** |
 
-The specific thing this catches is the new `FIXED_ATTRIBUTE_DEFAULTS` emission, which puts the
-namespace value into a tracked `.py` file **for the first time**. It is emitted split at its own
-separator for exactly that reason, and the first row above is the check that the split works: the
-value appears contiguously nowhere, in any spelling asked for.
+The specific thing this catches is the `FIXED_ATTRIBUTE_DEFAULTS` emission, which puts the namespace
+value into a tracked `.py` file for the first time. It is emitted split at its own separator for
+exactly that reason, and the first row is the check that the split works: the value appears
+contiguously nowhere, in any spelling asked for.
 
-**(f) Criterion 13 — the 2× wall-clock bound.** The gate adds one substring test and two pattern
-searches per scored text, so no measurable change was expected; measured anyway, best of three, with
-both code versions run over the **same** corpus so the figures isolate the change:
+⚠️ **The two rows that moved are the finding, read back over this repository's own files.** The
+attributed count grows from one to nine because the marker deletion is *documented*: the guard's
+block comment (×2), the fixture module (×2), the P2 test file, this file (×3) and the acceptance
+note each now spell `<database xmlns="urn:…">` in prose, as the reproduction they explain — this very
+section included, which is the sweep reading its own text and is why it was re-run on the final head
+rather than on the code commit. Every one of them carries an **unrelated** namespace, and the fourth
+row is what that means: under the old markers, two tracked files here were read as *naming the Gramps
+format* on the strength of structure alone; under the one that remains, none is. So the repository's
+own headroom improves rather than degrades — the highest un-thresholded score of any tracked file
+goes from 1 to **0**, and nine mentions of an unrelated namespace are worth exactly nothing, which is
+the property being claimed.
 
-| | Before | After | Ratio |
+**(f) Criterion 13 — the 2× wall-clock bound.** The gate now runs **one substring test and zero
+pattern searches** per scored text, down from one and two, so a regression would be surprising;
+measured anyway, best of three, with both code versions run over the **same** corpus (this
+repository at the current head) so the figures isolate the change:
+
+| | Before (`3f9f46c`) | After | Ratio |
 | --- | --- | --- | --- |
-| tip scan, 45 entries | 2.83 s | 2.90 s | **1.02×** |
-| published-range walk, 98 commits / 187 entries | 33.40 s | 32.46 s | **0.97×** |
+| tip scan, 45 entries | 1.97 s | 2.03 s | **1.03×** |
+| published-range walk, 102 commits / 198 entries | 19.71 s | 19.37 s | **0.98×** |
+
+⚠️ **Read the ratios, not the seconds.** These absolute figures are lower than the marker gate's own
+(2.83 s and 33.40 s) because they were taken in a different session on the same machine; the two
+pairs are each internally comparable and are not comparable with each other. The bound is a ratio for
+that reason.
 
 ### Recorded decision: serialized text versus the logical value
 
