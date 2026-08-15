@@ -76,7 +76,8 @@ def _sentence(type_name: str) -> str:
     guarded function what the unguarded sentence looks like would be deriving
     its expectation from the thing under test.
     """
-    return " ".join(EXAMPLES[type_name].render().split())
+    fragments = EXAMPLES[type_name].render()
+    return " ".join("".join(fragment.text for fragment in fragments).split())
 
 
 def _carrying(type_name: str, path: str, character: str) -> schema.Operation:
@@ -135,6 +136,16 @@ def test_a_rendered_field_carrying_a_guarded_character_is_refused(
         "a refusal that does not name the field is one nobody can act on; "
         f"{description} at {path} was reported at {refusal.value.field_path!r}"
     )
+    # ⚠️ **This is where criterion 1 lands, and it is what the whole guard rests
+    # on.** The cases are generated from the registry and the declared fields,
+    # so a field added to any operation later and rendered into the sentence
+    # arrives here on its own. Its renderer must carry the path its text came
+    # from: a renderer that inlines the value and names no field leaves the
+    # character in text this module claims it wrote itself, and the refusal
+    # comes back as a bare SchemaError naming nothing -- which FAILS ABOVE,
+    # loudly, rather than falling back to a search over the operation's values.
+    # There is no such fallback any more, deliberately: a search cannot tell two
+    # rendered fields carrying the same character apart.
 
 
 @pytest.mark.parametrize(("type_name", "path", "description"), RENDERED)
@@ -183,6 +194,81 @@ def test_a_field_that_is_not_rendered_is_not_refused(
     assert schema.preview(operation) == _sentence(type_name), (
         f"{description} at {path} changed a sentence that does not carry it"
     )
+
+
+def test_a_character_in_an_unrendered_and_a_rendered_field_names_the_rendered_one() -> None:
+    # ⚠️ The refusal has to name the field whose CORRECTION CHANGES THE OUTCOME.
+    # A handle is never rendered -- criterion 7 keeps it out of every preview --
+    # so a refusal naming one sends the reader to a field they can fix without
+    # the refusal going away. That does not fail criterion 4 loudly; it vacates
+    # it silently, which is this module's recorded defect shape.
+    character = GUARDED["an override that reorders what follows it"]
+    operation = carrying(
+        carrying(EXAMPLES["add_note"], "target.handle", "7fd3a9" + character + "c15e0842"),
+        "text",
+        "Ashenmoor" + character + " deed",
+    )
+
+    assert schema.validate(operation).well_formed, (
+        "this case is only the rendering guard's business while the operation "
+        "is still well-formed; preview's precondition is unchanged"
+    )
+    with pytest.raises(schema.UnrenderableFieldError) as refusal:
+        schema.preview(operation)
+
+    assert refusal.value.field_path == "text", (
+        "the sentence carries the character from text and never carries the "
+        "handle at all, so naming target.handle is a refusal whose correction "
+        f"leaves the refusal standing; got {refusal.value.field_path!r}"
+    )
+
+
+def test_a_character_in_two_rendered_fields_names_the_one_that_contributed_it() -> None:
+    # ⚠️ The case that separates PROVENANCE from a narrowed search, and the one
+    # the finding did not name. Excluding unrendered fields from a search would
+    # pass the test above and fail this one: both fields here are rendered, so
+    # only carrying which field produced which text can tell them apart.
+    #
+    # AddCitation is the discriminating type because its declaration order and
+    # its sentence order DISAGREE -- target is declared first, the citation is
+    # rendered first -- so a search over required_paths answers target.gramps_id
+    # and the sentence answers citation.gramps_id.
+    character = GUARDED["an override that reorders what follows it"]
+    operation = carrying(
+        carrying(EXAMPLES["add_citation"], "citation.gramps_id", "C00" + character + "42"),
+        "target.gramps_id",
+        "I00" + character + "31",
+    )
+
+    assert schema.validate(operation).well_formed, (
+        "this case is only the rendering guard's business while the operation "
+        "is still well-formed; preview's precondition is unchanged"
+    )
+    with pytest.raises(schema.UnrenderableFieldError) as refusal:
+        schema.preview(operation)
+
+    assert refusal.value.field_path == "citation.gramps_id", (
+        "the offending character reaches the sentence from citation.gramps_id "
+        "first; target.gramps_id is what DECLARATION ORDER answers, which is "
+        f"the attribution this guard must not be making; got {refusal.value.field_path!r}"
+    )
+
+
+@pytest.mark.parametrize("type_name", sorted(EXAMPLES))
+def test_every_field_a_renderer_names_is_a_field_that_exists(type_name: str) -> None:
+    # The control on the new mechanism. Provenance is carried by the renderer
+    # naming the path its text came from, so a mistyped prefix there would
+    # report a field nobody can act on -- the same fault criterion 5 rules out
+    # for a violation. ``resolve`` raises if the path names no field.
+    named = [
+        fragment.field_path
+        for fragment in EXAMPLES[type_name].render()
+        if fragment.field_path is not None
+    ]
+
+    assert named, f"{type_name} renders no field at all, so its provenance proves nothing"
+    for path in named:
+        resolve(EXAMPLES[type_name], path)
 
 
 @pytest.mark.parametrize("type_name", sorted(EXAMPLES))
@@ -290,7 +376,7 @@ def test_a_character_no_field_carries_is_refused_without_naming_one() -> None:
     # sentence nobody can trust is not shown because of where the character came
     # from -- and it must not claim a field carried something no field carries.
     with pytest.raises(schema.SchemaError) as refusal:
-        schema._refuse_unrenderable(EXAMPLES["add_citation"], "cite citation " + chr(0x202E))
+        schema._refuse_unrenderable((schema.Fragment("cite citation " + chr(0x202E)),))
 
     assert not isinstance(refusal.value, schema.UnrenderableFieldError), (
         "a refusal naming a field no value came from points the reader at the wrong place"

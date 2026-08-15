@@ -79,21 +79,68 @@ _PREVIEW_TEXT_LIMIT = 60
 """How much of a free-text value a one-line preview carries before eliding."""
 
 
-def _named(reference: ObjectRef | None) -> str:
+@dataclass(frozen=True, slots=True)
+class Fragment:
+    """One piece of a rendered sentence, and the field whose value it is.
+
+    ⚠️ **A renderer returns pieces rather than a string so that WHICH FIELD
+    PRODUCED WHICH TEXT survives into the guard.** The alternative -- render a
+    flat string, then match an offending character back against the operation's
+    values -- cannot answer the question it is being asked: two fields carrying
+    the same character are indistinguishable to a search, so it reports whichever
+    the walk reaches first. That is an attribution by declaration order dressed
+    up as an attribution by evidence, and it named fields whose correction
+    changed nothing.
+
+    ``field_path`` is the dotted path of the field this text came from, or
+    ``None`` for the wording this module wrote itself. Both cases are
+    load-bearing: the second is how the guard knows a character came from *our*
+    renderer rather than from a payload, and so must not name a field at all.
+    """
+
+    text: str
+    field_path: str | None = None
+
+
+def _own(text: str) -> Fragment:
+    """Wording this module wrote. No field carries it, so none is named for it."""
+    return Fragment(text)
+
+
+def _carried(path: str, text: str) -> Fragment:
+    """Text that came from the field at ``path``, which is what a refusal names.
+
+    ⚠️ **``path`` must be spelled as ``required_paths`` spells it**, because
+    that is the vocabulary every other message in this module reports in.
+    Asserted per registered type, so a mistyped prefix fails a test rather than
+    reaching a reader as a field they cannot find.
+    """
+    return Fragment(text, path)
+
+
+def _named(reference: ObjectRef | None, path: str) -> tuple[Fragment, ...]:
     """A reference as a person reads it: what kind of thing, and which one.
 
     ⚠️ **The handle is deliberately absent and must stay absent.** It is
     machine identity; naming it here is the one thing criterion 7 rules out
     outright, because an operation identified by an opaque string cannot be
-    checked against a record by the person approving it.
+    checked against a record by the person approving it. It contributes no
+    fragment, which is also why no refusal can name it: a field the sentence
+    never carries is not one the rendering guard has anything to say about.
     """
     if reference is None:
-        return "an object that was not named"
-    kind = reference.object_type or "object"
-    return f"{kind} {reference.gramps_id}" if reference.gramps_id else f"an unidentified {kind}"
+        return (_own("an object that was not named"),)
+    kind = (
+        _carried(f"{path}.object_type", reference.object_type)
+        if reference.object_type
+        else _own("object")
+    )
+    if reference.gramps_id:
+        return (kind, _own(" "), _carried(f"{path}.gramps_id", reference.gramps_id))
+    return (_own("an unidentified "), kind)
 
 
-def _identified(reference: ObjectRef | None) -> str:
+def _identified(reference: ObjectRef | None, path: str) -> tuple[Fragment, ...]:
     """A reference where the sentence has already said what kind of thing it is.
 
     ``cite citation C0042`` is what naming the kind twice reads like, and a
@@ -101,18 +148,30 @@ def _identified(reference: ObjectRef | None) -> str:
     ``_named``: the identifier, never the handle.
     """
     if reference is None:
-        return "an object that was not named"
-    return reference.gramps_id or f"an unidentified {reference.object_type or 'object'}"
+        return (_own("an object that was not named"),)
+    if reference.gramps_id:
+        return (_carried(f"{path}.gramps_id", reference.gramps_id),)
+    if reference.object_type:
+        return (_own("an unidentified "), _carried(f"{path}.object_type", reference.object_type))
+    return (_own("an unidentified object"),)
 
 
-def _shortened(text: str) -> str:
-    """Free text, quoted, and cut to something a single line can hold."""
+def _shortened(text: str, path: str) -> tuple[Fragment, ...]:
+    """Free text, quoted, and cut to something a single line can hold.
+
+    ⚠️ **Only what survives the elision is attributed**, because only that
+    reaches the sentence. The recorded residual -- a character past the limit is
+    never emitted, and a guard over what we DISPLAY has nothing to say about it
+    -- is true here by construction rather than by the guard happening to scan
+    a string the elision had already shortened.
+    """
     collapsed = " ".join(text.split())
     if not collapsed:
-        return "(no text)"
+        return (_own("(no text)"),)
     if len(collapsed) > _PREVIEW_TEXT_LIMIT:
-        collapsed = collapsed[: _PREVIEW_TEXT_LIMIT - 1].rstrip() + "…"
-    return f"“{collapsed}”"
+        kept = collapsed[: _PREVIEW_TEXT_LIMIT - 1].rstrip()
+        return (_own("“"), _carried(path, kept), _own("…”"))
+    return (_own("“"), _carried(path, collapsed), _own("”"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,12 +207,22 @@ class Operation:
     once -- and it puts the refusal somewhere no field path can reach.
     """
 
-    def render(self) -> str:
-        """One sentence describing what this operation would do.
+    def render(self) -> tuple[Fragment, ...]:
+        """One sentence describing what this operation would do, in pieces.
 
-        Called only through ``preview``, which applies the single-line rule.
-        An override returns whatever reads best; it does not have to remember
-        to strip newlines, and that is the point of the choke point.
+        Called only through ``preview``, which joins the pieces and applies the
+        single-line rule. An override returns whatever reads best; it does not
+        have to remember to strip newlines, and that is the point of the choke
+        point.
+
+        ⚠️ **Every piece built from a field's value names that field.** The
+        rendering guard reports the field a refused character came from, and it
+        reads that off these fragments rather than searching the operation for
+        the character afterwards -- a search cannot tell two rendered fields
+        carrying the same character apart, and answers by declaration order. A
+        renderer that inlines a value without naming its path leaves the guard
+        with nothing to name, which fails the generated matrix in
+        ``test_schema_preview_guard.py`` rather than degrading quietly.
         """
         raise NotImplementedError
 
@@ -365,8 +434,13 @@ class AddCitation(Operation):
     target: ObjectRef | None = None
     citation: ObjectRef | None = field(default=None, metadata={_EXPECTS: OBJECT_TYPE_CITATION})
 
-    def render(self) -> str:
-        return f"cite {_identified(self.citation)} as evidence for {_named(self.target)}"
+    def render(self) -> tuple[Fragment, ...]:
+        return (
+            _own("cite "),
+            *_identified(self.citation, "citation"),
+            _own(" as evidence for "),
+            *_named(self.target, "target"),
+        )
 
 
 @_register("add_note", citation_field=None)
@@ -382,8 +456,15 @@ class AddNote(Operation):
     note_type: str = ""
     text: str = ""
 
-    def render(self) -> str:
-        return f"add a {self.note_type} note to {_named(self.target)}: {_shortened(self.text)}"
+    def render(self) -> tuple[Fragment, ...]:
+        return (
+            _own("add a "),
+            _carried("note_type", self.note_type),
+            _own(" note to "),
+            *_named(self.target, "target"),
+            _own(": "),
+            *_shortened(self.text, "text"),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -897,40 +978,46 @@ class UnrenderableFieldError(SchemaError):
         self.category = category
 
 
-def _carrier_of(operation: Operation, characters: frozenset[str]) -> tuple[str, str] | None:
-    """The first declared path holding one of ``characters``, and its category.
+def _emitted(fragment: Fragment) -> str:
+    """What ``fragment`` actually puts on screen, after the single-line rule.
 
-    Walks the derived paths every rule walks, so a field added later is
-    attributable without a list kept beside it. Deterministic in both
-    directions: the first path in declaration order, and the first offending
-    character within it.
+    ⚠️ **The same normalisation ``preview`` applies to the whole sentence, and
+    it must stay the same one.** Collapsing only deletes or normalises
+    whitespace, so the non-whitespace characters a fragment contributes are
+    identical either way -- which is what makes reading provenance off the
+    fragments equivalent to scanning the finished string, rather than a wider
+    check wearing its clothes. Scanning the raw text instead would newly refuse
+    the control characters that ARE whitespace, which the single-line rule
+    removes before anything reaches a screen.
     """
-    for path in required_paths(type(operation)):
-        value = _at(operation, path)
-        if not isinstance(value, str):
-            continue
-        for character in value:
-            if character in characters:
-                return path, unicodedata.category(character)
-    return None
+    return " ".join(fragment.text.split())
 
 
-def _refuse_unrenderable(operation: Operation, rendered: str) -> None:
-    """Refuse ``rendered`` if it carries a character that can reorder or hide it."""
-    offenders = frozenset(character for character in rendered if _is_unrenderable(character))
-    if not offenders:
-        return
-    carrier = _carrier_of(operation, offenders)
-    if carrier is None:
-        # No field carries it, so this module's own renderer emitted it: a
-        # defect here rather than in the payload, and no field to name. Refused
-        # all the same -- a sentence nobody can trust is not shown because of
-        # where the character came from.
-        raise SchemaError(
-            "the rendering itself carries a character that can reorder or hide "
-            "text in a sentence for review"
-        )
-    raise UnrenderableFieldError(*carrier)
+def _refuse_unrenderable(fragments: Sequence[Fragment]) -> None:
+    """Refuse the sentence if a fragment carries a character that reorders or hides it.
+
+    Attribution is read off the fragment that produced the character, so a
+    refusal names the field whose correction changes the outcome. Deterministic
+    in both directions: the first fragment in the order a person READS the
+    sentence, and the first offending character within it. Sentence order rather
+    than declaration order is the tie-break on purpose -- when two rendered
+    fields both carry the character, the one the reader meets first is the one
+    the refusal is about.
+    """
+    for fragment in fragments:
+        for character in _emitted(fragment):
+            if not _is_unrenderable(character):
+                continue
+            if fragment.field_path is None:
+                # No field carries it, so this module's own renderer emitted it:
+                # a defect here rather than in the payload, and no field to name.
+                # Refused all the same -- a sentence nobody can trust is not
+                # shown because of where the character came from.
+                raise SchemaError(
+                    "the rendering itself carries a character that can reorder "
+                    "or hide text in a sentence for review"
+                )
+            raise UnrenderableFieldError(fragment.field_path, unicodedata.category(character))
 
 
 def preview(operation: Operation) -> str:
@@ -968,8 +1055,9 @@ def preview(operation: Operation) -> str:
     scripts need legitimately.
     """
     type_name_of(operation)  # refuses anything unregistered
-    rendered = " ".join(operation.render().split())
-    _refuse_unrenderable(operation, rendered)
+    fragments = operation.render()
+    rendered = " ".join("".join(fragment.text for fragment in fragments).split())
+    _refuse_unrenderable(fragments)
     return rendered
 
 
