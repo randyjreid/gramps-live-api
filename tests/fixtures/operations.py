@@ -109,6 +109,20 @@ MALFORMED: Mapping[str, Operation] = MappingProxyType(
             target=ObjectRef(object_type="person", handle="c9a1f0e2b7d46a", gramps_id="I0031"),
             citation=ObjectRef(object_type="source", handle="e41b8c07a25fd3", gramps_id="S0009"),
         ),
+        # A link is the one shape with two ends that must each be judged on
+        # their own, so the present-and-wrong corpus carries one fault at each
+        # end -- on different types, so neither end is exercised only where the
+        # other happens to be right.
+        "a child link whose family end names a person": LinkChildToFamily(
+            child=ObjectRef(object_type="person", handle="5e908c31d7b246", gramps_id="I0104"),
+            family=ObjectRef(object_type="person", handle="a72f4be015c893", gramps_id="I0105"),
+            citation=ObjectRef(object_type="citation", handle="1d84cf60a29e75", gramps_id="C0077"),
+        ),
+        "a spousal link whose person end carries an unprintable handle": LinkSpouseToFamily(
+            spouse=ObjectRef(object_type="person", handle="two words", gramps_id="I0117"),
+            family=ObjectRef(object_type="family", handle="a72f4be015c893", gramps_id="F0019"),
+            citation=ObjectRef(object_type="citation", handle="6b1e70d94af238", gramps_id="C0081"),
+        ),
     }
 )
 """Operations that are well-shaped but wrong, one per rule that needs one.
