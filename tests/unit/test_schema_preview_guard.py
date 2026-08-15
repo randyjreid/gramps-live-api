@@ -371,6 +371,150 @@ def test_every_character_the_bidi_algorithm_defines_as_explicit_formatting_is_gu
     )
 
 
+def test_every_character_this_interpreter_calls_other_but_assigned_is_guarded() -> None:
+    # ⭐ **The regression test the ruling asks for: every character refused
+    # before this change is still refused, on every leg of the matrix, forever.**
+    # The old class was exactly the assigned half of the General_Category group
+    # "Other" as the RUNNING interpreter reports it, so asking that question
+    # again is asking whether anything was lost -- and it is a question the
+    # committed table cannot answer about itself.
+    #
+    # This is also the one place the interpreter's database is still consulted,
+    # and deliberately so: a cross-check against a second source is a test, and
+    # a table checked only against itself is not.
+    was_guarded = [
+        character
+        for character in _every_code_point()
+        if unicodedata.category(character).startswith("C")
+        and unicodedata.category(character) != "Cn"
+    ]
+    emitted = [character for character in was_guarded if not schema._is_unrenderable(character)]
+
+    assert len(was_guarded) > 100_000, (
+        f"the sweep found only {len(was_guarded)} assigned Other characters, so this "
+        f"proves nothing (this interpreter's UCD is {unicodedata.unidata_version})"
+    )
+    assert emitted == [], (
+        "a character this interpreter's own database says is a control, a format "
+        "character, a surrogate or private use is not guarded by the committed table: "
+        f"{[ord(c) for c in emitted]}"
+    )
+
+
+def _by_scan(character: str) -> str | None:
+    """What the committed table says about ``character``, found by walking it.
+
+    A deliberately different algorithm from the bisect under test. Comparing
+    the two is a test; reading the answer off the same lookup would be a
+    tautology that passes however wrong the lookup is.
+    """
+    code_point = ord(character)
+    for first, last, label in UNRENDERABLE_RANGES:
+        if first <= code_point <= last:
+            return label
+    return None
+
+
+def test_the_lookup_agrees_with_the_table_at_every_boundary() -> None:
+    # Every row's first and last code point, and the one either side of them --
+    # which is where a bisect goes wrong, and where an inclusive range read as
+    # a half-open one loses exactly one character per row.
+    disagreed = []
+    for first, last, _ in UNRENDERABLE_RANGES:
+        for code_point in (first - 1, first, last, last + 1):
+            if not 0 <= code_point <= sys.maxunicode:
+                continue
+            character = chr(code_point)
+            if schema._class_of(character) != _by_scan(character):
+                disagreed.append(f"U+{code_point:04X}")
+
+    assert disagreed == [], f"the lookup and the committed table disagree at: {disagreed}"
+
+
+def test_the_committed_table_is_sorted_and_holds_no_range_twice() -> None:
+    # The shape the lookup depends on. A bisect over unsorted starts answers
+    # confidently and wrongly, and an overlap would make the label a matter of
+    # which row happened to come first.
+    out_of_order = [
+        (previous, following)
+        for previous, following in zip(UNRENDERABLE_RANGES, UNRENDERABLE_RANGES[1:], strict=False)
+        if previous[1] >= following[0]
+    ]
+
+    assert out_of_order == [], f"the table is not sorted, or two ranges overlap: {out_of_order}"
+
+
+def test_every_committed_range_is_a_range_inside_the_code_space() -> None:
+    malformed = [row for row in UNRENDERABLE_RANGES if not 0 <= row[0] <= row[1] <= sys.maxunicode]
+
+    assert malformed == [], f"a committed range is empty or outside the code space: {malformed}"
+
+
+def test_every_committed_label_names_a_published_fact() -> None:
+    # Closed, because the label is what a refusal names and the derivation
+    # selects exactly these five. A sixth means the script started emitting
+    # something nothing in the guard is written about.
+    published = frozenset({"Cc", "Cf", "Co", "Cs", DEFAULT_IGNORABLE})
+    unknown = sorted({row[2] for row in UNRENDERABLE_RANGES} - published)
+
+    assert unknown == [], f"the table carries a label the guard has no meaning for: {unknown}"
+
+
+def test_no_two_adjacent_committed_ranges_share_a_label() -> None:
+    # What says the coalesce ran. Two touching rows with one label is the
+    # derivation emitting per-source rows instead of runs, which would make the
+    # pinned row count above a fact about the artifacts' layout.
+    uncoalesced = [
+        (previous, following)
+        for previous, following in zip(UNRENDERABLE_RANGES, UNRENDERABLE_RANGES[1:], strict=False)
+        if previous[2] == following[2] and previous[1] + 1 == following[0]
+    ]
+
+    assert uncoalesced == [], f"two adjacent ranges share a label: {uncoalesced}"
+
+
+ORDINARY_LETTERS: Mapping[str, tuple[int, int]] = MappingProxyType(
+    {
+        "Latin": (0x0041, 0x005A),
+        "Greek": (0x0391, 0x03A9),
+        "Cyrillic": (0x0410, 0x042F),
+        "Hebrew": (0x05D0, 0x05EA),
+        "Arabic": (0x0627, 0x063A),
+        "Devanagari": (0x0915, 0x0939),
+        "Han": (0x4E00, 0x4E1F),
+        "Hangul": (0xAC00, 0xAC1F),
+    }
+)
+"""A run of ordinary letters per script, named by code point and built with ``chr``.
+
+⚠️ **This is the assertion that catches an over-broad class before a person
+does.** ``Lo`` is most of the world's letters and ``Mn`` carries essential
+combining marks, and the class now reaches into both -- so a guard that
+refused a legitimate name would be far worse than the defect it was widened
+to fix. None of these ranges holds a Hangul filler or a variation selector;
+those are asserted refused elsewhere, which is what keeps this from being the
+same sweep twice.
+"""
+
+
+@pytest.mark.parametrize(("script", "letters"), sorted(ORDINARY_LETTERS.items()))
+def test_a_name_in_an_ordinary_script_previews_unchanged(
+    script: str, letters: tuple[int, int]
+) -> None:
+    # Assembled at runtime from a letter range, so it is invented by
+    # construction: nobody is named this in any script.
+    first, last = letters
+    invented = "".join(chr(code_point) for code_point in range(first, min(first + 8, last + 1)))
+    operation = carrying(EXAMPLES["add_note"], "text", invented)
+
+    assert schema.validate(operation).well_formed, f"the {script} fixture is not well-formed"
+    rendered = schema.preview(operation)
+
+    assert invented in rendered, (
+        f"an ordinary {script} name did not survive the guard; got {rendered!r}"
+    )
+
+
 def test_no_character_a_person_could_read_is_guarded_unless_it_is_invisible() -> None:
     # The false-positive half, and the assertion this change actually costs.
     # Letters, marks, numbers, punctuation, symbols and separators are what a
