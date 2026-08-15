@@ -1328,8 +1328,9 @@ see `_DRAWING`, which is not built from this and says why.
 
 
 # ---------------------------------------------------------------------------
-# WHAT AN ATTRIBUTE IS. XML 1.0, W3C Recommendation, §3.1:
+# WHAT AN ATTRIBUTE IS. XML 1.0, W3C Recommendation, §3.1 -- and §2.3 for `S`:
 #
+#     S         ::= (#x20 | #x9 | #xD | #xA)+
 #     STag      ::= '<' Name (S Attribute)* S? '>'
 #     Attribute ::= Name Eq AttValue
 #     Eq        ::= S? '=' S?
@@ -1348,7 +1349,40 @@ see `_DRAWING`, which is not built from this and says why.
 # the grounds the productions above it are: it does not grow.
 # ---------------------------------------------------------------------------
 
-_XML_EQ = r"\s*=\s*"
+_XML_WHITESPACE_RANGES: tuple[tuple[int, int], ...] = (
+    (0x9, 0x9),  # TAB
+    (0xA, 0xA),  # LF
+    (0xD, 0xD),  # CR
+    (0x20, 0x20),  # SPACE
+)
+"""``S``: the four characters, and there are only ever four."""
+
+_XML_S = _character_class(_XML_WHITESPACE_RANGES)
+r"""``S``, as a character class -- built the way every other production here is.
+
+⚠️ **A TRANSCRIPTION of the production, and the approximation it replaces was a
+live fail-open.** All three constants below used to spell this ``\s``, which is
+Python's whitespace class and matches **twenty-six** characters XML's ``S`` does
+not: a non-breaking space, a vertical tab, a form feed, the C1 line separators,
+the whole ``U+2000`` block. So ``<wrapper`` + U+00A0 + ``xmlns="…gramps…">`` was
+read as a namespace declaration in attribute position. It is not one: XML reads
+that tag's name as ``wrapper`` + U+00A0 + ``xmlns``, an element that declares
+nothing at all -- and the marker firing on it re-enables some eighty derived
+rows.
+
+⚠️ **U+1680 is the sharpest of the twenty-six and says why the two questions are
+different questions.** OGHAM SPACE MARK is whitespace to Python and a legal
+``NameChar`` to XML, so it is part of the element's own name. A class built from
+"what looks like a space" cannot get that right by being more careful; it is
+asking the wrong production.
+
+Read by ``_XML_EQ``, ``_XML_ATTRIBUTE``, ``_XMLNS_DECLARATION`` and ``_DRAWING``
+-- **one transcription, four readers**, for the reason ``_XML_NCNAME`` is one:
+the defect this module keeps paying for is a rule taught to some of the sites
+that read a production and not to the rest.
+"""
+
+_XML_EQ = _XML_S + "*=" + _XML_S + "*"
 r"""``Eq ::= S? '=' S?`` -- the equals sign and what may surround it."""
 
 
@@ -1378,13 +1412,17 @@ def _att_value(containing: str = "") -> str:
     return "(?:" + "|".join(alternatives) + ")"
 
 
-_XML_ATTRIBUTE = r"\s+" + _XML_NAME_PREFIX + _XML_NCNAME + _XML_EQ + _att_value()
+_XML_ATTRIBUTE = _XML_S + "+" + _XML_NAME_PREFIX + _XML_NCNAME + _XML_EQ + _att_value()
 r"""``S Attribute`` -- one whole attribute, with the whitespace that must open it.
 
 The whitespace belongs to this fragment rather than to the caller: the
 production is ``(S Attribute)*``, so an attribute without a separator in front
-of it is not an attribute, and a caller repeating ``\s*`` between them would
+of it is not an attribute, and a caller repeating ``S*`` between them would
 read ``a="1"b="2"`` as two.
+
+⚠️ **The separator is ``_XML_S``, not ``\s``**, and the two are not the same
+question -- see that constant. This is one of the sites the reviewer named; the
+declaration's own separator below is the one the audit found.
 """
 
 _XML_ATTRIBUTE_SEQUENCE = "(?:" + _XML_ATTRIBUTE + ")*"
@@ -2383,13 +2421,22 @@ one -- so a schema that moved or duplicated the declaration fails a test instead
 of leaving the gate quietly pointing at an element that declares nothing.
 """
 
-_XMLNS_DECLARATION = r"\s+xmlns(?::" + _XML_NCNAME + ")?" + _XML_EQ
+_XMLNS_DECLARATION = _XML_S + "+xmlns(?::" + _XML_NCNAME + ")?" + _XML_EQ
 r"""``S 'xmlns' (':' NCName)? Eq`` -- a namespace declaration up to its value.
 
 One `Attribute` like any other, spelled out because its `Name` is the fixed
 `xmlns` rather than an arbitrary one, and because the optional prefix is the
 whole of Change A's equivalence property at this site: it is the SAME `NCName`
 the element patterns read.
+
+⚠️ **THE THIRD SITE THAT SPELLS ``S``, AND THE ONE A REPAIR TO THE OTHER TWO
+MISSES.** The reviewer who found `\s` standing in for the production named
+`_XML_EQ` and `_XML_ATTRIBUTE`. A declaration with no ordinary attribute in
+front of it never reaches `_XML_ATTRIBUTE` at all -- `(S Attribute)*` matches
+empty -- so this separator is the one the reproduction actually walked through,
+and fixing the two that were reported would have left it open. It reads
+`_XML_S` for that reason, and the licence table asserts that none of the three
+can drift back.
 """
 
 _NAMES_THE_GRAMPS_FORMAT = re.compile(

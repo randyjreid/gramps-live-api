@@ -1194,6 +1194,24 @@ def _not_xml_whitespace() -> list[str]:
     ]
 
 
+_ABSORBED_BY_A_NAME = "an ordinary attribute's Eq"
+r"""The one position where a non-``S`` character need not serve as an ``S``.
+
+⚠️ **Found by this test failing on U+1680 after the repair, and it is a
+correction to the PROBE rather than to the guard.** In ``<catalogue id`` +
+U+1680 + ``="1" xmlns="…gramps…">`` the character is a legal ``NameChar``, so
+XML reads the attribute's ``Name`` as ``id`` + U+1680 -- and the space before
+``id`` is still the ``S`` the production wanted. The tag carries a genuine
+declaration and the marker is right to fire on it.
+
+The other four positions have no such escape: absorbing the character into the
+preceding ``Name`` leaves ``=`` or a quote exactly where the path to the
+declaration requires an ``S``, so the tag is not a declaration however it is
+read. That is why the negative sweep runs over those four and this one is
+asserted separately, in both directions, rather than dropped.
+"""
+
+
 def _declaration_separated_by(character: str) -> dict[str, str]:
     """One start tag per position an ``S`` may occupy, each holding ``character``.
 
@@ -1220,7 +1238,7 @@ def _declaration_separated_by(character: str) -> dict[str, str]:
         "the declaration's Eq, after the equals": (
             "<" + _MARKER_WRAPPER + " xmlns=" + character + '"' + namespace + '">'
         ),
-        "an ordinary attribute's Eq": (
+        _ABSORBED_BY_A_NAME: (
             "<" + _MARKER_WRAPPER + " id" + character + '="1" xmlns="' + namespace + '">'
         ),
     }
@@ -1247,6 +1265,14 @@ def test_xml_separates_attributes_with_the_four_characters_the_production_names(
     three constants** -- ``_XML_EQ``, ``_XML_ATTRIBUTE``'s leading separator and
     ``_XMLNS_DECLARATION``'s. A repair reaching two of the three is the partial
     application this module has paid for in every previous round.
+
+    ⚠️ **One of the five positions is excluded from the negative sweep and
+    asserted on its own instead** -- see ``_ABSORBED_BY_A_NAME``, which this test
+    discovered by failing there after the repair. At that position a legal
+    ``NameChar`` is absorbed by the attribute's own ``Name`` and the declaration
+    beside it stays genuine, so the marker firing is correct XML rather than the
+    defect. It is asserted in both directions, because "excluded" and "not
+    looked at" have to be different things.
     """
     outside = _not_xml_whitespace()
 
@@ -1265,7 +1291,7 @@ def test_xml_separates_attributes_with_the_four_characters_the_production_names(
         f"U+{ord(character):04X} at {where}"
         for character in outside
         for where, probe in _declaration_separated_by(character).items()
-        if _names_the_gramps_format(probe)
+        if where != _ABSORBED_BY_A_NAME and _names_the_gramps_format(probe)
     ]
 
     assert missed == [], (
@@ -1276,6 +1302,16 @@ def test_xml_separates_attributes_with_the_four_characters_the_production_names(
         "and a character Python calls whitespace which XML does not is part of the NAME, not a "
         f"separator -- these are not declarations and were read as the format naming itself: "
         f"{misread}"
+    )
+
+    absorbed = _declaration_separated_by(chr(0x1680))[_ABSORBED_BY_A_NAME]
+    refused = _declaration_separated_by(chr(0xA0))[_ABSORBED_BY_A_NAME]
+
+    assert _names_the_gramps_format(absorbed) and not _names_the_gramps_format(refused), (
+        "the excluded position, in both directions: U+1680 is a legal NameChar, so the "
+        "attribute's own Name absorbs it and the declaration beside it is genuine; U+00A0 is "
+        "not, so nothing there is a Name and the tag declares nothing. Excluding a position "
+        "from a sweep is only honest if it is asserted somewhere else"
     )
 
 
