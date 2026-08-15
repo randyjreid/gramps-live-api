@@ -1292,6 +1292,86 @@ def test_a_uri_that_merely_contains_the_namespace_does_not_name_the_format() -> 
     )
 
 
+def _schemes_the_schema_does_not_fix() -> list[str]:
+    r"""Scheme spellings that are a DIFFERENT namespace from the one the schema fixes.
+
+    ⚠️ **Each is composed WHOLE before ``://`` is joined to it** -- see the
+    comment in ``_uris_that_are_the_namespace``: a single letter written against
+    a colon and two slashes is a drive-letter absolute path to P1.
+
+    ⚠️ **The last three are DERIVED from the fixed scheme rather than typed**,
+    which is what makes them the interesting ones. *Namespaces in XML* compares
+    namespace names by exact string match, so an upper-cased scheme is another
+    namespace and the gate is deliberately case-sensitive -- and the suffixed and
+    prefixed pair are the shape ``\b`` got wrong two rounds ago on a different
+    constant, where a name that merely BEGINS with a spelling was read as it.
+    """
+    scheme = "ht" + "tp"
+    return [
+        "ftp",
+        "gopher",
+        "x-made-up",
+        "javascript",
+        scheme.upper(),
+        scheme + "x",
+        "x" + scheme,
+    ]
+
+
+def test_a_scheme_the_schema_does_not_fix_does_not_name_the_format() -> None:
+    """⭐ **The reproduction: a URI whose SCHEME is not the fixed one is not this namespace.**
+
+    The value fragment read ``scheme`` as RFC 3986 §3.1 gives it -- every
+    syntactically valid scheme -- so a wrapper declaring the base over ``ftp``,
+    beside four filled ``<type>`` elements, named the format and produced a P2.
+    *Namespaces in XML* compares namespace names by **exact string match**, so
+    that document has declared a different namespace however similar its
+    authority and path, and it is the same class as the ``urn:not-gramps:…``
+    reproduction the round before this one closed.
+
+    **This is the third tightening of one check** -- anywhere in the text, then
+    any URI containing the base, then any scheme whatever -- which is the
+    signature of a rule built permissively and narrowed by findings. What
+    replaced the production is a **declared tolerance table**: the value is the
+    reassembled ``#FIXED`` value plus a finite list of relaxations, each with a
+    recorded reason, and the test below this one is what holds that list closed.
+
+    ⚠️ **Both directions in one table**, over both quotings and every alias,
+    because the negative half alone is satisfied by a gate that accepts nothing
+    and the positive half alone by one that accepts everything.
+    """
+    base = _GRAMPS_XML_NAMESPACE
+    spellings = [
+        {"quote": quote, "prefix": prefix}
+        for quote in ('"', chr(39))
+        for prefix in ("", *_NAMESPACE_PREFIXES)
+    ]
+    refused = [scheme + "://" + base + "/1.7.1/" for scheme in _schemes_the_schema_does_not_fix()]
+
+    misread = [
+        f"{value!r} declared with {spelling}"
+        for value in refused
+        for spelling in spellings
+        if _names_the_gramps_format(_declaring(value, **spelling))
+    ]
+    missed = [
+        f"{value!r} declared with {spelling}"
+        for value in _uris_that_are_the_namespace()
+        for spelling in spellings
+        if not _names_the_gramps_format(_declaring(value, **spelling))
+    ]
+
+    assert misread == [], (
+        "a namespace name is compared by exact string match, so the base served over another "
+        "scheme is another namespace -- and a document declaring one has named a different "
+        f"format, which these were read as naming this one: {misread}"
+    )
+    assert missed == [], (
+        "and every spelling the gate is required to accept still names the format, or the half "
+        f"above is satisfied by a gate that reads nothing: {missed}"
+    )
+
+
 _XML_WHITESPACE = (0x20, 0x9, 0xD, 0xA)
 r"""``S ::= (#x20 | #x9 | #xD | #xA)+`` -- XML 1.0 §2.3, transcribed here too.
 
