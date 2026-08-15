@@ -2169,7 +2169,9 @@ def _gedcom_x_identity_score(text: str) -> tuple[int, int] | None:
     return score, min(offsets)
 
 
-_DRAWING = re.compile(r"<svg\b[^>]*>.*?</svg\s*>", re.IGNORECASE | re.DOTALL)
+_DRAWING = re.compile(
+    "<svg" + _XML_NAME_END + "[^>]*>.*?</svg" + _XML_S + "*>", re.IGNORECASE | re.DOTALL
+)
 r"""A drawing, inside which a short text element is a label and not a note.
 
 ⚠️ **THE UNPREFIXED SPELLING ONLY, AND IT DOES NOT USE THE SHARED ALTERNATION.
@@ -2204,16 +2206,44 @@ structural guard over what the preview EMITS can answer "is this really a
 drawing", and that is where the question goes, rather than into a condition
 bolted onto an exemption here.
 
-**How it actually rejects a prefixed drawing -- verified mechanically, not
-assumed.** ``<svg\b`` still matches the OPENING tag of ``<svg:svg>``: the word
-boundary sits between the ``g`` and the colon, and ``[^>]*`` then swallows the
-rest. It is the CLOSER that rejects it -- ``</svg\s*>`` cannot match
-``</svg:svg>`` -- so the container has no match and is not a drawing.
-⚠️ **Do not "tidy" the opener into something like ``<svg[^:>]`` without
-measuring it:** the rejection is a property of the closing tag, and moving it
-to the opening one is a different pattern with a different failure set. A
-document mixing a prefixed opener with a later UNPREFIXED ``</svg>`` can still
-span between them; that predates this change and is out of scope for it.
+**How it rejects a prefixed drawing -- and THE OPENER IS NOW WHAT DOES IT.**
+``<svg`` + ``_XML_NAME_END`` refuses the colon, so ``<svg:svg>`` is not an
+opening tag here at all. The verdict is unchanged and the mechanism is not.
+
+⚠️ **This paragraph used to say the opposite, and that reading was true of the
+pattern it described.** ``<svg\b`` matched the opening tag of ``<svg:svg>`` --
+the word boundary sits between the ``g`` and the colon -- and it was the closer
+``</svg\s*>``, unable to match ``</svg:svg>``, that withheld the exemption. It
+also warned against moving the rejection to the opener without measuring it.
+**The warning was right and the measurement has now been done**, because
+``\b`` was not merely imprecise here: it is the same shorthand standing in for
+the same production that this module has now been wrong about five times, and
+in an EXEMPTION it fails open.
+
+**What moving it buys, and it is a live fail-open closed rather than a tidy-up:**
+
+* ``<svg-chart …>`` was an ``svg``. ``-`` legally continues an XML name and
+  satisfies ``\b``, so a name, a date of birth and a place wrapped between it
+  and a later ``</svg>`` were suppressed **entirely** -- a whole identity going
+  from a finding to nothing, which is the exact shape the fourth scoring site
+  was deleted for. Every ``NameChar`` that is not a ``\w`` character did this:
+  ``.``, the middle dot, a combining mark, an undertie -- nineteen of them,
+  measured.
+* The case this paragraph itself named as still open -- a document mixing a
+  prefixed opener with a later UNPREFIXED ``</svg>`` -- is closed by the same
+  move, because the opener no longer matches ``<svg:``.
+
+**And the closer reads ``_XML_S``, which is the same repair at the other end.**
+``</svg\s*>`` accepted ``</svg`` + U+00A0 + ``>``, where XML reads no ``ETag``
+at all. A broader closer spans further, and in an exemption spanning further
+suppresses more.
+
+⚠️ **Neither half is built from the shared alternation, and that is unchanged.**
+The exclusion above is about ``_qualified``'s optional PREFIX, which is matched
+by shape and never resolved; ``_XML_NAME_END`` asserts where a name stops and
+resolves nothing, so reading it here narrows the exemption and cannot widen it.
+``test_every_pattern_that_scores_an_element_is_built_from_the_one_alternation``
+still asserts the alternation itself is absent.
 
 ⚠️ **This replaced "the element carries an attribute", which asked the wrong
 question and so let data out whatever the answer.** The discriminator has to
