@@ -183,6 +183,15 @@ def gedcom_x_name_parts_with_qualifiers() -> str:
 
 _BIOGRAPHY = "Elowen Ashenmoor, born 2 April 1893 in Thornwick, wheelwright, died 1961."
 
+_A_WHOLE_IDENTITY = ("Elowen Ashenmoor", "2 April 1893", "Thornwick")
+"""A name, a date of birth and a place: too short to be prose, a person together.
+
+⚠️ **Extracted from ``gramps_short_notes``, which now reads it, rather than
+copied beside it.** Two builders spelling the same identity is how one of them
+comes to be edited alone -- and a test that derives a figure from ``len(...)``
+here would silently disagree with a payload that had grown a fourth fact.
+"""
+
 
 def gedcom_x_biography_and_address() -> str:
     """The same life the Gramps fixture carries, in the other format.
@@ -261,8 +270,7 @@ def gramps_biography_in_cdata() -> str:
 def gramps_short_notes() -> str:
     """Three short notes: a name, a date of birth, a place. A whole identity."""
     return "".join(
-        _element("note", body=_element("text", body=value))
-        for value in ("Elowen Ashenmoor", "2 April 1893", "Thornwick")
+        _element("note", body=_element("text", body=value)) for value in _A_WHOLE_IDENTITY
     )
 
 
@@ -326,6 +334,69 @@ def worded_diagram(*, prefix: str = "") -> str:
         for offset, value in ((9, "Temperature"), (18, "Pressure over time"))
     )
     return _element(qualifier + "svg", body=labels)
+
+
+def positioned_label(*, body: str | None = None, offset: int = 9, prefix: str = "") -> str:
+    """One positioned label, in the three spellings that differ by what it holds.
+
+    ``body=None`` is the self-closing spelling and ``body=""`` the paired-empty
+    one. **Those two are what the filled pass cannot see**: its content
+    alternative needs at least one character, so neither reaches a closing tag
+    and neither is ever claimed as filled. Anything else -- a space, a number, a
+    word -- is content, and the filled pass claims it.
+
+    That is the whole distinction this builder exists to hold as a parameter
+    rather than as three fixtures: the two no-content spellings must be shown to
+    agree with each other, and to differ from a whitespace-only one, on the same
+    element in the same container.
+    """
+    qualifier = prefix + ":" if prefix else ""
+    attributes = f'x="0" y="{offset}"'
+    if body is None:
+        return _element(qualifier + "text", attributes=attributes, empty=True)
+    return _element(qualifier + "text", attributes=attributes, body=body)
+
+
+def drawing_holding(body: str, *, prefix: str = "") -> str:
+    """A drawing around whatever it is given: the container as a variable.
+
+    The neighbouring drawing builders each carry a fixed payload and a property
+    of their own, so none of them can be asked what a *different* payload does
+    inside the same container. This one takes the payload, which is what lets a
+    property be asserted over the label spellings above rather than over a
+    chart somebody wrote.
+    """
+    qualifier = prefix + ":" if prefix else ""
+    return _element(qualifier + "svg", body=body)
+
+
+def attributed_wrapper_holding(
+    *, facts: tuple[str, ...] = _A_WHOLE_IDENTITY, spelling: str = "note", copies: int = 1
+) -> str:
+    """``copies`` prose wrappers, each carrying an attribute and enclosing ``facts``.
+
+    ⚠️ **The shape whose content the filled pass cannot READ.** The wrapper's
+    own content begins with a nested start tag, and the filled pattern's content
+    alternative admits neither ``<`` nor any markup node that ends where an
+    element does -- so the pattern cannot reach the wrapper's closing tag and
+    the filled pass never claims it. The attributed pass does, and it measures
+    no content at all.
+
+    The children are ordinary short prose and are claimed by the filled pass, so
+    what a drawing around this suppresses is **them** and not the wrapper.
+
+    ``spelling`` names the WRAPPER only; the children stay one spelling, so a
+    property asserted across the prose rows varies the element under test and
+    nothing else.
+    """
+    return "".join(
+        _element(
+            spelling,
+            attributes='handle="_n1"',
+            body="".join(_element("text", body=fact) for fact in facts),
+        )
+        for _ in range(copies)
+    )
 
 
 def notes_inside_a_container(*, prefix: str = "", namespace: str = "") -> str:

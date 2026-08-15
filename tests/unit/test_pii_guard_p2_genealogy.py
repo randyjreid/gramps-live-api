@@ -31,7 +31,9 @@ from gramps_live_api.core.pii_guard import (
     _GRAMPS_CATEGORY_OF,
     _GRAMPS_DOCUMENT_ELEMENT,
     _GRAMPS_FILLED_ELEMENT,
+    _GRAMPS_IDENTITY_WEIGHT,
     _GRAMPS_NAMESPACE_SCHEME,
+    _GRAMPS_PROSE_ELEMENTS,
     _GRAMPS_PROSE_LENGTH,
     _GRAMPS_XML_NAMESPACE,
     _NAMESPACE_TOLERANCES,
@@ -54,8 +56,11 @@ from gramps_live_api.core.pii_guard import (
 )
 from tests.fixtures.expectations import rules
 from tests.fixtures.synthetic import (
+    _A_WHOLE_IDENTITY,
     _level,
     a_prose_mention_of_the_namespace,
+    attributed_wrapper_holding,
+    drawing_holding,
     gedcom_document,
     gedcom_walkthrough,
     gedcom_x_biography_and_address,
@@ -103,6 +108,7 @@ from tests.fixtures.synthetic import (
     labelled_diagram_holding,
     names_the_gramps_format,
     notes_inside_a_container,
+    positioned_label,
     positioned_notes_outside_a_drawing,
     prose_describing_json_keys_with_escaped_quotes,
     sqlite_bytes,
@@ -272,6 +278,64 @@ def _gramps_attributed_probe(spelling: str, copies: int) -> str:
 def _marked_gramps_attributed_probe(spelling: str, copies: int) -> str:
     """The attributed probe, in a text that names the format -- see its filled twin."""
     return names_the_gramps_format() + "\n" + _gramps_attributed_probe(spelling, copies)
+
+
+def _marked_whitespace_probe(spelling: str, copies: int) -> str:
+    """``copies`` elements of one spelling enclosing a single space.
+
+    The comparison the empty attributed probe above is measured against: the
+    element that encloses the LEAST it can while still being seen by the filled
+    pass. Its content alternative needs one character, and a space is one.
+
+    Marked for the reason its twin is -- the marker cancels out of the
+    difference, so this stays correct on the day a prose row is added by the
+    derivation rather than quietly measuring that row at zero.
+    """
+    return (
+        names_the_gramps_format()
+        + "\n"
+        + _carrier()
+        + "".join("<" + spelling + "> </" + spelling + ">" for _ in range(copies))
+    )
+
+
+def _drawn_gramps_attributed_probe(spelling: str, copies: int) -> str:
+    """The attributed probe again, with its elements inside a drawing.
+
+    The container is the only variable, which is what makes the comparison a
+    statement about the exemption rather than about the payload. The marker sits
+    outside the drawing because naming the format is a property of the document.
+    """
+    return (
+        names_the_gramps_format()
+        + "\n"
+        + drawing_holding(_gramps_attributed_probe(spelling, copies))
+    )
+
+
+def _wrapper_probe(spelling: str, copies: int) -> str:
+    """``copies`` prose wrappers, each enclosing a whole identity, and no drawing."""
+    return (
+        names_the_gramps_format()
+        + "\n"
+        + _carrier()
+        + attributed_wrapper_holding(spelling=spelling, copies=copies)
+    )
+
+
+def _drawn_wrapper_probe(spelling: str, copies: int) -> str:
+    """The same wrappers inside a drawing, which is the only thing that differs.
+
+    What the drawing suppresses is measured as the difference between this and
+    the probe above -- so the mechanism is derived from two measurements rather
+    than asserted from a reading of the code.
+    """
+    return (
+        names_the_gramps_format()
+        + "\n"
+        + _carrier()
+        + drawing_holding(attributed_wrapper_holding(spelling=spelling, copies=copies))
+    )
 
 
 _DRAWING_PREFIX = "svg"
@@ -3037,6 +3101,297 @@ def test_a_container_whose_prefix_is_bound_elsewhere_is_not_a_drawing() -> None:
     assert all(found == ["P2"] for found in reported.values()), (
         "an alias bound to something that is not SVG is a drawing by shape alone, and an "
         f"exemption may not rest on a shape this module never resolves: {reported}"
+    )
+
+
+def test_an_element_with_no_content_is_worth_what_an_empty_one_is() -> None:
+    """⭐ **The element carrying strictly LESS scored strictly MORE.**
+
+    Two passes read one vocabulary. The filled pass makes prose weight depend on
+    what the element encloses, against the prose floor; the attributed pass
+    charged the flat category weight regardless. So ``<text …/>`` -- enclosing
+    *nothing* -- outscored ``<text …> </text>``, which encloses a space.
+
+    Asserted as **agreement between the two**, never as two literals, so the
+    property survives a weight change: what is claimed is that no content and
+    empty content are worth the same, not that either is worth 2.
+
+    Derived over the prose rows of ``_VOCABULARY`` rather than exampled, so a
+    prose spelling added later is covered with nothing edited here -- and
+    measured through MARKED probes, so it stays correct if that spelling arrives
+    by derivation and is therefore gated.
+    """
+    disagreeing = {}
+    for spelling in _GRAMPS_PROSE_ELEMENTS:
+        empty = _observed_weight(_gramps_identity_score, _marked_gramps_attributed_probe, spelling)
+        whitespace = _observed_weight(_gramps_identity_score, _marked_whitespace_probe, spelling)
+        if empty != whitespace:
+            disagreeing[spelling] = {"no content": empty, "a space": whitespace}
+
+    assert disagreeing == {}, (
+        "an element enclosing nothing is charged more than one enclosing a space, so the element "
+        f"carrying strictly less scores strictly more: {disagreeing}"
+    )
+
+
+def test_an_attributed_row_that_is_not_prose_keeps_its_category_weight() -> None:
+    """The fail-open the wide answer would have caused, pinned over the whole table.
+
+    Routing the attributed pass through the content-dependent rule is a change
+    to the **prose** rows and to nothing else. Answering it wider -- charging
+    every empty attributed element less -- would take a handle-bearing
+    ``<person/>`` or ``<noteref/>`` down with it, and those are export syntax:
+    an element with no content at all is exactly what an export's cross
+    references are made of.
+
+    ⚠️ **Measured through the MARKED probe, and that is not interchangeable with
+    the bare one.** Most of this table arrived by derivation, so an unmarked
+    probe measures those rows at 0 and this test would pass by having nothing
+    left to disagree with -- a control that is green because everything in it
+    scores zero is worse than one that fails. The marker is constant across the
+    two probe sizes and so cancels out of the difference.
+    """
+    disagreeing = {}
+    for spelling, category in _GRAMPS_CATEGORY_OF.items():
+        if category == "prose":
+            continue
+        observed = _observed_weight(
+            _gramps_identity_score, _marked_gramps_attributed_probe, spelling
+        )
+        if observed != _CATEGORY_WEIGHT[category]:
+            disagreeing[spelling] = {"observed": observed, "declared": _CATEGORY_WEIGHT[category]}
+
+    assert disagreeing == {}, (
+        "a row that is not prose has no content-dependent weight to be given, and these were "
+        f"charged something other than what their category declares: {disagreeing}"
+    )
+
+
+def test_what_a_drawing_exempts_is_what_its_filled_pass_can_read() -> None:
+    """⭐ **The four label spellings, one container, and the case that still escapes.**
+
+    The drawing exemption lives in the **filled** pass, behind the short-content
+    gate. An element the filled pass cannot see is not exempted by it; it is
+    scored by the attributed pass, which now measures the no-content it holds.
+    So all four spellings of a single label in a drawing are clean, by two
+    different routes, and the routes are worth keeping apart:
+
+    * a **self-closing** and a **paired-empty** label are never claimed as
+      filled -- the content alternative needs one character -- so what makes
+      them clean is the attributed pass reading them as empty;
+    * a **whitespace-only** and a **filled short** label are claimed as filled,
+      and what makes them clean is the drawing exemption itself.
+
+    ⚠️ **Criterion 3 of #17 is NOT met, and the last arm records it rather than
+    hiding it.** Two empty labels in one drawing are worth 4 together and are
+    still reported. This is not a false positive returning: it is one that was
+    never removed, because the change lowers a single element below the
+    threshold and two of them reach it again.
+
+    The premise arm is what stops the rest being vacuous -- without it a scoring
+    change that simply stopped reporting everything would pass every line below.
+    """
+    premise = rules(scan_text(positioned_label(), source="docs/chart.md"))
+    exempt = {
+        "self-closing": rules(scan_text(drawing_holding(positioned_label()), source="chart.md")),
+        "paired-empty": rules(
+            scan_text(drawing_holding(positioned_label(body="")), source="chart.md")
+        ),
+        "whitespace-only": rules(
+            scan_text(drawing_holding(positioned_label(body=" ")), source="chart.md")
+        ),
+        "filled short": rules(
+            scan_text(drawing_holding(positioned_label(body="0.5")), source="chart.md")
+        ),
+    }
+    two = rules(
+        scan_text(
+            drawing_holding(positioned_label() + positioned_label(offset=18)), source="chart.md"
+        )
+    )
+
+    assert premise == ["P2"], (
+        "the premise: the same empty label outside a drawing is a finding, so the arms below are "
+        f"about the container and not about the scorer having gone quiet -- got {premise}"
+    )
+    assert all(found == [] for found in exempt.values()), (
+        "one label in a drawing is a label however it is spelled, and an empty one is charged "
+        f"identity weight rather than prose weight: {exempt}"
+    )
+    assert two == ["P2"], (
+        "#17's criterion 3 is not met and this records it: two empty labels in one drawing reach "
+        f"the threshold together and are reported -- got {two}"
+    )
+
+
+def test_a_drawing_does_not_exempt_export_syntax() -> None:
+    """The pin against extending the drawing exemption to the attributed pass.
+
+    ⚠️ **This test carries a ruling rather than a criterion, and it is kept for
+    that reason:** *an exemption that cannot carry the gate that makes it safe
+    does not exist.* The filled pass's exemption sits **behind** the
+    short-content gate -- only prose too short to be prose is suppressed. The
+    attributed pass has no content to measure and structurally cannot carry that
+    gate, so extending the exemption there would suppress an element whatever it
+    holds.
+
+    An export's cross references are exactly that element: handles and hlinks,
+    no content, and genealogy data even though not one of them is filled. Both
+    arms on the same payload, so the container is the only variable.
+    """
+    bare = rules(scan_text(gramps_reference_fragment(), source="notes.md"))
+    drawn = rules(scan_text(drawing_holding(gramps_reference_fragment()), source="notes.md"))
+
+    assert bare == drawn == ["P2"], (
+        "a drawing may suppress a short label and nothing else; these are handles and hlinks, "
+        f"which are export syntax wherever they sit -- bare says {bare}, drawn says {drawn}"
+    )
+
+
+def test_a_drawing_does_not_change_what_an_attributed_prose_row_scores() -> None:
+    """The same pin, one level down: derived over the rows rather than exampled.
+
+    The test above is a document-level verdict on one payload. This is the
+    quantity underneath it -- what one attributed prose element is worth -- and
+    it says the drawing does not touch it. Asserted as **agreement** between the
+    two containers, so it survives the weight moving.
+
+    Together the two are what stands between the withdrawn exemption and a
+    future reviewer's reasonable-looking suggestion that it be finished. Prose
+    cannot enforce that; ``_DRAWING``'s own comment exists for the same reason,
+    and this module has twice had a deleted mechanism nearly restored.
+    """
+    disagreeing = {}
+    for spelling in _GRAMPS_PROSE_ELEMENTS:
+        bare = _observed_weight(_gramps_identity_score, _marked_gramps_attributed_probe, spelling)
+        drawn = _observed_weight(_gramps_identity_score, _drawn_gramps_attributed_probe, spelling)
+        if bare != drawn:
+            disagreeing[spelling] = {"no drawing": bare, "in a drawing": drawn}
+
+    assert disagreeing == {}, (
+        "the drawing exemption is the filled pass's and reaches no further; these attributed rows "
+        f"were charged differently for sitting inside one: {disagreeing}"
+    )
+
+
+def test_a_wrapper_inside_a_drawing_is_still_a_wrapper() -> None:
+    """⭐ **The fail-open this change introduces, in all three directions.**
+
+    A prose wrapper -- ``<note handle=…>`` around nested tags -- is content the
+    **filled** pass cannot READ: its content alternative admits neither ``<`` nor
+    any markup node that ends where an element does, so the pattern never
+    reaches the wrapper's closing tag and never claims it. The attributed pass
+    claims it instead, and now measures the no-content it can see. One such
+    wrapper inside a drawing is worth 2 and escapes; two reach the threshold.
+
+    ⚠️ **The last arm states the MECHANISM, and it is the one a repair would get
+    wrong.** The wrapper's own contribution is the same inside a drawing and
+    outside it -- so distinguishing an unreadable-content wrapper from an empty
+    one would not close this, because the wrapper is charged that 2 either way.
+    What the drawing removes is the **children**, ordinary short prose which the
+    filled pass does claim and its exemption then suppresses. Derived over the
+    prose rows, and the children's contribution is read off the fixture's own
+    fact tuple rather than written as a number here.
+    """
+    outside = rules(scan_text(attributed_wrapper_holding(), source="chart.md"))
+    one = rules(scan_text(drawing_holding(attributed_wrapper_holding()), source="chart.md"))
+    two = rules(scan_text(drawing_holding(attributed_wrapper_holding(copies=2)), source="chart.md"))
+    three = rules(
+        scan_text(drawing_holding(attributed_wrapper_holding(copies=3)), source="chart.md")
+    )
+
+    assert outside == ["P2"], (
+        "the control: a wrapper with no drawing around it keeps its children's weight as well as "
+        f"its own and is reported -- got {outside}"
+    )
+    assert one == [], (
+        "the recorded residual: one prose wrapper inside a drawing is below the threshold on its "
+        f"own and escapes -- got {one}"
+    )
+    assert two == three == ["P2"], (
+        "and two of them reach it again, which is what bounds the escape at one copy: two says "
+        f"{two}, three says {three}"
+    )
+
+    children = len(_A_WHOLE_IDENTITY) * _GRAMPS_IDENTITY_WEIGHT
+    disagreeing = {}
+    for spelling in _GRAMPS_PROSE_ELEMENTS:
+        drawn = _observed_weight(_gramps_identity_score, _drawn_wrapper_probe, spelling)
+        bare = _observed_weight(_gramps_identity_score, _marked_gramps_attributed_probe, spelling)
+        unwrapped = _observed_weight(_gramps_identity_score, _wrapper_probe, spelling)
+        if drawn != bare or unwrapped - drawn != children:
+            disagreeing[spelling] = {
+                "in a drawing": drawn,
+                "an attributed element is worth": bare,
+                "no drawing": unwrapped,
+                "the children are worth": children,
+            }
+
+    assert disagreeing == {}, (
+        "the wrapper's own contribution is drawing-independent and what a drawing removes is its "
+        f"children; these say otherwise, so the residual's stated mechanism is wrong: {disagreeing}"
+    )
+
+
+def test_empty_labels_in_a_prefixed_drawing_are_reported() -> None:
+    """Change A's residual, which must not be silently undone by this change.
+
+    A namespace-prefixed drawing is not a drawing -- an alias is matched by
+    shape and never resolved, and an exemption may not rest on that -- so its
+    labels are reported. That is a deliberate false positive, recorded in
+    CONTRIBUTING, and it belongs to the **filled** pass: the worded arm below is
+    Change A's own payload and this change does not touch it.
+
+    ⚠️ **The empty arm says something the worded one cannot: for a label the
+    filled pass never claims, the prefix makes no difference at all.** The
+    exemption is the only thing a prefix withholds, and such a label was never
+    reaching it. Asserted as **agreement** between the prefixed and bare
+    spellings, so it stays true across the weight change rather than pinning
+    whichever verdict today's weight produces -- and the two-label arm pins the
+    count at which the prefixed drawing is reported, which is where the earlier
+    behaviour survives.
+    """
+    two_labels = positioned_label(offset=9) + positioned_label(offset=18)
+    worded = {
+        ascii(prefix): rules(scan_text(worded_diagram(prefix=prefix), source="docs/chart.md"))
+        for prefix in _DRAWING_PREFIXES
+    }
+    two_empty = {
+        ascii(prefix): rules(
+            scan_text(
+                drawing_holding(
+                    positioned_label(offset=9, prefix=prefix)
+                    + positioned_label(offset=18, prefix=prefix),
+                    prefix=prefix,
+                ),
+                source="docs/chart.md",
+            )
+        )
+        for prefix in _DRAWING_PREFIXES
+    }
+    one_empty = {
+        ascii(prefix): rules(
+            scan_text(
+                drawing_holding(positioned_label(prefix=prefix), prefix=prefix),
+                source="docs/chart.md",
+            )
+        )
+        for prefix in _DRAWING_PREFIXES
+    }
+    bare_one = rules(scan_text(drawing_holding(positioned_label()), source="docs/chart.md"))
+    bare_two = rules(scan_text(drawing_holding(two_labels), source="docs/chart.md"))
+
+    assert all(found == ["P2"] for found in worded.values()), (
+        "Change A's own payload: a chart whose labels carry words is claimed by the filled pass, "
+        f"and a prefixed container withholds the exemption from it -- got {worded}"
+    )
+    assert all(found == ["P2"] for found in two_empty.values()) and bare_two == ["P2"], (
+        "two empty labels reach the threshold together in a prefixed drawing exactly as in a bare "
+        f"one -- prefixed says {two_empty}, bare says {bare_two}"
+    )
+    assert all(found == bare_one for found in one_empty.values()), (
+        "a label the filled pass never claims never reaches the exemption, so withholding that "
+        f"exemption changes nothing about it: prefixed says {one_empty}, bare says {bare_one}"
     )
 
 
