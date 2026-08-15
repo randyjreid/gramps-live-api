@@ -2759,6 +2759,18 @@ def scan_blob(
         ]
 
     findings = list(_scan_line_for_text(path_text, 1, reported_as, entries))
+    # And the genealogy properties over the same name, which is the one family
+    # of rules that used to stop at the bytes. A name is published exactly as
+    # the contents are -- an export dumped one record per file names its files
+    # after the records -- so the question "is this genealogy data" is asked of
+    # both or the answer is about half the entry.
+    #
+    # ⚠️ **HERE rather than inside ``_scan_line_for_text``**, which also runs
+    # per line of a file's contents. Sniffing a document line by line is a
+    # different property with a different false-positive profile: the density
+    # rule counts records ACROSS a file and the scorers weigh a whole document,
+    # and neither means anything applied to one line at a time.
+    findings.extend(_sniff_genealogy(path_text, reported_as))
     if content is not None:
         findings.extend(
             _classify_content(

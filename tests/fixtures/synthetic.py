@@ -389,6 +389,17 @@ def gramps_issue_address_payload() -> str:
     )
 
 
+def genealogy_record_as_a_filename() -> str:
+    """A committed NAME that is itself a genealogy record.
+
+    Assembled like every record here. The characters are all legal in a Git
+    tree entry, which is the point: a name is published exactly as its file's
+    contents are, and an export dumped one-record-per-file names its files
+    after the records.
+    """
+    return _level(0, "@I1@ INDI") + ".md"
+
+
 def gramps_reference_fragment() -> str:
     """An export's links: elements with handles and no content of their own.
 

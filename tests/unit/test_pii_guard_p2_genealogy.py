@@ -55,6 +55,7 @@ from tests.fixtures.synthetic import (
     gedcom_x_note_only,
     gedcom_x_notes_holding,
     gedcom_x_short_note,
+    genealogy_record_as_a_filename,
     gramps_address_block,
     gramps_attributed_identity,
     gramps_biography_and_address,
@@ -888,6 +889,28 @@ def test_no_spelling_the_vocabulary_already_had_changes_what_it_scores() -> None
     assert retracted == [], (
         "this audit adds rows and retracts none, and these spellings scored less than they did "
         f"before it: {retracted}"
+    )
+
+
+def test_a_committed_name_carrying_a_record_is_a_finding() -> None:
+    """Issue #4 item 5: committed pathnames were not scanned for genealogy.
+
+    The name is published exactly as the contents are -- ``scan_blob`` says so
+    in as many words, and already runs the path detectors and the deny-list
+    over it. The genealogy properties were the one family that stopped at the
+    bytes, so a file whose CONTENTS are innocuous and whose NAME is a record
+    went through.
+
+    The input is deliberately an ordinary one rather than a contrived one: an
+    export dumped one record per file names its files after the records, and
+    every character here is legal in a Git tree entry.
+    """
+    name = genealogy_record_as_a_filename()
+
+    findings = scan_blob(b"nothing to see\n", name)
+
+    assert rules(findings) == ["P2"], (
+        f"a committed name is published content, and this one is a record: got {findings}"
     )
 
 
