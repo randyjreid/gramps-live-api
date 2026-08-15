@@ -512,24 +512,61 @@ def gramps_xml_database_element(*, prefix: str = "") -> str:
 
 
 def names_the_gramps_format() -> str:
-    """The declared namespace on its own: the marker, and nothing else with it.
+    """The declared namespace, IN a declaration: the marker, and nothing else with it.
 
     A spelling the schema derivation ADDED scores only in a text that names the
     format. This is the cheapest such text, and it is deliberately the *only*
     marker these fixtures carry.
 
+    ⚠️ **This used to return the namespace on its own, and that stopped being a
+    marker.** The gate reads the schema-fixed value as the VALUE of an ``xmlns``
+    attribute in a start tag, because a document that merely *mentions* the
+    namespace has not declared it -- a prose sentence naming it beside four
+    generic ``<type>`` elements scored 6 and was reported. See the marker block
+    in ``pii_guard`` for why the gate is anchored. Left returning the bare URL,
+    every probe built on this would measure a CLOSED gate and every test using
+    one would go red for the right reason and the wrong cause.
+
     ⚠️ **Deliberately NOT the document element.** ``<database … gramps…>`` is a
     genealogy TEXT SIGNATURE, and a signature short-circuits ``_sniff_genealogy``
     before any scorer runs -- so a fixture marked that way would report for a
     reason that has nothing to do with the gate, and a test using it could not
-    tell an open gate from a closed one. The namespace alone leaves the scorer
-    the thing being measured.
+    tell an open gate from a closed one. ``catalogue`` is a name the published
+    schema does not declare, so the wrapper carries no weight of its own and
+    leaves the scorer the thing being measured.
 
     Composed inside itself, like every other spelling of it here: the guard
     recognises that string wherever it appears, so a contiguous copy in a
     tracked file is a genuine finding.
     """
-    return gramps_namespace_url()
+    return _element("catalogue", attributes='xmlns="' + gramps_namespace_url() + '"')
+
+
+def a_prose_mention_of_the_namespace() -> str:
+    """A sentence naming the namespace, with no markup anywhere around it.
+
+    What a document *about* the format contains, and what the gate must not
+    read as the format declaring itself. Distinct from
+    ``gramps_importer_spec`` on purpose: that one is a whole design note, and
+    this is the one sentence, so a repair that rests on anything else in the
+    note fails here.
+    """
+    return (
+        "# Import notes\n\nExports identify themselves with the namespace "
+        + gramps_namespace_url()
+        + ",\nwhich is how the importer recognises one.\n"
+    )
+
+
+def generic_xml_names_beside_a_prose_mention() -> str:
+    """The reproduction: that sentence, then four filled ``<type>`` elements.
+
+    A mention is not a declaration, so the four generic names after it are as
+    ordinary as they are in the bare reproduction. Written as the sentence plus
+    the existing builder rather than as a new document, so the only thing this
+    adds to that reproduction is the mention.
+    """
+    return a_prose_mention_of_the_namespace() + "\n" + gramps_generic_xml_names()
 
 
 def gramps_generic_xml_names() -> str:

@@ -49,6 +49,7 @@ from gramps_live_api.core.pii_guard import (
 from tests.fixtures.expectations import rules
 from tests.fixtures.synthetic import (
     _level,
+    a_prose_mention_of_the_namespace,
     gedcom_document,
     gedcom_walkthrough,
     gedcom_x_biography_and_address,
@@ -62,6 +63,7 @@ from tests.fixtures.synthetic import (
     gedcom_x_notes_holding,
     gedcom_x_short_note,
     genealogy_record_as_a_filename,
+    generic_xml_names_beside_a_prose_mention,
     generic_xml_names_under_an_unrelated_doctype,
     generic_xml_names_under_an_unrelated_namespace,
     gramps_address_block,
@@ -298,6 +300,17 @@ strict subset of the substring test, and unbound it reads an unrelated format as
 Gramps -- which is what a document carrying this value is. So the constant keeps
 its place and changes sides: every probe built from it must now name the format
 in nothing, prefixed or bare, doctype or document element.
+"""
+
+_MARKER_WRAPPER = "catalogue"
+"""The element the marker probes hang their declaration on.
+
+⚠️ **Deliberately NOT ``database``.** That spelling is a genealogy TEXT
+SIGNATURE, which short-circuits ``_sniff_genealogy`` before any scorer runs, so
+a probe wrapped in one cannot tell an open gate from a closed one. It is the
+same choice ``names_the_gramps_format`` makes and for the same reason -- and it
+is asserted below rather than assumed, because a name the schema does not
+declare today is a name a later schema version may.
 """
 
 _NOT_THE_SVG_NAMESPACE = "urn" + ":" + "example" + ":" + "quarterly-rollup"
@@ -1055,6 +1068,125 @@ def test_an_unrelated_doctype_does_not_name_the_gramps_format() -> None:
     )
 
 
+def test_a_prose_mention_of_the_namespace_does_not_name_the_format() -> None:
+    """⭐ **The reproduction: a document that MENTIONS the namespace, not one that declares it.**
+
+    The gate was a plain substring test over the whole decoded text, so a
+    sentence naming the namespace -- an import note, a changelog entry, this
+    project's own design documents -- re-enabled every derived row. A prose
+    mention beside four filled ``<type>`` elements scored **6** and was
+    reported.
+
+    ⚠️ **The two halves of the gate failed in opposite directions and each was
+    rejected only for lacking the other.** A marker reading structure without a
+    value read the schema's document element declaring an *unrelated* namespace
+    as Gramps; a marker reading a value without structure reads this. The repair
+    is one condition requiring both at one position -- see the marker block in
+    ``pii_guard``.
+    """
+    findings = scan_text(generic_xml_names_beside_a_prose_mention(), source="notes.md")
+
+    assert findings == [], (
+        "a document that mentions the namespace has not declared it, and it was read as Gramps: "
+        f"got {findings}"
+    )
+
+
+def test_the_marker_must_occur_in_a_namespace_declaration() -> None:
+    """⭐ **What "in attribute position" MEANS, mechanically, in both directions at once.**
+
+    XML 1.0 §3.1 gives the production and the guard transcribes it: a start
+    tag's name, a sequence of complete attributes, then an ``xmlns`` attribute
+    whose value carries the namespace. The two halves are asserted in one test
+    on purpose -- **neither can be satisfied by weakening the other**, which is
+    how a gate that accepts everything, or one that accepts nothing, passes a
+    single-direction test.
+
+    ⚠️ **The nested case is the one a cheap approximation gets wrong.** A
+    pattern spelled ``<[^<>]*xmlns=…`` accepts the namespace quoted inside
+    ANOTHER attribute's value -- an element whose ``desc`` attribute *describes*
+    a declaration names nothing, and it is the first thing a reviewer constructs
+    after this lands. Requiring the attributes in between to be complete
+    ``Attribute`` productions is what refuses it, and it is why the production is
+    transcribed rather than approximated.
+
+    ⚠️ **Every probe here hangs on ``_MARKER_WRAPPER``**, a spelling the
+    vocabulary does not hold, so nothing in this file is a weighted element
+    written whole -- the rule at the top of the fixture module, applied to a
+    probe assembled here.
+    """
+    assert _MARKER_WRAPPER not in _GRAMPS_CATEGORY_OF, (
+        "the wrapper these probes hang a declaration on must carry no weight of its own, or a "
+        f"probe measures the wrapper rather than the gate: {_MARKER_WRAPPER!r} is now a row"
+    )
+
+    namespace = gramps_namespace_url()
+    declarations = []
+
+    for prefix in ("", *_NAMESPACE_PREFIXES):
+        element = _prefixed(_MARKER_WRAPPER, prefix) if prefix else _MARKER_WRAPPER
+        attribute = "xmlns:" + prefix if prefix else "xmlns"
+        for quote in ('"', chr(39)):
+            declarations.append(
+                "<" + element + " " + attribute + "=" + quote + namespace + quote + ">"
+            )
+
+    missed = [repr(probe) for probe in declarations if not _names_the_gramps_format(probe)]
+
+    nested = (
+        "<"
+        + _MARKER_WRAPPER
+        + " desc="
+        + '"'
+        + "binds xmlns="
+        + chr(39)
+        + namespace
+        + chr(39)
+        + '"'
+        + ">"
+    )
+    unrelated = "<" + _MARKER_WRAPPER + ' xmlns="' + _NOT_THE_GRAMPS_NAMESPACE + '">'
+    misread = [
+        repr(probe) for probe in (namespace, nested, unrelated) if _names_the_gramps_format(probe)
+    ]
+
+    assert missed == [], (
+        "the namespace names the format only as the value of an xmlns attribute in a start tag, "
+        f"and these were missed: {missed}"
+    )
+    assert misread == [], (
+        "the namespace names the format only as the value of an xmlns attribute in a start tag, "
+        f"and these are not declarations, but were read as Gramps: {misread}"
+    )
+
+
+def test_a_fragment_quoted_beside_a_bare_mention_is_the_anchoring_cost() -> None:
+    """⭐ **What anchoring costs, asserted in BOTH directions rather than described.**
+
+    This is the third residual of one family, and it is the same trade the two
+    beside it record: a genuine Gramps fragment scoring only on rows this audit
+    added, quoted where the format is *named in prose* rather than declared, is
+    no longer caught. A researcher block copied out of an export into an import
+    note is exactly that document.
+
+    ⚠️ **The second half is what stops this being an assertion that the guard is
+    broken.** The same fragments under a real declaration are findings again.
+    What anchoring removed is the mention-only case, and nothing else.
+    """
+    mention = a_prose_mention_of_the_namespace()
+
+    for fragment in (gramps_researcher_block(), gramps_events_block()):
+        assert scan_text(mention + "\n" + fragment, source="notes.md") == [], (
+            "the accepted cost of anchoring: a genuine fragment beside a bare mention is no "
+            f"longer caught, and this one was: {fragment!r}"
+        )
+        declared = names_the_gramps_format() + "\n" + fragment
+        assert rules(scan_text(declared, source="notes.md")) == ["P2"], (
+            "and anchoring removed the MENTION-only case -- the same fragment under a real "
+            f"declaration is still a finding: {fragment!r}"
+        )
+
+
 def test_every_spelling_the_derivation_added_is_gated_on_the_format() -> None:
     """⭐ **The gate, over the table rather than over the two reproductions.**
 
@@ -1111,15 +1243,14 @@ def test_the_only_marker_the_gate_reads_is_the_namespace_the_schema_fixes() -> N
     *present* and never what it said, so a document declaring an unrelated
     namespace or identifier was read as Gramps.
 
-    ⚠️ **Bound to the namespace they would have matched nothing new, which is
-    why the repair is a deletion.** The remaining marker is a plain substring
-    test over the decoded text, and the test below this one pins its constant as
-    a substring of the reassembled ``#FIXED`` value -- so any text satisfying a
-    correctly-bound structural marker already satisfies it, a strict subset
-    adding no match ever. Tightened they were dead weight; loose they were the
-    false positive. And the doctype could not be tightened at all: the only
-    Gramps-specific evidence it carries beyond the namespace is the public
-    identifier, which no artifact this repository has frozen declares.
+    ⚠️ **Bound to the namespace they would have matched nothing new** -- because
+    the marker they were compared against matched the namespace *anywhere*, and
+    that unrestricted reach was itself the next defect. The one marker that
+    remains reads the value **in a declaration**, so the subset argument that
+    retired the other two no longer holds and is not what this test asserts. The
+    doctype could not be bound at all either way: the only Gramps-specific
+    evidence it carries beyond the namespace is the public identifier, which no
+    artifact this repository has frozen declares.
 
     ⚠️ **``_GRAMPS_DOCUMENT_ELEMENT`` stays, and exactly one element declaring
     ``xmlns`` is still asserted.** It selects the ``FIXED_ATTRIBUTE_DEFAULTS``
@@ -1155,9 +1286,17 @@ def test_the_only_marker_the_gate_reads_is_the_namespace_the_schema_fixes() -> N
         if (element, attribute) == (_GRAMPS_DOCUMENT_ELEMENT, "xmlns")
     ]
 
-    assert len(fixed) == 1 and _names_the_gramps_format("/".join(fixed[0])), (
-        "and the value the schema FIXES that attribute at does name the format, or the assertion "
-        f"above is satisfied by a gate that reads nothing: {fixed}"
+    declared = "/".join(fixed[0]) if fixed else ""
+    in_a_declaration = "<" + _GRAMPS_DOCUMENT_ELEMENT + ' xmlns="' + declared + '">'
+
+    assert len(fixed) == 1 and _names_the_gramps_format(in_a_declaration), (
+        "and the value the schema FIXES that attribute at, DECLARED, does name the format, or "
+        f"the assertion above is satisfied by a gate that reads nothing: {fixed}"
+    )
+
+    assert not _names_the_gramps_format(declared), (
+        "while the same value written on its own does not -- the marker is that value in "
+        "ATTRIBUTE POSITION, and a document that mentions the namespace has not declared it"
     )
 
 
@@ -1180,6 +1319,13 @@ def test_the_namespace_the_gate_reads_is_the_default_the_schema_fixes() -> None:
     Equality here would tie the guard to one revision of the DTD and quietly
     blind it the day the project ships another.
 
+    ⚠️ **The second assertion places the value in a DECLARATION, and that is a
+    strictly stronger binding than the bare value it used to pass.** The gate
+    reads the schema-fixed namespace as the value of an ``xmlns`` attribute in a
+    start tag, so feeding it the value alone would now assert that the binding
+    is broken. The first assertion is untouched: it is the binding to the frozen
+    table, and it still holds exactly as written.
+
     ⚠️ Reassembled at runtime. The pieces are what the table holds, for the
     reason recorded beside them: this file and that one are both scanned.
     """
@@ -1201,8 +1347,10 @@ def test_the_namespace_the_gate_reads_is_the_default_the_schema_fixes() -> None:
         f"company: the table declares {len(declared)} characters that do not contain it"
     )
 
-    assert _names_the_gramps_format(declared), (
-        "and a document carrying that value names the format, or the binding above is a fact "
+    in_a_declaration = "<" + _GRAMPS_DOCUMENT_ELEMENT + ' xmlns="' + declared + '">'
+
+    assert _names_the_gramps_format(in_a_declaration), (
+        "and a document DECLARING that value names the format, or the binding above is a fact "
         "about a string nothing reads"
     )
 
