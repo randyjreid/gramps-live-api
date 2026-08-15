@@ -31,6 +31,7 @@ from gramps_live_api.core.pii_guard import (
     _GRAMPS_CATEGORY_OF,
     _GRAMPS_DOCUMENT_ELEMENT,
     _GRAMPS_FILLED_ELEMENT,
+    _GRAMPS_NAMESPACE_SCHEME,
     _GRAMPS_PROSE_LENGTH,
     _GRAMPS_XML_NAMESPACE,
     _NAMESPACE_TOLERANCES,
@@ -1843,6 +1844,15 @@ def test_the_namespace_the_gate_reads_is_the_default_the_schema_fixes() -> None:
     is broken. The first assertion is untouched: it is the binding to the frozen
     table, and it still holds exactly as written.
 
+    ⚠️ **The SCHEME is bound here too, and it is a separate claim from the host
+    and path above it.** The value fragment used to read RFC 3986's `scheme`
+    production, which admits every syntactically valid scheme -- so the base
+    served over `ftp` named this format, and a namespace name is compared by
+    exact string match. What replaced it is a declared tolerance table, and its
+    canonical row is built from this same frozen value's FIRST piece: a schema
+    revision that moved the format to another transport now fails a test
+    instead of silently blinding the gate.
+
     ⚠️ Reassembled at runtime. The pieces are what the table holds, for the
     reason recorded beside them: this file and that one are both scanned.
     """
@@ -1862,6 +1872,21 @@ def test_the_namespace_the_gate_reads_is_the_default_the_schema_fixes() -> None:
     assert _GRAMPS_XML_NAMESPACE in declared, (
         "the namespace the gate reads is the default the schema fixes, and the two have parted "
         f"company: the table declares {len(declared)} characters that do not contain it"
+    )
+
+    assert fixed[0][0] == _GRAMPS_NAMESPACE_SCHEME + ":", (
+        "and so is the SCHEME it is served over: the constant the tolerance table is composed "
+        f"from is the frozen value's first piece, and the table holds {fixed[0][0]!r}"
+    )
+
+    canonical = "/".join(fixed[0][:2]) + "/"
+    tolerated = [
+        fragment for position, fragment, _ in _NAMESPACE_TOLERANCES if position == "prefix"
+    ]
+
+    assert canonical in tolerated, (
+        "the canonical prefix is a DECLARED row rather than a spelling the pattern happens to "
+        f"admit, and the table declares {tolerated} where the schema fixes {canonical!r}"
     )
 
     in_a_declaration = "<" + _GRAMPS_DOCUMENT_ELEMENT + ' xmlns="' + declared + '">'
