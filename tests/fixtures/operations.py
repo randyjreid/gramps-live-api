@@ -41,6 +41,7 @@ from gramps_live_api.core.schema import (
     AddCitation,
     AddNote,
     AddPerson,
+    AddPlace,
     ObjectRef,
     Operation,
     required_paths,
@@ -63,6 +64,7 @@ EXAMPLES: Mapping[str, Operation] = MappingProxyType(
             surname="Ashenmoor",
             citation=ObjectRef(object_type="citation", handle="d0a7e93c184b6f", gramps_id="C0051"),
         ),
+        "add_place": AddPlace(place_name="Thornwick"),
     }
 )
 

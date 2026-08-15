@@ -338,6 +338,12 @@ NON_FACT: Mapping[str, str] = MappingProxyType(
             "a note records what a researcher observed or intends; it asserts nothing "
             "about a person that evidence could support, so it carries no citation field"
         ),
+        "add_place": (
+            "a place is the container a fact refers to rather than a claim about a person, "
+            "and place naming has its own warrant -- an external place authority, declared "
+            "as PLACE_NAME_NOT_IN_AUTHORITY on the PHASE_3 side -- so a citation field "
+            "would warrant it with the wrong instrument"
+        ),
     }
 )
 """Operations exempt from the provenance rule, each with why it is exempt.
@@ -389,6 +395,12 @@ class RuleId(Enum):
     CITATION_DOES_NOT_EXIST = "CITATION_DOES_NOT_EXIST"
     REFERENCE_TYPE_MISMATCHES_TREE = "REFERENCE_TYPE_MISMATCHES_TREE"
     DUPLICATE_OF_EXISTING = "DUPLICATE_OF_EXISTING"
+
+    # A place must be named as an external place authority names it rather than
+    # invented. Declared here and NOT implemented, because deciding it needs
+    # that authority -- so it is a documented constraint that this table makes
+    # reviewable, rather than a promise living in a docstring.
+    PLACE_NAME_NOT_IN_AUTHORITY = "PLACE_NAME_NOT_IN_AUTHORITY"
 
 
 @dataclass(frozen=True, slots=True)
@@ -532,6 +544,40 @@ class AddPerson(Operation):
             _carried("surname", self.surname),
             _own(" on the evidence of "),
             *_named(self.citation, "citation"),
+        )
+
+
+@_register("add_place", citation_field=None)
+@dataclass(frozen=True, slots=True)
+class AddPlace(Operation):
+    """A place, named as an external place authority names it rather than invented.
+
+    ⚠️ **That naming rule is DOCUMENTED HERE AND VALIDATED NOWHERE, and the
+    difference is the point.** Deciding whether a name matches an authority
+    needs that authority, which this phase does not have, so the rule is
+    declared as ``PLACE_NAME_NOT_IN_AUTHORITY`` on the ``PHASE_3`` side of
+    ``RULES`` and a test asserts it cannot fire from ``validate``. Implementing
+    it here would be a database question answered by guessing; leaving it
+    undeclared would be the same promise with nothing keeping it.
+
+    Carries no citation field, and that follows from the rule above rather than
+    from a place being unimportant: what warrants a place name is the authority
+    and not a record in this tree, so provenance would be the wrong instrument.
+    See its entry in ``NON_FACT``.
+
+    A place type and an enclosing place are deliberately not modelled. Both are
+    real and neither is asked for here -- a place type would add a second
+    closed-set rule no criterion needs, and this issue registers operations
+    rather than completing the place model.
+    """
+
+    place_name: str = ""
+
+    def render(self) -> tuple[Fragment, ...]:
+        return (
+            _own("add the place "),
+            _carried("place_name", self.place_name),
+            _own(", named as the place authority names it"),
         )
 
 
@@ -802,6 +848,7 @@ RULES: tuple[Rule, ...] = (
     Rule(RuleId.CITATION_DOES_NOT_EXIST, Phase.PHASE_3, None),
     Rule(RuleId.REFERENCE_TYPE_MISMATCHES_TREE, Phase.PHASE_3, None),
     Rule(RuleId.DUPLICATE_OF_EXISTING, Phase.PHASE_3, None),
+    Rule(RuleId.PLACE_NAME_NOT_IN_AUTHORITY, Phase.PHASE_3, None),
 )
 """The frozen rule table. This IS the validator's program, not a description.
 
