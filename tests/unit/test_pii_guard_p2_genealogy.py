@@ -1362,11 +1362,13 @@ def test_a_prefixed_document_still_names_the_format() -> None:
     same export, and a gate blind to the prefixed spelling would silently zero
     every derived row in one.
 
-    ⚠️ **The one remaining marker is a substring test over the whole text, and a
-    substring test cannot see a prefix.** The property therefore holds by
-    construction rather than by an alternation somebody has to keep in step with
-    four other patterns. That is a claim worth asserting rather than assuming,
-    so it is -- over the alias tuple, unprefixed form included.
+    ⚠️ **This body is unchanged by the anchoring, and that is evidence rather
+    than luck.** It already built real declarations, prefixed and bare, so it
+    passed before and passes now. What moved is the REASON: the property used to
+    hold because a substring test over the whole text cannot see a prefix, and
+    it now holds because the declaration's name is ``xmlns:`` followed by the
+    same transcribed ``NCName`` the element patterns read -- one production,
+    three readers, and no second table to keep in step with four other patterns.
 
     ⚠️ **In both directions, because the first half alone is satisfied by a gate
     that accepts everything.** The same probes carrying a namespace that is not
