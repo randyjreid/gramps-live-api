@@ -996,7 +996,10 @@ actual content still scores through the marker and the rows.
 | `test_every_commit_this_repository_publishes_is_clean` and `test_this_repository_is_clean` | both **ran**, both passed |
 
 The verdict is what must not move and did not; the counts grow with the history and did, 105 → 117
-commits and 206 → 222 entries.
+commits and 206 → 222 entries. ⚠️ **Those two numbers are stale the moment they are written** — the
+commit carrying this sentence adds one, and every commit after it adds another — **which is why this
+row is read for its verdict rather than its arithmetic.** `0 findings` is the claim; `117` is the
+timestamp on it.
 
 **(e) ⚠️ The code's own constants, under every spelling the code treats as equivalent** — re-walked
 with the CODE and the CORPUS chosen separately, because this round's new patterns and their
