@@ -1077,6 +1077,78 @@ _GRAMPS_PROSE_ELEMENTS = _elements_of("prose")
 _GRAMPS_STRUCTURE_ELEMENTS = _elements_of("structure")
 _GRAMPS_ALL_ELEMENTS = tuple(dict.fromkeys(_GRAMPS_CATEGORY_OF))
 
+_WEIGHTS_BEFORE_THE_DERIVATION = {
+    "surname": 2,
+    "name": 2,
+    "first": 2,
+    "ptitle": 2,
+    "pname": 2,
+    "street": 2,
+    "city": 2,
+    "county": 2,
+    "state": 2,
+    "postal": 2,
+    "country": 2,
+    "phone": 2,
+    "url": 2,
+    "email": 2,
+    "text": 4,
+    "note": 4,
+    "person": 1,
+    "family": 1,
+    "gender": 1,
+    "birth": 1,
+    "death": 1,
+    "dateval": 1,
+    "placeobj": 1,
+    "address": 1,
+    "citation": 1,
+    "eventref": 1,
+    "childref": 1,
+    "noteref": 1,
+    "attribute": 1,
+}
+"""Every Gramps spelling the vocabulary held, and its weight, before #4's audit.
+
+⚠️ **This is not a duplicate of the vocabulary; it is a FROZEN SNAPSHOT of a
+different moment, and the difference is the point.** The audit that derives the
+container list from the published schema has one invariant standing over it:
+*no row already in the vocabulary is gated or zero-weighted by this work.* That
+is a claim about the past, so it needs a record of the past to be checked
+against -- otherwise "nothing was retracted" is only ever a promise in a commit
+message, and the quiet way to make a widening's measurement look good is to
+zero an existing catch.
+
+Three spellings here are **not** in the published schema at all -- ``birth``,
+``death`` and ``email``. They stay exactly as they are for the same reason: the
+derivation adds rows, and a row it cannot account for is not thereby wrong.
+
+⚠️ **It lives HERE rather than in the test suite because the gate below reads
+it, and two copies of a historical snapshot is the drift this project keeps
+paying for.** The independence that move costs is bought back in the suite: the
+MEMBERSHIP is pinned there as a sorted literal, so adding a spelling here fails
+by name instead of silently widening the ungated domain. That pin is not
+optional; it is what makes the move safe.
+"""
+
+_SPELLINGS_THE_DERIVATION_ADDED = frozenset(_GRAMPS_CATEGORY_OF) - frozenset(
+    _WEIGHTS_BEFORE_THE_DERIVATION
+)
+"""The gate's domain: every spelling the vocabulary gained from the schema.
+
+⚠️ **THE GATE IS SCOPED TO ROWS, AND A FILE-LEVEL GATE WOULD NOT BE SAFE.**
+Conditioning the whole XML scorer on a marker would suppress a pre-existing
+catch in a file that carries none -- a note holding a biography, a bare name
+block -- which is the retraction the audit's first invariant forbids. Cutting
+the domain out of the frozen snapshot instead makes that impossible rather than
+merely unobserved: a pre-existing row is not in this set, so no measurement is
+needed to show the gate did not reach it.
+
+Derived by subtraction rather than listed, so a row a later schema version adds
+is gated the day it is added and a row promoted into the snapshot stops being
+gated on the same day, with nothing to remember.
+"""
+
 # ---------------------------------------------------------------------------
 # THE QUALIFIED-NAME ALTERNATION. ONE CONSTRUCTION SITE, THREE PATTERNS.
 #
@@ -1967,11 +2039,20 @@ def _gramps_identity_score(text: str) -> tuple[int, int] | None:
     a quoted attribute counts too, at structural weight, because a handle or an
     id is export syntax rather than something a specification writes in
     passing.
+
+    ⚠️ **A spelling this audit ADDED counts only where the text names the
+    format**, because some of what the schema declares are ordinary XML names --
+    ``type``, ``file``, ``status``, ``description`` -- and four filled ones in a
+    document about unrelated XML reached the threshold. See
+    ``_SPELLINGS_THE_DERIVATION_ADDED`` for why the condition is on rows rather
+    than on the file, and ``_names_the_gramps_format`` for what the marker is.
     """
     score = 0
     first: int | None = None
     filled: list[tuple[int, int]] = []
     drawings = [match.span() for match in _DRAWING.finditer(text)]
+    # Once per call, not once per element: the answer is a property of the text.
+    names_the_format = _names_the_gramps_format(text)
 
     for match in _GRAMPS_FILLED_ELEMENT.finditer(text):
         # Group 1 holds the WHOLE qualified tag, because the backreference that
@@ -1983,6 +2064,16 @@ def _gramps_identity_score(text: str) -> tuple[int, int] | None:
         # here threw that away before the question was asked.
         content = match.group(2).strip()
         filled.append(match.span())
+        if tag in _SPELLINGS_THE_DERIVATION_ADDED and not names_the_format:
+            # THE GATE, and it sits BEFORE the prose branch on purpose: a prose
+            # row the derivation adds later is gated with nothing edited here.
+            #
+            # Two properties copied from the unweighted branch below, and
+            # load-bearing for the same reasons: the filled span STAYS recorded
+            # above, so the attributed pass cannot score the same element again;
+            # and ``first`` is NOT set, so no finding ever points at an element
+            # that contributed nothing.
+            continue
         if tag in _GRAMPS_PROSE_ELEMENTS:
             # Measured by what the content DENOTES, exactly as the JSON side
             # measures its values -- the floor is a property of prose, not of a
@@ -2024,7 +2115,13 @@ def _gramps_identity_score(text: str) -> tuple[int, int] | None:
         # weighed the same as a bare person element -- one principle stated in
         # the comment at the top and honoured by only one of the two loops
         # beneath it.
-        weight = _CATEGORY_WEIGHT[_GRAMPS_CATEGORY_OF[_local_name(match.group(1))]]
+        tag = _local_name(match.group(1))
+        if tag in _SPELLINGS_THE_DERIVATION_ADDED and not names_the_format:
+            # The gate again, in the second pass, for the reason it is in the
+            # first: a rule taught to one of these two loops and not the other
+            # is the partial application this whole table exists to end.
+            continue
+        weight = _CATEGORY_WEIGHT[_GRAMPS_CATEGORY_OF[tag]]
         if not weight:
             # The same rule as the pass above, for the same reason.
             continue
@@ -2067,6 +2164,92 @@ _XML_PROLOG = re.compile(r"\A\s*<\?xml\b")
 # same self-report the patterns above are composed from constants to avoid, and
 # it appeared the moment the anchor came off.
 _GRAMPS_XML_NAMESPACE = "gramps-project" + ".org" + _SEPARATOR + "xml"
+
+# ---------------------------------------------------------------------------
+# WHAT COUNTS AS THE DOCUMENT SAYING IT IS GRAMPS. THREE SPELLINGS, EACH
+# DERIVED FROM A CLOSED SOURCE.
+#
+# ⚠️ **A hand-written list of markers would be the same defect the derivation
+# just removed, one level up.** The container list stopped being a judgement in
+# #4's Change C1; a gate on "is this Gramps" resting on three spellings somebody
+# chose would put the judgement straight back, in the place that decides whether
+# ~80 rows score at all. So each marker names its source and is bound to it by
+# test:
+#
+#   M1  the declared namespace  -- the `#FIXED` default the schema gives the
+#                                  `xmlns` attribute of its document element,
+#                                  emitted into the frozen table as
+#                                  `FIXED_ATTRIBUTE_DEFAULTS`
+#   M2  the doctype             -- XML 1.0 §2.8,
+#                                  `doctypedecl ::= '<!DOCTYPE' S Name …`,
+#                                  whose `Name` IS the document element
+#   M3  the document element    -- the one element `SPECIFIED_ATTRIBUTES`
+#       declaring a namespace      attaches `xmlns` to
+#
+# ⚠️ **NOTHING HERE IMPORTS `_specified_containers`.** That module's docstring
+# says it is data rather than behaviour and that the scan does not change if it
+# is deleted, and that stays true: the markers are composed constants in this
+# module, BOUND BY TEST to the frozen table -- exactly the standing the
+# vocabulary itself has, which is also placed here and bound by
+# `test_every_container_the_published_schema_declares_has_a_weight`. "Derived"
+# in this project means *nothing is maintained by hand without a test that would
+# fail*, not *imported at runtime*.
+#
+# ⚠️ **M2 and M3 go through `_qualified`**, or a prefixed export loses its
+# marker and every derived row in it silently scores nothing -- Change A's
+# equivalence property, broken by the very gate meant to make the widening
+# affordable.
+#
+# **Honest note on what M2 and M3 actually reach, stated rather than
+# discovered.** A whole export carrying a doctype or a namespaced document
+# element already trips `_GENEALOGY_TEXT_SIGNATURES` above, which short-circuits
+# `_sniff_genealogy` before any scorer runs. So M1 does most of this gate's work
+# in practice; M2 earns its place on the case M1 misses -- a doctype carrying
+# only a PUBLIC identifier and no system URI -- and M3 on a direct call to
+# `_gramps_identity_score`.
+# ---------------------------------------------------------------------------
+
+_GRAMPS_DOCUMENT_ELEMENT = "database"
+"""The element the schema attaches its namespace declaration to.
+
+Placed here rather than imported, for the reason in the block above. The frozen
+table is asserted to name **exactly one** such element and to name this one, so
+a schema that moved or duplicated the declaration fails a test instead of
+leaving M2 and M3 quietly pointing at an element that no longer declares
+anything.
+"""
+
+_NAMES_THE_GRAMPS_FORMAT: tuple[re.Pattern[str], ...] = (
+    re.compile(r"<!DOCTYPE\s+" + _qualified(_GRAMPS_DOCUMENT_ELEMENT) + r"\b", re.IGNORECASE),
+    re.compile(r"<" + _qualified(_GRAMPS_DOCUMENT_ELEMENT) + r"\b[^>]*xmlns", re.IGNORECASE),
+)
+"""M2 and M3 compiled. M1 is a substring test and needs no pattern.
+
+Both read the document element through the shared alternation, so a prefixed
+document names the format exactly as an unprefixed one does.
+"""
+
+
+def _names_the_gramps_format(text: str) -> bool:
+    """Whether ``text`` says it is Gramps -- the condition a derived row scores under.
+
+    ⚠️ **"The file" is the string the scorer was handed, and nothing else.** No
+    cross-file state and no cross-commit state, which keeps one answer per scan
+    path: the tip scan asks it of the whole decoded blob, the history walk of
+    that blob **at that commit** rather than of the tip's copy, and `scan_text`
+    of the text it was given.
+
+    ⚠️ **The committed NAME is the hole in that, and it is stated rather than
+    smoothed over.** `scan_blob` also runs the genealogy properties over the
+    path string, and one short filename can essentially never carry a marker --
+    so a derived row will never score on a name. That is a residual of the gate
+    rather than a defect in its scoping, and it costs nothing today, because the
+    name that is a finding is a GEDCOM record and rests on the record signature.
+    """
+    return _GRAMPS_XML_NAMESPACE in text or any(
+        marker.search(text) is not None for marker in _NAMES_THE_GRAMPS_FORMAT
+    )
+
 
 # The known-SAFE side of the classification. Everything not on it is a finding.
 #
