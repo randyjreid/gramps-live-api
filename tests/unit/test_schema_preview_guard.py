@@ -31,7 +31,16 @@ from types import MappingProxyType
 import pytest
 
 from gramps_live_api.core import schema
+from gramps_live_api.core._unrenderable import UNRENDERABLE_RANGES
 from tests.fixtures.operations import EXAMPLES, SENTINELS, carrying, resolve
+
+DEFAULT_IGNORABLE = "Default_Ignorable_Code_Point"
+"""The derived core property that holds the class's invisible half.
+
+Spelled out here rather than imported, on the same reasoning as
+``EXPLICIT_BIDI_FORMATTING`` below: the name is a published fact, and a test
+that read it off the thing under test would agree with it however wrong it was.
+"""
 
 EXPLICIT_BIDI_FORMATTING: frozenset[str] = frozenset(
     {"LRE", "RLE", "LRO", "RLO", "PDF", "LRI", "RLI", "FSI", "PDI"}
@@ -362,45 +371,93 @@ def test_every_character_the_bidi_algorithm_defines_as_explicit_formatting_is_gu
     )
 
 
-def test_no_character_a_person_could_read_is_guarded() -> None:
-    # The false-positive half. Letters, marks, numbers, punctuation, symbols and
-    # separators are what a sentence a person checks against a record is made
-    # of, and refusing any of them would be a guard that blocks legitimate data.
+def test_no_character_a_person_could_read_is_guarded_unless_it_is_invisible() -> None:
+    # The false-positive half, and the assertion this change actually costs.
+    # Letters, marks, numbers, punctuation, symbols and separators are what a
+    # sentence a person checks against a record is made of, and refusing any of
+    # them for its CATEGORY would be a guard that blocks legitimate data.
+    #
+    # ⚠️ It used to say no readable character is refused at all, and that is no
+    # longer true: U+115F and U+1160 are Lo, U+034F and U+FE00 are Mn, and all
+    # four are invisible -- round 4's finding. So the narrowing is to the one
+    # published reason a readable character may be refused, and the size of that
+    # exemption is pinned by the test below rather than left open.
     readable = frozenset({"L", "M", "N", "P", "S", "Z"})
     refused = [
         character
         for character in _every_code_point()
         if unicodedata.category(character)[0] in readable and schema._is_unrenderable(character)
     ]
-
-    assert refused == [], f"a readable character is refused: {[ord(c) for c in refused]}"
-
-
-def test_an_unassigned_code_point_is_not_guarded() -> None:
-    # ⚠️ The recorded exclusion, pinned so that "completing" the class fails
-    # here rather than in CI on one Python version and not another. Unassigned
-    # is a fact about the UCD this interpreter was built with -- not about the
-    # character -- so guarding it would make the same operation preview on one
-    # version of our matrix and refuse on another. Derived from the UCD rather
-    # than picking a code point by hand, because what is unassigned moves.
-    #
-    # ⚠️ What this pins is the exclusion, NOT version-independence. Verdicts
-    # depend on the interpreter's Unicode version with the exclusion in place,
-    # because assignments move between the databases CPython bundles: U+0890 is
-    # Cn under 3.10's UCD 13.0.0 and Cf under 3.11's 14.0.0, so the older
-    # interpreter previews it and the newer refuses -- 9 code points across the
-    # supported matrix, against 5,327 in the other direction if Cn were
-    # guarded. Shrinking that is why the exclusion stays. See
-    # _is_unrenderable's docstring and CONTRIBUTING.md's accepted residuals.
-    unassigned = [
-        character for character in _every_code_point() if unicodedata.category(character) == "Cn"
+    for_their_category = [
+        character for character in refused if schema._class_of(character) != DEFAULT_IGNORABLE
     ]
 
-    assert unassigned, "this UCD assigns everything, so the exclusion is untested"
-    assert not any(schema._is_unrenderable(character) for character in unassigned), (
-        "an unassigned code point is guarded, which widens the verdict's dependence on "
-        "the interpreter's Unicode version from 9 code points to 5,327 and flips its "
-        f"direction to fail-closed (this interpreter's UCD is {unicodedata.unidata_version})"
+    assert refused, "no readable character is refused at all, so the exemption below is untested"
+    assert for_their_category == [], (
+        "a readable character is refused for its general category rather than for being "
+        f"default-ignorable: {[ord(c) for c in for_their_category]}"
+    )
+
+
+def test_the_exemption_that_lets_a_readable_character_be_refused_is_pinned() -> None:
+    # ⚠️ The load-bearing half of the narrowing. Without a pin the test above
+    # stops constraining anything -- a table that started refusing whole
+    # alphabets under the default-ignorable label would pass it.
+    #
+    # ⚠️ Pinned over the COMMITTED TABLE, not over the exempted set as this
+    # interpreter sees it, and that is deliberate. Counting the readable
+    # characters the class refuses asks the running interpreter for categories:
+    # it answers 266 on UCD 13.0.0 and 267 on 14.0.0 and 15.0.0, because U+180F
+    # is unassigned in the first and Mn in the others. Pinning that number would
+    # put the interpreter back into an assertion this whole change exists to get
+    # it out of. The table's own figures are the same guarantee and hold
+    # everywhere: a re-derivation that widens the invisible half fails here, in
+    # the code points nobody can see as well as in the ones this interpreter has
+    # a category for.
+    exempting = [row for row in UNRENDERABLE_RANGES if row[2] == DEFAULT_IGNORABLE]
+
+    assert len(exempting) == 13, (
+        f"the number of default-ignorable ranges in the committed table moved: {exempting}"
+    )
+    assert sum(last - first + 1 for first, last, _ in exempting) == 4036, (
+        "the default-ignorable half of the class changed size; a widening onto letters "
+        "lands here, and a re-derivation that means it must move this figure deliberately"
+    )
+
+
+def test_a_code_point_this_interpreter_calls_unassigned_and_the_table_omits_is_previewed() -> None:
+    # ⚠️ What this pins is that the class does not reach unassigned code points,
+    # and it no longer pins anything about version dependence -- there is none
+    # left to pin. `Cn` is stated explicitly in the artifact the table is
+    # derived from; what keeps it out is that the derivation's wanted set does
+    # not name it, so there is no exclusion clause to "complete".
+    #
+    # ⚠️ Both conditions are load-bearing. The table is pinned at a Unicode
+    # release newer than any interpreter here bundles, so code points this one
+    # calls unassigned ARE in the class -- deliberately, and recorded in the
+    # costs block. Asking only what this interpreter calls Cn would therefore
+    # fail on a correct table. The case worth asserting is the code point
+    # neither source knows anything about.
+    unassigned = [
+        character
+        for character in _every_code_point()
+        if unicodedata.category(character) == "Cn" and not schema._is_unrenderable(character)
+    ]
+
+    assert len(unassigned) > 1000, (
+        "too few code points are unassigned here and absent from the table for this to be "
+        f"a real sweep; found {len(unassigned)} (this interpreter's UCD is "
+        f"{unicodedata.unidata_version})"
+    )
+    operation = carrying(EXAMPLES["add_note"], "text", "Ashenmoor" + unassigned[0] + " deed")
+
+    assert schema.validate(operation).well_formed, (
+        "this case is only the rendering guard's business while the operation "
+        "is still well-formed; preview's precondition is unchanged"
+    )
+    assert unassigned[0] in schema.preview(operation), (
+        f"U+{ord(unassigned[0]):04X} is unassigned in UCD {unicodedata.unidata_version} and "
+        "absent from the committed table, and the guard refused it anyway"
     )
 
 
