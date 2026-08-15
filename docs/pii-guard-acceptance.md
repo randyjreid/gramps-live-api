@@ -81,8 +81,8 @@ note in this directory. Every row of that table has a weight and a test, which i
 reached; the previous formulation, *every place where a container can hold prose or an identity
 field*, was quantified over a format and could not be shown to have been satisfied.
 
-`tests/unit/test_pii_guard_p2_genealogy.py` -- **103 tests**. ⚠️ **That is the FILE's count and not
-this criterion's**; see the warning below, which is now on its seventh reason. The crux of each
+`tests/unit/test_pii_guard_p2_genealogy.py` -- **105 tests**. ⚠️ **That is the FILE's count and not
+this criterion's**; see the warning below, which is now on its eighth reason. The crux of each
 mechanism:
 
 | Mechanism | Named by |
@@ -100,7 +100,7 @@ The two formats are held to one vocabulary by
 `test_one_life_is_judged_the_same_in_both_formats`.
 
 ⚠️ **That count is the FILE's, and it is not the number of tests carrying B2. It moves for
-reasons this criterion is not about, and it has now moved for seven.** Twelve of them
+reasons this criterion is not about, and it has now moved for eight.** Twelve of them
 arrived with #4 item 4, which taught the compiled patterns that read an element name to read
 a namespace-prefixed tag: **nine** with the two commits that shared one alternation between the four
 sites it then had, and **three** more with the commit that replaced the prefix's character class with
@@ -220,6 +220,28 @@ nothing added to it**, which is the point of putting the name's end inside `_qua
 asserts that fragment appears verbatim in each of the three scoring patterns; the fragment now ends
 with the transcribed name end, so the same assertion says all three end their names correctly.
 
+**Two more arrived with the URI SCHEME** -- the round that found the value fragment reading RFC
+3986's `scheme` production, which admits every syntactically valid scheme, so a wrapper declaring
+the base over `ftp`, beside four filled `<type>` elements, named the format and scored **6**.
+Namespace names are compared by exact string match, so that document has declared a *different*
+namespace. This is the third tightening of one check, and what replaced the production is not a
+narrower production but a **declared tolerance table**: equality with the reassembled `#FIXED`
+value, then five relaxations, each carrying a recorded reason. **Neither of the two carries B2:**
+
+| The two | What they are |
+| --- | --- |
+| `test_a_scheme_the_schema_does_not_fix_does_not_name_the_format` | **one**, constraining what the guard must *not* report -- **B8's concern rather than this one**, exactly as the reproductions above it are. Seven refused schemes, three of them DERIVED from the fixed scheme rather than typed -- upper-cased, suffixed and prefixed -- and it carries its own positive control in the same test, because a negative half alone is satisfied by a guard that reports nothing |
+| `test_every_namespace_tolerance_is_declared_with_a_reason_and_earns_its_row` | **one**, asserting a property of the tolerance table rather than what a scan returns. It carries no criterion on its own -- and it is the round's deliverable, the same shape as the licence table's test one round earlier. Every relaxation must sit at a position the compiler reads, carry a non-blank reason, and **stop at least one spelling the gate is required to accept when it is removed**. Removing the one `tail` row stops all six spellings carrying a version segment, which is the later-schema-revision property asserted rather than argued |
+
+⚠️ **One test in this file was EXTENDED by that round rather than added, and an extension moves no
+count.** `test_the_namespace_the_gate_reads_is_the_default_the_schema_fixes` bound the namespace's
+host and path to `FIXED_ATTRIBUTE_DEFAULTS` and said nothing about its **scheme**, because until
+that round the scheme was a transcribed production rather than a value. It now also asserts that the
+guard's scheme constant is the frozen value's first piece, and that the canonical prefix is a
+declared row rather than a spelling the pattern happens to admit. It arrived at `7450185`, **in this
+branch's own repairs** -- checked with `git merge-base --is-ancestor` against `c58b66d` rather than
+assumed -- so extending it is a fix rather than the modification of a pre-existing test.
+
 ⚠️ **A separate file arrived with the same change and is counted nowhere above.**
 `tests/unit/test_derive_specified_containers.py` -- **9 tests** -- asserts the derivation script's
 own properties. It carries no criterion here: it is about a build step's fail-closed guarantee, not
@@ -239,6 +261,11 @@ sentence.** That round touched no build step either -- `git diff --exit-code` ov
 `scripts/derive_specified_containers.py` and the table it emits returns 0 against `5745d05` -- and
 the reason to expect a number is still not a reading of it.
 
+⚠️ **Nor did the URI-scheme round, re-collected the same way again.** `pytest --collect-only`
+reports **nine**, and `git diff --exit-code` over the derivation script and the emitted table
+returns 0 against `84cb944`. Three rounds in a row have had a reason to expect nine; three rounds in
+a row have read it instead.
+
 ⚠️ **The count was UNCHANGED by the fourth site's deletion, and that is a coincidence rather
 than evidence nothing happened.** That change removed the test asserting a mismatched-prefix pair is
 not a drawing -- the backreference it was about no longer exists, and its input is still reported for
@@ -256,7 +283,8 @@ seventh, for **both** counts on this page, and so did the eighth -- the marker a
 moved the file's count from 95 to **98** and left the derivation file's at **9**. So did the
 **ninth**, the transcription audit, which moved it from 98 to **103** and again left the derivation
 file's at **9**: it grepped this page for both numbers before writing a single test, which is the
-order that makes the staleness impossible rather than merely noticed.
+order that makes the staleness impossible rather than merely noticed. So did the **tenth**, the URI
+scheme, which moved it from 103 to **105** and left the derivation file's at **9**.
 
 ⚠️ **The ninth also says why the cheap half is not the whole repair, and #36 still owes the rest.**
 Looking the number up first works only for somebody who knows a documented count exists. It is the
