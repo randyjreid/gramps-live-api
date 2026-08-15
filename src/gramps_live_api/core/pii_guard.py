@@ -2613,9 +2613,12 @@ r"""An ``AttValue`` that IS the Gramps namespace, rather than one containing it.
 ⚠️ **THE VALUE OCCUPIES THE WHOLE ``AttValue``, and that is the repair.** This
 used to be ``_att_value(re.escape(_GRAMPS_XML_NAMESPACE))`` -- body, namespace,
 body -- which is a **bare substring test wearing an ``AttValue``'s quotes.** So
-``xmlns="urn:not-gramps:…gramps-project.org/xml"`` declared a namespace that is
-explicitly not this one, and the gate read it as Gramps: a document that has
-named ANOTHER format re-enabled some eighty derived rows.
+a declaration whose value was ``urn:not-gramps:`` followed by the base named a
+namespace that is explicitly not this one, and the gate read it as Gramps: a
+document that has named ANOTHER format re-enabled some eighty derived rows.
+(Spelled that way round on purpose -- writing the reproduction out would put
+the value contiguously into a tracked file, which this module's own sweep
+catches and which is the rule every fixture here follows.)
 
 That is the third turn of one defect. Round 3 found shape without value; round
 4 found value without shape; this is the value in the right shape and in the
