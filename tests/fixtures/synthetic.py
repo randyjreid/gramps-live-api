@@ -511,6 +511,88 @@ def gramps_xml_database_element(*, prefix: str = "") -> str:
     return _element(qualifier + "database", attributes=f'{declaration}="{namespace}"')
 
 
+def names_the_gramps_format() -> str:
+    """The declared namespace on its own: the marker, and nothing else with it.
+
+    A spelling the schema derivation ADDED scores only in a text that names the
+    format. This is the cheapest such text, and it is deliberately the *only*
+    marker these fixtures carry.
+
+    ⚠️ **Deliberately NOT the document element.** ``<database … gramps…>`` is a
+    genealogy TEXT SIGNATURE, and a signature short-circuits ``_sniff_genealogy``
+    before any scorer runs -- so a fixture marked that way would report for a
+    reason that has nothing to do with the gate, and a test using it could not
+    tell an open gate from a closed one. The namespace alone leaves the scorer
+    the thing being measured.
+
+    Composed inside itself, like every other spelling of it here: the guard
+    recognises that string wherever it appears, so a contiguous copy in a
+    tracked file is a genuine finding.
+    """
+    return gramps_namespace_url()
+
+
+def gramps_generic_xml_names() -> str:
+    """Four filled ``<type>`` elements in a document about unrelated XML.
+
+    The reproduction the marker gate was built for. ``type`` is a schema
+    spelling AND an ordinary XML name, so it is in neither published markup
+    index and the deliberately-unweighted category never sees it -- four filled
+    ones reached the threshold in any document that happened to show a type.
+    """
+    values = ("string", "integer", "boolean", "date")
+    return "\n".join(_element("type", body=value) for value in values) + "\n"
+
+
+def unrelated_xml_document() -> str:
+    """A build manifest: a file, its status, a description and a type.
+
+    The second reproduction, and the one that shows the problem is not about
+    ``<type>`` in particular. Not one of these four spellings is a Gramps word;
+    every one of them is a row the schema derivation added.
+    """
+    fields = (
+        ("file", "quarterly-rollup.csv"),
+        ("status", "complete"),
+        ("description", "regenerated nightly from the ledger export"),
+        ("type", "scheduled"),
+    )
+    return "\n".join(_element(name, body=value) for name, value in fields) + "\n"
+
+
+def gramps_researcher_block() -> str:
+    """The researcher block: a name and a home address, invented.
+
+    ⭐ **This is the accepted COST of the gate, not a false positive.** Every
+    spelling in it -- ``resname``, ``rescity``, ``respostal`` -- is a row the
+    derivation added, so quoted without its marker it is no longer caught. The
+    number is measured and recorded in CONTRIBUTING rather than argued.
+    """
+    return _element(
+        "researcher",
+        body=(
+            _element("resname", body="Elowen Ashenmoor")
+            + _element("rescity", body="Thornwick")
+            + _element("respostal", body="ZX1")
+        ),
+    )
+
+
+def gramps_events_block() -> str:
+    """Two events, each with a type and a description.
+
+    The second half of the residual, and it takes TWO events: one event is two
+    filled structural elements and scores 2, which is below the threshold and so
+    was never a finding to lose. Assembled from the count rather than written
+    twice, so the reason the count is two stays visible.
+    """
+    event = _element(
+        "event",
+        body=_element("type", body="Birth") + _element("description", body="parish register"),
+    )
+    return _element("events", body=event * 2)
+
+
 def utf16le_gedcom_bytes() -> bytes:
     """A GEDCOM saved as BOM-less UTF-16LE.
 
