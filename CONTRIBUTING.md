@@ -589,31 +589,57 @@ enumeration this project refuses, one level up from the one the derivation just 
 
 | Marker | Source it is bound to, by test |
 | --- | --- |
-| the declared namespace | the `#FIXED` default the schema gives the `xmlns` attribute of its document element, emitted into the frozen table as `FIXED_ATTRIBUTE_DEFAULTS` |
+| the declared namespace, **as the value of an `xmlns` attribute in a start tag** | the `#FIXED` default the schema gives the `xmlns` attribute of its document element, emitted into the frozen table as `FIXED_ATTRIBUTE_DEFAULTS` |
 
-⚠️ **This was THREE markers, and the other two were removed rather than tightened.** They read
-*structure* and never a value — a doctype whose `Name` was the document element, and that element
-carrying an `xmlns` attribute at all — so `<database xmlns="urn:example:ledger">` beside four filled
-`<type>` elements re-enabled every derived row and scored **5, reported**; the doctype spelling
-scored **4, reported**. A document that has explicitly named *another* format was read as Gramps,
-which is the generic-XML false positive this gate exists to remove, restored by the gate itself.
+⚠️ **Shape and value, together, in one condition — because the gate has been wrong twice on this
+one axis and each time it held exactly one of the two halves.**
 
-**Tightening them was the obvious repair and it buys nothing.** The marker above is a plain
-substring test over the decoded text, and
-`test_the_namespace_the_gate_reads_is_the_default_the_schema_fixes` pins its constant as a substring
-of the reassembled `#FIXED` value — so any text satisfying a correctly-bound structural marker
-already satisfies this one. Bound, they are a strict
-subset adding no match ever; unbound, they are the false positive. **And the doctype could not be
-bound at all:** the only Gramps-specific evidence it carries beyond the namespace is the public
-identifier, which appears in no artifact this repository has frozen — the DTD does not declare its
-own — so correcting it would need exactly the hand-typed literal this design forbids. The choice was
-never *tighten or delete*; it was *delete, or keep something known-broken*.
+- **Shape without value.** It was THREE markers, and two of them read *structure* and never a value:
+  a doctype whose `Name` was the document element, and that element carrying an `xmlns` attribute at
+  all. So `<database xmlns="urn:example:ledger">` beside four filled `<type>` elements re-enabled
+  every derived row and scored **5, reported**; the doctype spelling scored **4, reported**. A
+  document that has explicitly named *another* format was read as Gramps.
+- **Value without shape.** Those two were deleted and a plain substring test over the decoded text
+  was left. A **prose sentence** naming the namespace — an import note, a changelog entry, this
+  project's own documents — beside four generic `<type>` elements then scored **6, reported**.
 
-**The prefixed case gets stronger, not weaker.** A substring test over the whole text is blind to
-prefixes **by construction**, so `<x:database xmlns:x="…">` names the format exactly as the bare form
-does, for every alias — Change A's equivalence property with nothing left to keep in step. It is
-asserted in both directions anyway, because the positive half alone is satisfied by a gate that
-accepts everything.
+Each half was rejected only for lacking the other, so the marker requires both **at one position**:
+the schema-fixed value as the value of an `xmlns` attribute reachable from a start tag's name
+through complete attributes. XML 1.0 §3.1's `STag`, `Attribute`, `Eq` and `AttValue` are transcribed
+rather than approximated, and here that is not academic: the cheap approximation `<[^<>]*xmlns=`
+accepts the namespace quoted inside **another attribute's value**, which is the first thing a
+reviewer constructs next.
+
+⚠️ **And that is ONE compiled pattern, not a composition.** An `or` over two results is the defect
+being fixed wearing a conjunction. An `and` is wrong too, and it is the wrong one worth naming:
+`shape.search(text) and value in text` is satisfied by a document declaring an unrelated namespace in
+a file that mentions the Gramps one three paragraphs down. **Two conditions verified at two positions
+are not one condition.**
+
+⭐ **How this came to be a bare substring test, recorded because the next reader's cheapest move is
+to simplify it back to one.** The conductor prescribed binding the structural marker to the namespace
+value. The plan gate **disputed it, and was right**: bound to the value, a shape marker is a strict
+subset of the substring test and can never add a match — tightened they were dead weight, loose they
+were the false positive, so they were deleted rather than tightened. **That proof was valid and its
+premise was unsound.** It holds only because the substring test matched *anywhere*, and that
+unrestricted reach is itself the defect the next round found. Nobody questioned the premise,
+including the conductor who approved the dispute. **A subset argument is only as good as the set it
+is taken inside**, and this stands as evidence that a dispute needs re-examining on the same terms a
+prescription does.
+
+**The doctype could not be bound either way**, which is why it is gone rather than anchored: the only
+Gramps-specific evidence it carries beyond the namespace is the public identifier, which appears in
+no artifact this repository has frozen — the DTD does not declare its own — so correcting it would
+need exactly the hand-typed literal this design forbids. The choice was never *tighten or delete*; it
+was *delete, or keep something known-broken*.
+
+**The prefixed case is carried by a shared production, not by blindness.** A substring test over the
+whole text was blind to prefixes **by construction**, which made Change A's equivalence property free
+at this site and is no longer available. `<x:database xmlns:x="…">` names the format because the
+declaration's name is `xmlns:` followed by the **same transcribed `NCName`** the element patterns
+read — one production, three readers, no second table to keep in step. It is asserted in both
+directions and over every alias, because the positive half alone is satisfied by a gate that accepts
+everything.
 
 ⚠️ **`pii_guard` does not import `_specified_containers`.** That module is data, not behaviour, and
 the scan does not change if it is deleted. The markers are composed constants in the guard, bound by
@@ -623,10 +649,11 @@ test to the frozen table — the same standing the vocabulary itself has.
 
 Every figure below is from a **Windows 11 Pro 10.0.26100 development machine, CPython 3.12.13 via
 `.venv\Scripts\python.exe`**. The gate's own columns are against the pre-change head `fcc56b2`; the
-marker-deletion columns are against `3f9f46c`, the head the reviewer found on. **Every table was
-re-walked on the current head rather than carried forward**, and where a figure moved — or was wrong
-— it is corrected below rather than quietly adjusted. A runner is an order of magnitude faster on
-the history walk, for the reason recorded against B8.
+marker-deletion columns are against `3f9f46c`, the head the reviewer found on; the **anchoring**
+columns are against `92e6c88`, the head the round-4 reviewer found on. **Every table was re-walked on
+the current head rather than carried forward**, and where a figure moved — or was wrong — it is
+corrected below rather than quietly adjusted. A runner is an order of magnitude faster on the history
+walk, for the reason recorded against B8.
 
 **(a) What the gate removes — the direction this change is for.**
 
@@ -634,6 +661,22 @@ the history walk, for the reason recorded against B8.
 | --- | --- | --- | --- |
 | four filled `<type>` elements | 4 — **reported** | 0 | 0 |
 | `<file>`, `<status>`, `<description>`, `<type>` | 4 — **reported** | 0 | 0 |
+
+⭐ **What ANCHORING removes, and it is the same direction one turn further out.** Measured against
+`92e6c88`:
+
+| Payload | Before | After |
+| --- | --- | --- |
+| a prose sentence naming the namespace + four filled `<type>` elements | 6 — **reported** | 0 |
+| that sentence on its own | 0, marker **read as named** | 0, marker not named |
+| `<database xmlns="urn:example:ledger">` + four filled `<type>` elements | 0 | 0 |
+| the same, spelled as a doctype naming an unrelated identifier | 0 | 0 |
+| the namespace quoted inside **another attribute's value**, + a researcher block | marker **read as named** | marker not named |
+
+⚠️ **The last row is the one the transcription buys and the approximation loses.** An element whose
+`desc` attribute *describes* a declaration has declared nothing; under the substring gate that text
+named the format, and the fragment beside it scored **12, reported**. It is measured through a
+wrapper the vocabulary does not hold, so the figure is the gate's and not the wrapper's.
 
 **(b) The retained side — the control, and the half that can break silently.**
 
@@ -643,6 +686,21 @@ the history walk, for the reason recorded against B8.
 | a note holding a biography, no marker | 8 | 8 |
 | a person fragment, no marker | 9 | 9 |
 | a whole export | reported by the **database element signature**, before any scorer runs | unchanged |
+
+⭐ **And the half anchoring could have broken silently: a genuine document must still name itself.**
+Every row here is a real declaration carrying a researcher block, measured on the anchored head:
+
+| A declaration, and the fragment beside it | Score |
+| --- | --- |
+| `xmlns="…"`, unprefixed, double-quoted | 8 — **reported** |
+| the same, single-quoted | 8 — **reported** |
+| `xmlns:g="…"` on `<g:…>` | 8 — **reported** |
+| `xmlns:x="…"` where `x` is `a` + COMBINING ACUTE ACCENT | 8 — **reported** |
+| a start tag truncated before its `>` | 8 — **reported** |
+| the namespace fragment fixture, and a whole export | 4 and 8 — **reported**, unchanged |
+
+The last row is what says anchoring did not quietly require the document element: a fragment
+declares the namespace on whatever wrapper it has.
 
 ⚠️ **Three of those four figures were wrong when they were written, and the correction is recorded
 rather than made silently.** This table read `4 / 4 / 6 / 9`. Re-walked at `fcc56b2` — its own
@@ -682,6 +740,50 @@ reach: a whole export carrying a doctype or a namespaced document element alread
 `_GENEALOGY_TEXT_SIGNATURES`, which short-circuits `_sniff_genealogy` before any scorer runs. What
 the deletion removes is the case that note had already named.
 
+⭐ **A third and a fourth arrived with the ANCHORING, and between them they are the whole of what it
+cost.** Both measured against `92e6c88`, neither assumed.
+
+**Residual (a) — a genuine fragment quoted beside a bare MENTION of the namespace.** The direct
+price of closing the reproduction: an import note that names the format in prose and pastes a block
+out of an export used to be caught, and is not.
+
+| Genuine Gramps fragment, beside a prose mention of the namespace | Before | After |
+| --- | --- | --- |
+| the same researcher block | 8 — **reported** | 0 |
+| the same events block | 6 — **reported** | 0 |
+| either of them under a real **declaration** | 8 / 6 — reported | 8 / 6 — reported |
+
+**Residual (b) — a declaration whose quotes are JSON-ESCAPED.** A Gramps export embedded in a JSON
+blob reaches the gate spelled `xmlns=\"…\"`, because `_decoded` deliberately does **not** fold `\"`
+— a structure character — and the anchored pattern reads the `AttValue` production, which a
+backslash is not part of. The substring test did not care.
+
+| A genuine declaration with escaped delimiters, + a researcher block | Before | After |
+| --- | --- | --- |
+| `{"note": "<database xmlns=\"…\">"}` + the researcher block | 8 — **reported** | 0 |
+
+⚠️ **The pattern is deliberately NOT widened to absorb residual (b), and that is a decision rather
+than an omission.** Admitting an optional backslash would make it read something that is not the
+`AttValue` production, in a module whose recorded principle is *one normalisation at the funnel, not
+two patterns taught one more spelling each* — see the serialization section below, whose defect class
+is now on its eighth instance. If escaped delimiters are to be folded, `_decoded` is the site, and
+that is #50's shape rather than this gate's. **Filed there, not half-fixed here.**
+
+**A comment or a CDATA section quoting a start tag is still read as a declaration**, and that is
+recorded as a residual rather than a repair postponed: it fails toward **reporting**, which is the
+direction a guard may fail in, and closing it needs a comment stripper — machinery this project has
+already watched fail open once. Its sharpest spelling is not reachable in any case: a comment quoting
+the real `<database … gramps…>` line trips `_GENEALOGY_TEXT_SIGNATURES`, which short-circuits
+`_sniff_genealogy` before any scorer runs. Measured: such a comment beside a researcher block scores
+8 and is reported, before and after.
+
+⚠️ **Anchoring does NOT touch #50 and does not half-fix it.** The gate still reads **decoded** text
+and `_decoded` still does not fold character references, so `gr&#97;mps` evades both sites exactly as
+it did. What moves is only *where* the evasion has to sit: previously anywhere in the text, now
+inside the declaration's `AttValue`. The production admits `Reference` there and the pattern's value
+class admits `&` for that reason — so a `_decoded` that folds character references closes the marker
+site with **no change to this pattern**.
+
 ⚠️ **Neither residual is negligible and neither is described as such.** What makes it affordable is narrower and
 is stated precisely: **the 29 attested spellings — the rows that name a person on their own — score
 exactly as they do today, marker or no marker.** A fragment carrying `<person>`, `<name>`,
@@ -706,15 +808,21 @@ GEDCOM record and rests on the record signature rather than on the XML scorer.
 | Row | Result |
 | --- | --- |
 | tip — `python -m gramps_live_api.core.pii_guard .` | 0 findings over 45 tracked entries |
-| published range — `--range HEAD` | 0 findings over 102 commits, 198 entries scanned |
+| published range — `--range HEAD` | 0 findings over 105 commits, 206 entries scanned |
 | `test_every_commit_this_repository_publishes_is_clean` and `test_this_repository_is_clean` | both **ran** on a complete checkout, both passed |
 
-Both rows were **walked again** on the head that deletes the two markers and again on the head that
-records it, not inferred from the tip and not carried forward. **The verdict — 0 findings — is what
-must not move.** The commit and entry counts grow with the history and did: 98 → 102 commits and
-187 → 198 entries over the four commits since the gate landed, and the commit carrying this sentence
-necessarily adds one more, which is why the row above is read for its verdict rather than its
-arithmetic.
+Both rows were **walked again** on the head that anchors the marker, not inferred from the tip and
+not carried forward — as they were on the head that deleted the two markers and the head that
+recorded it. **The verdict — 0 findings — is what must not move.** The commit and entry counts grow
+with the history and did: 98 → 102 → 105 commits and 187 → 198 → 206 entries, and the commit carrying
+this sentence necessarily adds one more, which is why the row above is read for its verdict rather
+than its arithmetic.
+
+⚠️ **Anchoring is safe here by construction and the walk is run anyway.** Every match of the anchored
+pattern contains the namespace, so its match set is a strict **subset** of the deleted substring
+test's: no tracked file can begin to name the format that did not already. That is an argument about
+the data, and the lesson recorded further down this file is that such an argument does not carry to
+the code that reads it — so the row is measured, not deduced.
 
 **(e) ⚠️ The code's own constants, under every spelling the code treats as equivalent.** A sweep
 over tracked content does not read the values living inside the code, and that is exactly what let
@@ -723,47 +831,51 @@ searched for every vocabulary spelling as a filled and as an attributed element,
 namespace and for what the gate reads, under **case** variants (the element patterns are
 `IGNORECASE`), **prefixed and unprefixed** forms, **separator** variants — backslash, escaped
 solidus, doubled, percent-encoded — and the **escaped forms `_decoded` folds** (`/`, `&#47;`).
-Re-walked on the head that deletes the two markers, against `3f9f46c`:
 
-| What the sweep found | Before | After |
+⚠️ **Re-walked for the anchoring round against `92e6c88`, with the CODE and the CORPUS chosen
+separately**, because the anchored pattern is itself new text in a tracked file:
+
+| What the sweep found | Before (`92e6c88`) | After |
 | --- | --- | --- |
-| the namespace, in any of **nine** spellings, in any tracked file | none | **none** |
+| the namespace, in any of **19** spellings, in any tracked file | none | **none** |
+| **tracked files the gate reads as naming the format** | none | **none** |
 | filled vocabulary elements | one — `<title>` in `test_pii_guard_p1_paths.py`, weight 0 | unchanged |
-| attributed vocabulary elements | one — a `<database xmlns=…>` template in the fixture module | **nine** — see below |
-| **tracked files the gate reads as naming the format** | **two** — `CONTRIBUTING.md` and the fixture module | **none** |
-| highest un-thresholded score of any tracked file | **1**, against a threshold of 4 | **0** |
+| attributed vocabulary elements | nine | **ten** — see below |
+| highest un-thresholded score of any tracked file | **0**, against a threshold of 4 | **0** |
+
+⚠️ **That 19 is THIS sweep's construction, not a figure carried forward from the nine the deletion
+round reported.** It is six separator spellings — as written, backslash, JSON's escaped solidus,
+doubled, percent-encoded, `&#47;` — crossed with four casings and deduplicated. A count of a spelling
+set is a fact about the set, so it is stated with its construction or it means nothing.
 
 The specific thing this catches is the `FIXED_ATTRIBUTE_DEFAULTS` emission, which puts the namespace
-value into a tracked `.py` file for the first time. It is emitted split at its own separator for
-exactly that reason, and the first row is the check that the split works: the value appears
-contiguously nowhere, in any spelling asked for.
+value into a tracked `.py` file. It is emitted split at its own separator for exactly that reason,
+and the first row is the check that the split works: the value appears contiguously nowhere, in any
+spelling asked for. The fixture module's new `<catalogue xmlns="…">` builder is the same rule applied
+one level out — it composes the value at runtime and stores none of it.
 
-⚠️ **The two rows that moved are the finding, read back over this repository's own files.** The
-attributed count grows from one to nine because the marker deletion is *documented*: the guard's
-block comment (×2), the fixture module (×2), the P2 test file, this file (×3) and the acceptance
-note each now spell `<database xmlns="urn:…">` in prose, as the reproduction they explain — this very
-section included, which is the sweep reading its own text and is why it was re-run on the final head
-rather than on the code commit. Every one of them carries an **unrelated** namespace, and the fourth
-row is what that means: under the old markers, two tracked files here were read as *naming the Gramps
-format* on the strength of structure alone; under the one that remains, none is. So the repository's
-own headroom improves rather than degrades — the highest un-thresholded score of any tracked file
-goes from 1 to **0**, and nine mentions of an unrelated namespace are worth exactly nothing, which is
-the property being claimed.
+⚠️ **One row moved, and it is the sweep reading its own text.** The attributed count goes from nine
+to ten because the guard's rewritten marker block spells the round-2 reproduction twice where it
+spelled it once. Every one of the ten carries an **unrelated** namespace or an elided one, and the
+second row is what that means: no tracked file names the Gramps format, so ten mentions are worth
+exactly nothing and the repository's own headroom is unchanged at **0** against a threshold of 4.
 
-**(f) Criterion 13 — the 2× wall-clock bound.** The gate now runs **one substring test and zero
-pattern searches** per scored text, down from one and two, so a regression would be surprising;
-measured anyway, best of three, with both code versions run over the **same** corpus (this
-repository at the current head) so the figures isolate the change:
+**(f) Criterion 13 — the 2× wall-clock bound.** The gate now runs **one pattern search and zero
+substring tests** per scored text, where it ran one substring test and none; the pattern's attribute
+loop is the one place a regression could hide, so this is a real check rather than a formality.
+Measured best of three, with both code versions run over the **same** corpus (this repository at the
+current head) so the figures isolate the change, and with each run's loaded module path confirmed
+before its figure was believed:
 
-| | Before (`3f9f46c`) | After | Ratio |
+| | Before (`92e6c88`) | After | Ratio |
 | --- | --- | --- | --- |
-| tip scan, 45 entries | 1.97 s | 2.03 s | **1.03×** |
-| published-range walk, 102 commits / 198 entries | 19.71 s | 19.37 s | **0.98×** |
+| tip scan, 45 entries | 2.00 s | 2.00 s | **1.00×** |
+| published-range walk, 105 commits / 206 entries | 19.14 s | 18.90 s | **0.99×** |
 
-⚠️ **Read the ratios, not the seconds.** These absolute figures are lower than the marker gate's own
-(2.83 s and 33.40 s) because they were taken in a different session on the same machine; the two
-pairs are each internally comparable and are not comparable with each other. The bound is a ratio for
-that reason.
+⚠️ **Read the ratios, not the seconds.** Absolute figures move between sessions on the same machine —
+the marker gate's own pair was 2.83 s and 33.40 s, and the deletion round's 1.97 s and 19.71 s. Each
+pair is internally comparable and no two pairs are comparable with each other. The bound is a ratio
+for that reason.
 
 ### Recorded decision: serialized text versus the logical value
 

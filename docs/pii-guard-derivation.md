@@ -74,17 +74,27 @@ table to bind it to.
 two were a doctype whose `Name` was the document element, and that element carrying an `xmlns`
 attribute at all. Both read *structure* and never a value, so a document declaring an unrelated
 namespace or identifier was read as Gramps -- the generic-XML false positive the gate exists to
-remove. **Bound to this row they would have matched nothing the substring test does not**, since the
-guard's constant is asserted to be a substring of the reassembled value; the doctype could not be
-bound at all, because the only Gramps-specific evidence it carries beyond the namespace is the public
-identifier and the DTD does not declare its own. So they were deleted rather than tightened. The
-argument, the measurement and the residual it creates are in CONTRIBUTING.
+remove. They were deleted rather than tightened, on the argument that bound to this row they would
+have matched nothing the substring test did not; the doctype could not be bound at all in any case,
+because the only Gramps-specific evidence it carries beyond the namespace is the public identifier
+and the DTD does not declare its own.
+
+⚠️ **That argument was valid on an unsound premise, and the gate is now ANCHORED rather than a
+substring test.** It held only because the substring test matched the namespace *anywhere*, and that
+unrestricted reach was itself the next defect: a prose sentence naming the namespace, beside four
+filled `<type>` elements, scored **6 and was reported**. Shape without value and value without shape
+had each been rejected only for lacking the other, so the marker now requires the schema-fixed value
+as the value of an `xmlns` attribute reachable from a start tag's name through complete attributes --
+one compiled pattern, transcribed from XML 1.0 §3.1. **The row this note is about is unchanged**;
+what changed is where in a document it has to appear. The argument, the measurement and the two
+residuals anchoring creates are in CONTRIBUTING.
 
 ⚠️ **The value is emitted SPLIT at each `/`, and is never written whole.** This module is tracked
-content the repository's own guard scans, and the guard scores that namespace as a substring
-wherever it appears — its constant's own note records the published range showing it **43 times**
-when an anchor came off. This emission puts such a value into a tracked `.py` file for the first
-time. The split is deterministic given the value, so the byte-for-byte reproduction check below is
+content the repository's own guard scans, and the guard's *scorer* still weighs that namespace as a
+substring wherever it appears — its constant's own note records the published range showing it
+**43 times** when an anchor came off. The marker gate is anchored now and the scorer is not, so the
+split is still load-bearing for the same reason it always was. This emission puts such a value into a
+tracked `.py` file for the first time. The split is deterministic given the value, so the byte-for-byte reproduction check below is
 untouched; rejoin the pieces with a forward slash.
 
 ⚠️ **The parser reads the whole `AttType` production, and that is a repair rather than a
@@ -178,6 +188,23 @@ edited.
   discovered by the deletion -- the doctype marker's own note recorded, when it was written, that
   this *was* its entire reach, because any larger document carrying a doctype already trips a
   genealogy text signature before a scorer runs.
+- ⭐ **A genuine fragment quoted beside a bare MENTION of the namespace.** The gate reads the value
+  as a *declaration* rather than as a substring, because a document that merely names the namespace
+  in prose has not declared it -- a sentence naming it beside four filled `<type>` elements scored
+  **6 and was reported**. The price is the mention-only case: a researcher block beside such a
+  sentence goes from **8 to 0**, and an events block of two events from **6 to 0**. Measured, both
+  directions, in CONTRIBUTING. Under a real declaration both are findings again, unchanged.
+- ⭐ **A declaration whose quotes are JSON-ESCAPED.** A Gramps export embedded in a JSON blob reaches
+  the gate spelled `xmlns=\"…\"`, and `_decoded` deliberately does not fold `\"` -- a structure
+  character -- so the anchored pattern, which reads the `AttValue` production, refuses it. A
+  researcher block behind such a declaration goes from **8 to 0**. The pattern is deliberately **not**
+  widened to absorb it: spelling-folding belongs at `_decoded`, in one place, which is #50's shape
+  rather than this gate's, and teaching one more spelling to every pattern that reads text is the
+  enumeration this project refuses.
+- **A comment or a CDATA section quoting a start tag** is read as a declaration. It fails toward
+  *reporting*, which is the direction a guard may fail in, and its sharpest spelling is unreachable
+  anyway: a comment quoting the real document element trips a genealogy text signature before any
+  scorer runs.
 - **A committed NAME can essentially never carry a marker**, so a derived row will never score on
   one. That is a residual of the gate rather than a defect in its scoping; the committed name that
   is a finding today rests on the GEDCOM record signature, not on the XML scorer.

@@ -81,8 +81,8 @@ note in this directory. Every row of that table has a weight and a test, which i
 reached; the previous formulation, *every place where a container can hold prose or an identity
 field*, was quantified over a format and could not be shown to have been satisfied.
 
-`tests/unit/test_pii_guard_p2_genealogy.py` -- **95 tests**. ⚠️ **That is the FILE's count and not
-this criterion's**; see the warning below, which is now on its fifth reason. The crux of each
+`tests/unit/test_pii_guard_p2_genealogy.py` -- **98 tests**. ⚠️ **That is the FILE's count and not
+this criterion's**; see the warning below, which is now on its sixth reason. The crux of each
 mechanism:
 
 | Mechanism | Named by |
@@ -100,7 +100,7 @@ The two formats are held to one vocabulary by
 `test_one_life_is_judged_the_same_in_both_formats`.
 
 ⚠️ **That count is the FILE's, and it is not the number of tests carrying B2. It moves for
-reasons this criterion is not about, and it has now moved for five.** Twelve of them
+reasons this criterion is not about, and it has now moved for six.** Twelve of them
 arrived with #4 item 4, which taught the compiled patterns that read an element name to read
 a namespace-prefixed tag: **nine** with the two commits that shared one alternation between the four
 sites it then had, and **three** more with the commit that replaced the prefix's character class with
@@ -169,6 +169,31 @@ that they would measure some sixty rows at zero and be asserting the gate rather
 The invariant-1 test deliberately did **not** change: what it claims is that an attested row still
 scores with **no** marker present, and a marked probe cannot see that.
 
+**Three more arrived with the marker ANCHORING** -- the round that found the one surviving marker
+reading the namespace as a bare substring *anywhere*, so a prose sentence naming it beside four
+filled `<type>` elements scored **6 and was reported**. Shape without value had already been
+rejected by the deletion above; this is value without shape, and each half was rejected only for
+lacking the other. The gate now requires the schema-fixed value as the value of an `xmlns` attribute
+reachable from a start tag's name through complete attributes. **None of the three carries B2:**
+
+| The three | What they are |
+| --- | --- |
+| `test_a_prose_mention_of_the_namespace_does_not_name_the_format` and `test_a_fragment_quoted_beside_a_bare_mention_is_the_anchoring_cost` | **two**, constraining what the guard must *not* report -- **B8's concern rather than this one**, exactly as the six reproductions above them are. The first is the reproduction; the second is the residual, asserted in both directions, and its second half is the control that anchoring removed the mention-only case and nothing else. That is the same shape as `test_a_researcher_block_without_the_format_is_the_gates_recorded_cost`, which is classified the same way |
+| `test_the_marker_must_occur_in_a_namespace_declaration` | **one**, asserting a property of the compiled gate rather than what a scan returns. It carries no criterion on its own. It is the mechanical definition of *in attribute position*, both directions in one table so neither can be satisfied by weakening the other, and it is the one place the namespace quoted inside **another** attribute's value is refused by name |
+
+⚠️ **Three more tests in this file were REWRITTEN by that round rather than added, and a rewrite
+moves no count, so none of them is among the three above.**
+`test_the_only_marker_the_gate_reads_is_the_namespace_the_schema_fixes` (`cfa91e0`) and
+`test_the_namespace_the_gate_reads_is_the_default_the_schema_fixes` (`7450185`) fed
+`_names_the_gramps_format` the **bare** reassembled `#FIXED` value, which the anchored gate reads as
+naming nothing. Both now place that value in a declaration, and the first also asserts that the bare
+value names nothing -- a strictly stronger binding rather than a weakened one.
+`test_a_prefixed_document_still_names_the_format` (`5d82932`) kept its **body unchanged**, and that
+is the evidence that the prefixed case survives anchoring: only its docstring moved, because the
+property used to hold by a substring test's blindness to prefixes and now holds by the `NCName` the
+element patterns and the declaration share. All three arrived in this branch's own repairs, so
+rewriting them is a fix rather than the modification of a pre-existing test.
+
 ⚠️ **A separate file arrived with the same change and is counted nowhere above.**
 `tests/unit/test_derive_specified_containers.py` -- **9 tests** -- asserts the derivation script's
 own properties. It carries no criterion here: it is about a build step's fail-closed guarantee, not
@@ -178,6 +203,10 @@ reason:** the marker-deletion round added
 `test_every_readable_definition_in_a_list_is_read`, the non-vacuity pair that replaced the script's
 match-and-check-the-tail scheme with a parser that cannot advance past a byte it did not match. Both
 are about a build step, so neither moves anything this document claims.
+
+⚠️ **The anchoring round did NOT move that 9, and it was re-collected rather than assumed** --
+`pytest --collect-only` reports nine on the head that carries this sentence. The round touched no
+build step, which is the reason to expect it, and expecting it is not the same as checking.
 
 ⚠️ **The count was UNCHANGED by the fourth site's deletion, and that is a coincidence rather
 than evidence nothing happened.** That change removed the test asserting a mismatched-prefix pair is
@@ -192,7 +221,8 @@ repair is filed as #36 rather than built here.** The count is corrected at the c
 which is the cheapest place; what #36 owes is the mechanism that makes a stale one fail rather than
 read as considered. The sixth change to touch this file looked for this number **before** adding a
 test to it rather than after, which is the cheap half of that repair available today; so did the
-seventh, for **both** counts on this page.
+seventh, for **both** counts on this page, and so did the eighth -- the marker anchoring, which
+moved the file's count from 95 to **98** and left the derivation file's at **9**.
 
 ⚠️ **And a documented MEASUREMENT went stale the same way, which is the same defect wearing different
 clothes.** CONTRIBUTING's control table -- the retained side of the marker gate -- recorded
