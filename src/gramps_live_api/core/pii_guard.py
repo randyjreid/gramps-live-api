@@ -940,6 +940,208 @@ _GRAMPS_STRUCTURE_ELEMENTS = _elements_of("structure")
 _GRAMPS_ALL_ELEMENTS = tuple(dict.fromkeys(_GRAMPS_CATEGORY_OF))
 
 # ---------------------------------------------------------------------------
+# THE QUALIFIED-NAME ALTERNATION. ONE CONSTRUCTION SITE, THREE PATTERNS.
+#
+# Namespaces in XML: a tag is an optional PREFIX, a colon, and the local name.
+# The prefix is the DOCUMENT'S OWN ALIAS for a namespace, so two exports of one
+# tree may spell the same element `<name>`, `<g:name>` or `<grampsxml:name>` and
+# mean exactly the same thing by it. It therefore belongs inside the tag group,
+# where a backreference can still close the element it opened, and nowhere at
+# all in the category lookup, which asks what the element MEANS.
+#
+# ⚠️ **Every pattern that SCORES an element is built from this and nothing
+# else**, because each used to spell the alternation itself and a prefix
+# consequently meant a different thing to each. The gap is LEXICAL, not
+# semantic -- with a prefix declared the matcher saw no element in ANY category,
+# including the ones weighted correctly -- so filled elements, attributed
+# elements and the database signature all scored nothing, and a complete
+# identity document was clean.
+#
+# ⚠️ **AND THE DRAWING EXEMPTION IS DELIBERATELY NOT ONE OF THEM.** It was, and
+# the fourth site was deleted: this alternation matches a prefix by SHAPE and
+# never resolves it, which is conservative in a scorer -- matching more elements
+# means more findings -- and fail-open in an exemption, where matching more
+# containers means more SUPPRESSION. See `_DRAWING`, which fails closed instead.
+#
+# A fourth scoring site hand-rolling its own alternation is caught by test
+# rather than by hoping, and so is the drawing being wired back in -- see the
+# test that asserts which compiled patterns contain this and which must not.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# WHAT A NAMESPACE PREFIX MAY BE SPELLED WITH. TWO TABLES, TRANSCRIBED.
+#
+# XML 1.0 (Fifth Edition), W3C Recommendation 26 November 2008, section 2.3:
+#
+#     NameStartChar ::= ":" | [A-Z] | "_" | [a-z] | [#xC0-#xD6] | [#xD8-#xF6]
+#                     | [#xF8-#x2FF] | [#x370-#x37D] | [#x37F-#x1FFF]
+#                     | [#x200C-#x200D] | [#x2070-#x218F] | [#x2C00-#x2FEF]
+#                     | [#x3001-#xD7FF] | [#xF900-#xFDCF] | [#xFDF0-#xFFFD]
+#                     | [#x10000-#xEFFFF]
+#     NameChar      ::= NameStartChar | "-" | "." | [0-9] | #xB7
+#                     | [#x0300-#x036F] | [#x203F-#x2040]
+#
+# A prefix is not a Name, though: Namespaces in XML 1.0 (Third Edition), W3C
+# Recommendation 8 December 2009, says which one it is --
+#
+#     Prefix ::= NCName
+#     NCName ::= Name - (Char* ':' Char*)     /* An XML Name, minus the ":" */
+#
+# ⚠️ **THE COLON IS DROPPED FROM NameStartChar AND APPEARS NOWHERE ELSE IN
+# EITHER PRODUCTION**, so removing it once yields NCNameStartChar and NCNameChar
+# together. Left in, a prefix could BEGIN with a colon -- which is not a legal
+# NCName, and which would make `<::name>` an element here.
+#
+# Closed and externally specified, so these enumerations are accepted on exactly
+# the grounds ``FILESYSTEM_ROOTS``, ``_XML_PREDEFINED_ENTITIES`` and
+# ``_XML_CHARACTER_RANGES`` are: they do not grow.
+# ---------------------------------------------------------------------------
+
+_NCNAME_START_RANGES: tuple[tuple[int, int], ...] = (
+    (0x41, 0x5A),  # A-Z
+    (0x5F, 0x5F),  # _
+    (0x61, 0x7A),  # a-z
+    (0xC0, 0xD6),
+    (0xD8, 0xF6),
+    (0xF8, 0x2FF),
+    (0x370, 0x37D),
+    (0x37F, 0x1FFF),
+    (0x200C, 0x200D),
+    (0x2070, 0x218F),
+    (0x2C00, 0x2FEF),
+    (0x3001, 0xD7FF),
+    (0xF900, 0xFDCF),
+    (0xFDF0, 0xFFFD),
+    (0x10000, 0xEFFFF),
+)
+"""``NameStartChar`` minus the colon: what a prefix may BEGIN with.
+
+The ranges are the specification's, coarse edges and all -- ``[#x3001-#xD7FF]``
+admits ideographic punctuation, and that is the production's decision rather
+than this module's. Transcribing it is the point: a hand-narrowed version is an
+enumeration pointed backwards, which is the shape this module refuses everywhere
+else.
+"""
+
+_NCNAME_CONTINUE_RANGES: tuple[tuple[int, int], ...] = _NCNAME_START_RANGES + (
+    (0x2D, 0x2D),  # -
+    (0x2E, 0x2E),  # .
+    (0x30, 0x39),  # 0-9
+    (0xB7, 0xB7),
+    (0x300, 0x36F),
+    (0x203F, 0x2040),
+)
+"""``NameChar`` minus the colon: what a prefix may CONTINUE with.
+
+⚠️ **The two tables are NOT the same table, and collapsing them is a fail-open.**
+A combining mark, a digit, ``-`` and ``.`` may continue a name and may not begin
+one; a class that accepted them at the front would read ``<-9:name>`` as an
+element and, worse, would stop this pair from being the production it claims to
+be. The difference is asserted by test.
+"""
+
+
+def _escaped(code_point: int) -> str:
+    """One code point as an ASCII escape a character class can hold."""
+    return f"\\u{code_point:04X}" if code_point <= 0xFFFF else f"\\U{code_point:08X}"
+
+
+def _character_class(ranges: tuple[tuple[int, int], ...]) -> str:
+    r"""``ranges`` as a regex character class, spelled entirely in ASCII escapes.
+
+    ⚠️ **Escapes rather than the characters themselves, and that is two problems
+    solved by one decision.** A raw endpoint could arrive as ``-``, ``^``, ``]``
+    or ``\`` and mean something to the engine instead of being itself; and a
+    non-ASCII endpoint would put bytes into a pattern **this module reads back
+    out of its own source**. Neither can happen to a character that is never
+    emitted. It is also why the fixtures that exercise this are assembled with
+    ``chr`` rather than pasted -- the same rule, one level further out.
+    """
+    return "[" + "".join(_escaped(first) + "-" + _escaped(last) for first, last in ranges) + "]"
+
+
+_XML_NAME_PREFIX = (
+    "(?:"
+    + _character_class(_NCNAME_START_RANGES)
+    + _character_class(_NCNAME_CONTINUE_RANGES)
+    + "*:)?"
+)
+r"""An optional namespace prefix: an ``NCName``, then the colon.
+
+⚠️ **A TRANSCRIPTION of the production, not an approximation of it, and the
+approximation was a live fail-open.** This used to be ``[^\W\d][\w.\-]*``, built
+from Python's word class. ``\w`` does not match a combining mark, but ``NameChar``
+does -- so a document consistently using the legal alias ``a`` + U+0301 was
+missed by every pattern that reads an element name at once, and with only the
+namespace URI scoring two
+against a threshold of four, **a complete identity document was clean.** Being
+equally invisible before the prefix work is not a defence: this criterion says a
+namespace-prefixed document scores what the unprefixed one scores, and that
+document is namespace-prefixed.
+
+**The two classes are different classes** -- a combining mark, a digit, ``-``
+and ``.`` may continue a name and may not open one -- and using one in both
+positions would read ``<-9:name>`` as an element.
+
+The bound this constant has always claimed still holds and is now asserted
+rather than argued: the class cannot match ``<``, ``>``, ``/``, ``=``, a quote,
+whitespace or the colon.
+
+**What is still not checked, deliberately: the alias is matched, never
+RESOLVED.** Whether the document actually binds it to the Gramps namespace is a
+question only a parser can answer, and the namespace URI is weighed separately
+for that. Matching by shape errs toward reading more elements, which is the side
+that reports.
+
+⚠️ **Which is why nothing that EXEMPTS may be built from this.** "Reads more
+elements" is the safe direction only where reading one adds a finding. In an
+exemption it removes findings, so the same shape match becomes a fail-open --
+see `_DRAWING`, which is not built from this and says why.
+"""
+
+
+def _qualified(*names: str) -> str:
+    r"""The tag alternation, prefix and all, as ONE group's worth of pattern.
+
+    ⚠️ **This emits no capturing group, and the alternation is wrapped.** Both
+    are load-bearing, and neither is a style choice:
+
+    * Group numbering is read by number in the scoring loops and by a ``\1``
+      backreference in the patterns themselves -- see the note above
+      ``_NOT_ENDING_AN_ELEMENT`` -- so a group added here would silently shift
+      both. The call sites put their own parenthesis round this, which is how
+      group 1 comes to hold the WHOLE qualified tag and how ``</\1\s*>`` still
+      closes the element that opened.
+    * ``(?:p:)?a|b`` parses as ``((?:p:)?a)|b``, so an unwrapped alternation
+      would take the prefix on its first alternative and no other. Nothing
+      behavioural would see that today, because no two spellings in the table
+      collide -- which is exactly what makes it the kind that ships.
+
+    Alternatives are ordered LONGEST FIRST, so a spelling is never shadowed by a
+    shorter one it begins with: ``namemaps`` past ``name``, ``dateval`` past
+    ``date``, ``placeobj`` past ``place``. The trailing ``\b`` at each call site
+    makes the engine backtrack into the longer alternative anyway today;
+    ordering means the patterns do not DEPEND on that, which matters because
+    this table is about to be derived from a published schema rather than
+    written by hand. No behavioural test can see this until a colliding pair
+    exists, so it is asserted structurally instead.
+    """
+    alternation = "|".join(sorted(names, key=lambda name: (-len(name), name)))
+    return _XML_NAME_PREFIX + "(?:" + alternation + ")"
+
+
+def _local_name(tag: str) -> str:
+    """What a matched tag MEANS: its local name, lowered, the prefix discarded.
+
+    The prefix is an alias the document chose, so a category lookup that reads
+    it is asking a question about spelling and calling the answer meaning.
+    Written once rather than at each of the two scoring loops, for the reason
+    the vocabulary above is written once.
+    """
+    return tag.rpartition(":")[2].lower()
+
+
+# ---------------------------------------------------------------------------
 # WHAT MAY SIT BETWEEN AN ELEMENT'S TAGS BESIDES CHARACTER DATA.
 #
 # XML 1.0's content production:
@@ -1001,7 +1203,7 @@ it encloses denotes anything.
 """
 
 _GRAMPS_FILLED_ELEMENT = re.compile(
-    r"<(" + "|".join(_GRAMPS_ALL_ELEMENTS) + r")\b[^>]*>"
+    r"<(" + _qualified(*_GRAMPS_ALL_ELEMENTS) + r")\b[^>]*>"
     r"((?:" + _NOT_ENDING_AN_ELEMENT + r"|[^<])+)</\1\s*>",
     re.IGNORECASE | re.DOTALL,
 )
@@ -1020,7 +1222,7 @@ a captured group nobody consumes is machinery pretending to be a rule.
 """
 
 _GRAMPS_ATTRIBUTED_ELEMENT = re.compile(
-    r"<(" + "|".join(_GRAMPS_ALL_ELEMENTS) + r")\b[^>]*?\w+\s*=\s*[\"'][^>]*>", re.IGNORECASE
+    r"<(" + _qualified(*_GRAMPS_ALL_ELEMENTS) + r")\b[^>]*?\w+\s*=\s*[\"'][^>]*>", re.IGNORECASE
 )
 """An element carrying a quoted attribute -- a handle or an id is export syntax,
 not something a specification writes in passing."""
@@ -1548,7 +1750,50 @@ def _gedcom_x_identity_score(text: str) -> tuple[int, int] | None:
 
 
 _DRAWING = re.compile(r"<svg\b[^>]*>.*?</svg\s*>", re.IGNORECASE | re.DOTALL)
-"""A drawing, inside which a short text element is a label and not a note.
+r"""A drawing, inside which a short text element is a label and not a note.
+
+⚠️ **THE UNPREFIXED SPELLING ONLY, AND IT DOES NOT USE THE SHARED ALTERNATION.
+Do not "finish the job" by wiring it back in.** It was built from it -- the
+fourth site of four -- and that site was deleted, because the mechanism is
+right for the other three and wrong here:
+
+* those three SCORE. Matching a prefix by shape makes them read more elements,
+  and reading more elements produces more FINDINGS. Conservative.
+* this one EXEMPTS. Matching by shape makes it read more containers, and
+  reading more containers produces more SUPPRESSION. Fail-open.
+
+The input that proved it: a prefix bound to a namespace that is **not SVG**.
+Nothing here resolves an alias, so ``<x:svg xmlns:x="…not-svg…">`` had the
+shape of a drawing, the exemption applied, and every short text element inside
+it was suppressed -- a name, a date of birth and a place went from a finding to
+nothing by being wrapped in a tag whose meaning this module never checked.
+**A conditional exemption is where fail-open lives.**
+
+**Both repairs that keep the fourth site were rejected.** Resolving the prefix
+means reading namespace bindings, which is a parser, which this project has
+refused repeatedly. Requiring the namespace URI somewhere in the document is
+still a *condition on an exemption*, and it is wrong in the case that matters:
+a document may bind that URI to a different prefix entirely.
+
+**The cost, and it is the accepted trade:** a namespace-prefixed chart is no
+longer exempt, so its labels are reported. That is a false positive, it is
+FAIL-CLOSED, and it is the direction this module's posture requires -- refuse
+what cannot be proved safe. Recorded in CONTRIBUTING's residual table, with
+**issue #33's rendering boundary named as where it eventually belongs**: a
+structural guard over what the preview EMITS can answer "is this really a
+drawing", and that is where the question goes, rather than into a condition
+bolted onto an exemption here.
+
+**How it actually rejects a prefixed drawing -- verified mechanically, not
+assumed.** ``<svg\b`` still matches the OPENING tag of ``<svg:svg>``: the word
+boundary sits between the ``g`` and the colon, and ``[^>]*`` then swallows the
+rest. It is the CLOSER that rejects it -- ``</svg\s*>`` cannot match
+``</svg:svg>`` -- so the container has no match and is not a drawing.
+⚠️ **Do not "tidy" the opener into something like ``<svg[^:>]`` without
+measuring it:** the rejection is a property of the closing tag, and moving it
+to the opening one is a different pattern with a different failure set. A
+document mixing a prefixed opener with a later UNPREFIXED ``</svg>`` can still
+span between them; that predates this change and is out of scope for it.
 
 ⚠️ **This replaced "the element carries an attribute", which asked the wrong
 question and so let data out whatever the answer.** The discriminator has to
@@ -1591,7 +1836,10 @@ def _gramps_identity_score(text: str) -> tuple[int, int] | None:
     drawings = [match.span() for match in _DRAWING.finditer(text)]
 
     for match in _GRAMPS_FILLED_ELEMENT.finditer(text):
-        tag = match.group(1).lower()
+        # Group 1 holds the WHOLE qualified tag, because the backreference that
+        # closes the element has to match what opened it. The category is a
+        # question about the local name -- see ``_local_name``.
+        tag = _local_name(match.group(1))
         # The RAW content, deliberately: only the measurement can tell which
         # parts of it XML reads and which it takes literally, and unwrapping
         # here threw that away before the question was asked.
@@ -1628,7 +1876,7 @@ def _gramps_identity_score(text: str) -> tuple[int, int] | None:
         # weighed the same as a bare person element -- one principle stated in
         # the comment at the top and honoured by only one of the two loops
         # beneath it.
-        score += _CATEGORY_WEIGHT[_GRAMPS_CATEGORY_OF[match.group(1).lower()]]
+        score += _CATEGORY_WEIGHT[_GRAMPS_CATEGORY_OF[_local_name(match.group(1))]]
         first = match.start() if first is None else first
 
     if _GRAMPS_XML_NAMESPACE in text:
@@ -1651,7 +1899,13 @@ _GENEALOGY_TEXT_SIGNATURES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     (
         "Gramps XML database element",
-        re.compile(_LINE_PREFIX + r"<database\b[^>]*gramps", re.IGNORECASE | re.MULTILINE),
+        # The same alternation as the two element patterns, for a table of one
+        # spelling: an export that binds the namespace to an alias writes
+        # `<g:database …>` and was not recognised as the format at all.
+        re.compile(
+            _LINE_PREFIX + r"<" + _qualified("database") + r"\b[^>]*gramps",
+            re.IGNORECASE | re.MULTILINE,
+        ),
     ),
 )
 

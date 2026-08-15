@@ -307,17 +307,48 @@ def gramps_attributed_identity() -> str:
     )
 
 
-def worded_diagram() -> str:
+def worded_diagram(*, prefix: str = "") -> str:
     """A chart whose labels are words rather than numbers.
 
     The shape that returns if the prose floor is lowered instead of the
     positioned-text discriminator being used.
+
+    ``prefix`` spells the drawing and its labels as a namespace-prefixed
+    document -- ``<svg:svg>`` holding ``<svg:text>``. That is the same lexical
+    blindness the element patterns had, pointing the other way: the labels are
+    visible to the scorer and their container is not, so a chart is reported.
+    Both tags take the prefix, because a document that qualifies one qualifies
+    the other.
     """
+    qualifier = prefix + ":" if prefix else ""
     labels = "".join(
-        _element("text", attributes=f'x="0" y="{offset}"', body=value)
+        _element(qualifier + "text", attributes=f'x="0" y="{offset}"', body=value)
         for offset, value in ((9, "Temperature"), (18, "Pressure over time"))
     )
-    return _element("svg", body=labels)
+    return _element(qualifier + "svg", body=labels)
+
+
+def notes_inside_a_container(*, prefix: str = "", namespace: str = "") -> str:
+    """Three short notes inside a drawing container, bare or namespace-prefixed.
+
+    The payload is ``gramps_short_notes`` -- a name, a date of birth and a
+    place, each too short to clear the prose floor and a finding together. It
+    is the SAME payload in both spellings, so the only variable is the
+    container.
+
+    With no ``prefix`` this is the exemption that earns its keep: an ordinary
+    drawing, whose short text elements are labels. With one, the container is a
+    drawing by SHAPE alone -- ``namespace`` binds that alias to something that
+    is not SVG, and nothing here resolves it. Matching by shape is conservative
+    for a scorer and fail-open for an exemption, so the exemption is withdrawn
+    rather than granted on an unresolved alias and the notes are reported.
+
+    The binding is assembled by the caller, like every other value here: a
+    namespace written whole in a tracked file is a value in a tracked file.
+    """
+    qualifier = prefix + ":" if prefix else ""
+    binding = "xmlns:" + prefix + '="' + namespace + '"' if prefix else ""
+    return _element(qualifier + "svg", attributes=binding, body=gramps_short_notes())
 
 
 def gramps_address_block() -> str:
@@ -427,6 +458,23 @@ def gramps_xml_document() -> str:
         "</database>",
     ]
     return "\n".join(lines) + "\n"
+
+
+def gramps_xml_database_element(*, prefix: str = "") -> str:
+    """The line by which the format names itself: a database element and the namespace.
+
+    ``prefix`` spells it as a namespace-prefixed document -- what an export
+    written by a tool that binds the namespace to an alias looks like, and the
+    spelling the signature was blind to. Assembled prefix and all, for the
+    reason at the top of this module: the unprefixed form of this line is a
+    genuine finding in a tracked file.
+    """
+    # Split inside the namespace, not merely before it, exactly as the builders
+    # above split it and for the same reason.
+    namespace = "http:" + "//gramps-project" + ".org/xml/1.7.1/"
+    qualifier = prefix + ":" if prefix else ""
+    declaration = "xmlns:" + prefix if prefix else "xmlns"
+    return _element(qualifier + "database", attributes=f'{declaration}="{namespace}"')
 
 
 def utf16le_gedcom_bytes() -> bytes:

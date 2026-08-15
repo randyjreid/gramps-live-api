@@ -10,16 +10,27 @@ this project recorded first.
 
 from __future__ import annotations
 
+import re
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
 from gramps_live_api.core.pii_guard import (
     _CATEGORY_WEIGHT,
+    _DRAWING,
+    _GENEALOGY_TEXT_SIGNATURES,
+    _GRAMPS_ALL_ELEMENTS,
+    _GRAMPS_ATTRIBUTED_ELEMENT,
+    _GRAMPS_FILLED_ELEMENT,
     _GRAMPS_PROSE_LENGTH,
+    _GRAMPS_XML_NAMESPACE,
+    _NCNAME_CONTINUE_RANGES,
+    _NCNAME_START_RANGES,
     _VOCABULARY,
+    _XML_NAME_PREFIX,
     _gedcom_x_identity_score,
     _gramps_identity_score,
+    _qualified,
     scan_blob,
     scan_paths,
     scan_text,
@@ -57,12 +68,14 @@ from tests.fixtures.synthetic import (
     gramps_reference_fragment,
     gramps_short_notes,
     gramps_short_notes_with_attributes,
+    gramps_xml_database_element,
     gramps_xml_document,
     inside_a_cdata_section,
     inside_a_comment,
     json_string_spellings,
     labelled_diagram,
     labelled_diagram_holding,
+    notes_inside_a_container,
     positioned_notes_outside_a_drawing,
     prose_describing_json_keys_with_escaped_quotes,
     sqlite_bytes,
@@ -94,6 +107,121 @@ def _gramps_probe(spelling: str, copies: int) -> str:
     return "".join(
         "<" + spelling + ">" + _PROBE_PAYLOAD + "</" + spelling + ">" for _ in range(copies)
     )
+
+
+_NAMESPACE_PREFIX = "g"
+"""One export's alias for the Gramps namespace.
+
+WHICH alias it is says nothing; the property is that it does not matter, and
+that is what the tests below assert. It is joined to the spelling at runtime, so
+no tracked file spells a filled prefixed identity element -- the rule at the top
+of the fixture module, applied to a probe assembled here.
+"""
+
+_COMBINING_NAMESPACE_PREFIX = "a" + chr(0x301)
+"""A second alias, and the one that says the property is about NCName.
+
+``a`` followed by COMBINING ACUTE ACCENT: a perfectly legal ``NCName``, because
+a combining mark is a ``NameChar``. It is not a ``\\w`` character, which is what
+the prefix class used to be built from -- so a document consistently using this
+alias was missed by every pattern that reads an element name at once, and a
+COMPLETE identity document scored nothing at all rather than merely scoring
+less.
+
+⚠️ **Assembled with ``chr`` and never pasted.** The tracked file stays plain
+ASCII, which is the same rule the character class in the guard follows for the
+same reason: this module reads its own repository. Printing it needs
+``PYTHONIOENCODING=utf-8`` on a Windows console, which is a property of the
+console and not of the property under test.
+"""
+
+_NAMESPACE_PREFIXES = (_NAMESPACE_PREFIX, _COMBINING_NAMESPACE_PREFIX)
+"""Every alias the equivalence properties below are asserted over.
+
+Aliases go HERE rather than into a test of their own: the claim is that the
+alias does not matter, so a new alias must extend every row of every property
+at once, exactly as a new vocabulary row does. A one-off example asserts the
+example.
+"""
+
+
+def _prefixed(spelling: str, prefix: str = _NAMESPACE_PREFIX) -> str:
+    """The same spelling, qualified by a namespace prefix.
+
+    Joined at runtime, so no tracked file spells a filled prefixed identity
+    element. Qualifying the SPELLING rather than wrapping the probe is
+    deliberate: ``_observed_weight`` reports a probe that scores nothing by the
+    spelling it was given, so wrapping the probe makes a prefixed failure and a
+    bare one print the same name.
+    """
+    return prefix + ":" + spelling
+
+
+def _admits_as_prefix(candidate: str) -> bool:
+    """Whether the compiled prefix class accepts ``candidate`` as a whole prefix.
+
+    The fragment is optional, so a candidate it rejects leaves the trailing
+    colon unconsumed and the full match fails -- which is the question being
+    asked, and it is asked of the fragment the scoring patterns actually carry
+    rather than of a copy of the tables.
+    """
+    return re.fullmatch(_XML_NAME_PREFIX, candidate + ":") is not None
+
+
+def _in_any_range(code_point: int, ranges: tuple[tuple[int, int], ...]) -> bool:
+    """Whether a table names ``code_point`` -- the same test ``_names_an_xml_character`` makes."""
+    return any(first <= code_point <= last for first, last in ranges)
+
+
+def _gramps_attributed_probe(spelling: str, copies: int) -> str:
+    """``copies`` elements of one spelling carrying an attribute and no content.
+
+    The attributed pass is the SECOND site the shared alternation feeds, and it
+    is a separate loop -- so a prefix could be taught to one pass and not the
+    other, which is this module's oldest defect wearing a new spelling. Scored
+    by the same difference method as the filled probe, so it needs no knowledge
+    of what the pass charges.
+    """
+    return "".join("<" + spelling + ' val="' + _PROBE_PAYLOAD + '"/>' for _ in range(copies))
+
+
+_DRAWING_PREFIX = "svg"
+"""The alias a drawing conventionally binds its own namespace to.
+
+Deliberately the harder spelling: ``<svg:svg>`` puts the element's own name in
+the prefix position, so a pattern that reads the prefix as if it were the tag
+matches the opening and then cannot find its closing tag.
+"""
+
+_DRAWING_PREFIXES = (_DRAWING_PREFIX, _COMBINING_NAMESPACE_PREFIX)
+"""Every alias the drawing properties below are asserted over.
+
+⚠️ **``svg`` stays FIRST and stays present.** The constant above argues it is
+deliberately the harder spelling, and that argument has to survive a second
+alias being added beside it rather than being displaced by one. The second is
+here for the reason it is in ``_NAMESPACE_PREFIXES``: this site failed under a
+combining mark too, and it is the site that fails CLOSED.
+"""
+
+_NOT_THE_SVG_NAMESPACE = "urn" + ":" + "example" + ":" + "quarterly-rollup"
+"""A namespace that is not SVG, for an alias shaped exactly like SVG's.
+
+Assembled rather than written, like every other value in these fixtures. What
+it names does not matter and that is the point: **nothing in this module reads
+it.** A prefix is matched by shape and never resolved, so the alias ``svg``
+bound here is indistinguishable from the alias ``svg`` bound to the drawing
+namespace -- which is why an exemption may not rest on it.
+"""
+
+
+def _alternatives_of(fragment: str) -> list[str]:
+    """The spellings ``_qualified`` emitted, in the order it emitted them.
+
+    Reads the helper's own output rather than a pattern that embeds it, so a
+    change to the helper's shape fails this loudly instead of quietly returning
+    something else.
+    """
+    return fragment.rsplit("(?:", 1)[1].rstrip(")").split("|")
 
 
 def _gedcom_x_probe(spelling: str, copies: int) -> str:
@@ -648,6 +776,361 @@ def test_the_compiled_scorer_agrees_with_the_vocabulary_for_every_row() -> None:
     assert disagreements == [], (
         "the compiled scorers disagree with the vocabulary table they are compiled from: "
         f"{disagreements}"
+    )
+
+
+def test_a_namespace_prefix_does_not_change_what_a_filled_row_scores() -> None:
+    """⭐ **Every row of the table, prefixed against unprefixed.**
+
+    A namespace prefix is a document's private alias for a namespace, so a
+    prefixed export is the same export and has to score the same. It did not:
+    with a prefix declared the compiled matcher saw NO element at all, in any
+    category -- including the four already weighted correctly -- because the
+    alternation held bare spellings and a qualified tag does not begin with one.
+    The gap is LEXICAL rather than semantic, which is why it takes every
+    category with it at once.
+
+    Derived from the table rather than exampled, in the same shape as the test
+    above, so adding a row extends this property without this test being
+    edited. Asserted as AGREEMENT between the two spellings rather than against
+    the weight table, because the claim is that the prefix does not matter --
+    which stays true, and stays checked, when a weight changes.
+
+    Every row is crossed with every ALIAS in ``_NAMESPACE_PREFIXES`` for the
+    same reason: an alias legal under ``NCName`` but outside ``\\w`` -- a
+    combining mark -- was missed here at every row at once, and adding it as a
+    one-off example would have asserted the example rather than the property.
+    """
+    disagreements = []
+
+    for _, shared, xml_only, _ in _VOCABULARY:
+        for spelling in shared + xml_only:
+            bare = _observed_weight(_gramps_identity_score, _gramps_probe, spelling)
+            for prefix in _NAMESPACE_PREFIXES:
+                prefixed = _observed_weight(
+                    _gramps_identity_score, _gramps_probe, _prefixed(spelling, prefix)
+                )
+                if bare != prefixed:
+                    disagreements.append(
+                        f"<{ascii(prefix)}:{spelling}>: {bare} bare, {prefixed} prefixed"
+                    )
+
+    assert disagreements == [], (
+        "a namespace prefix changes what these rows score, so one export in two spellings "
+        f"gets two verdicts: {disagreements}"
+    )
+
+
+def test_a_namespace_prefix_does_not_change_what_an_attributed_row_scores() -> None:
+    """The same property over the OTHER pass the alternation feeds.
+
+    Two loops read one alternation, and teaching the prefix to the pattern only
+    one of them uses is precisely the partial application this vocabulary exists
+    to make impossible. An export is not only its filled elements; it is also
+    the links between them, and under a prefix those scored nothing either.
+    """
+    disagreements = []
+
+    for _, shared, xml_only, _ in _VOCABULARY:
+        for spelling in shared + xml_only:
+            bare = _observed_weight(_gramps_identity_score, _gramps_attributed_probe, spelling)
+            for prefix in _NAMESPACE_PREFIXES:
+                prefixed = _observed_weight(
+                    _gramps_identity_score, _gramps_attributed_probe, _prefixed(spelling, prefix)
+                )
+                if bare != prefixed:
+                    disagreements.append(
+                        f"<{ascii(prefix)}:{spelling} val=...>: {bare} bare, {prefixed} prefixed"
+                    )
+
+    assert disagreements == [], (
+        f"a namespace prefix changes what these rows score in the attributed pass: {disagreements}"
+    )
+
+
+def test_a_prefixed_database_element_names_the_format_the_same_way() -> None:
+    """The third site: the signature by which a Gramps export is recognised at all.
+
+    A document declaring the namespace on a prefixed database element was not
+    recognised as the format, and the namespace fallback does not stand in for
+    it -- two points is below the threshold, so the document was clean.
+
+    Asserted as agreement between the two spellings, with the unprefixed control
+    checked first so that "neither of them is caught" cannot satisfy it, and over
+    every alias for the reason the two derived tests above are.
+    """
+    bare = scan_text(gramps_xml_database_element(), source="notes.md")
+    assert rules(bare) == ["P2"], f"the control is not caught, so this proves nothing: {bare}"
+
+    disagreements = []
+    for prefix in _NAMESPACE_PREFIXES:
+        prefixed = scan_text(gramps_xml_database_element(prefix=prefix), source="notes.md")
+        if [finding.message for finding in prefixed] != [finding.message for finding in bare]:
+            disagreements.append(f"{ascii(prefix)}: {[finding.message for finding in prefixed]}")
+
+    assert disagreements == [], (
+        "a prefixed export is the same export, and the finding must name the signature that "
+        f"caught it: bare says {[finding.message for finding in bare]}, these aliases say "
+        f"{disagreements}"
+    )
+
+
+def test_a_prefixed_document_still_declares_the_namespace_it_belongs_to() -> None:
+    """The site that needed no change, checked rather than assumed.
+
+    A prefix moves the declaration from ``xmlns`` to ``xmlns:g``; the URI it
+    binds is untouched, and the URI is what the fallback reads. Green on
+    arrival, deliberately: "no change needed here" is a claim like any other,
+    and an unasserted claim in a commit message is how the drawing exemption --
+    since deleted as a site, for reading a prefix it could not resolve -- came
+    to be found in planning rather than in the code.
+    """
+    missing = [
+        ascii(prefix)
+        for prefix in _NAMESPACE_PREFIXES
+        if _GRAMPS_XML_NAMESPACE not in gramps_xml_database_element(prefix=prefix)
+    ]
+
+    assert missing == [], (
+        f"the namespace fallback reads a URI, and a prefixed document still declares it: {missing}"
+    )
+
+
+def test_every_pattern_that_scores_an_element_is_built_from_the_one_alternation() -> None:
+    """⭐ **One construction site, and EXACTLY which patterns use it.**
+
+    Three compiled patterns score a Gramps element, and under a namespace
+    prefix all three failed by letting data out. A fourth site hand-rolling its
+    own alternation fails the same way, and nothing behavioural sees it until
+    somebody writes the document, so the site set is what gets asserted.
+
+    ⚠️ **The exclusion is asserted too, and it is not symmetry.** ``_DRAWING``
+    was built from this alternation and the fourth site was deleted: matching
+    more elements means more FINDINGS when scoring and more SUPPRESSION when
+    exempting, so the same mechanism that is conservative in the three patterns
+    above is fail-open in an exemption. Wiring it back in is the obvious way to
+    "finish the job", it looks like consistency, and it re-opens a P1 -- so it
+    fails here rather than being caught by a comment.
+    """
+    signature = dict(_GENEALOGY_TEXT_SIGNATURES)["Gramps XML database element"]
+    sites = {
+        "_GRAMPS_FILLED_ELEMENT": (_GRAMPS_FILLED_ELEMENT.pattern, _GRAMPS_ALL_ELEMENTS),
+        "_GRAMPS_ATTRIBUTED_ELEMENT": (_GRAMPS_ATTRIBUTED_ELEMENT.pattern, _GRAMPS_ALL_ELEMENTS),
+        "Gramps XML database element": (signature.pattern, ("database",)),
+    }
+
+    hand_rolled = [
+        name for name, (pattern, names) in sites.items() if _qualified(*names) not in pattern
+    ]
+
+    assert hand_rolled == [], (
+        "these patterns do not read the shared alternation, so a namespace prefix means "
+        f"something different to each of them: {hand_rolled}"
+    )
+    assert _qualified("svg") not in _DRAWING.pattern, (
+        "the drawing exemption reads the shared alternation again, so a container whose "
+        "alias this module never resolves suppresses every short element inside it"
+    )
+
+
+def test_the_alternation_never_lets_a_shorter_spelling_shadow_a_longer_one() -> None:
+    """Longest first, asserted structurally because nothing behavioural can see it.
+
+    No two spellings in the table collide today, so a shorter alternative
+    shadowing a longer one is a defect no document can currently exhibit -- and
+    the table is about to be derived from a published schema, which is where
+    collisions come from. The trailing word boundary makes the engine backtrack
+    into the longer alternative anyway; the point is that the patterns must not
+    DEPEND on that.
+    """
+    lengths = [len(name) for name in _alternatives_of(_qualified(*_GRAMPS_ALL_ELEMENTS))]
+
+    assert lengths == sorted(lengths, reverse=True), (
+        f"the alternation is not ordered longest-first: {lengths}"
+    )
+    assert _alternatives_of(_qualified("name", "namemaps"))[0] == "namemaps", (
+        "a spelling that begins with another must be offered before it, or reaching it "
+        "depends on the engine backtracking"
+    )
+
+
+def test_the_prefix_class_is_the_ncname_production_it_transcribes() -> None:
+    """⭐ **Every boundary of both tables, inside and just outside, both positions.**
+
+    The class used to be built from ``\\w``, which is a Python word class and
+    not an XML production. It missed combining marks -- legal ``NameChar``s --
+    so a document using a legal alias was invisible at every site that reads an
+    element name at once.
+    The repair is to transcribe the production, and a transcription is checked
+    the only way one can be without an unbounded sweep: at the edges.
+
+    Both directions, because a transcription can be wrong either way. A missing
+    boundary fails OPEN, the way ``\\w`` did. A boundary that reaches one code
+    point too far is how a raw ``-`` or ``^`` inside a character class turns a
+    range into something else -- which is exactly what the escaping in
+    ``_character_class`` exists to prevent, and this is what would see it.
+
+    The just-outside probes carry the colon check for free: ``0x39`` is the end
+    of the digits, so ``0x3A`` is probed, and ``0x3A`` is ``:``.
+    """
+    wrong = []
+    positions = (
+        ("as the first character", _NCNAME_START_RANGES, ""),
+        ("after the first character", _NCNAME_CONTINUE_RANGES, "a"),
+    )
+
+    for where, ranges, lead in positions:
+        for first, last in ranges:
+            for code_point in (first, last):
+                if not _admits_as_prefix(lead + chr(code_point)):
+                    wrong.append(f"U+{code_point:04X} is in the table and rejected {where}")
+            for code_point in (first - 1, last + 1):
+                outside_unicode = code_point < 0 or code_point > 0x10FFFF
+                surrogate = 0xD800 <= code_point <= 0xDFFF
+                if outside_unicode or surrogate or _in_any_range(code_point, ranges):
+                    continue
+                if _admits_as_prefix(lead + chr(code_point)):
+                    wrong.append(f"U+{code_point:04X} is outside the table and accepted {where}")
+
+    assert wrong == [], (
+        "the compiled prefix class is not the NCName production the tables transcribe, so a "
+        f"legal alias is missed or an illegal one is read as markup: {wrong}"
+    )
+
+
+def test_a_namespace_prefix_may_not_begin_with_a_character_that_may_only_continue_one() -> None:
+    """The two tables are not one table, and collapsing them is a fail-open.
+
+    ``NCNameStartChar`` and ``NCNameChar`` differ by exactly the characters a
+    name may carry but not open with: a combining mark, a digit, ``-`` and
+    ``.``. Building one class and using it in both positions would pass every
+    assertion in the test above -- both tables would still be transcribed -- and
+    would read ``<-9:name>`` as an element. So the DIFFERENCE is asserted, not
+    just the membership.
+    """
+    wrong = []
+
+    for first, last in _NCNAME_CONTINUE_RANGES:
+        if _in_any_range(first, _NCNAME_START_RANGES):
+            continue
+        for code_point in (first, last):
+            if _admits_as_prefix(chr(code_point)):
+                wrong.append(f"U+{code_point:04X} may not BEGIN a prefix and is accepted there")
+            if not _admits_as_prefix("a" + chr(code_point)):
+                wrong.append(f"U+{code_point:04X} may continue a prefix and is rejected there")
+
+    assert wrong == [], (
+        "the start class and the continue class are not distinguished as the production "
+        f"distinguishes them: {wrong}"
+    )
+
+
+def test_the_prefix_class_cannot_match_markup() -> None:
+    """The bound the constant's own note states, asserted rather than restated.
+
+    A prefix class is read at every ``<`` in the document, so what it CANNOT
+    match is the thing keeping an optional prelude from swallowing markup. The
+    note beside ``_XML_NAME_PREFIX`` has always claimed this bound; widening the
+    class from a word class to a specification's ranges is the change that could
+    quietly cost it, so it stops being a claim here.
+    """
+    admitted = [
+        ascii(candidate)
+        for character in ":<>/=\"' \t\r\n"
+        for candidate in (character, "a" + character)
+        if _admits_as_prefix(candidate)
+    ]
+
+    assert admitted == [], (
+        f"the prefix class matches markup, so the prelude can swallow a tag: {admitted}"
+    )
+
+
+def test_a_prefixed_drawing_is_not_a_drawing() -> None:
+    """The site that was withdrawn, asserted rather than left to the comment.
+
+    ``_DRAWING`` reads the UNPREFIXED spelling and nothing else. A prefix is
+    matched by SHAPE everywhere in this module, never resolved, and that is
+    conservative for the three scorers -- matching more elements means more
+    findings -- and fail-open here, because matching more containers means more
+    SUPPRESSION. The exemption is withdrawn from a container it cannot prove is
+    a drawing rather than granted on an unresolved alias.
+    """
+    matched = [
+        ascii(prefix)
+        for prefix in _DRAWING_PREFIXES
+        if _DRAWING.search(worded_diagram(prefix=prefix)) is not None
+    ]
+
+    assert matched == [], (
+        "a drawing is a drawing by its unprefixed spelling; an alias this module never "
+        f"resolves does not buy an exemption: {matched}"
+    )
+
+
+def test_labels_in_a_prefixed_drawing_are_reported() -> None:
+    """The behavioural half, and the wanted direction is DISAGREEMENT.
+
+    The bare chart is exempt and the prefixed one is reported: the same chart,
+    reported because its container cannot be proved to be a drawing. That is a
+    false positive and it is the direction this module's posture requires --
+    refuse what cannot be proved safe. The cost is recorded in CONTRIBUTING's
+    residual table, with issue #33's rendering boundary named as where a real
+    "is this a drawing" answer belongs.
+
+    The bare arm is asserted here rather than assumed: it is the exemption that
+    actually earns its keep, and it is the thing a careless revert breaks.
+    """
+    bare = rules(scan_text(worded_diagram(), source="docs/chart.md"))
+    reported = {
+        ascii(prefix): rules(scan_text(worded_diagram(prefix=prefix), source="docs/chart.md"))
+        for prefix in _DRAWING_PREFIXES
+    }
+
+    assert bare == [] and all(found == ["P2"] for found in reported.values()), (
+        "an unresolved alias does not buy an exemption, and an ordinary drawing keeps one: "
+        f"bare says {bare}, prefixed says {reported}"
+    )
+
+
+def test_a_container_whose_prefix_is_bound_elsewhere_is_not_a_drawing() -> None:
+    """⭐ **The reproduction the fourth site was deleted for.**
+
+    A prefix bound to a namespace that is not SVG still had the SHAPE of a
+    drawing, so the container matched, the exemption applied, and every short
+    text element inside it was suppressed. A whole identity -- a name, a date of
+    birth and a place -- went from a finding to nothing by being wrapped in a
+    tag whose alias this module never resolves. Prefix-shape matching is
+    conservative for the three scorers and fail-open for an exemption, and this
+    is what fail-open looked like.
+
+    **Three assertions, and the two on the ends are what keep the middle one
+    honest.** Without the unwrapped premise a scoring change makes this vacuous
+    -- the notes would stop being a finding and the test would still pass.
+    Without the unprefixed control, a revert that went further than the fourth
+    site would break the exemption that actually earns its keep and nothing
+    here would say so. Same payload in all three, so the container is the only
+    variable.
+    """
+    unwrapped = rules(scan_text(gramps_short_notes(), source="notes.md"))
+    exempt = rules(scan_text(notes_inside_a_container(), source="notes.md"))
+    reported = {
+        ascii(prefix): rules(
+            scan_text(
+                notes_inside_a_container(prefix=prefix, namespace=_NOT_THE_SVG_NAMESPACE),
+                source="notes.md",
+            )
+        )
+        for prefix in _DRAWING_PREFIXES
+    }
+
+    assert unwrapped == ["P2"], (
+        f"the premise: three short notes are a whole identity on their own, got {unwrapped}"
+    )
+    assert exempt == [], f"an ordinary drawing still exempts its labels, and must: got {exempt}"
+    assert all(found == ["P2"] for found in reported.values()), (
+        "an alias bound to something that is not SVG is a drawing by shape alone, and an "
+        f"exemption may not rest on a shape this module never resolves: {reported}"
     )
 
 
