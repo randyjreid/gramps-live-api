@@ -310,8 +310,23 @@ def expected_object_types(cls: type[Operation]) -> Mapping[str, str]:
 # Do not "simplify" this into the decorator.
 # ---------------------------------------------------------------------------
 
-FACT_ASSERTING: frozenset[str] = frozenset({"add_citation"})
-"""Operations that assert a genealogical fact, and so must carry provenance."""
+FACT_ASSERTING: Mapping[str, str] = MappingProxyType(
+    {
+        "add_citation": (
+            "attaching evidence to an object asserts that the evidence supports it, and "
+            "the citation it names is that assertion's own warrant"
+        ),
+    }
+)
+"""Operations that assert a genealogical fact, each with why it asserts one.
+
+Symmetric with ``NON_FACT``, and symmetric for its reason rather than for
+tidiness. The partition proves **totality, not correctness**: nothing here stops
+a type being filed on the wrong side, and the recorded rationale is the only
+thing a reviewer can check that against. That argument does not stop at the
+exempt side -- *"this asserts a fact"* is exactly as losable as *"this does
+not"* -- so both sides record one, and an empty one fails.
+"""
 
 NON_FACT: Mapping[str, str] = MappingProxyType(
     {
