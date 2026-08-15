@@ -25,6 +25,7 @@ property unfalsifiable.
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from enum import Enum
@@ -795,6 +796,112 @@ def _reference_from(name: str, value: object) -> ObjectRef | None:
     return ObjectRef(**value)
 
 
+# ---------------------------------------------------------------------------
+# What a preview may put on screen
+#
+# ``preview`` renders the one sentence a person reads and approves BEFORE
+# anything is written to a tree, which is this project's whole review model:
+# what was agreed and what is written are provably the same thing. A character
+# that REORDERS or HIDES part of that sentence -- a bidirectional override, a
+# zero-width character -- attacks the agreement step itself, because the
+# reviewer approves one sentence and a different one is what the operation says.
+#
+# ⚠️ **The guard is over what ``preview`` EMITS, not over what any field may
+# hold.** It reads the rendered sentence, so every rendered field is covered at
+# once and a field added to an operation later is covered without this being
+# edited. The alternative -- a character rule per field at validation time --
+# was weighed and rejected: nothing here can establish what characters Gramps
+# emits in an opaque identifier, and a rendering guard does not need to. It
+# constrains what we DISPLAY, not what we accept.
+# ---------------------------------------------------------------------------
+
+_OTHER = "C"
+_UNASSIGNED = "Cn"
+
+
+def _is_unrenderable(character: str) -> bool:
+    """Whether ``character`` can reorder or hide text in a sentence for review.
+
+    **The class is the General_Category group "Other" (``C``) of the Unicode
+    Character Database (UAX #44), read from the UCD at runtime rather than
+    listed here.** Closed, externally specified, and it does not grow on our
+    schedule -- accepted on exactly the grounds ``FILESYSTEM_ROOTS`` and the XML
+    ``Char`` production are accepted in ``pii_guard``. It is where the explicit
+    directional formatting characters of the Unicode Bidirectional Algorithm
+    (UAX #9) live, and where the zero-width and control characters live.
+
+    ⚠️ **``Cn`` is excluded deliberately. Do not "complete" the class by adding
+    it back.** *Unassigned* is a fact about the UCD the running interpreter was
+    built with and not a fact about the character: ``unicodedata.unidata_version``
+    differs across the Python versions CI runs, so including ``Cn`` would make
+    the same operation preview on one of them and refuse on another -- version-
+    dependent behaviour on legitimate data. Excluding ONE PUBLISHED CATEGORY
+    WITH A RECORDED REASON is a different act from inventing a list: the group
+    itself is still read from the UCD, so a category the standard adds later is
+    covered without this being edited.
+    """
+    category = unicodedata.category(character)
+    return category.startswith(_OTHER) and category != _UNASSIGNED
+
+
+class UnrenderableFieldError(SchemaError):
+    """A field whose value cannot be put in front of a reviewer as it stands.
+
+    Carries a field path for the reason ``UnknownFieldError`` does: a refusal
+    that does not say where the fault is, is one nobody can act on.
+
+    ⚠️ **The message names the field and the character's general category, and
+    never the character itself** -- the rule on ``RuleViolation``, which this
+    obeys for the same reason. Naming the *category* is the same move
+    ``_field_wrong_type`` already makes when it names the arrived value's type:
+    what a caller needs to fix it, without echoing what arrived.
+    """
+
+    def __init__(self, field_path: str, category: str) -> None:
+        super().__init__(
+            f"{field_path} carries a general category {category} character, "
+            "which can reorder or hide text in a sentence for review"
+        )
+        self.field_path = field_path
+        self.category = category
+
+
+def _carrier_of(operation: Operation, characters: frozenset[str]) -> tuple[str, str] | None:
+    """The first declared path holding one of ``characters``, and its category.
+
+    Walks the derived paths every rule walks, so a field added later is
+    attributable without a list kept beside it. Deterministic in both
+    directions: the first path in declaration order, and the first offending
+    character within it.
+    """
+    for path in required_paths(type(operation)):
+        value = _at(operation, path)
+        if not isinstance(value, str):
+            continue
+        for character in value:
+            if character in characters:
+                return path, unicodedata.category(character)
+    return None
+
+
+def _refuse_unrenderable(operation: Operation, rendered: str) -> None:
+    """Refuse ``rendered`` if it carries a character that can reorder or hide it."""
+    offenders = frozenset(character for character in rendered if _is_unrenderable(character))
+    if not offenders:
+        return
+    carrier = _carrier_of(operation, offenders)
+    if carrier is None:
+        # No field carries it, so this module's own renderer emitted it: a
+        # defect here rather than in the payload, and no field to name. Refused
+        # all the same -- a sentence nobody can trust is not shown because of
+        # where the character came from.
+        raise SchemaError(
+            "the rendering itself carries a character that can reorder or hide "
+            "text in a sentence for review"
+        )
+    raise UnrenderableFieldError(*carrier)
+
+
 def preview(operation: Operation) -> str:
     """One line describing what ``operation`` would do, for a person to approve.
 
@@ -812,9 +919,27 @@ def preview(operation: Operation) -> str:
     which is the second-vocabulary shape this module refuses everywhere else.
     The precondition is stated because an unstated one becomes somebody's defect
     later.
+
+    ⚠️ **The rendering guard below is NOT a second judge and does not weaken
+    that precondition.** It is about what a *valid* operation may put on screen:
+    an operation refused here is still well-formed, ``validate`` is unchanged,
+    and a test asserts exactly that.
+
+    **Refusing is the choice, rather than escaping or stripping the character.**
+    Stripping changes what the reviewer sees from what the operation holds,
+    which is the agreed-versus-written disagreement in miniature. Escaping is
+    lossless and still loses: it vacates the field-named, actionable signal
+    silently, and a sentence carrying an override escape is not a sentence a
+    person can check against a record -- which is the whole purpose of rendering
+    one. Refusing is how this function already treats an operation it cannot
+    render. The cost is real and is recorded rather than hidden: a *displayable*
+    operation becomes unpreviewable, and the class covers characters some
+    scripts need legitimately.
     """
     type_name_of(operation)  # refuses anything unregistered
-    return " ".join(operation.render().split())
+    rendered = " ".join(operation.render().split())
+    _refuse_unrenderable(operation, rendered)
+    return rendered
 
 
 def validate(operation: Operation) -> WellFormedResult:
