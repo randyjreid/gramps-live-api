@@ -963,16 +963,129 @@ _GRAMPS_ALL_ELEMENTS = tuple(dict.fromkeys(_GRAMPS_CATEGORY_OF))
 # hoping -- see the test that asserts each compiled pattern contains this.
 # ---------------------------------------------------------------------------
 
-_XML_NAME_PREFIX = r"(?:[^\W\d][\w.\-]*:)?"
-"""An optional namespace prefix: a name character that is not a digit, then name
-characters, then the colon.
+# ---------------------------------------------------------------------------
+# WHAT A NAMESPACE PREFIX MAY BE SPELLED WITH. TWO TABLES, TRANSCRIBED.
+#
+# XML 1.0 (Fifth Edition), W3C Recommendation 26 November 2008, section 2.3:
+#
+#     NameStartChar ::= ":" | [A-Z] | "_" | [a-z] | [#xC0-#xD6] | [#xD8-#xF6]
+#                     | [#xF8-#x2FF] | [#x370-#x37D] | [#x37F-#x1FFF]
+#                     | [#x200C-#x200D] | [#x2070-#x218F] | [#x2C00-#x2FEF]
+#                     | [#x3001-#xD7FF] | [#xF900-#xFDCF] | [#xFDF0-#xFFFD]
+#                     | [#x10000-#xEFFFF]
+#     NameChar      ::= NameStartChar | "-" | "." | [0-9] | #xB7
+#                     | [#x0300-#x036F] | [#x203F-#x2040]
+#
+# A prefix is not a Name, though: Namespaces in XML 1.0 (Third Edition), W3C
+# Recommendation 8 December 2009, says which one it is --
+#
+#     Prefix ::= NCName
+#     NCName ::= Name - (Char* ':' Char*)     /* An XML Name, minus the ":" */
+#
+# ⚠️ **THE COLON IS DROPPED FROM NameStartChar AND APPEARS NOWHERE ELSE IN
+# EITHER PRODUCTION**, so removing it once yields NCNameStartChar and NCNameChar
+# together. Left in, a prefix could BEGIN with a colon -- which is not a legal
+# NCName, and which would make `<::name>` an element here.
+#
+# Closed and externally specified, so these enumerations are accepted on exactly
+# the grounds ``FILESYSTEM_ROOTS``, ``_XML_PREDEFINED_ENTITIES`` and
+# ``_XML_CHARACTER_RANGES`` are: they do not grow.
+# ---------------------------------------------------------------------------
 
-An approximation of the NCName production rather than a transcription of it, and
-the DIRECTION of the approximation is what makes it acceptable: a prefix using a
-character this misses is invisible to all four patterns today and stays exactly
-as invisible, so the residual is left unchanged rather than created here. The
-other direction is bounded by the class itself, which cannot match ``<``, ``>``,
-``/``, ``=``, a quote or whitespace.
+_NCNAME_START_RANGES: tuple[tuple[int, int], ...] = (
+    (0x41, 0x5A),  # A-Z
+    (0x5F, 0x5F),  # _
+    (0x61, 0x7A),  # a-z
+    (0xC0, 0xD6),
+    (0xD8, 0xF6),
+    (0xF8, 0x2FF),
+    (0x370, 0x37D),
+    (0x37F, 0x1FFF),
+    (0x200C, 0x200D),
+    (0x2070, 0x218F),
+    (0x2C00, 0x2FEF),
+    (0x3001, 0xD7FF),
+    (0xF900, 0xFDCF),
+    (0xFDF0, 0xFFFD),
+    (0x10000, 0xEFFFF),
+)
+"""``NameStartChar`` minus the colon: what a prefix may BEGIN with.
+
+The ranges are the specification's, coarse edges and all -- ``[#x3001-#xD7FF]``
+admits ideographic punctuation, and that is the production's decision rather
+than this module's. Transcribing it is the point: a hand-narrowed version is an
+enumeration pointed backwards, which is the shape this module refuses everywhere
+else.
+"""
+
+_NCNAME_CONTINUE_RANGES: tuple[tuple[int, int], ...] = _NCNAME_START_RANGES + (
+    (0x2D, 0x2D),  # -
+    (0x2E, 0x2E),  # .
+    (0x30, 0x39),  # 0-9
+    (0xB7, 0xB7),
+    (0x300, 0x36F),
+    (0x203F, 0x2040),
+)
+"""``NameChar`` minus the colon: what a prefix may CONTINUE with.
+
+⚠️ **The two tables are NOT the same table, and collapsing them is a fail-open.**
+A combining mark, a digit, ``-`` and ``.`` may continue a name and may not begin
+one; a class that accepted them at the front would read ``<-9:name>`` as an
+element and, worse, would stop this pair from being the production it claims to
+be. The difference is asserted by test.
+"""
+
+
+def _escaped(code_point: int) -> str:
+    """One code point as an ASCII escape a character class can hold."""
+    return f"\\u{code_point:04X}" if code_point <= 0xFFFF else f"\\U{code_point:08X}"
+
+
+def _character_class(ranges: tuple[tuple[int, int], ...]) -> str:
+    r"""``ranges`` as a regex character class, spelled entirely in ASCII escapes.
+
+    ⚠️ **Escapes rather than the characters themselves, and that is two problems
+    solved by one decision.** A raw endpoint could arrive as ``-``, ``^``, ``]``
+    or ``\`` and mean something to the engine instead of being itself; and a
+    non-ASCII endpoint would put bytes into a pattern **this module reads back
+    out of its own source**. Neither can happen to a character that is never
+    emitted. It is also why the fixtures that exercise this are assembled with
+    ``chr`` rather than pasted -- the same rule, one level further out.
+    """
+    return "[" + "".join(_escaped(first) + "-" + _escaped(last) for first, last in ranges) + "]"
+
+
+_XML_NAME_PREFIX = (
+    "(?:"
+    + _character_class(_NCNAME_START_RANGES)
+    + _character_class(_NCNAME_CONTINUE_RANGES)
+    + "*:)?"
+)
+r"""An optional namespace prefix: an ``NCName``, then the colon.
+
+⚠️ **A TRANSCRIPTION of the production, not an approximation of it, and the
+approximation was a live fail-open.** This used to be ``[^\W\d][\w.\-]*``, built
+from Python's word class. ``\w`` does not match a combining mark, but ``NameChar``
+does -- so a document consistently using the legal alias ``a`` + U+0301 was
+missed by ALL FOUR patterns at once, and with only the namespace URI scoring two
+against a threshold of four, **a complete identity document was clean.** Being
+equally invisible before the prefix work is not a defence: this criterion says a
+namespace-prefixed document scores what the unprefixed one scores, and that
+document is namespace-prefixed.
+
+**The two classes are different classes** -- a combining mark, a digit, ``-``
+and ``.`` may continue a name and may not open one -- and using one in both
+positions would read ``<-9:name>`` as an element.
+
+The bound this constant has always claimed still holds and is now asserted
+rather than argued: the class cannot match ``<``, ``>``, ``/``, ``=``, a quote,
+whitespace or the colon.
+
+**What is still not checked, deliberately: the alias is matched, never
+RESOLVED.** Whether the document actually binds it to the Gramps namespace is a
+question only a parser can answer, and the namespace URI is weighed separately
+for that. Matching by shape errs toward reading more elements, which is the side
+that reports.
 """
 
 

@@ -10,6 +10,7 @@ this project recorded first.
 
 from __future__ import annotations
 
+import re
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -23,7 +24,10 @@ from gramps_live_api.core.pii_guard import (
     _GRAMPS_FILLED_ELEMENT,
     _GRAMPS_PROSE_LENGTH,
     _GRAMPS_XML_NAMESPACE,
+    _NCNAME_CONTINUE_RANGES,
+    _NCNAME_START_RANGES,
     _VOCABULARY,
+    _XML_NAME_PREFIX,
     _gedcom_x_identity_score,
     _gramps_identity_score,
     _qualified,
@@ -113,8 +117,33 @@ no tracked file spells a filled prefixed identity element -- the rule at the top
 of the fixture module, applied to a probe assembled here.
 """
 
+_COMBINING_NAMESPACE_PREFIX = "a" + chr(0x301)
+"""A second alias, and the one that says the property is about NCName.
 
-def _prefixed(spelling: str) -> str:
+``a`` followed by COMBINING ACUTE ACCENT: a perfectly legal ``NCName``, because
+a combining mark is a ``NameChar``. It is not a ``\\w`` character, which is what
+the prefix class used to be built from -- so a document consistently using this
+alias was missed by all four sites at once, and a COMPLETE identity document
+scored nothing at all rather than merely scoring less.
+
+⚠️ **Assembled with ``chr`` and never pasted.** The tracked file stays plain
+ASCII, which is the same rule the character class in the guard follows for the
+same reason: this module reads its own repository. Printing it needs
+``PYTHONIOENCODING=utf-8`` on a Windows console, which is a property of the
+console and not of the property under test.
+"""
+
+_NAMESPACE_PREFIXES = (_NAMESPACE_PREFIX, _COMBINING_NAMESPACE_PREFIX)
+"""Every alias the equivalence properties below are asserted over.
+
+Aliases go HERE rather than into a test of their own: the claim is that the
+alias does not matter, so a new alias must extend every row of every property
+at once, exactly as a new vocabulary row does. A one-off example asserts the
+example.
+"""
+
+
+def _prefixed(spelling: str, prefix: str = _NAMESPACE_PREFIX) -> str:
     """The same spelling, qualified by a namespace prefix.
 
     Joined at runtime, so no tracked file spells a filled prefixed identity
@@ -123,7 +152,23 @@ def _prefixed(spelling: str) -> str:
     spelling it was given, so wrapping the probe makes a prefixed failure and a
     bare one print the same name.
     """
-    return _NAMESPACE_PREFIX + ":" + spelling
+    return prefix + ":" + spelling
+
+
+def _admits_as_prefix(candidate: str) -> bool:
+    """Whether the compiled prefix class accepts ``candidate`` as a whole prefix.
+
+    The fragment is optional, so a candidate it rejects leaves the trailing
+    colon unconsumed and the full match fails -- which is the question being
+    asked, and it is asked of the fragment the four patterns actually carry
+    rather than of a copy of the tables.
+    """
+    return re.fullmatch(_XML_NAME_PREFIX, candidate + ":") is not None
+
+
+def _in_any_range(code_point: int, ranges: tuple[tuple[int, int], ...]) -> bool:
+    """Whether a table names ``code_point`` -- the same test ``_names_an_xml_character`` makes."""
+    return any(first <= code_point <= last for first, last in ranges)
 
 
 def _gramps_attributed_probe(spelling: str, copies: int) -> str:
@@ -144,6 +189,16 @@ _DRAWING_PREFIX = "svg"
 Deliberately the harder spelling: ``<svg:svg>`` puts the element's own name in
 the prefix position, so a pattern that reads the prefix as if it were the tag
 matches the opening and then cannot find its closing tag.
+"""
+
+_DRAWING_PREFIXES = (_DRAWING_PREFIX, _COMBINING_NAMESPACE_PREFIX)
+"""Every alias the drawing properties below are asserted over.
+
+⚠️ **``svg`` stays FIRST and stays present.** The constant above argues it is
+deliberately the harder spelling, and that argument has to survive a second
+alias being added beside it rather than being displaced by one. The second is
+here for the reason it is in ``_NAMESPACE_PREFIXES``: this site failed under a
+combining mark too, and it is the site that fails CLOSED.
 """
 
 
@@ -728,15 +783,25 @@ def test_a_namespace_prefix_does_not_change_what_a_filled_row_scores() -> None:
     edited. Asserted as AGREEMENT between the two spellings rather than against
     the weight table, because the claim is that the prefix does not matter --
     which stays true, and stays checked, when a weight changes.
+
+    Every row is crossed with every ALIAS in ``_NAMESPACE_PREFIXES`` for the
+    same reason: an alias legal under ``NCName`` but outside ``\\w`` -- a
+    combining mark -- was missed here at every row at once, and adding it as a
+    one-off example would have asserted the example rather than the property.
     """
     disagreements = []
 
     for _, shared, xml_only, _ in _VOCABULARY:
         for spelling in shared + xml_only:
             bare = _observed_weight(_gramps_identity_score, _gramps_probe, spelling)
-            prefixed = _observed_weight(_gramps_identity_score, _gramps_probe, _prefixed(spelling))
-            if bare != prefixed:
-                disagreements.append(f"<{spelling}>: {bare} bare, {prefixed} prefixed")
+            for prefix in _NAMESPACE_PREFIXES:
+                prefixed = _observed_weight(
+                    _gramps_identity_score, _gramps_probe, _prefixed(spelling, prefix)
+                )
+                if bare != prefixed:
+                    disagreements.append(
+                        f"<{ascii(prefix)}:{spelling}>: {bare} bare, {prefixed} prefixed"
+                    )
 
     assert disagreements == [], (
         "a namespace prefix changes what these rows score, so one export in two spellings "
@@ -757,11 +822,14 @@ def test_a_namespace_prefix_does_not_change_what_an_attributed_row_scores() -> N
     for _, shared, xml_only, _ in _VOCABULARY:
         for spelling in shared + xml_only:
             bare = _observed_weight(_gramps_identity_score, _gramps_attributed_probe, spelling)
-            prefixed = _observed_weight(
-                _gramps_identity_score, _gramps_attributed_probe, _prefixed(spelling)
-            )
-            if bare != prefixed:
-                disagreements.append(f"<{spelling} val=...>: {bare} bare, {prefixed} prefixed")
+            for prefix in _NAMESPACE_PREFIXES:
+                prefixed = _observed_weight(
+                    _gramps_identity_score, _gramps_attributed_probe, _prefixed(spelling, prefix)
+                )
+                if bare != prefixed:
+                    disagreements.append(
+                        f"<{ascii(prefix)}:{spelling} val=...>: {bare} bare, {prefixed} prefixed"
+                    )
 
     assert disagreements == [], (
         f"a namespace prefix changes what these rows score in the attributed pass: {disagreements}"
@@ -776,16 +844,22 @@ def test_a_prefixed_database_element_names_the_format_the_same_way() -> None:
     it -- two points is below the threshold, so the document was clean.
 
     Asserted as agreement between the two spellings, with the unprefixed control
-    checked first so that "neither of them is caught" cannot satisfy it.
+    checked first so that "neither of them is caught" cannot satisfy it, and over
+    every alias for the reason the two derived tests above are.
     """
     bare = scan_text(gramps_xml_database_element(), source="notes.md")
-    prefixed = scan_text(gramps_xml_database_element(prefix=_NAMESPACE_PREFIX), source="notes.md")
-
     assert rules(bare) == ["P2"], f"the control is not caught, so this proves nothing: {bare}"
-    assert [finding.message for finding in prefixed] == [finding.message for finding in bare], (
+
+    disagreements = []
+    for prefix in _NAMESPACE_PREFIXES:
+        prefixed = scan_text(gramps_xml_database_element(prefix=prefix), source="notes.md")
+        if [finding.message for finding in prefixed] != [finding.message for finding in bare]:
+            disagreements.append(f"{ascii(prefix)}: {[finding.message for finding in prefixed]}")
+
+    assert disagreements == [], (
         "a prefixed export is the same export, and the finding must name the signature that "
-        f"caught it: bare says {[finding.message for finding in bare]}, prefixed says "
-        f"{[finding.message for finding in prefixed]}"
+        f"caught it: bare says {[finding.message for finding in bare]}, these aliases say "
+        f"{disagreements}"
     )
 
 
@@ -798,8 +872,14 @@ def test_a_prefixed_document_still_declares_the_namespace_it_belongs_to() -> Non
     and an unasserted claim in a commit message is how the fourth site of four
     came to be found in planning rather than in the code.
     """
-    assert _GRAMPS_XML_NAMESPACE in gramps_xml_database_element(prefix=_NAMESPACE_PREFIX), (
-        "the namespace fallback reads a URI, and a prefixed document still declares it"
+    missing = [
+        ascii(prefix)
+        for prefix in _NAMESPACE_PREFIXES
+        if _GRAMPS_XML_NAMESPACE not in gramps_xml_database_element(prefix=prefix)
+    ]
+
+    assert missing == [], (
+        f"the namespace fallback reads a URI, and a prefixed document still declares it: {missing}"
     )
 
 
@@ -852,6 +932,97 @@ def test_the_alternation_never_lets_a_shorter_spelling_shadow_a_longer_one() -> 
     )
 
 
+def test_the_prefix_class_is_the_ncname_production_it_transcribes() -> None:
+    """⭐ **Every boundary of both tables, inside and just outside, both positions.**
+
+    The class used to be built from ``\\w``, which is a Python word class and
+    not an XML production. It missed combining marks -- legal ``NameChar``s --
+    so a document using a legal alias was invisible at all four sites at once.
+    The repair is to transcribe the production, and a transcription is checked
+    the only way one can be without an unbounded sweep: at the edges.
+
+    Both directions, because a transcription can be wrong either way. A missing
+    boundary fails OPEN, the way ``\\w`` did. A boundary that reaches one code
+    point too far is how a raw ``-`` or ``^`` inside a character class turns a
+    range into something else -- which is exactly what the escaping in
+    ``_character_class`` exists to prevent, and this is what would see it.
+
+    The just-outside probes carry the colon check for free: ``0x39`` is the end
+    of the digits, so ``0x3A`` is probed, and ``0x3A`` is ``:``.
+    """
+    wrong = []
+    positions = (
+        ("as the first character", _NCNAME_START_RANGES, ""),
+        ("after the first character", _NCNAME_CONTINUE_RANGES, "a"),
+    )
+
+    for where, ranges, lead in positions:
+        for first, last in ranges:
+            for code_point in (first, last):
+                if not _admits_as_prefix(lead + chr(code_point)):
+                    wrong.append(f"U+{code_point:04X} is in the table and rejected {where}")
+            for code_point in (first - 1, last + 1):
+                outside_unicode = code_point < 0 or code_point > 0x10FFFF
+                surrogate = 0xD800 <= code_point <= 0xDFFF
+                if outside_unicode or surrogate or _in_any_range(code_point, ranges):
+                    continue
+                if _admits_as_prefix(lead + chr(code_point)):
+                    wrong.append(f"U+{code_point:04X} is outside the table and accepted {where}")
+
+    assert wrong == [], (
+        "the compiled prefix class is not the NCName production the tables transcribe, so a "
+        f"legal alias is missed or an illegal one is read as markup: {wrong}"
+    )
+
+
+def test_a_namespace_prefix_may_not_begin_with_a_character_that_may_only_continue_one() -> None:
+    """The two tables are not one table, and collapsing them is a fail-open.
+
+    ``NCNameStartChar`` and ``NCNameChar`` differ by exactly the characters a
+    name may carry but not open with: a combining mark, a digit, ``-`` and
+    ``.``. Building one class and using it in both positions would pass every
+    assertion in the test above -- both tables would still be transcribed -- and
+    would read ``<-9:name>`` as an element. So the DIFFERENCE is asserted, not
+    just the membership.
+    """
+    wrong = []
+
+    for first, last in _NCNAME_CONTINUE_RANGES:
+        if _in_any_range(first, _NCNAME_START_RANGES):
+            continue
+        for code_point in (first, last):
+            if _admits_as_prefix(chr(code_point)):
+                wrong.append(f"U+{code_point:04X} may not BEGIN a prefix and is accepted there")
+            if not _admits_as_prefix("a" + chr(code_point)):
+                wrong.append(f"U+{code_point:04X} may continue a prefix and is rejected there")
+
+    assert wrong == [], (
+        "the start class and the continue class are not distinguished as the production "
+        f"distinguishes them: {wrong}"
+    )
+
+
+def test_the_prefix_class_cannot_match_markup() -> None:
+    """The bound the constant's own note states, asserted rather than restated.
+
+    A prefix class is read at every ``<`` in the document, so what it CANNOT
+    match is the thing keeping an optional prelude from swallowing markup. The
+    note beside ``_XML_NAME_PREFIX`` has always claimed this bound; widening the
+    class from a word class to a specification's ranges is the change that could
+    quietly cost it, so it stops being a claim here.
+    """
+    admitted = [
+        ascii(candidate)
+        for character in ":<>/=\"' \t\r\n"
+        for candidate in (character, "a" + character)
+        if _admits_as_prefix(candidate)
+    ]
+
+    assert admitted == [], (
+        f"the prefix class matches markup, so the prelude can swallow a tag: {admitted}"
+    )
+
+
 def test_a_prefixed_drawing_is_still_a_drawing() -> None:
     """The fourth site, and the one that fails CLOSED.
 
@@ -860,8 +1031,14 @@ def test_a_prefixed_drawing_is_still_a_drawing() -> None:
     were not labels, and a chart got reported -- the same lexical blindness as
     the three sites above, pointing the other way.
     """
-    assert _DRAWING.search(worded_diagram(prefix=_DRAWING_PREFIX)) is not None, (
-        "a drawing that binds its own namespace to an alias is still a drawing"
+    missed = [
+        ascii(prefix)
+        for prefix in _DRAWING_PREFIXES
+        if _DRAWING.search(worded_diagram(prefix=prefix)) is None
+    ]
+
+    assert missed == [], (
+        f"a drawing that binds its own namespace to an alias is still a drawing: {missed}"
     )
 
 
@@ -877,11 +1054,14 @@ def test_labels_in_a_prefixed_drawing_are_still_labels() -> None:
     nobody ever saw it fail.
     """
     bare = rules(scan_text(worded_diagram(), source="docs/chart.md"))
-    prefixed = rules(scan_text(worded_diagram(prefix=_DRAWING_PREFIX), source="docs/chart.md"))
+    reported = {
+        ascii(prefix): rules(scan_text(worded_diagram(prefix=prefix), source="docs/chart.md"))
+        for prefix in _DRAWING_PREFIXES
+    }
 
-    assert prefixed == bare == [], (
+    assert bare == [] and all(found == [] for found in reported.values()), (
         "a worded axis label is a label in either spelling: bare says "
-        f"{bare}, prefixed says {prefixed}"
+        f"{bare}, prefixed says {reported}"
     )
 
 
