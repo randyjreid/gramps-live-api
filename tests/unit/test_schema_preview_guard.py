@@ -119,3 +119,76 @@ def test_a_rendered_field_carrying_a_guarded_character_is_refused(
         "a refusal that does not name the field is one nobody can act on; "
         f"{description} at {path} was reported at {refusal.value.field_path!r}"
     )
+
+
+@pytest.mark.parametrize(("type_name", "path", "description"), RENDERED)
+def test_the_refusal_names_a_field_that_exists_on_the_operation(
+    type_name: str, path: str, description: str
+) -> None:
+    # The same tool criterion 5 of #20 is asserted with: a reported path that
+    # resolves nowhere is a message nobody can act on, which is the same as no
+    # message. ``resolve`` raises if the path names no field.
+    operation = _carrying(type_name, path, GUARDED[description])
+
+    with pytest.raises(schema.UnrenderableFieldError) as refusal:
+        schema.preview(operation)
+
+    resolve(operation, refusal.value.field_path)
+
+
+@pytest.mark.parametrize(("type_name", "path", "description"), RENDERED)
+def test_an_operation_the_guard_refuses_is_still_well_formed(
+    type_name: str, path: str, description: str
+) -> None:
+    # ⚠️ The control that keeps the two apart. This guard is about what a VALID
+    # operation may put on screen; it is not a second judge and it did not
+    # quietly become a validation rule. If a character rule ever lands on a
+    # field at validation time -- the option the ruling on #33 rejected -- this
+    # is what fails.
+    operation = _carrying(type_name, path, GUARDED[description])
+
+    assert schema.validate(operation).well_formed, (
+        f"{description} at {path} changed validate's verdict; the guard is at "
+        "the rendering boundary and validate was not to move"
+    )
+
+
+@pytest.mark.parametrize(("type_name", "path", "description"), UNRENDERED)
+def test_a_field_that_is_not_rendered_is_not_refused(
+    type_name: str, path: str, description: str
+) -> None:
+    # ⚠️ The control that shows the guard stayed at the RENDERING boundary.
+    # A character the sentence never carries cannot mislead the person reading
+    # it, so refusing it would be a rule about what a field may hold -- which is
+    # the option the ruling rejected. Today this reaches the handles, which
+    # criterion 7 keeps out of every preview.
+    operation = _carrying(type_name, path, GUARDED[description])
+
+    assert schema.preview(operation) == _sentence(type_name), (
+        f"{description} at {path} changed a sentence that does not carry it"
+    )
+
+
+@pytest.mark.parametrize("type_name", sorted(EXAMPLES))
+def test_an_ordinary_preview_is_unchanged_by_the_guard(type_name: str) -> None:
+    # The other direction of the criterion: the guard either refuses or gets out
+    # of the way, and it never alters a sentence. A guard that quietly rewrote
+    # ordinary previews would be the stripping option arriving by the back door.
+    assert schema.preview(EXAMPLES[type_name]) == _sentence(type_name)
+
+
+def test_the_punctuation_the_renderer_itself_inserts_is_not_refused() -> None:
+    # The renderer quotes free text and elides it with an ellipsis, none of
+    # which is ASCII. A class that caught its own module's punctuation would
+    # refuse every long note, so this is the false-positive control -- and it
+    # reaches the elision, which the canonical examples are too short to.
+    elided = schema.AddNote(
+        target=schema.ObjectRef(object_type="person", handle="a1b2c3d4e5f607", gramps_id="I0044"),
+        note_type="research",
+        text="Ashenmoor deed " * 6,
+    )
+
+    rendered = schema.preview(elided)
+
+    assert rendered.strip()
+    assert chr(0x2026) in rendered, f"the elision did not run, so it is untested; got {rendered!r}"
