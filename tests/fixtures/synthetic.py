@@ -366,6 +366,29 @@ def gramps_address_block() -> str:
     )
 
 
+def gramps_issue_address_payload() -> str:
+    """The address payload issue #4 item 1 was filed with, assembled.
+
+    Kept apart from ``gramps_address_block`` deliberately: that one is the
+    property's own fixture and may be rewritten with it, while this is a
+    RE-MEASUREMENT of a specific reported input and has to stay the input that
+    was reported. It carries the dated element the issue wrote and one more
+    address child than the block does.
+    """
+    return _element(
+        "address",
+        body="".join(
+            (
+                _element("dateval", attributes='val="1893-04-02"', empty=True),
+                _element("street", body="12 Zephyrglass Lane"),
+                _element("city", body="Thornwick"),
+                _element("postal", body="ZX1"),
+                _element("phone", body="555-0100"),
+            )
+        ),
+    )
+
+
 def gramps_reference_fragment() -> str:
     """An export's links: elements with handles and no content of their own.
 

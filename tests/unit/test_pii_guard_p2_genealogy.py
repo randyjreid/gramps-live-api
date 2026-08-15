@@ -57,6 +57,7 @@ from tests.fixtures.synthetic import (
     gramps_caption_spelled_with_character_references,
     gramps_contact_url,
     gramps_importer_spec,
+    gramps_issue_address_payload,
     gramps_name_block,
     gramps_namespace_fragment,
     gramps_namespace_url,
@@ -708,6 +709,32 @@ def test_a_populated_address_is_a_finding() -> None:
     findings = scan_text(gramps_address_block(), source="notes.md")
 
     assert rules(findings) == ["P2"], f"an address locates a person, got {findings}"
+
+
+def test_the_address_payload_issue_four_was_filed_with_is_a_finding() -> None:
+    """⚠️ **GREEN ON ARRIVAL, and that is the result rather than a failure of TDD.**
+
+    Issue #4 item 1 reported this exact payload scoring **1** -- only the dated
+    element was recognised, so street, city, postal and phone, which are pure
+    identity, scored nothing and a complete personal address passed. The audit
+    that item belongs to re-measures every item before fixing any of them,
+    because the issue predates several fix rounds and a fix applied twice is
+    its own defect.
+
+    Re-measured on this head: **9** against a threshold of 4 -- eight from the
+    four filled address children and one from the attributed dated element.
+    The address row reached the vocabulary in the round that ended the
+    per-format split, which closed this item without naming it.
+
+    So this test is not the red that demanded code. It is the measurement that
+    says no code is owed, committed because an unasserted claim that something
+    is already fixed is exactly how a closed item comes back.
+    """
+    findings = scan_text(gramps_issue_address_payload(), source="notes.md")
+
+    assert rules(findings) == ["P2"], (
+        f"the payload this item was filed with is still not caught, got {findings}"
+    )
 
 
 def test_json_prose_is_weighed_as_prose_and_not_as_an_address() -> None:
