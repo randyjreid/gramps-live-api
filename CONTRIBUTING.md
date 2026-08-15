@@ -671,12 +671,14 @@ walk, for the reason recorded against B8.
 | that sentence on its own | 0, marker **read as named** | 0, marker not named |
 | `<database xmlns="urn:example:ledger">` + four filled `<type>` elements | 0 | 0 |
 | the same, spelled as a doctype naming an unrelated identifier | 0 | 0 |
-| the namespace quoted inside **another attribute's value**, + a researcher block | marker **read as named** | marker not named |
+| the namespace quoted inside **another attribute's value**, + a researcher block | 8 — **reported** | 0 |
 
 ⚠️ **The last row is the one the transcription buys and the approximation loses.** An element whose
 `desc` attribute *describes* a declaration has declared nothing; under the substring gate that text
-named the format, and the fragment beside it scored **12, reported**. It is measured through a
-wrapper the vocabulary does not hold, so the figure is the gate's and not the wrapper's.
+named the format and the fragment beside it was a finding. It is measured through a wrapper the
+vocabulary does not hold, so the figure is the gate's and not the wrapper's — the same probe written
+round an element that *does* carry weight measures 12, and that number would have been the wrapper's
+as much as the gate's.
 
 **(b) The retained side — the control, and the half that can break silently.**
 
