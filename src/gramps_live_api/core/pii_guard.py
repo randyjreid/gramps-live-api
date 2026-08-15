@@ -1021,11 +1021,21 @@ _VOCABULARY: tuple[tuple[str, tuple[str, ...], tuple[str, ...], tuple[str, ...]]
         # the spellings that collide with nothing -- `person`, `surname`,
         # `placeobj`, `childref` and eighty others.
         #
-        # **The rejected alternative, recorded so it is not re-proposed:** a
-        # document-level structural gate, scoring these only once the file has
-        # proved it is Gramps. It is the more precise answer and it is a second
-        # document-level condition on the XML scorer. If measurement ever shows
-        # a real export slipping, that is the thing to refile.
+        # ⚠️ **THE STRUCTURAL GATE THIS BLOCK USED TO RECORD AS REJECTED WAS
+        # RULED IN, and it is `_SPELLINGS_THE_DERIVATION_ADDED` above.** The
+        # reason is that these two published indexes cannot see the collision
+        # that matters: `type`, `file`, `status` and `description` are schema
+        # spellings that are also ordinary XML names, they are in NEITHER index,
+        # and four filled ones reached the threshold in any document showing an
+        # example. This category answered the collision it was shown.
+        #
+        # ⚠️ **The gate does not make this category redundant, and deleting it
+        # would be a widening.** What is left for it is the case the gate
+        # deliberately lets through: `<title>` and `<source>` earn nothing
+        # INSIDE a document that has named the format, where every other derived
+        # row scores. That is a smaller job than it had, and it is a real one --
+        # per the diminishing-returns rule, if a future round finds against this
+        # category the candidate action is deletion rather than more hardening.
         #
         # ⚠️ **This category is for rows this audit ADDS, and never a
         # retraction.** `text` and `address` collide too and are NOT here: they

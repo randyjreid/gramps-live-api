@@ -466,10 +466,12 @@ structural weight. **That column is the whole argument for the category:** the s
 fragments reach the threshold exactly without it. The collision is read off the published HTML and
 SVG element indexes, which is the ground `FILESYSTEM_ROOTS` and the drawing exemption stand on.
 
-**The rejected alternative, recorded so it is not re-proposed:** a document-level structural gate,
-scoring those spellings only once a file has proved it is Gramps. It is the more precise answer and
-it is a second document-level condition on the XML scorer. Refile it if measurement ever shows a
-real export slipping.
+⚠️ **The alternative this section recorded as rejected was afterwards ruled IN, and it is the
+next section.** The two indexes cannot see the collision that actually mattered — `type`, `file`,
+`status` and `description` are schema spellings that are also ordinary XML names, and they are in
+neither index. The unweighted category answered the collision it was shown. The gate below answers
+the other one, and it is scoped to **rows** rather than to files, which is what the "second
+document-level condition" objection above was really about.
 
 ⚠️ **One claim this change was planned against did not reproduce, and it is recorded rather than
 quietly dropped.** The existing markup false-positive test — a document holding a filled `<title>`
@@ -553,10 +555,142 @@ without it the condition reads as timidity:
 > life story.
 
 That is not hypothetical framing; it is the payload the property test uses, and removing the gate
-fails three tests including the one asserting **this repository** is clean. The XML side needs no
-such gate because Gramps element names are format-specific spellings, while `text`, `street` and
-`url` are words any configuration file may use. **The gate is what separates a genealogy vocabulary
-from a list of common English keys.**
+fails three tests including the one asserting **this repository** is clean. **The gate is what
+separates a genealogy vocabulary from a list of common English keys.**
+
+⚠️ **This paragraph used to end "the XML side needs no such gate", and that stopped being true the
+moment the container list was derived.** It was true of the 29 spellings a reviewer had named:
+`surname`, `dateval`, `placeobj` and `childref` are format-specific words. It is not true of the
+~80 the published schema added, some of which — `type`, `file`, `status`, `description` — are words
+any XML document may use. The XML side now has the same shape of gate, scoped to those added rows;
+see the section below.
+
+### Recorded decision: a derived row scores only where the document names the format
+
+The section above widened the Gramps vocabulary from 29 spellings to 110 by deriving it from the
+published schema. **Some of what the schema declares are ordinary XML names.** `<type>`, `<file>`,
+`<status>` and `<description>` are containers of the Gramps format *and* words any document about
+any XML may use, so four filled ones reached the threshold in a Markdown, Python or YAML file with
+no Gramps namespace, no database element and no marker of the format anywhere in it.
+
+**The rule: a spelling this audit ADDED scores only when a Gramps marker appears in the same text.
+A spelling the vocabulary held before the audit scores exactly as it always did, with no marker
+required.**
+
+⚠️ **The gate is scoped to ROWS, not to files, and that is the whole of why it is safe.** A
+file-level condition on the XML scorer would suppress a pre-existing catch in a file carrying no
+marker — a note holding a biography, a bare name block — which is a retraction rather than a
+narrowing. Cutting the gate's domain out of the frozen pre-audit snapshot makes that impossible by
+construction: a pre-existing row is not in the domain, so no measurement is needed to show the gate
+did not reach it.
+
+**What a marker is, and where each one comes from.** A hand-written list of markers would be the
+enumeration this project refuses, one level up from the one the derivation just removed:
+
+| Marker | Source it is bound to, by test |
+| --- | --- |
+| the declared namespace | the `#FIXED` default the schema gives the `xmlns` attribute of its document element, now emitted into the frozen table as `FIXED_ATTRIBUTE_DEFAULTS` |
+| the doctype | XML 1.0 §2.8, `doctypedecl ::= '<!DOCTYPE' S Name …`, whose `Name` is the document element |
+| the document element declaring a namespace | the one element `SPECIFIED_ATTRIBUTES` attaches `xmlns` to — asserted to be exactly one |
+
+The last two read that element through the shared alternation, so a prefixed export names the
+format exactly as an unprefixed one does.
+
+⚠️ **`pii_guard` does not import `_specified_containers`.** That module is data, not behaviour, and
+the scan does not change if it is deleted. The markers are composed constants in the guard, bound by
+test to the frozen table — the same standing the vocabulary itself has.
+
+#### Both directions, measured
+
+Every figure below is from a **Windows 11 Pro 10.0.26100 development machine, CPython 3.12.13 via
+`.venv\Scripts\python.exe`**, against the pre-change head `fcc56b2`. A runner is an order of
+magnitude faster on the history walk, for the reason recorded against B8.
+
+**(a) What the gate removes — the direction this change is for.**
+
+| Payload, no marker anywhere | Before | After |
+| --- | --- | --- |
+| four filled `<type>` elements | 4 — **reported** | 0 |
+| `<file>`, `<status>`, `<description>`, `<type>` | 4 — **reported** | 0 |
+
+**(b) The retained side — the control, and the half that can break silently.**
+
+| Payload | Before | After |
+| --- | --- | --- |
+| a bare name block, no marker | 4 | 4 |
+| a note holding a biography, no marker | 4 | 4 |
+| a person fragment, no marker | 6 | 6 |
+| a whole export | 9 | 9 |
+
+Every row of the vocabulary is held to this by the per-row tests rather than by these four
+examples: the attested spellings are re-measured **without** a marker, and every added spelling is
+re-measured **with** one against the weight its category declares.
+
+**(c) ⭐ The residual — the cost the owner ruled in, measured rather than described.**
+
+| Genuine Gramps fragment, quoted without its marker | Before | After |
+| --- | --- | --- |
+| a researcher block — `<researcher>` wrapping `<resname>`, `<rescity>`, `<respostal>` | 6 — **reported** | 0 |
+| an events block — two `<event>`s, each with a `<type>` and a `<description>` | 4 — **reported** | 0 |
+| the same researcher block, format named | 8 — reported | 8 — reported |
+| the same events block, format named | 6 — reported | 6 — reported |
+
+⚠️ **This is not negligible and is not described as such.** What makes it affordable is narrower and
+is stated precisely: **the 29 attested spellings — the rows that name a person on their own — score
+exactly as they do today, marker or no marker.** A fragment carrying `<person>`, `<name>`,
+`<first>`, `<surname>`, `<street>`, `<city>`, `<text>`, `<note>`, `<dateval>`, `<placeobj>` or
+`<childref>` is unaffected. The rows that predate the audit are the rows that carry a person.
+
+⚠️ **Two corrections to the numbers this change was planned against**, recorded rather than quietly
+adjusted. The researcher block was predicted at **7** and measures **6**: `<researcher>` wraps child
+elements, so it is not a *filled* element and contributes nothing — the 6 is `resname`, `rescity`
+and `respostal` at address and identity weight. And an events block of **one** event was predicted
+to be a finding; it scores **2**, below the threshold, before and after. It was never a finding to
+lose, so the row above uses two events, which is the smallest events block that was one.
+
+⚠️ **The name path is a hole in the gate, stated plainly.** `scan_blob` runs the genealogy
+properties over the committed *path* as well as the contents, and one short filename can essentially
+never carry a marker — so a derived row will never score on a name. That is a residual of the gate,
+not a defect in its scoping, and it costs nothing today: the committed name that is a finding is a
+GEDCOM record and rests on the record signature rather than on the XML scorer.
+
+**(d) B8's two rows, walked and not inferred from each other.**
+
+| Row | Result |
+| --- | --- |
+| tip — `python -m gramps_live_api.core.pii_guard .` | 0 findings over 45 tracked entries |
+| published range — `--range <root>..HEAD` | 0 findings over 98 commits, 187 entries scanned |
+| `test_every_commit_this_repository_publishes_is_clean` and `test_this_repository_is_clean` | both **ran** on a complete checkout, both passed |
+
+**(e) ⚠️ The code's own constants, under every spelling the code treats as equivalent.** A sweep
+over tracked content does not read the values living inside the code, and that is exactly what let
+an earlier allowlist regression through a careful measurement. Every tracked file was read and
+searched for every vocabulary spelling as a filled and as an attributed element, and for the
+namespace and both structural markers, under **case** variants (the element patterns are
+`IGNORECASE`), **prefixed and unprefixed** forms, **separator** variants — backslash, escaped
+solidus, doubled, percent-encoded — and the **escaped forms `_decoded` folds**:
+
+| What the sweep found | Before | After |
+| --- | --- | --- |
+| the namespace, in any of seven spellings, in any tracked file | none | **none** |
+| filled vocabulary elements | one — `<title>` in `test_pii_guard_p1_paths.py`, weight 0 | unchanged |
+| attributed vocabulary elements | one — a `<database xmlns=…>` template in the fixture module | unchanged |
+| structural markers | one file — the same template | unchanged |
+| highest un-thresholded score of any tracked file | **1**, against a threshold of 4 | **1** |
+
+The specific thing this catches is the new `FIXED_ATTRIBUTE_DEFAULTS` emission, which puts the
+namespace value into a tracked `.py` file **for the first time**. It is emitted split at its own
+separator for exactly that reason, and the first row above is the check that the split works: the
+value appears contiguously nowhere, in any spelling asked for.
+
+**(f) Criterion 13 — the 2× wall-clock bound.** The gate adds one substring test and two pattern
+searches per scored text, so no measurable change was expected; measured anyway, best of three, with
+both code versions run over the **same** corpus so the figures isolate the change:
+
+| | Before | After | Ratio |
+| --- | --- | --- | --- |
+| tip scan, 45 entries | 2.83 s | 2.90 s | **1.02×** |
+| published-range walk, 98 commits / 187 entries | 33.40 s | 32.46 s | **0.97×** |
 
 ### Recorded decision: serialized text versus the logical value
 

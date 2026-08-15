@@ -68,7 +68,8 @@ deliberately does *not* apply.
 > **A file carrying genealogy data the guard has a property for scores at or above the threshold and
 > is a finding, whatever the file is named -- and its NAME is read the same way.** GEDCOM records
 > counted per file; Gramps XML weighted by the real-versus-mentioned distinction, over a container
-> list derived from the published schema; GEDCOM X keys gated on a structural marker.
+> list derived from the published schema, with the rows that derivation added gated on a Gramps
+> marker in the same file; GEDCOM X keys gated on a structural marker.
 
 ⚠️ **The qualifier *"the guard has a property for"* is load-bearing and is not a hedge.** Without it
 this criterion is universally quantified over all genealogy data, which is the unbounded spec this
@@ -80,13 +81,16 @@ note in this directory. Every row of that table has a weight and a test, which i
 reached; the previous formulation, *every place where a container can hold prose or an identity
 field*, was quantified over a format and could not be shown to have been satisfied.
 
-`tests/unit/test_pii_guard_p2_genealogy.py` -- **84 tests**. The crux of each mechanism:
+`tests/unit/test_pii_guard_p2_genealogy.py` -- **93 tests**. ⚠️ **That is the FILE's count and not
+this criterion's**; see the warning below, which is now on its fourth reason. The crux of each
+mechanism:
 
 | Mechanism | Named by |
 | --- | --- |
 | GEDCOM records counted per file, not consecutively | `test_an_annotated_walkthrough_is_a_finding` |
 | Gramps XML weighted by real versus mentioned | `test_an_importer_spec_is_not_a_finding` -- the false-positive side is the point of the distinction |
 | the container list is the published schema's, not a reviewer's | `test_every_container_the_published_schema_declares_has_a_weight` |
+| a row that derivation added is gated on a Gramps marker | `test_every_spelling_the_derivation_added_scores_once_the_format_is_named` |
 | GEDCOM X keys gated on a structural marker | `test_configuration_json_is_not_genealogy_without_the_format` |
 | whatever the file is named | `test_gedcom_renamed_as_text_is_still_caught` |
 | and the name itself is read | `test_a_committed_name_carrying_a_record_is_a_finding` |
@@ -96,7 +100,7 @@ The two formats are held to one vocabulary by
 `test_one_life_is_judged_the_same_in_both_formats`.
 
 ⚠️ **That count is the FILE's, and it is not the number of tests carrying B2. It moves for
-reasons this criterion is not about, and it has now moved for three.** Twelve of them
+reasons this criterion is not about, and it has now moved for four.** Twelve of them
 arrived with #4 item 4, which taught the compiled patterns that read an element name to read
 a namespace-prefixed tag: **nine** with the two commits that shared one alternation between the four
 sites it then had, and **three** more with the commit that replaced the prefix's character class with
@@ -126,6 +130,31 @@ stating because it is the opposite of the last one:
 
 ⚠️ **The six are why the sentence at the top of this criterion changed, and a criterion whose
 wording moves is not a count moving.** Read the claim, not the number.
+
+**Nine more arrived with the marker gate** -- the change that made a container the derivation added
+score only where the document names the Gramps format. It exists because some of what the published
+schema declares are ordinary XML names: four filled `<type>` elements, or a `<file>`, a `<status>`,
+a `<description>` and a `<type>`, reached the threshold in a document about unrelated XML. The nine
+divide the same three ways, and **only two of them carry B2**:
+
+| The nine | What they are |
+| --- | --- |
+| `test_every_spelling_the_derivation_added_scores_once_the_format_is_named` and `test_a_prefixed_document_still_names_the_format` | **two**, and B2 evidence in the ordinary way. The first is what stops the gate being a deletion -- every added row is re-measured, with a marker present, against the weight its category declares, so a gate that simply zeroed those rows would pass the constraint tests and fail this one. The second carries the prefixed-export claim into the gate: a document's private alias must not cost it its own marker |
+| `test_generic_xml_names_are_not_genealogy_without_the_format`, `test_a_document_about_unrelated_xml_is_not_a_finding`, `test_every_spelling_the_derivation_added_is_gated_on_the_format`, and `test_a_researcher_block_without_the_format_is_the_gates_recorded_cost` | **four**, constraining what the guard must *not* report -- **B8's concern rather than this one**, exactly as the drawing rows and the markup-collision row are. The first two are the reproductions; the third is the same property derived over the table, so a row a later schema version adds is gated with no test edited. The fourth is the residual, asserted in both directions: the accepted cost is that a genuine fragment quoted *without* its marker is no longer caught, and its second half is the control that the gate removed the unmarked case and nothing else |
+| `test_the_attested_snapshot_still_records_the_moment_it_claims_to`, `test_each_marker_the_gate_reads_is_the_one_the_schema_declares`, and `test_the_namespace_the_gate_reads_is_the_default_the_schema_fixes` | **three**, asserting properties of the tables rather than what a scan returns. They carry no criterion on their own. The first pins the membership of the frozen pre-audit snapshot, which is what buys back the independence lost when that snapshot moved into the guard for the gate to read; the other two bind each marker to the source it is derived from, so none of them is a spelling somebody chose |
+
+⚠️ **Two pre-existing tests in this file changed their probe and are not among the nine**, because
+they are not new. `test_the_compiled_scorer_agrees_with_the_vocabulary_for_every_row` and
+`test_a_spelling_the_published_markup_indexes_also_use_earns_no_weight` -- and the two
+prefix-equivalence tests with them -- now measure through a probe that names the format. Without
+that they would measure some sixty rows at zero and be asserting the gate rather than the weight.
+The invariant-1 test deliberately did **not** change: what it claims is that an attested row still
+scores with **no** marker present, and a marked probe cannot see that.
+
+⚠️ **A separate file arrived with the same change and is counted nowhere above.**
+`tests/unit/test_derive_specified_containers.py` -- **7 tests** -- asserts the derivation script's
+own properties. It carries no criterion here: it is about a build step's fail-closed guarantee, not
+about what a scan returns.
 
 ⚠️ **The count was UNCHANGED by the fourth site's deletion, and that is a coincidence rather
 than evidence nothing happened.** That change removed the test asserting a mismatched-prefix pair is
