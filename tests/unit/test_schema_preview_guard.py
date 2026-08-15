@@ -339,14 +339,24 @@ def test_an_unassigned_code_point_is_not_guarded() -> None:
     # character -- so guarding it would make the same operation preview on one
     # version of our matrix and refuse on another. Derived from the UCD rather
     # than picking a code point by hand, because what is unassigned moves.
+    #
+    # ⚠️ What this pins is the exclusion, NOT version-independence. Verdicts
+    # depend on the interpreter's Unicode version with the exclusion in place,
+    # because assignments move between the databases CPython bundles: U+0890 is
+    # Cn under 3.10's UCD 13.0.0 and Cf under 3.11's 14.0.0, so the older
+    # interpreter previews it and the newer refuses -- 9 code points across the
+    # supported matrix, against 5,327 in the other direction if Cn were
+    # guarded. Shrinking that is why the exclusion stays. See
+    # _is_unrenderable's docstring and CONTRIBUTING.md's accepted residuals.
     unassigned = [
         character for character in _every_code_point() if unicodedata.category(character) == "Cn"
     ]
 
     assert unassigned, "this UCD assigns everything, so the exclusion is untested"
     assert not any(schema._is_unrenderable(character) for character in unassigned), (
-        "an unassigned code point is guarded, which makes the verdict depend on "
-        f"the interpreter's Unicode version (this one is {unicodedata.unidata_version})"
+        "an unassigned code point is guarded, which widens the verdict's dependence on "
+        "the interpreter's Unicode version from 9 code points to 5,327 and flips its "
+        f"direction to fail-closed (this interpreter's UCD is {unicodedata.unidata_version})"
     )
 
 

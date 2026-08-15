@@ -925,6 +925,28 @@ def _reference_from(name: str, value: object) -> ObjectRef | None:
 # legitimate names, in a genealogy tool. That mitigation belongs to whatever
 # eventually displays the sentence, which can isolate each field; it is not
 # available to a function that returns a string.
+#
+# ⚠️ **The verdict still depends on the interpreter's Unicode version, and
+# that is accepted rather than solved.** The ``Cn`` exclusion below shrinks
+# that dependence; it does not remove it. Assignments MOVE between the
+# databases CPython bundles, so a code point unassigned in one and ``Cf`` in a
+# later one previews on the older interpreter and is refused on the newer --
+# 9 code points across the supported matrix (U+0890, U+0891 and U+13439
+# through U+1343F), with **the OLDER interpreter the permissive side**.
+# **Both deterministic alternatives were weighed and rejected, and this entry
+# exists so the next reader does not reach for them.** Pinning an explicit set
+# of format characters here is stable across interpreters and is the
+# enumeration this module refuses everywhere else -- it fails OPEN on whatever
+# the standard assigns next. Inverting to a published safe-to-display set is
+# the same enumeration pointed backwards: stable too, and failing CLOSED on
+# legitimate text nobody listed. **That is the asymmetry, and it is the whole
+# argument.** An enumeration is deterministic across interpreters and wrong
+# about the future; a class derived from the running UCD tracks the future and
+# fails CLOSED on it, at the price of disagreeing across interpreters. The
+# arithmetic is why that price is the one taken: including ``Cn`` would flip
+# 5,327 code points instead of 9, and flip them the other way -- the older
+# interpreter refusing legitimate data. Recorded in ``CONTRIBUTING.md``'s
+# accepted residuals; the figures are in ``_is_unrenderable``'s docstring.
 # ---------------------------------------------------------------------------
 
 _OTHER = "C"
@@ -946,11 +968,33 @@ def _is_unrenderable(character: str) -> bool:
     it back.** *Unassigned* is a fact about the UCD the running interpreter was
     built with and not a fact about the character: ``unicodedata.unidata_version``
     differs across the Python versions CI runs, so including ``Cn`` would make
-    the same operation preview on one of them and refuse on another -- version-
-    dependent behaviour on legitimate data. Excluding ONE PUBLISHED CATEGORY
-    WITH A RECORDED REASON is a different act from inventing a list: the group
-    itself is still read from the UCD, so a category the standard adds later is
+    the same operation preview on one of them and refuse on another -- and it
+    would do so on legitimate data. Excluding ONE PUBLISHED CATEGORY WITH A
+    RECORDED REASON is a different act from inventing a list: the group itself
+    is still read from the UCD, so a category the standard adds later is
     covered without this being edited.
+
+    ⚠️ **The exclusion does not make verdicts version-INDEPENDENT, and nothing
+    here should be read as claiming it does.** Assignments MOVE between the
+    databases CPython bundles, so a code point that is unassigned in one and
+    ``Cf`` in a later one previews on the first interpreter and is refused on
+    the second, with the exclusion fully in place. Measured across the
+    supported matrix on Windows 11 x86-64 CPython: U+0890 is ``Cn`` under
+    3.10.20's UCD 13.0.0 and ``Cf`` under 3.11.15's 14.0.0 and 3.12.13's
+    15.0.0. It is one of **9** such code points -- U+0890, U+0891 and U+13439
+    through U+1343F, all ``Cf`` -- and **the older interpreter is the
+    permissive side**: 3.10 guards none that 3.12 does not, so the service on
+    the oldest supported Python is the one that emits a formatting character a
+    newer display stack will act on.
+
+    What the exclusion buys is the SIZE and the DIRECTION of that dependence,
+    not its absence. Including ``Cn`` would flip the verdict on **5,327** code
+    points across the same matrix instead of 9, and flip the direction with
+    it -- the OLDER interpreter refusing what the newer previews, which is
+    fail-closed on legitimate data. Shrinking it is why the exclusion stays;
+    the flip is why the remainder is a recorded residual rather than an
+    oversight. See the fourth entry in the costs block above, and the accepted
+    residuals in ``CONTRIBUTING.md``.
     """
     category = unicodedata.category(character)
     return category.startswith(_OTHER) and category != _UNASSIGNED
