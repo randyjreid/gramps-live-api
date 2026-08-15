@@ -3173,54 +3173,69 @@ def test_what_a_drawing_exempts_is_what_its_filled_pass_can_read() -> None:
     The drawing exemption lives in the **filled** pass, behind the short-content
     gate. An element the filled pass cannot see is not exempted by it; it is
     scored by the attributed pass, which now measures the no-content it holds.
-    So all four spellings of a single label in a drawing are clean, by two
-    different routes, and the routes are worth keeping apart:
+    So a single label in a drawing is clean in all four spellings -- by two
+    different routes, and the routes are what the last arm separates:
 
     * a **self-closing** and a **paired-empty** label are never claimed as
-      filled -- the content alternative needs one character -- so what makes
-      them clean is the attributed pass reading them as empty;
+      filled -- the content alternative needs one character -- so nothing
+      exempts them. What makes one of them clean is the attributed pass reading
+      it as empty, and that is a WEIGHT below the threshold, not a suppression;
     * a **whitespace-only** and a **filled short** label are claimed as filled,
-      and what makes them clean is the drawing exemption itself.
+      and what makes them clean is the drawing exemption, which is a
+      suppression and does not run out.
 
-    ⚠️ **Criterion 3 of #17 is NOT met, and the last arm records it rather than
-    hiding it.** Two empty labels in one drawing are worth 4 together and are
-    still reported. This is not a false positive returning: it is one that was
-    never removed, because the change lowers a single element below the
-    threshold and two of them reach it again.
+    ⚠️ **Which is why criterion 3 of #17 is NOT met, and this test records that
+    rather than hiding it.** Put TWO of each in one drawing and the two the
+    filled pass reads are still clean, while the two it cannot read reach the
+    threshold together and are reported. The false positive was not removed; a
+    single element was moved below the threshold and two of them clear it again.
 
-    The premise arm is what stops the rest being vacuous -- without it a scoring
-    change that simply stopped reporting everything would pass every line below.
+    The premise arm is what stops the rest being vacuous -- two of every spelling
+    outside a drawing is a finding, so a scoring change that simply stopped
+    reporting anything fails here rather than passing every line below. It takes
+    **two** because one of any of these spellings is below the threshold on its
+    own once this rule is applied, which is the whole subject of the test.
     """
-    premise = rules(scan_text(positioned_label(), source="docs/chart.md"))
-    exempt = {
-        "self-closing": rules(scan_text(drawing_holding(positioned_label()), source="chart.md")),
-        "paired-empty": rules(
-            scan_text(drawing_holding(positioned_label(body="")), source="chart.md")
-        ),
-        "whitespace-only": rules(
-            scan_text(drawing_holding(positioned_label(body=" ")), source="chart.md")
-        ),
-        "filled short": rules(
-            scan_text(drawing_holding(positioned_label(body="0.5")), source="chart.md")
-        ),
-    }
-    two = rules(
-        scan_text(
-            drawing_holding(positioned_label() + positioned_label(offset=18)), source="chart.md"
-        )
+    spellings = (
+        # name, how ``positioned_label`` spells it, and whether the FILLED pass
+        # can read what it encloses -- which is the discriminator under test.
+        ("self-closing", {}, False),
+        ("paired-empty", {"body": ""}, False),
+        ("whitespace-only", {"body": " "}, True),
+        ("filled short", {"body": "0.5"}, True),
     )
 
-    assert premise == ["P2"], (
-        "the premise: the same empty label outside a drawing is a finding, so the arms below are "
-        f"about the container and not about the scorer having gone quiet -- got {premise}"
+    def two_of(**spelling: str) -> str:
+        return positioned_label(offset=9, **spelling) + positioned_label(offset=18, **spelling)
+
+    premise = {
+        name: rules(scan_text(two_of(**spelling), source="docs/chart.md"))
+        for name, spelling, _ in spellings
+    }
+    one_in_a_drawing = {
+        name: rules(
+            scan_text(drawing_holding(positioned_label(**spelling)), source="docs/chart.md")
+        )
+        for name, spelling, _ in spellings
+    }
+    two_in_a_drawing = {
+        name: rules(scan_text(drawing_holding(two_of(**spelling)), source="docs/chart.md"))
+        for name, spelling, _ in spellings
+    }
+    exempted = {name: ([] if readable else ["P2"]) for name, _, readable in spellings}
+
+    assert all(found == ["P2"] for found in premise.values()), (
+        "the premise: two of any of these spellings outside a drawing is a finding, so the arms "
+        f"below are about the container and not about the scorer having gone quiet -- {premise}"
     )
-    assert all(found == [] for found in exempt.values()), (
+    assert all(found == [] for found in one_in_a_drawing.values()), (
         "one label in a drawing is a label however it is spelled, and an empty one is charged "
-        f"identity weight rather than prose weight: {exempt}"
+        f"what an empty one is worth rather than prose weight: {one_in_a_drawing}"
     )
-    assert two == ["P2"], (
-        "#17's criterion 3 is not met and this records it: two empty labels in one drawing reach "
-        f"the threshold together and are reported -- got {two}"
+    assert two_in_a_drawing == exempted, (
+        "what a drawing exempts is what its filled pass can read: a suppression does not run out, "
+        "and a weight below the threshold does. #17's criterion 3 is not met and this is where "
+        f"that is recorded -- got {two_in_a_drawing}, expected {exempted}"
     )
 
 
