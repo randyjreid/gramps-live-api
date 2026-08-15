@@ -16,6 +16,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from gramps_live_api.core._specified_containers import (
+    FIXED_ATTRIBUTE_DEFAULTS,
     MARKUP_ELEMENT_NAMES,
     SPECIFIED_ATTRIBUTES,
     SPECIFIED_ELEMENTS,
@@ -1096,6 +1097,52 @@ def test_each_marker_the_gate_reads_is_the_one_the_schema_declares() -> None:
     assert not _names_the_gramps_format(ordinary), (
         "a document that merely FILLS the document element has not declared the format, and a "
         "marker that reads it gates nothing"
+    )
+
+
+def test_the_namespace_the_gate_reads_is_the_default_the_schema_fixes() -> None:
+    """⭐ **The third marker, against the source the other two do not share.**
+
+    The doctype and the document element are bound to the frozen table and to a
+    transcribed production. The namespace is a **value**, and until the
+    derivation emitted it there was nothing in the table for it to be bound to
+    -- so the one constant the whole gate leans on hardest was the one thing in
+    it maintained by hand.
+
+    ``FIXED_ATTRIBUTE_DEFAULTS`` closes that: the schema FIXES the ``xmlns``
+    attribute of its document element at exactly one value, and the guard's
+    constant has to be part of it.
+
+    ⚠️ **A substring, not equality, and that is the constant's own decision.**
+    ``_GRAMPS_XML_NAMESPACE`` deliberately stops short of the version segment,
+    so an export written against a later schema revision still names the format.
+    Equality here would tie the guard to one revision of the DTD and quietly
+    blind it the day the project ships another.
+
+    ⚠️ Reassembled at runtime. The pieces are what the table holds, for the
+    reason recorded beside them: this file and that one are both scanned.
+    """
+    fixed = [
+        pieces
+        for element, attribute, pieces in FIXED_ATTRIBUTE_DEFAULTS
+        if (element, attribute) == (_GRAMPS_DOCUMENT_ELEMENT, "xmlns")
+    ]
+
+    assert len(fixed) == 1, (
+        "the schema fixes its document element's namespace at exactly one value, and the frozen "
+        f"table records {len(fixed)}"
+    )
+
+    declared = "/".join(fixed[0])
+
+    assert _GRAMPS_XML_NAMESPACE in declared, (
+        "the namespace the gate reads is the default the schema fixes, and the two have parted "
+        f"company: the table declares {len(declared)} characters that do not contain it"
+    )
+
+    assert _names_the_gramps_format(declared), (
+        "and a document carrying that value names the format, or the binding above is a fact "
+        "about a string nothing reads"
     )
 
 
