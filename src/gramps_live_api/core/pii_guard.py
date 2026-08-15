@@ -43,7 +43,7 @@ import re
 import subprocess
 import sys
 import unicodedata
-from collections.abc import Iterable, Iterator, Mapping, MutableMapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import cast
@@ -1424,12 +1424,15 @@ _XML_EQ = _XML_S + "*=" + _XML_S + "*"
 r"""``Eq ::= S? '=' S?`` -- the equals sign and what may surround it."""
 
 
-def _att_value(containing: str = "") -> str:
-    r"""``AttValue``, optionally required to CONTAIN ``containing``.
+def _att_value_of(build: Callable[[str], str]) -> str:
+    r"""``AttValue`` whose CONTENT is built by ``build`` from the value-body class.
 
     Either quoting, because the production admits either and a rule that reads
     only ``"…"`` refuses half of well-formed XML -- the same hole the
-    derivation script's own ``AttValue`` was repaired for.
+    derivation script's own ``AttValue`` was repaired for. The two quote
+    spellings are stated once here, and ``build`` is handed the body class that
+    goes with whichever quote is being written, so a caller cannot get the two
+    out of step.
 
     ⚠️ **The body admits ``&``, which the production admits only as the start of
     a ``Reference``.** That is a deliberate widening of one character, and it
@@ -1439,15 +1442,28 @@ def _att_value(containing: str = "") -> str:
     `AttValue`, so a `_decoded` that folds them closes that evasion here with no
     change to this production.
 
-    ``containing`` is a regex fragment, not a literal: the one caller passes
-    ``re.escape`` of the frozen namespace, which is also why the value never
-    appears contiguously in this file's compiled patterns.
+    ⚠️ **This exists because "contains" and "is" are different questions.** The
+    older helper below could only say *the value holds this somewhere*, which is
+    a bare substring test wearing an `AttValue`'s quotes -- and that is exactly
+    how a URI naming a DIFFERENT namespace came to name this one. A caller that
+    needs to constrain the WHOLE value builds it here instead.
     """
     alternatives = []
     for quote in ('"', "'"):
-        body = "[^<" + quote + "]*"
-        alternatives.append(quote + (body + containing + body if containing else body) + quote)
+        alternatives.append(quote + build("[^<" + quote + "]*") + quote)
     return "(?:" + "|".join(alternatives) + ")"
+
+
+def _att_value(containing: str = "") -> str:
+    r"""``AttValue``, optionally required to CONTAIN ``containing``.
+
+    Unchanged in behaviour and re-expressed through ``_att_value_of``: the body
+    class, either quoting and the ``&`` widening are all that helper's now, and
+    "somewhere inside the value" is spelled here as body-fragment-body.
+
+    ``containing`` is a regex fragment, not a literal.
+    """
+    return _att_value_of(lambda body: (body + containing + body) if containing else body)
 
 
 _XML_ATTRIBUTE = _XML_S + "+" + _XML_NAME_PREFIX + _XML_NCNAME + _XML_EQ + _att_value()
@@ -2383,7 +2399,7 @@ _GRAMPS_XML_NAMESPACE = "gramps-project" + ".org" + _SEPARATOR + "xml"
 #                              `FIXED_ATTRIBUTE_DEFAULTS`
 #
 # ⚠️ **SHAPE AND VALUE, TOGETHER, IN ONE CONDITION. THE GATE HAS BEEN WRONG
-# TWICE ON THIS ONE AXIS AND EACH TIME IT HELD EXACTLY ONE OF THE TWO HALVES.**
+# THREE TIMES ON THIS ONE AXIS AND EACH TIME IT HELD LESS THAN BOTH HALVES.**
 #
 #   * **Shape without value.** The gate read a doctype whose `Name` was the
 #     document element, and that element carrying an `xmlns` attribute at all.
@@ -2395,11 +2411,29 @@ _GRAMPS_XML_NAMESPACE = "gramps-project" + ".org" + _SEPARATOR + "xml"
 #     over the decoded text was left. A PROSE SENTENCE naming the namespace --
 #     an import note, a changelog entry, this project's own documents -- beside
 #     four generic `<type>` elements then scored 6 and was reported.
+#   * **Value in the right shape and the wrong PLACE inside it.** The shape was
+#     transcribed and the VALUE was still read as a substring, now of the
+#     `AttValue` rather than of the file. So `xmlns="urn:not-gramps:…"` --
+#     a declaration naming a different namespace that happens to contain this
+#     one -- was read as Gramps. **A substring test is a substring test however
+#     deeply it is nested**, and this is what `_GRAMPS_NAMESPACE_VALUE` closes.
 #
-# Each half was rejected only for lacking the other, so the marker below
-# requires both **at one position**: the schema-fixed value as the value of an
-# `xmlns` attribute reachable from a start tag's name through complete
-# attributes.
+# Each was rejected only for lacking what the next one added, so the marker
+# below requires all of it **at one position**: the schema-fixed value, as the
+# WHOLE value of an `xmlns` attribute, reachable from a start tag's name through
+# complete attributes.
+#
+# **What is transcribed here, and what each transcription bought:**
+#
+#   `S`        XML 1.0 §2.3  -- U+00A0 in the separator was a declaration
+#   `NCName`   Namespaces §3 -- a combining-mark alias was invisible
+#   `STag`, `Attribute`, `Eq`, `AttValue`
+#              XML 1.0 §3.1  -- the namespace inside ANOTHER attribute's value
+#   `scheme`   RFC 3986 §3.1 -- `urn:not-gramps:…` was read as this namespace
+#
+# Every one of them replaced a Python shorthand, every one was reported as a
+# bypass first, and `test_no_pattern_reading_an_xml_production_uses_a_python_shorthand`
+# is what stops the list needing a sixth entry.
 #
 # ⚠️ **AND THAT IS ONE COMPILED PATTERN, NOT A COMPOSITION.** An `or` over two
 # results is the defect above wearing a conjunction. An `and` is wrong too, and
@@ -2516,13 +2550,62 @@ and fixing the two that were reported would have left it open. It reads
 can drift back.
 """
 
+_URI_SCHEME = "[A-Za-z][A-Za-z0-9+.\\-]*"
+r"""``scheme ::= ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`` -- RFC 3986 §3.1.
+
+Transcribed, on the grounds every production in this module is: it is closed,
+externally specified, and it does not grow.
+"""
+
+_URI_BEFORE_THE_HOST = "(?:(?:" + _URI_SCHEME + ":)?" + _SEPARATOR * 2 + ")?"
+r"""What may precede a namespace URI's host: an optional ``scheme://``, or ``//``.
+
+⚠️ **Optional as a WHOLE, which is what admits the scheme-less spelling** -- the
+schema's own value has a scheme, an export may write the bare base, and both
+name the format. What it refuses is the shape the reproduction used: a scheme
+followed by anything other than ``//``. ``urn:not-gramps:…`` cannot reach the
+base through this, and neither can a host that merely ends with it.
+"""
+
+_GRAMPS_NAMESPACE_VALUE = _att_value_of(
+    lambda body: (
+        _URI_BEFORE_THE_HOST + re.escape(_GRAMPS_XML_NAMESPACE) + "(?:" + _SEPARATOR + body + ")?"
+    )
+)
+r"""An ``AttValue`` that IS the Gramps namespace, rather than one containing it.
+
+⚠️ **THE VALUE OCCUPIES THE WHOLE ``AttValue``, and that is the repair.** This
+used to be ``_att_value(re.escape(_GRAMPS_XML_NAMESPACE))`` -- body, namespace,
+body -- which is a **bare substring test wearing an ``AttValue``'s quotes.** So
+``xmlns="urn:not-gramps:…gramps-project.org/xml"`` declared a namespace that is
+explicitly not this one, and the gate read it as Gramps: a document that has
+named ANOTHER format re-enabled some eighty derived rows.
+
+That is the third turn of one defect. Round 3 found shape without value; round
+4 found value without shape; this is the value in the right shape and in the
+wrong PLACE inside it. **A substring test is a substring test however deeply it
+is nested.**
+
+⚠️ **What is anchored is where the base may SIT, and NO VERSION IS PINNED.**
+`_GRAMPS_XML_NAMESPACE` is untouched and still stops short of the version
+segment, so an export written against a schema revision this project has never
+seen still names the format -- the property that constant's own docstring
+records, and the one this change could have closed by accident. The tail is
+`(?:/ rest)?`: present, and free.
+
+Accepted: the bare base, any version segment after a ``/``, with a scheme, with
+``//`` alone, and either quoting. Refused: another scheme with no ``//``, the
+base sitting in another host's PATH, a host that merely ends with the base, a
+host or a path segment that merely begins with it.
+"""
+
 _NAMES_THE_GRAMPS_FORMAT = re.compile(
     "<"  # STag
     + _XML_NAME_PREFIX
     + _XML_NCNAME  # ...its Name
     + _XML_ATTRIBUTE_SEQUENCE  # ...(S Attribute)*
     + _XMLNS_DECLARATION  # ...then the declaration
-    + _att_value(re.escape(_GRAMPS_XML_NAMESPACE))  # ...whose value carries the namespace
+    + _GRAMPS_NAMESPACE_VALUE  # ...whose value IS the namespace
 )
 r"""The one marker: the schema-fixed namespace, declared, in attribute position.
 
