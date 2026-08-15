@@ -337,6 +337,10 @@ FACT_ASSERTING: Mapping[str, str] = MappingProxyType(
             "a parent-child relationship is the fact this project exists to get right, and "
             "one asserted on nobody's authority is the failure mode it exists to avoid"
         ),
+        "link_spouse_to_family": (
+            "a spousal relationship is a claim about two people that a record attests, "
+            "exactly as the parent-child link is"
+        ),
     }
 )
 """Operations that assert a genealogical fact, each with why it asserts one.
@@ -666,6 +670,26 @@ class LinkChildToFamily(Operation):
             _own("record "),
             *_named(self.child, "child"),
             _own(" as a child in "),
+            *_named(self.family, "family"),
+            _own(", on the evidence of "),
+            *_named(self.citation, "citation"),
+        )
+
+
+@_register("link_spouse_to_family", citation_field="citation")
+@dataclass(frozen=True, slots=True)
+class LinkSpouseToFamily(Operation):
+    """A person recorded as a spouse in a family, on a record's authority."""
+
+    spouse: ObjectRef | None = field(default=None, metadata={_EXPECTS: OBJECT_TYPE_PERSON})
+    family: ObjectRef | None = field(default=None, metadata={_EXPECTS: OBJECT_TYPE_FAMILY})
+    citation: ObjectRef | None = field(default=None, metadata={_EXPECTS: OBJECT_TYPE_CITATION})
+
+    def render(self) -> tuple[Fragment, ...]:
+        return (
+            _own("record "),
+            *_named(self.spouse, "spouse"),
+            _own(" as a spouse in "),
             *_named(self.family, "family"),
             _own(", on the evidence of "),
             *_named(self.citation, "citation"),

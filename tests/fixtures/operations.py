@@ -43,6 +43,7 @@ from gramps_live_api.core.schema import (
     AddPerson,
     AddPlace,
     LinkChildToFamily,
+    LinkSpouseToFamily,
     ObjectRef,
     Operation,
     UpdateName,
@@ -77,6 +78,11 @@ EXAMPLES: Mapping[str, Operation] = MappingProxyType(
             child=ObjectRef(object_type="person", handle="5e908c31d7b246", gramps_id="I0104"),
             family=ObjectRef(object_type="family", handle="a72f4be015c893", gramps_id="F0019"),
             citation=ObjectRef(object_type="citation", handle="1d84cf60a29e75", gramps_id="C0077"),
+        ),
+        "link_spouse_to_family": LinkSpouseToFamily(
+            spouse=ObjectRef(object_type="person", handle="f309a6b8214ce7", gramps_id="I0117"),
+            family=ObjectRef(object_type="family", handle="a72f4be015c893", gramps_id="F0019"),
+            citation=ObjectRef(object_type="citation", handle="6b1e70d94af238", gramps_id="C0081"),
         ),
     }
 )
