@@ -81,8 +81,8 @@ note in this directory. Every row of that table has a weight and a test, which i
 reached; the previous formulation, *every place where a container can hold prose or an identity
 field*, was quantified over a format and could not be shown to have been satisfied.
 
-`tests/unit/test_pii_guard_p2_genealogy.py` -- **98 tests**. ⚠️ **That is the FILE's count and not
-this criterion's**; see the warning below, which is now on its sixth reason. The crux of each
+`tests/unit/test_pii_guard_p2_genealogy.py` -- **103 tests**. ⚠️ **That is the FILE's count and not
+this criterion's**; see the warning below, which is now on its seventh reason. The crux of each
 mechanism:
 
 | Mechanism | Named by |
@@ -100,7 +100,7 @@ The two formats are held to one vocabulary by
 `test_one_life_is_judged_the_same_in_both_formats`.
 
 ⚠️ **That count is the FILE's, and it is not the number of tests carrying B2. It moves for
-reasons this criterion is not about, and it has now moved for six.** Twelve of them
+reasons this criterion is not about, and it has now moved for seven.** Twelve of them
 arrived with #4 item 4, which taught the compiled patterns that read an element name to read
 a namespace-prefixed tag: **nine** with the two commits that shared one alternation between the four
 sites it then had, and **three** more with the commit that replaced the prefix's character class with
@@ -194,6 +194,32 @@ property used to hold by a substring test's blindness to prefixes and now holds 
 element patterns and the declaration share. All three arrived in this branch's own repairs, so
 rewriting them is a fix rather than the modification of a pre-existing test.
 
+**Five more arrived with the TRANSCRIPTION AUDIT** — the round that stopped repairing one Python
+shorthand at a time and enumerated every place the guard approximates an XML production. Three
+findings were reproduced: a declared URI that merely *contains* the namespace (`urn:not-gramps:…`),
+a non-breaking space where XML's `S` admits four characters, and `<type-extra id="x"/>` scored as
+`<type>` because `\b` is not an XML name boundary. All three are one defect, and the audit found
+five more sites of it that nobody had reported. **Only one of the five tests carries B2:**
+
+| The five | What they are |
+| --- | --- |
+| `test_a_container_whose_name_merely_begins_with_svg_is_not_a_drawing` | **one**, and B2 evidence in the ordinary way — this is the only one of the five whose claim is that the guard *must* report. `<svg-chart …>` opened the drawing exemption, so a name, a date of birth and a place wrapped between it and a later `</svg>` were suppressed entirely. A live fail-open closed, in the direction this criterion is about |
+| `test_a_uri_that_merely_contains_the_namespace_does_not_name_the_format`, `test_xml_separates_attributes_with_the_four_characters_the_production_names`, and `test_a_vocabulary_spelling_is_not_the_prefix_of_a_longer_name` | **three**, constraining what the guard must *not* report — **B8's concern rather than this one**, exactly as the six reproductions above them are. Each carries its own positive control in the same test, because a negative half alone is satisfied by a guard that reports nothing: a genuine declaration in seven URI spellings, a separator written with each of the four characters XML names, and every weighted vocabulary row still scoring written as itself |
+| `test_no_pattern_reading_an_xml_production_uses_a_python_shorthand` | **one**, asserting a property of the compiled patterns rather than what a scan returns. It carries no criterion on its own — and it is the round's deliverable. Every compiled pattern the module holds is walked off the module and needs a row naming the shorthands it may hold and why, so a pattern added later with an unlicensed shorthand fails, and so does a row whose recorded reason is deleted |
+
+⚠️ **No pre-existing test in this file was modified by that round, and that is measured rather than
+claimed:** `git diff 5745d05` removes exactly **one line** from this file, the body of the
+`_alternatives_of` **helper**, which read the tail of `_qualified`'s output as its alternation and
+now strips the emitted `_XML_NAME_END` first — by the guard's own constant, not by a suffix written
+in the test. Every other hunk is an insertion. The helper's caller,
+`test_the_alternation_never_lets_a_shorter_spelling_shadow_a_longer_one`, keeps its body and its
+claim.
+
+⚠️ **`test_every_pattern_that_scores_an_element_is_built_from_the_one_alternation` got stronger with
+nothing added to it**, which is the point of putting the name's end inside `_qualified()`. It
+asserts that fragment appears verbatim in each of the three scoring patterns; the fragment now ends
+with the transcribed name end, so the same assertion says all three end their names correctly.
+
 ⚠️ **A separate file arrived with the same change and is counted nowhere above.**
 `tests/unit/test_derive_specified_containers.py` -- **9 tests** -- asserts the derivation script's
 own properties. It carries no criterion here: it is about a build step's fail-closed guarantee, not
@@ -207,6 +233,11 @@ are about a build step, so neither moves anything this document claims.
 ⚠️ **The anchoring round did NOT move that 9, and it was re-collected rather than assumed** --
 `pytest --collect-only` reports nine on the head that carries this sentence. The round touched no
 build step, which is the reason to expect it, and expecting it is not the same as checking.
+
+⚠️ **Nor did the transcription audit, re-collected the same way on the head that carries THIS
+sentence.** That round touched no build step either -- `git diff --exit-code` over both
+`scripts/derive_specified_containers.py` and the table it emits returns 0 against `5745d05` -- and
+the reason to expect a number is still not a reading of it.
 
 ⚠️ **The count was UNCHANGED by the fourth site's deletion, and that is a coincidence rather
 than evidence nothing happened.** That change removed the test asserting a mismatched-prefix pair is
@@ -222,7 +253,14 @@ which is the cheapest place; what #36 owes is the mechanism that makes a stale o
 read as considered. The sixth change to touch this file looked for this number **before** adding a
 test to it rather than after, which is the cheap half of that repair available today; so did the
 seventh, for **both** counts on this page, and so did the eighth -- the marker anchoring, which
-moved the file's count from 95 to **98** and left the derivation file's at **9**.
+moved the file's count from 95 to **98** and left the derivation file's at **9**. So did the
+**ninth**, the transcription audit, which moved it from 98 to **103** and again left the derivation
+file's at **9**: it grepped this page for both numbers before writing a single test, which is the
+order that makes the staleness impossible rather than merely noticed.
+
+⚠️ **The ninth also says why the cheap half is not the whole repair, and #36 still owes the rest.**
+Looking the number up first works only for somebody who knows a documented count exists. It is the
+`grep` that has to happen, not the intention -- and nothing in the repository fails if it does not.
 
 ⚠️ **And a documented MEASUREMENT went stale the same way, which is the same defect wearing different
 clothes.** CONTRIBUTING's control table -- the retained side of the marker gate -- recorded

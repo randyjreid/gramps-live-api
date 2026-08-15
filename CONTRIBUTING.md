@@ -879,6 +879,176 @@ the marker gate's own pair was 2.83 s and 33.40 s, and the deletion round's 1.97
 pair is internally comparable and no two pairs are comparable with each other. The bound is a ratio
 for that reason.
 
+### Recorded decision: every XML production is transcribed, and a test keeps the set closed
+
+**Five review rounds on `pii_guard` found the same defect five times: a Python shorthand standing in
+for an XML production.** `\s` for `S`, `\b` for the end of a `Name`, `\w` for `NameChar`, a bare
+substring for a URI. Each was repaired where it was reported, and the next round found the next one.
+
+**The round that closed it did not repair three more sites; it enumerated all of them and adopted a
+rule that decides each one, then made a test hold the rule.** The rule:
+
+> **Transcribe an approximation whose looseness ADDS structure the document does not have** — a
+> marker firing, an exemption applying, a name ending where XML says it does not. **Leave, with a
+> recorded reason, an approximation whose looseness only makes the guard read more content as data.**
+
+That is the module's own scorer-versus-exemption line one level down, and it is decidable **per
+pattern** rather than per input, which is why the set closes at twenty rows: **nine transcribed,
+seven left with reasons, two deleted or reached deliberately, and two decided in the plan.**
+
+⚠️ **THE AUDIT IS PROSE AND PROSE DOES NOT FAIL WHEN SOMEBODY ADDS PATTERN TWENTY-ONE.**
+`test_no_pattern_reading_an_xml_production_uses_a_python_shorthand` is what keeps the set closed.
+Every compiled pattern the module holds is **walked off the module** — a listed enumeration would be
+the same defect pointed backwards — and each needs a row naming the shorthands it may hold **and the
+reason**. The rows for the GEDCOM, JSON and path patterns are the point rather than filler: *"this
+one reads no XML production"* is exactly the sentence whose absence is indistinguishable from nobody
+having looked.
+
+**Its non-vacuity is demonstrated rather than asserted.** Four mutations were applied to the real
+files, each restored in a `finally`, and the test caught all four: a new pattern nobody weighed, the
+marker's `S` widened back to `\s`, the drawing's name end dropped back to `\b`, and a licence row's
+recorded reason deleted. The tree was verified clean afterwards.
+
+**What was transcribed, and what each one bought:**
+
+| Production | Source | The input it was losing |
+| --- | --- | --- |
+| `S` | XML 1.0 §2.3 | `<wrapper` + U+00A0 + `xmlns="…">` read as a declaration — at **three** constants, the third of which no reviewer named |
+| end of `Name` | Namespaces §3 | `<type-extra id="x"/>` scored as `<type>`, and `<type:extra>` scored as its own prefix |
+| `scheme` | RFC 3986 §3.1 | `xmlns="urn:not-gramps:…"` read as this namespace |
+| `S` and end of `Name`, in `_DRAWING` | as above | `<svg-chart …>` opening the exemption — **a live fail-open** |
+
+**Left standing, with reasons** — the seven rows are in the licence table itself, and the two worth
+repeating here are `_GRAMPS_FILLED_ELEMENT`'s ETag `</\1\s*>` and `_GRAMPS_ATTRIBUTED_ELEMENT`'s
+`[^>]*?\w+\s*=\s*["']`. Both are loose, both sit in a **scorer**, and there a loose reading is one
+more finding rather than one fewer. The second is visibly the `<[^<>]*xmlns=` shape the marker block
+condemns; it is recorded rather than repaired, so a sixth round finds it dispositioned instead of
+reporting it again.
+
+**`_XML_PROLOG` was deleted rather than transcribed.** Two shorthands, no reader anywhere in the
+repository. Machinery nobody reads is a candidate for deletion, not for hardening.
+
+#### Both directions, measured
+
+Every figure below is from a **Windows 11 Pro 10.0.26100 development machine, CPython 3.12.13 via
+`.venv\Scripts\python.exe`**, against the pre-change head **`5745d05`**.
+
+**(a) What the transcription removes — the direction this change is for.**
+
+| Payload | Before | After |
+| --- | --- | --- |
+| `<wrapper xmlns="urn:not-gramps:…base…">` + four filled `<type>` | 6 — **reported**, marker `True` | 2, below the threshold |
+| `<wrapper` + U+00A0 + `xmlns="…/1.7.2/">` + four filled `<type>` | 6 — **reported**, marker `True` | 2, below the threshold |
+| a real declaration + four `<type-extra id="x"/>` | 6 — **reported** | 2, below the threshold |
+| every vocabulary row suffixed by a `NameChar`, filled and attributed | **103 of 110 rows scored**, under each of 8 suffixes, in both shapes | **0** |
+| a start tag separated by a character Python calls whitespace and XML does not | 26 characters × 5 positions named the format | **0** |
+| `<svg-chart>` + a name, a date of birth and a place + `</svg>` | 0 — **suppressed** | 6 — **reported** |
+
+⚠️ **All three reproductions still score 2, and that 2 is `#51`.** It is
+`_GRAMPS_NAMESPACE_WEIGHT`, charged for the namespace appearing as a bare substring anywhere in the
+text, and this round does not touch it. Demonstrated rather than reasoned: replacing the namespace
+in each reproduction takes the raw score from 2 to **0**. Against a threshold of 4 all three close —
+**but a fix to `#51` will move these numbers**, and whoever takes it should find that written here.
+
+**(b) The retained side — the control, and the half that breaks silently.**
+
+⚠️ **The transcriptions TIGHTEN every matcher, so they can remove findings.** Both directions:
+
+| Payload | Before | After |
+| --- | --- | --- |
+| every vocabulary row written as ITSELF, filled and attributed | 103 of 110 scored | **103**, unchanged |
+| a genuine declaration + a researcher block, unprefixed double-quoted | 8 — reported | 8 |
+| the same, single-quoted | 8 | 8 |
+| `xmlns:g="…"` on `<g:…>` | 8 | 8 |
+| `xmlns:x="…"` where `x` is `a` + COMBINING ACUTE ACCENT | 8 | 8 |
+| a start tag truncated before its `>` | 8 | 8 |
+| the namespace fragment fixture, and a whole export | 4 and 8 | 4 and 8 |
+| an ordinary drawing's labels | 0, exempt | **0, exempt** |
+| a prefixed drawing's labels | 4 — reported | 4 — reported |
+| an alias bound to something that is not SVG | 6 — reported | 6 — reported |
+| prose mention · unrelated namespace · unrelated doctype · the namespace inside another attribute's value | 0 · 0 · 0 · 0 | 0 · 0 · 0 · 0 |
+| researcher and events blocks, unmarked / beside a mention / under a declaration | 0 / 0 / 8 and 6 | unchanged |
+
+The last two rows are the previous rounds' residuals, re-walked rather than carried forward.
+
+**(c) The scope extension, reported rather than slipped in.** Putting the name's end inside
+`_qualified()` reaches `_GENEALOGY_TEXT_SIGNATURES`' database signature, which was otherwise out of
+that round's scope. **The effect on genuine input is nil, measured:**
+
+| Probe | Before | After |
+| --- | --- | --- |
+| `<database xmlns="…gramps…">` | signature, P2 | signature, P2 |
+| `<g:database xmlns:g="…">` | signature, P2 | signature, P2 |
+| the same with a newline after the name | signature, P2 | signature, P2 |
+| `<database-x …>`, `<database.new …>`, `<database:extra …>`, `<database` + U+0301 | signature, P2 | **no signature, no finding** |
+
+**Residual:** a one-line fragment whose element name merely *begins* with `database`, declaring the
+namespace and carrying no genealogy content, is no longer a finding on its own. It is not an element
+called `database`, so this is an over-report removed rather than data escaping — and a document with
+actual content still scores through the marker and the rows.
+
+**(d) B8's two rows, walked and not inferred from each other.**
+
+| Row | Result |
+| --- | --- |
+| tip — `python -m gramps_live_api.core.pii_guard .` | 0 findings over 45 tracked entries |
+| published range — `--range HEAD` | 0 findings over 117 commits, 222 entries scanned |
+| `test_every_commit_this_repository_publishes_is_clean` and `test_this_repository_is_clean` | both **ran**, both passed |
+
+The verdict is what must not move and did not; the counts grow with the history and did, 105 → 117
+commits and 206 → 222 entries.
+
+**(e) ⚠️ The code's own constants, under every spelling the code treats as equivalent** — re-walked
+with the CODE and the CORPUS chosen separately, because this round's new patterns and their
+docstrings are themselves new text in a tracked file. Nineteen namespace spellings, the same
+construction as before: six separator spellings crossed with four casings, deduplicated.
+
+| What the sweep found | Before (`5745d05`) | After |
+| --- | --- | --- |
+| the namespace, in any of **19** spellings, in any tracked file | none | **none** |
+| tracked files the gate reads as naming the format | none | **none** |
+| filled vocabulary elements | one — `<title>` in `test_pii_guard_p1_paths.py` | **two** — see below |
+| attributed vocabulary elements | ten | **thirteen** — see below |
+| highest un-thresholded score of any tracked file | **0**, against a threshold of 4 | **0** |
+
+⚠️ **THIS SWEEP CAUGHT A REGRESSION THIS ROUND HAD ALREADY COMMITTED, and no gate did.** A docstring
+explaining why the substring reading was wrong wrote the reproduction out verbatim, putting the
+namespace **contiguously into a tracked file for the first time in this repository's history**. It
+was not a finding — a bare mention scores 2 against a threshold of 4 — so `pytest`, `ruff`, `mypy`
+and the guard itself were all green. What it did was take **this repository's own headroom from 0 to
+2**, which is the margin this row exists to measure and which no test asserts. Fixed in `feeff36`,
+and recorded here because a measurement that only ever confirms what was expected is not being run
+for a reason.
+
+**The rows that moved are the sweep reading this round's own explanatory text**, and four of the
+five are in *this section*. The filled count gains a `<type>` mention inside a docstring about
+`<type-extra>`; the attributed count gains a `<type …>` beside it and the two `<database …>` probes
+in the scope-extension table above. Every one is a gated derived row in a file that names the format
+nowhere, so every one is worth **nothing** — which is what the un-thresholded row says, and why that
+row rather than the counts is the one to read.
+
+⚠️ **The count moved once WHILE THIS SECTION WAS BEING WRITTEN, and that is the recursion rather
+than a mistake:** the sweep reads the committed corpus, so a table describing the sweep changes what
+the sweep finds. It was re-walked with the documentation staged, which is the only order that gives
+a number describing the tree the reader will have. **An unstaged fix reads as no fix at all** — the
+sweep reads what `git` holds, not the working tree, and that cost a confused minute during the
+regression above.
+
+**(f) Criterion 13 — the 2× wall-clock bound.** Best of three, both code versions over the **same**
+corpus (this repository at the current head), each run's loaded module path printed and read before
+its figure was believed:
+
+| | Before (`5745d05`) | After | Ratio |
+| --- | --- | --- | --- |
+| tip scan, 45 entries | 1.95 s | 2.19 s | **1.12×** |
+| published-range walk, 117 commits / 222 entries | 20.80 s | 20.62 s | **0.99×** |
+| path scan over `src` and `tests` | 0.43 s | 0.42 s | **0.98×** |
+
+⚠️ **Read the ratios, not the seconds**, for the reason recorded above this section. The tip scan is
+the one that moved, and it is the expected direction: the marker's value fragment grew from a
+substring to a URI, and four character classes replaced four one-character shorthands. 1.12× against
+a bound of 2×.
+
 ### Recorded decision: serialized text versus the logical value
 
 **The prose floor counts characters of MEANING, not characters of source, and it does so in both
