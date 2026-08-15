@@ -896,6 +896,10 @@ That is the module's own scorer-versus-exemption line one level down, and it is 
 pattern** rather than per input, which is why the set closes at twenty rows: **nine transcribed,
 seven left with reasons, two deleted or reached deliberately, and two decided in the plan.**
 
+⚠️ **One of the nine has since been RETIRED, so the current split is eight transcribed and three
+deleted-or-retired.** The twenty sites are unchanged; `scheme` moved between two of the columns.
+See the transcription table below and the URI-scheme section after it.
+
 ⚠️ **THE AUDIT IS PROSE AND PROSE DOES NOT FAIL WHEN SOMEBODY ADDS PATTERN TWENTY-ONE.**
 `test_no_pattern_reading_an_xml_production_uses_a_python_shorthand` is what keeps the set closed.
 Every compiled pattern the module holds is **walked off the module** — a listed enumeration would be
@@ -915,8 +919,15 @@ recorded reason deleted. The tree was verified clean afterwards.
 | --- | --- | --- |
 | `S` | XML 1.0 §2.3 | `<wrapper` + U+00A0 + `xmlns="…">` read as a declaration — at **three** constants, the third of which no reviewer named |
 | end of `Name` | Namespaces §3 | `<type-extra id="x"/>` scored as `<type>`, and `<type:extra>` scored as its own prefix |
-| `scheme` | RFC 3986 §3.1 | `xmlns="urn:not-gramps:…"` read as this namespace |
+| `scheme` — ⚠️ **retired, see below** | RFC 3986 §3.1 | `xmlns="urn:not-gramps:…"` read as this namespace |
 | `S` and end of `Name`, in `_DRAWING` | as above | `<svg-chart …>` opening the exemption — **a live fail-open** |
+
+⚠️ **`scheme` was retired one round later, and the property it bought is RE-ATTRIBUTED rather than
+deleted.** Transcribed *faithfully*, RFC 3986's `scheme` admits every syntactically valid scheme —
+so `xmlns="ftp://…base…/1.7.2/"` named this format, which is the reproduction the next section is
+about. The transcription is gone and **`urn:not-gramps:…` is still refused**, now by the tolerance
+table rather than by the production, so this row records where a still-live property came from. A
+document that simply dropped the row would leave the next reader thinking the refusal went with it.
 
 **Left standing, with reasons** — the seven rows are in the licence table itself, and the two worth
 repeating here are `_GRAMPS_FILLED_ELEMENT`'s ETag `</\1\s*>` and `_GRAMPS_ATTRIBUTED_ELEMENT`'s
@@ -1051,6 +1062,201 @@ its figure was believed:
 the one that moved, and it is the expected direction: the marker's value fragment grew from a
 substring to a URI, and four character classes replaced four one-character shorthands. 1.12× against
 a bound of 2×.
+
+### Recorded decision: the namespace value is the fixed value plus a declared tolerance list
+
+**Three rounds each found a new dimension of looseness in ONE check and each closed that dimension
+only:** the namespace anywhere in the text → anchored to attribute position; any URI *containing*
+the base → anchored to the base at a URI boundary; **any scheme whatever** → this section. A URI's
+`scheme` was transcribed from RFC 3986 §3.1, which admits every syntactically valid scheme, so
+`<wrapper xmlns="ftp://…base…/1.7.2/">` beside four filled `<type>` elements named the format and
+produced a P2. *Namespaces in XML* compares namespace names by **exact string match**, so that
+document has declared a different namespace however similar its authority and path.
+
+**That sequence is the signature of a rule built permissively and narrowed by findings**, and the
+question this round had to answer was whether to close the third dimension or the construction. Two
+answers were costed:
+
+| | **(a)** constrain the scheme | **(b)** invert the construction |
+| --- | --- | --- |
+| source | replace `_URI_SCHEME`'s reader with a two-spelling alternation derived from the frozen value | the same alternation, emitted from a tolerance table carrying a reason per row |
+| tests | 1 — the scheme sweep, both directions | +2 — the table is closed, reasoned and non-vacuous; the scheme binding strengthened |
+| compiled result | **identical regex** | **identical regex** |
+| what is left over | an alternation somebody wrote | a list a test holds closed |
+
+⭐ **(a) AND (b) COMPILE TO THE SAME REGEX, and that is the honest core of the trade.** After (a)
+there is no loose element left in the prefix either — every part is a fixed literal or an explicitly
+optional one — so *"a fourth dimension can appear"* is a weaker argument here than it sounds, and it
+is not why (b) was chosen.
+
+**The real argument is that this module has already run the experiment, on a different constant.**
+Five rounds repaired one Python shorthand at a time and what closed the set was
+`_XML_SHORTHAND_LICENCE` — a row per pattern, a reason per row, walked off the module so the next
+entry has to pass a rule rather than be noticed. **Same shape, already proven in this repository**,
+rather than borrowed by analogy from the transcription audit. What (b) buys is **the artifact, not
+the pattern**: a tolerance somebody has to justify in writing, held closed by a test that objects to
+a blank reason and to a row that has stopped earning its place.
+
+**The argument against it, recorded rather than skipped.** The table is itself new machinery, and
+the diminishing-returns rule warns that machinery added in response to a finding is the next round's
+surface. Its mitigations are deliberate: five rows of **plain data** feeding the **one compiled
+pattern that already existed** — no second reader and no second pattern — and **(a) is a strict
+simplification of (b)**, so if a later round finds against the table the candidate action is
+deletion back to (a) rather than more hardening, and that retreat costs one commit. Writing that
+down is what makes the choice reversible rather than merely defended.
+
+**The ordering is load-bearing:** the value is *equality with the reassembled `#FIXED` value, **then**
+these five declared relaxations* — not a pattern widened until the known spellings fit. Equality with
+the whole fixed value would pin `1.7.2`; the version tail is the first relaxation, which is exactly
+why equality alone is not what is written.
+
+| position | fragment | why it is tolerated |
+| --- | --- | --- |
+| prefix | the fixed scheme, `:`, `//` | the `#FIXED` value's own spelling — the only one the specification's exact-match rule endorses, and bound to `FIXED_ATTRIBUTE_DEFAULTS`' first piece by test |
+| prefix | the fixed scheme, `s`, `:`, `//` | the same authority over TLS — see the paragraph below |
+| prefix | `//` | protocol-relative: a document may quote the namespace without committing to a transport |
+| prefix | *(empty)* | the bare base, which an export or a quotation may write alone. Already load-bearing and already tested |
+| tail | `/` | what opens the version segment, after which everything is free — **so a later schema revision still names the format** |
+
+⚠️ **`https` is kept, and it is the weakest of the five reasons — flagged here and in the row itself
+rather than buried.** Under exact-string comparison it is as different a namespace as `ftp` is, and
+**it is the one row whose fragment is the fixed scheme plus a hand-written `"s"`**. It stays because
+the marker identifies the format a document is **about** rather than the namespace a parser would
+bind, and because the tolerance fails toward **reporting**, which is the direction this guard may
+fail in. **Dropping it is one table row and one line of `_uris_that_are_the_namespace`**, and that is
+recorded so the owner can take it later at that price.
+
+**`_URI_SCHEME` was deleted rather than hardened.** It lost its only reader, and this module's own
+rule — the one that removed `_XML_PROLOG` — is that machinery nobody reads is a candidate for
+deletion. It is a plain string rather than a compiled pattern, so **no licence row moved**: 29
+patterns walked off the module, 29 rows, confirmed by running the test rather than by reasoning.
+`_GRAMPS_NAMESPACE_VALUE` went with it, for the same reason: `_marker_reading` builds the value it
+used to hold.
+
+#### Both directions, measured
+
+Every figure below is from a **Windows 11 Pro 10.0.26100 development machine, CPython 3.12.13 via
+`.venv\Scripts\python.exe`**, against the pre-change head **`84cb944`**.
+
+**(a) What the tightening removes — the direction this change is for.** Every row is the reproduction
+shape: a declaration on the weightless wrapper, beside four filled `<type>` elements, measured over
+**both quotings and all three aliases** — 6 declarations per row, all six agreeing.
+
+| Declared value | Before | After |
+| --- | --- | --- |
+| `ftp://…base…/1.7.1/` | 6 — **reported**, marker `True` | 2, below the threshold, marker `False` |
+| `gopher://…`, `x-made-up://…`, `javascript://…` | 6 — **reported**, three times | 2, three times |
+| the fixed scheme **UPPER-CASED** — the comparison is exact, and the gate is deliberately case-sensitive | 6 — **reported** | 2 |
+| the fixed scheme with one letter **appended**, and the same letter **prepended** | 6 — **reported**, twice | 2, twice |
+
+⚠️ **The appended-and-prepended pair is the important one**: it is the shape a word boundary got
+wrong two rounds ago on a different constant, where a name that merely *begins* with a spelling was
+read as it. Both are asserted rather than assumed.
+
+⚠️ **Neither is spelled out here, and that is not squeamishness.** The first draft of this row wrote
+the two schemes with their delimiter, and **the guard reported it as a P1 drive-letter path** — one
+letter against a colon and two slashes is exactly that. The test composes each scheme WHOLE before
+the delimiter is joined to it for the same reason, which is a comment the test file already carries
+the hard way.
+
+⚠️ **All seven still score 2, and that 2 is `#51`** — `_GRAMPS_NAMESPACE_WEIGHT`, charged for the base
+appearing as a bare substring anywhere in the text. This round does not touch it. Against a threshold
+of 4 all seven close.
+
+**(b) The retained side — the control, and the half that breaks silently.**
+
+⚠️ **This change TIGHTENS, so it can remove findings.** Both directions:
+
+| Payload | Before | After |
+| --- | --- | --- |
+| the schema's own scheme, and the same over TLS | 6 — reported, 6 | **6, 6** |
+| protocol-relative, the bare base, the bare base with a version | 6, 6, 6 | **6, 6, 6** |
+| a genuine declaration + a researcher block, in all six forms | 8 — reported, six times | **8, six times** |
+| prose mention · unrelated namespace · namespace inside another attribute's value · NBSP before `xmlns` · `<type-extra/>` × 4 | 2 · 0 · 2 · 2 · 2, none reported | unchanged |
+| a URI merely CONTAINING the base, eight spellings | 2, none reported | unchanged |
+| `<svg-chart …>` wrapping a name, a date of birth and a place | 6 — **reported** | 6 — **reported** |
+| an ordinary drawing's labels, and notes inside one | 0, exempt | 0, exempt |
+| a prefixed drawing's labels | 4 — reported | 4 — reported |
+| the namespace fragment fixture, and a whole export | 4 and 8 | 4 and 8 |
+| researcher and events blocks, unmarked / declared | 0 / 8 and 0 / 6 | unchanged |
+| the **29 attested spellings** | identical | **identical** |
+| the licence table: patterns walked off the module / rows | 29 / 29, non-vacuous | **29 / 29**, non-vacuous |
+| container table and derivation script, `git diff --exit-code` against `84cb944` | — | **0** |
+
+**(c) Each tolerance row removed in turn — what it is holding up, measured rather than argued.**
+Seven spellings the gate is required to accept, and this is the table's non-vacuity:
+
+| Row removed | Spellings that stop |
+| --- | --- |
+| the fixed scheme | 1 — the canonical spelling |
+| the same over TLS | 1 |
+| `//` | 1 |
+| the empty prefix | **4** — the bare base and all three version spellings |
+| **the tail** | **6** — every spelling carrying a version segment, of which **three are the version alone** |
+
+⚠️ **The last row is the later-schema-revision property asserted rather than argued.**
+`_GRAMPS_XML_NAMESPACE` is untouched and still stops short of the version segment; what changed is
+that the tolerance is a declared row instead of an emergent property of the pattern, and
+`test_every_namespace_tolerance_is_declared_with_a_reason_and_earns_its_row` fails if removing it
+stops nothing.
+
+**(d) B8's two rows, walked and not inferred from each other.**
+
+| Row | Result |
+| --- | --- |
+| tip — `python -m gramps_live_api.core.pii_guard .` | 0 findings over 45 tracked entries, exit 0 |
+| published range — `--range HEAD` | 0 findings over 124 commits, 230 entries scanned, exit 0 |
+| `test_every_commit_this_repository_publishes_is_clean` and `test_this_repository_is_clean` | both **ran**, both passed, neither skipped |
+
+⚠️ **`0 findings` is the claim; `124` and `230` are the timestamp on it.** Those counts grow with the
+history — 117 → 124 commits and 222 → 230 entries — and the commit carrying this sentence adds
+another, which is why this row is read for its verdict rather than its arithmetic.
+
+**(e) ⚠️ The code's own constants, under every spelling the code treats as equivalent** — re-walked
+with the CODE and the CORPUS chosen separately, because this round's new table and its reasons are
+themselves new text in a tracked file, and **re-walked again with this documentation STAGED**: the
+sweep reads what `git` holds, so an unstaged fix reads as no fix. Nineteen namespace spellings, the
+same construction as before — six separator spellings crossed with four casings, deduplicated.
+
+| What the sweep found | Before (`84cb944`) | After |
+| --- | --- | --- |
+| the namespace, in any of **19** spellings, in any tracked file | none | **none** |
+| tracked files the gate reads as naming the format | none | **none** |
+| filled vocabulary elements | two | **two** |
+| attributed vocabulary elements | thirteen | **thirteen** |
+| highest un-thresholded score of any tracked file | **0**, against a threshold of 4 | **0** |
+
+⚠️ **Nothing moved, and that is worth stating rather than skipping.** The round before this one put
+the namespace contiguously into a docstring and **only this sweep caught it** — no gate did, because
+at 2 against a threshold of 4 it is not a finding. Every new docstring, comment, table row and
+fixture in this round was written under that rule, and this table is what says the rule held. The
+new prose deliberately writes `…base…` where the reproduction wants the value.
+
+⚠️ **This round's own slip was caught by a GATE rather than by this sweep, which is the other half of
+the same lesson.** Table (a) above first spelled the appended and prepended schemes out with their
+delimiter, and the guard reported a **P1 drive-letter path** on the staged documentation — a
+finding, not a headroom measurement, so it failed loudly and was fixed before the commit. The two
+detectors catch different halves: the guard sees a spelling that IS a finding, and this sweep sees a
+spelling that merely eats the margin.
+
+**(f) Criterion 13 — the 2× wall-clock bound.** Best of three, both code versions over the **same**
+corpus (this repository at the current head), each run's loaded module path printed and read before
+its figure was believed — and the before-code was loaded from a detached worktree at `84cb944`, so
+the two runs differ in code and in nothing else.
+
+| | Before (`84cb944`) | After | Ratio |
+| --- | --- | --- | --- |
+| tip scan, 45 entries | 1.86 s | 1.87 s | **1.01×** |
+| published-range walk, 124 commits / 230 entries | 26.00 s | 26.26 s | **1.01×** |
+| path scan over `src` and `tests` | 2.42 s | 2.32 s | **0.96×** |
+
+⚠️ **The tip figure does NOT move past last round's 1.12×.** An alternation of four literals costs no
+more than the RFC character class it replaced, which is the expected direction and is now measured
+rather than assumed. Re-walked in the same session against **`5745d05`** — the head *before* the
+transcription audit, so the pair spans both rounds together — the tip scan is 1.92 s against 1.87 s,
+**0.97×**. That is not a retraction of the 1.12×: **read the ratios, not the seconds**, and no two
+pairs measured in different sessions are comparable with each other, which is exactly why the bound
+is a ratio.
 
 ### Recorded decision: serialized text versus the logical value
 
