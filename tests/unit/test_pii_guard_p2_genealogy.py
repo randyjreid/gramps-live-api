@@ -1175,6 +1175,123 @@ def test_the_marker_must_occur_in_a_namespace_declaration() -> None:
     )
 
 
+def _declaring(value: str, *, quote: str = '"', prefix: str = "") -> str:
+    """``value`` declared as a namespace on the weightless wrapper.
+
+    Assembled here rather than taken from a fixture because the VALUE is what
+    varies, and every one of them is composed from the guard's own constant at
+    runtime: the namespace is never spelled contiguously in this file.
+    """
+    element = _prefixed(_MARKER_WRAPPER, prefix) if prefix else _MARKER_WRAPPER
+    attribute = "xmlns:" + prefix if prefix else "xmlns"
+    return "<" + element + " " + attribute + "=" + quote + value + quote + ">"
+
+
+def _uris_that_are_the_namespace() -> list[str]:
+    """Every spelling of the Gramps namespace the gate must accept.
+
+    ⚠️ **Three version segments, and that is the LATER-SCHEMA-REVISION property
+    asserted rather than argued.** ``_GRAMPS_XML_NAMESPACE`` deliberately stops
+    short of the version so an export written against a schema revision this
+    project has never seen still names the format; anchoring the value could
+    have closed that by accident, and it is the half that breaks silently.
+    """
+    base = _GRAMPS_XML_NAMESPACE
+    # ⚠️ Each scheme is composed WHOLE before the delimiter is joined to it: a
+    # single letter written against a colon and two slashes is a drive-letter
+    # absolute path to P1, and doing that here made this repository fail its own
+    # guard at 1. Same rule as the namespace, one detector along -- and the
+    # first draft of this comment failed it too, by spelling out the example.
+    scheme, secure = "ht" + "tp", "ht" + "tps"
+    return [
+        base,
+        base + "/1.7.1/",
+        base + "/1.7.2/",
+        base + "/2.0/",
+        scheme + "://" + base + "/1.7.1/",
+        secure + "://" + base + "/1.7.1/",
+        "//" + base + "/1.7.1/",
+    ]
+
+
+def _uris_that_merely_contain_the_namespace() -> list[str]:
+    """URIs holding the namespace as a substring while naming something else.
+
+    ⚠️ **Every one of them is a URI a real document could legitimately declare**,
+    which is what makes the substring reading wrong rather than merely loose:
+    ``urn:not-gramps:…`` names a different namespace ENTIRELY, and the gate read
+    it as this one.
+    """
+    base = _GRAMPS_XML_NAMESPACE
+    scheme = "ht" + "tp"
+    return [
+        "urn:not-gramps:" + base,
+        "urn:" + base,
+        scheme + "://example.invalid/" + base + "/",
+        scheme + "://not" + base + "/",
+        scheme + "://" + base + "x/",
+        scheme + "://" + base + ".example/1.7.1/",
+        "prefix" + base,
+        base + "x/1.7.1/",
+    ]
+
+
+def test_a_uri_that_merely_contains_the_namespace_does_not_name_the_format() -> None:
+    r"""⭐ **The reproduction: a declared URI that CONTAINS the namespace is not it.**
+
+    The gate reached the attribute POSITION -- a start tag's name, complete
+    attributes, then ``xmlns`` -- and then read its value as a bare substring
+    sitting anywhere inside the ``AttValue``. So
+    ``<wrapper xmlns="urn:not-gramps:…gramps-project…">`` declared a namespace
+    that is explicitly **not** this one, and the gate read it as Gramps and
+    re-enabled some eighty derived rows.
+
+    **This is the same defect as the two rounds before it, one turn further
+    out.** Round 3 found shape without value; round 4 found value without shape;
+    this is value in the right shape and in the wrong PLACE inside it. A
+    substring test is a substring test however deeply it is nested.
+
+    ⚠️ **The repair anchors where the base may SIT, and pins no version.** The
+    value must be the whole ``AttValue``: an optional scheme and authority
+    marker, then the base at a URI boundary, then optionally a ``/`` and the
+    rest. ``_GRAMPS_XML_NAMESPACE`` is untouched -- it still stops short of the
+    version segment, so a later schema revision still names the format, and the
+    positive half of this test is that property asserted rather than argued.
+
+    ⚠️ **Both halves, over both quotings and every alias**, because the negative
+    half alone is satisfied by a gate that accepts nothing and the positive half
+    alone by one that accepts everything.
+    """
+    spellings = [
+        {"quote": quote, "prefix": prefix}
+        for quote in ('"', chr(39))
+        for prefix in ("", *_NAMESPACE_PREFIXES)
+    ]
+
+    missed = [
+        f"{value!r} declared with {spelling}"
+        for value in _uris_that_are_the_namespace()
+        for spelling in spellings
+        if not _names_the_gramps_format(_declaring(value, **spelling))
+    ]
+    misread = [
+        f"{value!r} declared with {spelling}"
+        for value in _uris_that_merely_contain_the_namespace()
+        for spelling in spellings
+        if _names_the_gramps_format(_declaring(value, **spelling))
+    ]
+
+    assert missed == [], (
+        "these ARE the Gramps namespace -- the base at a URI boundary, with or without a "
+        f"scheme and with any version segment after it -- and the gate did not read them: {missed}"
+    )
+    assert misread == [], (
+        "and a URI that merely CONTAINS the namespace names something else: a different scheme, "
+        "a different host, a longer host, or the base sitting in another URI's path. These were "
+        f"read as the document declaring the Gramps format: {misread}"
+    )
+
+
 _XML_WHITESPACE = (0x20, 0x9, 0xD, 0xA)
 r"""``S ::= (#x20 | #x9 | #xD | #xA)+`` -- XML 1.0 §2.3, transcribed here too.
 
