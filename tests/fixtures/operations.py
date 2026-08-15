@@ -42,6 +42,7 @@ from gramps_live_api.core.schema import (
     AddNote,
     AddPerson,
     AddPlace,
+    LinkChildToFamily,
     ObjectRef,
     Operation,
     UpdateName,
@@ -71,6 +72,11 @@ EXAMPLES: Mapping[str, Operation] = MappingProxyType(
             given="Tamsin",
             surname="Ashenmoor",
             citation=ObjectRef(object_type="citation", handle="8c25f1b0d7e34a", gramps_id="C0063"),
+        ),
+        "link_child_to_family": LinkChildToFamily(
+            child=ObjectRef(object_type="person", handle="5e908c31d7b246", gramps_id="I0104"),
+            family=ObjectRef(object_type="family", handle="a72f4be015c893", gramps_id="F0019"),
+            citation=ObjectRef(object_type="citation", handle="1d84cf60a29e75", gramps_id="C0077"),
         ),
     }
 )

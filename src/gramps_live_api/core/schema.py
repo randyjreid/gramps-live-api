@@ -333,6 +333,10 @@ FACT_ASSERTING: Mapping[str, str] = MappingProxyType(
             "from a transcription is warranted by the record it was read out of -- a name "
             "variant is where competing sources disagree, not a cosmetic edit"
         ),
+        "link_child_to_family": (
+            "a parent-child relationship is the fact this project exists to get right, and "
+            "one asserted on nobody's authority is the failure mode it exists to avoid"
+        ),
     }
 )
 """Operations that assert a genealogical fact, each with why it asserts one.
@@ -628,6 +632,41 @@ class UpdateName(Operation):
             _carried("given", self.given),
             _own(" "),
             _carried("surname", self.surname),
+            _own(", on the evidence of "),
+            *_named(self.citation, "citation"),
+        )
+
+
+# ---------------------------------------------------------------------------
+# The links: the relationships, which are what the tree is FOR.
+#
+# ⚠️ **A link's two ends are checked for SYNTAX and for nothing else, and a
+# well-formed link between two objects that do not exist PASSES.** Whether
+# either end resolves is ``TARGET_DOES_NOT_EXIST``, on the ``PHASE_3`` side.
+# The temptation to answer it here is the sharpest form of the failure this
+# module's docstring opens with -- a validator that feels authoritative and
+# guesses at what needs a database. Do not add an existence check.
+#
+# Neither link carries a date. A marriage has one; the marriage EVENT carries
+# it, and events are the evidence side.
+# ---------------------------------------------------------------------------
+
+
+@_register("link_child_to_family", citation_field="citation")
+@dataclass(frozen=True, slots=True)
+class LinkChildToFamily(Operation):
+    """A person recorded as a child in a family, on a record's authority."""
+
+    child: ObjectRef | None = field(default=None, metadata={_EXPECTS: OBJECT_TYPE_PERSON})
+    family: ObjectRef | None = field(default=None, metadata={_EXPECTS: OBJECT_TYPE_FAMILY})
+    citation: ObjectRef | None = field(default=None, metadata={_EXPECTS: OBJECT_TYPE_CITATION})
+
+    def render(self) -> tuple[Fragment, ...]:
+        return (
+            _own("record "),
+            *_named(self.child, "child"),
+            _own(" as a child in "),
+            *_named(self.family, "family"),
             _own(", on the evidence of "),
             *_named(self.citation, "citation"),
         )
