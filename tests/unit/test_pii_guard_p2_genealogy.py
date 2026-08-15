@@ -2360,6 +2360,133 @@ def test_the_prefix_class_cannot_match_markup() -> None:
     )
 
 
+def _name_characters_python_calls_a_boundary() -> list[str]:
+    r"""``NameChar``s that Python's ``\b`` treats as the end of a word.
+
+    ⚠️ **Derived from the range BOUNDARIES of the production the guard already
+    holds**, filtered to the characters Python's ``\w`` does not match -- because
+    ``\b`` is defined as the edge between a ``\w`` and a non-``\w``, so those are
+    exactly the characters that legally continue an XML name and satisfy a word
+    boundary anyway. Listing them would be the enumeration this module refuses:
+    it is satisfied by the seven anybody would think of and silent about the
+    eighth.
+
+    ``:`` is appended rather than derived, because the table is ``NameChar``
+    **minus the colon** -- and the colon is the sharpest case of all. ``<type:x>``
+    is a legal ``QName`` whose local name is ``x``; a pattern that reads it as
+    ``type`` has scored an element the document never wrote.
+    """
+    word = re.compile(r"\w")
+    found = {
+        chr(code_point)
+        for first, last in _NCNAME_CONTINUE_RANGES
+        for code_point in (first, last)
+        if not word.match(chr(code_point))
+    }
+    return sorted(found) + [":"]
+
+
+def _longer_name(suffix: str, *, attributed: bool) -> Callable[[str, int], str]:
+    r"""A probe whose OPENING tag is ``spelling`` continued by ``suffix`` + ``x``.
+
+    ⚠️ **The filled shape closes with the SHORT name and that is the defect, not
+    a malformed fixture.** ``</\1\s*>`` closes whatever group 1 captured, so if
+    the opener is read as ``<type>`` then ``</type>`` closes it and the element
+    is scored -- an exact reproduction of what a truncated or hand-edited paste
+    looks like. Written the other way, with both tags long, the backreference
+    would refuse the pair for a reason that has nothing to do with the name's
+    end, and the test would pass without ever reaching the question.
+
+    The trailing ``x`` keeps every spelling a legal XML name in its own right,
+    including the colon case: ``type:x`` is a ``QName`` whose local name is ``x``.
+    """
+
+    def build(spelling: str, copies: int) -> str:
+        longer = spelling + suffix + "x"
+        if attributed:
+            body = "".join("<" + longer + ' val="' + _PROBE_PAYLOAD + '"/>' for _ in range(copies))
+        else:
+            body = "".join(
+                "<" + longer + ">" + _PROBE_PAYLOAD + "</" + spelling + ">" for _ in range(copies)
+            )
+        return names_the_gramps_format() + "\n" + _carrier() + body
+
+    return build
+
+
+def test_a_vocabulary_spelling_is_not_the_prefix_of_a_longer_name() -> None:
+    r"""⭐ **The reproduction: ``<type-extra>`` is not a ``<type>``.**
+
+    ``\b`` is Python's word boundary and XML has no such production. Hyphen,
+    dot, middle dot, a combining mark, an undertie -- every one of them legally
+    CONTINUES an XML name and every one of them satisfies ``\b``, so a
+    vocabulary spelling was accepted as the PREFIX of a longer name and the
+    guard scored an element the document never wrote.
+
+    ⚠️ **The combining-mark case is the one this module has already paid for,
+    at the other end of the same name.** ``<type`` + U+0301 is a legal element
+    name whose local name is not ``type``; U+0301 is a ``NameChar`` and is not a
+    ``\w`` character. That is the exact class that made ``[^\W\d][\w.\-]*`` a
+    live fail-open for namespace PREFIXES in Change A -- the same production
+    approximated by the same shorthand, missed once at the front of the name and
+    once at the back.
+
+    **Over every row, in both shapes, because the reviewer named one of each.**
+    Finding 3 was reported against the attributed matcher with ``<type-extra
+    id="x"/>``. The filled matcher ends its name the same way and nobody looked;
+    a repair to the reported site alone leaves half the defect standing, which
+    is the partial application this module has paid for in every round so far.
+
+    ⚠️ **The non-collision assertion is what stops this passing for the wrong
+    reason.** If ``spelling`` + suffix were itself a vocabulary row the probe
+    would be measuring a legitimate row rather than a mis-read one.
+    """
+    suffixes = _name_characters_python_calls_a_boundary()
+    rows = sorted(_GRAMPS_CATEGORY_OF)
+
+    assert ":" in suffixes and chr(0x300) in suffixes and len(suffixes) > 7, (
+        "the suffix set is derived from the production's own range boundaries, and it has come "
+        "out without the cases the reproduction and Change A were about: "
+        f"{ascii(''.join(suffixes))}"
+    )
+
+    collisions = [
+        f"<{spelling}{ascii(suffix)}x>"
+        for spelling in rows
+        for suffix in suffixes
+        if spelling + suffix + "x" in _GRAMPS_CATEGORY_OF
+    ]
+    assert collisions == [], (
+        f"a probe name is itself a vocabulary row, so this test can pass by collision: {collisions}"
+    )
+
+    unreadable = []
+    scoring = []
+
+    for shape, attributed in (("filled", False), ("attributed", True)):
+        bare = _marked_gramps_attributed_probe if attributed else _marked_gramps_probe
+        for spelling in rows:
+            declared = _CATEGORY_WEIGHT[_GRAMPS_CATEGORY_OF[spelling]]
+            if declared and not _observed_weight(_gramps_identity_score, bare, spelling):
+                unreadable.append(f"{shape} <{spelling}>")
+            for suffix in suffixes:
+                observed = _observed_weight(
+                    _gramps_identity_score, _longer_name(suffix, attributed=attributed), spelling
+                )
+                if observed:
+                    scoring.append(f"{shape} <{spelling}{ascii(suffix)}x>: {observed}")
+
+    assert unreadable == [], (
+        "the control: a weighted spelling written as ITSELF still scores, or every measurement "
+        f"below is zero because the probe is broken rather than because the name ends: {unreadable}"
+    )
+    assert scoring == [], (
+        "a vocabulary spelling followed by a character that legally CONTINUES an XML name is a "
+        "different element, and these were scored as the shorter spelling the document does not "
+        f"contain -- {len(scoring)} of them, the first twelve being {scoring[:12]}"
+    )
+
+
 def test_a_prefixed_drawing_is_not_a_drawing() -> None:
     """The site that was withdrawn, asserted rather than left to the comment.
 
