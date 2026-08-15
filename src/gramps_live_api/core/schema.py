@@ -52,11 +52,19 @@ from gramps_live_api.core._unrenderable import UNRENDERABLE_RANGES
 # ---------------------------------------------------------------------------
 
 OBJECT_TYPE_CITATION = "citation"
+OBJECT_TYPE_PERSON = "person"
+OBJECT_TYPE_FAMILY = "family"
+"""The three types a field's ``_EXPECTS`` metadata names, spelled once.
+
+Only these three, and only because a field declares them. The rest of
+``OBJECT_TYPES`` stays a bare string: a constant per member would be a second
+enumeration of the same set, which is the shape this module keeps refusing.
+"""
 
 OBJECT_TYPES: frozenset[str] = frozenset(
     {
-        "person",
-        "family",
+        OBJECT_TYPE_PERSON,
+        OBJECT_TYPE_FAMILY,
         "event",
         "place",
         "source",
@@ -320,6 +328,11 @@ FACT_ASSERTING: Mapping[str, str] = MappingProxyType(
             "that a person existed is the archetypal genealogical fact, and an individual "
             "enters the tree only because a record attests them"
         ),
+        "update_name": (
+            "what a person was called is a claim about that person, and a spelling taken "
+            "from a transcription is warranted by the record it was read out of -- a name "
+            "variant is where competing sources disagree, not a cosmetic edit"
+        ),
     }
 )
 """Operations that assert a genealogical fact, each with why it asserts one.
@@ -578,6 +591,45 @@ class AddPlace(Operation):
             _own("add the place "),
             _carried("place_name", self.place_name),
             _own(", named as the place authority names it"),
+        )
+
+
+@_register("update_name", citation_field="citation")
+@dataclass(frozen=True, slots=True)
+class UpdateName(Operation):
+    """What a person was called, corrected or varied, on a record's authority.
+
+    ⚠️ **FACT_ASSERTING, and the argument is worth keeping because the error is
+    tempting.** Filing this as ``NON_FACT`` because it "only changes a string"
+    confuses the *mechanism* -- a string edit -- with the *content*: "this
+    person was called X" is an assertion about a person that evidence can
+    support, and a spelling correction taken from a transcription is warranted
+    by the record it was read out of. A name variant is precisely where
+    competing sources disagree, which is the case provenance exists for.
+
+    The name is recorded in full rather than part by part. The sentence a
+    reviewer checks against the record is the whole name, and the same
+    both-parts-required consequence #40 records for ``AddPerson`` applies here.
+    """
+
+    target: ObjectRef | None = field(default=None, metadata={_EXPECTS: OBJECT_TYPE_PERSON})
+    given: str = ""
+    surname: str = ""
+    citation: ObjectRef | None = field(default=None, metadata={_EXPECTS: OBJECT_TYPE_CITATION})
+
+    def render(self) -> tuple[Fragment, ...]:
+        # Separate fragments for the two name parts, for the reason recorded on
+        # ``AddPerson.render``: a correction a reviewer can act on has to name
+        # the part that carried the character.
+        return (
+            _own("record that "),
+            *_named(self.target, "target"),
+            _own(" is named "),
+            _carried("given", self.given),
+            _own(" "),
+            _carried("surname", self.surname),
+            _own(", on the evidence of "),
+            *_named(self.citation, "citation"),
         )
 
 
