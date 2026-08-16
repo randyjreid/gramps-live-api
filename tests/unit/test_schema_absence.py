@@ -18,7 +18,7 @@ import pytest
 
 from gramps_live_api.core import schema
 from gramps_live_api.core.schema import UNRECORDED, UNRECORDED_KEY, ObjectRef, Operation, Unrecorded
-from tests.fixtures.operations import EXAMPLES, carrying, payload_with
+from tests.fixtures.operations import EXAMPLES, carrying, payload_with, resolve
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,3 +243,84 @@ def test_the_two_routes_disagree_only_about_what_arrived(type_name: str, path: s
         f"the wire route met the mapping the marker spells at {path}, because this "
         f"field's declaration does not admit the marker; got {_said_at(from_wire)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# The second silent-weakening hazard, and the tripwire that stops it
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("type_name", sorted(EXAMPLES))
+def test_no_canonical_example_carries_the_marker(type_name: str) -> None:
+    for path in schema.required_paths(type(EXAMPLES[type_name])):
+        assert not isinstance(resolve(EXAMPLES[type_name], path), Unrecorded), (
+            f"{type_name} carries the marker at {path}. The preview guard builds its "
+            "matrix in _split, in test_schema_preview_guard.py, which skips any path "
+            "whose example value is not a string -- so a marker here would drop that "
+            "field out of the guard matrix with nothing reporting it. Keep the "
+            "canonical examples fully recorded; the not-recorded cases belong in the "
+            "per-type file."
+        )
+
+
+# ---------------------------------------------------------------------------
+# The composition, armed and currently empty
+#
+# from_dict dispatches on the registry, so the POSITIVE path -- a payload whose
+# field declares the marker -- cannot be reached without a registered type that
+# declares one. The two halves are covered directly above; only their wiring
+# inside from_dict is uncovered, and this is what closes it the day a
+# declaration appears.
+#
+# Two ways to close it now were weighed and rejected. Registering a probe type
+# from a fixture works and pytest here is sequential, but the closed-registry
+# tests read REGISTRY at run time, so the structural properties would become
+# order-dependent -- and a closed registry with order-dependent tests is a worse
+# defect than an uncovered wiring seam. Adding a registered operation is the
+# application half, which is out of scope and would need a canonical example,
+# which is the hazard directly above.
+# ---------------------------------------------------------------------------
+
+
+def _marker_paths() -> list[tuple[str, str]]:
+    """Every (type, field) at which a registered type declares the marker."""
+    return [
+        (type_name, path)
+        for type_name in sorted(EXAMPLES)
+        for path in schema.absence_fields(type(EXAMPLES[type_name]))
+    ]
+
+
+MARKER_PATHS = _marker_paths()
+
+
+def test_no_registered_type_declares_the_marker_yet() -> None:
+    # ⚠️ **This test fails ON PURPOSE, and its failure is the instruction.**
+    #
+    # Every other suite here refuses silent vacuity by asserting its matrix is
+    # non-empty. This one cannot, because the matrix is empty by design until
+    # the reshape lands. So it asserts the emptiness instead and says what that
+    # costs -- the honest inverse, and the reason the gap cannot be forgotten.
+    assert MARKER_PATHS == [], (
+        "the reshape has landed an operation declaring the marker, so the "
+        "round-trip below is no longer vacuous. TO FIX: delete this test. It "
+        "exists only to stop the empty matrix reading as coverage."
+    )
+
+
+@pytest.mark.parametrize(("type_name", "path"), MARKER_PATHS)
+def test_a_declared_marker_round_trips_in_both_directions(type_name: str, path: str) -> None:
+    # Derive-do-not-enumerate applied to a set that is currently empty: the day
+    # a declaration appears, these cases arrive with nothing here edited. Until
+    # then this generates no cases and the test above says so out loud.
+    operation = carrying(EXAMPLES[type_name], path, UNRECORDED)
+    payload = schema.to_dict(operation)
+
+    assert schema.validate(operation).well_formed, (
+        f"{type_name} carrying the marker at {path}, which declares it, is not well-formed"
+    )
+    assert payload[path] == {UNRECORDED_KEY: UNRECORDED.value}
+    assert schema.from_dict(payload) == operation, (
+        f"{type_name} did not come back equal carrying the marker at {path}"
+    )
+    assert schema.to_dict(schema.from_dict(payload)) == payload
