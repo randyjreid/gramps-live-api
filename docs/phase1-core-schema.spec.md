@@ -217,7 +217,16 @@ date, name or place from any real tree.
    over every negative case; and a case with at least three simultaneous distinct errors reports all
    three rather than stopping at the first.
 6. Serialise, deserialise, compare equal, for both types. An unknown field is rejected — not ignored
-   — at the top level **and** nested at least one level deep.
+   — at the top level **and** nested at least one level deep. The module's **reserved key**,
+   `UNCONVERTIBLE_KEY`, is refused the same way — structurally, at the door, naming the path it sits
+   at — at every declared path and below one, in each of the two containers a decoder produces:
+   `test_the_reserved_key_is_refused_with_the_path_it_sits_at`. At a reference **root** it stays the
+   pre-existing unknown-field refusal instead, because a mapping there is how the wire spells an
+   object — `test_the_reserved_key_at_a_reference_root_is_still_unknown`. The two matrices are
+   asserted to **partition** every declared path, since two independent comprehensions can drop one
+   from both — `test_the_two_reserved_key_matrices_partition_every_declared_path`. Both refusals are
+   a `SchemaError` carrying a field path, so nothing a caller handles them by moves; the refusal is
+   on the **raising** side of the boundary, so it adds no `RuleId` and no `RULES` row.
 7. `preview()` asserted structurally over the registry: non-empty, single-line `str`, containing no
    opaque handle, no `None`, and no default `repr`.
 
@@ -299,6 +308,12 @@ file's count read as a criterion's evidence is a number that goes stale with not
    `from_dict` accepts converts to a JSON-emittable wire carrying no fault marker, at any depth to
    the encoder's own ceiling.* The space is bounded **in kind** rather than in size, which is the
    whole argument; it is stated in full at the bounded sub-property below.
+
+   ⚠️ **A narrowing can be misread as licence to revert what preceded it, so each surviving piece is
+   re-justified on the NARROWED claim's own terms rather than left standing on the old one** — the
+   reference recursion, the explicit stack, the cycle handling and the key reservation each carry
+   their own reason below, and a piece whose only warrant was the abandoned totality claim would be
+   deleted rather than kept.
 
    **Arbitrary in-process values are best-effort, by design rather than by concession.** `Operation`
    is a transport dataclass whose fields accept anything precisely so `validate` can be the only
@@ -527,8 +542,51 @@ file's count read as a criterion's evidence is a number that goes stale with not
      that is invalid either way. No fixture carries one.
    - The marker at a **reference root** comes back through `from_dict` as
      `UnknownFieldError("target.unconvertible")`. That is the pre-existing structural surface for an
-     undeclared key inside a reference, unchanged by this work and reachable only on an operation
-     that is invalid either way.
+     undeclared key inside a reference, unchanged by this work — and now **pinned** rather than
+     merely recorded, since the reservation below could have taken it over and must not.
+
+   ⚠️ **The marker's key is RESERVED, and until it was the bounded claim above was FALSE rather than
+   narrow.** `UNCONVERTIBLE_KEY` is an in-band signal, and it was not injective: `{"unconvertible":
+   "set"}` at a declared field is decoder-producible, `from_dict` accepted it untouched, and
+   `to_dict` re-emitted it **byte-identical** to a genuine conversion failure. So *the fault marker
+   never appears* was false on a payload the claim covers, and green only because no sampled value
+   spelled the key. `from_dict` now refuses it at the door with a field path. Three things about the
+   refusal, each load-bearing:
+
+   - **On key PRESENCE, not on the marker's exact one-key shape.** The detector the closer runs
+     (`_names_the_fault_marker`) reads a payload as a marker when any mapping *contains* the key, so
+     a narrower refusal would leave payloads the detector still calls markers — and the closer would
+     go on being *untriggered* instead of becoming *true*. Matching the detector exactly is the
+     argument, and it is why the two new values are in `_DECODED_VALUES` and not only in a
+     hand-written case: `test_a_decoded_value_naming_the_fault_marker_is_refused_at_every_path` is
+     what keeps the closer's `except SchemaError: continue` from being the vacuous way to pass.
+   - **An explicit stack — the FOURTH walk to need one.** The depth case above pushes a
+     decoder-produced list 2 000 deep through `from_dict`, so a recursive refusal would die on
+     exactly the payload the claim says is carried.
+   - ⚠️ **`dict` and `list` by `isinstance`, so a `Mapping` that is not a `dict` carrying the key is
+     NOT refused — a cost taken rather than silently taken.** A decoder produces exactly `dict` and
+     `list`, so this is the bounded claim's own boundary; a `MappingProxyType` built in process is
+     the best-effort side, and widening the walk to every `Mapping` would refuse values no decoder
+     can hand in, on a claim that does not ask for it.
+
+   The walk also **marks containers it has already visited**, so a cyclic in-process payload
+   terminates. Accumulated across the walk rather than scoped to the current path — the opposite of
+   `_to_wire`, and deliberately: a container that did not raise once cannot raise later, so
+   revisiting only costs time and the fail-closed defect path-scoping prevents there has no
+   counterpart here. It is on the **best-effort** side by the same reading as cycles above, and it is
+   pinned in both directions, because one test cannot do it —
+   `test_a_cyclic_payload_value_carrying_no_reserved_key_still_arrives` and
+   `test_a_cyclic_payload_value_carrying_the_reserved_key_is_still_refused`.
+
+   ⭐ **The precedent, recorded because it outlives this key: an in-band signal must be INJECTIVE —
+   by reservation or by escaping.** Those are the two shapes there are. This key takes reservation
+   because it has exactly one producer and the refusal is cheap; escaping would have to be undone on
+   the way out and asserted in both directions. ⚠️ **It decides the shape of #53 whenever use
+   unparks that — nothing here acts on #53 and nothing here unparks it.**
+
+   `UNRECORDED_KEY` is deliberately **not** reserved and is **not** the same defect: it is
+   discriminated by **position** — only a field whose declaration admits the marker reads it — so a
+   payload spelling it anywhere else is an ordinary value `validate` judges at its path.
 
    The sweep over the canonical examples, `test_a_canonical_example_serialises_to_something_json_can_emit`,
    is a **regression fence**: green before this work and after, and not evidence of it.
