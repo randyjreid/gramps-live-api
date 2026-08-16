@@ -54,15 +54,36 @@ def equipped(tmp_path: Path, **extra: str) -> dict[str, str]:
     supply the rest of it -- otherwise it asserts the exit code of a machine
     with no Gramps on it, which is a different question and one CI would answer
     the same way every time.
+
+    ⚠️ **The runtime is supplied through ``GRAMPS_LIVE_API_RUNTIME``, not left to
+    be discovered from the fake ``ProgramFiles`` tree below.** ``discover_runtime``
+    returns ``None`` before it looks at anything when ``sys.platform`` is not
+    ``win32`` -- correctly, because the all-in-one layout is a Windows fact -- so
+    on the Linux matrix the fake install was ignored and this helper did not
+    equip anything. Two tests asserting ``code == 0`` failed there while passing
+    on Windows, and three more passed on Linux for the wrong reason: they assert
+    a non-zero exit or a substring, which a missing runtime satisfies just as
+    well as the condition under test.
+
+    So the override is what makes the docstring's promise true on every platform,
+    and the ``ProgramFiles`` tree stays because ``discover_runtime`` itself is
+    tested through it elsewhere -- this helper is about the doctor's other
+    checks, not about discovery.
     """
     program_files = tmp_path / "program-files"
     install = program_files / "GrampsAIO64-6.0.8"
     install.mkdir(parents=True)
-    (install / config.RUNTIME_NAME).write_text("", encoding="utf-8")
+    runtime = install / config.RUNTIME_NAME
+    runtime.write_text("", encoding="utf-8")
     plugins = tmp_path / "roaming" / "gramps" / "gramps60" / "plugins" / "gramps-live-api"
     plugins.mkdir(parents=True)
     (plugins / "gramps_live_api_apply.gpr.py").write_text("", encoding="utf-8")
-    return {"ProgramFiles": str(program_files), "APPDATA": str(tmp_path / "roaming"), **extra}
+    return {
+        "ProgramFiles": str(program_files),
+        "APPDATA": str(tmp_path / "roaming"),
+        config.ENV_RUNTIME: str(runtime),
+        **extra,
+    }
 
 
 def operation_file(directory: Path, payload: object) -> str:
