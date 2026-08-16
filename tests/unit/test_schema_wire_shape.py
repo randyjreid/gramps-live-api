@@ -73,10 +73,14 @@ def _not_json(value: object, path: str) -> str | None:
     return path
 
 
+_A_REFERENCE = ObjectRef(object_type="person", handle="a1b2c3d4e5f607", gramps_id="I0044")
+"""A reference built from invented values, in the register ``EXAMPLES`` uses."""
+
+
 _UNEMITTABLE: Mapping[str, object] = MappingProxyType(
     {
         "the not-recorded marker": UNRECORDED,
-        "a reference": ObjectRef(object_type="person", handle="a1b2c3d4e5f607", gramps_id="I0044"),
+        "a reference": _A_REFERENCE,
     }
 )
 """The values this module models that no JSON encoder can emit.
@@ -215,5 +219,62 @@ def test_to_dict_emits_json_for_a_marker_at_a_field_that_does_not_declare_it(
     assert offending is None, (
         f"to_dict claims a JSON-shaped mapping; {offending} carries "
         f"{type(value).__name__}, which no JSON encoder can emit"
+    )
+    json.dumps(payload)
+
+
+# ---------------------------------------------------------------------------
+# One container deeper -- the shapes round 2 reported, named
+#
+# ⚠️ **These are the REPORTED shapes and they are kept by name, not folded into
+# the generated set below.** A sample that happens to contain today's finding is
+# not the same artifact as a case that says which finding it is: the generator's
+# breadth is a budget somebody will trim, and the shape a reviewer actually
+# constructed must not be trimmable by arithmetic. Every one of them had the same
+# signature -- ``validate`` already returned FIELD_WRONG_TYPE at the path, and
+# ``json.dumps(to_dict(op))`` raised, so the verdict existed and the transport
+# hid it.
+# ---------------------------------------------------------------------------
+
+
+def _first_reference_leaf(cls: type) -> str:
+    """Where a value goes to be carried at depth: the first leaf of the first reference.
+
+    Derived rather than spelled, so a type whose reference field is named
+    something else brings its own placement.
+    """
+    reference = schema.reference_fields(cls)[0]  # type: ignore[arg-type]
+    return f"{reference}.{fields(ObjectRef)[0].name}"
+
+
+_CONTAINED: Mapping[str, object] = MappingProxyType(
+    {
+        "a list holding the not-recorded marker": [UNRECORDED],
+        "a mapping holding the not-recorded marker": {"a key": UNRECORDED},
+        "a list holding a list holding the not-recorded marker": [[UNRECORDED]],
+        "a list holding a reference": [_A_REFERENCE],
+        "a mapping holding a reference": {"a key": _A_REFERENCE},
+        "a read-only mapping holding the not-recorded marker": MappingProxyType(
+            {"a key": UNRECORDED}
+        ),
+    }
+)
+"""The shapes reported against the one-container-deep conversion, verbatim."""
+
+
+@pytest.mark.parametrize("type_name", sorted(EXAMPLES))
+@pytest.mark.parametrize("description", sorted(_CONTAINED))
+def test_to_dict_emits_json_for_a_container_holding_a_value_the_module_models(
+    description: str, type_name: str
+) -> None:
+    example = EXAMPLES[type_name]
+    value = _CONTAINED[description]
+    payload = schema.to_dict(carrying(example, _first_reference_leaf(type(example)), value))
+
+    offending = _not_json(payload, "")
+
+    assert offending is None, (
+        f"to_dict claims a JSON-shaped mapping; {description} at "
+        f"{offending} is not one an encoder can emit"
     )
     json.dumps(payload)
