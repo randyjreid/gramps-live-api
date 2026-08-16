@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -422,3 +424,51 @@ def test_an_invalid_operation_never_reaches_the_prompt(tmp_path: Path) -> None:
     assert runner.runs == []
     assert schema.RuleId.NOTE_TYPE_UNKNOWN.value in err
     assert "?" not in out, f"an operation validate rejected was offered for approval; got {out!r}"
+
+
+def test_the_real_runner_does_not_raise_on_output_that_is_not_utf8(tmp_path: Path) -> None:
+    """A byte the codec cannot read must not become an exception. Ever.
+
+    ⚠️ **The decode happens after the child has exited, which on an apply is
+    after the note has COMMITTED.** An exception here escapes the
+    ``NoResultMarker`` handler entirely: no read-back, no handles printed, and a
+    traceback where the record needed to undo a real write should be.
+
+    Strict decoding is wrong in both directions and each was measured. The
+    locale's answer (cp1252) mangled correct UTF-8 into mojibake, so a fidelity
+    check displayed false infidelity, and raised on its own undefined bytes.
+    Then ``encoding="utf-8"`` alone fixed the mojibake and moved the raise onto a
+    legacy-code-page banner from Gramps, which is not ours to constrain.
+
+    ``errors="replace"`` is what closes it, and the guarantee is bounded and
+    provable rather than argued: ``bytes.decode`` with ``replace`` is TOTAL --
+    there is no byte sequence for which it raises. Verified by negative control:
+    remove the argument and this test fails with ``UnicodeDecodeError`` raised
+    inside subprocess's reader thread.
+
+    The marker is unaffected either way, being ASCII by construction, so there is
+    nothing in it for substitution to touch. Both halves are asserted.
+    """
+    text = "Иван — 🌳"
+    marker_line = invocation.emit_marker({"ok": True, "text": text})
+    # The bad bytes are built with ``bytes([...])`` rather than an escape, and
+    # the child goes to a file rather than through ``-c``: a source string
+    # carrying backslash escapes through two levels of quoting is its own source
+    # of bugs and has nothing to do with what is under test.
+    child = tmp_path / "noisy_child.py"
+    child.write_text(
+        "import sys\n"
+        "sys.stdout.buffer.write(bytes([255, 254]) + b' not utf-8 at all')\n"
+        "sys.stdout.buffer.write(bytes([10]))\n"
+        f"sys.stdout.buffer.write({marker_line.encode()!r} + bytes([10]))\n"
+        "sys.stderr.buffer.write(bytes([129, 141]) + b' undefined in cp1252 too')\n",
+        encoding="utf-8",
+    )
+
+    completed = cli._with_subprocess([sys.executable, str(child)], dict(os.environ))
+
+    assert completed.returncode == 0, f"the child itself failed: {completed.stderr}"
+    assert "�" in completed.stdout, "undecodable bytes should be substituted, not raise"
+    assert "�" in completed.stderr, "stderr takes the same path, and a failure prints it"
+    # Substitution did not touch the marker, and it still round-trips.
+    assert invocation.result_of(completed.stdout)["text"] == text

@@ -364,25 +364,43 @@ def _one_run(
 
 def _with_subprocess(argv: Sequence[str], environ: Mapping[str, str]) -> invocation.Completed:
     """The real runner. The only place in this package that starts a process."""
-    # ⚠️ ``encoding`` is explicit because ``text=True`` alone decodes with
-    # ``locale.getpreferredencoding(False)`` -- cp1252 on a Windows box -- while
-    # the child writes UTF-8. That is a check whose answer comes from the machine
-    # rather than from the protocol, and it fails two ways: a correct note comes
-    # back as mojibake in the read-back line, so a fidelity check DISPLAYS false
-    # infidelity; and a byte cp1252 does not map raises UnicodeDecodeError on the
-    # strict default, after the write has committed.
+    # ⚠️ **The decode may not RAISE, and that -- not the choice of codec -- is
+    # the property this line has to hold.** Decoding happens after the child has
+    # exited, which on an apply is after the note has COMMITTED. An exception
+    # here escapes the NoResultMarker handler entirely: no read-back, no
+    # handles printed, a traceback instead of the record needed to undo a write
+    # that did happen.
     #
-    # The marker itself is ASCII by construction now (see ``emit_marker``), so
-    # this is not the marker's guard -- it is stderr's. Gramps' own error output
-    # is not ours to constrain, and it is what the NoResultMarker handler prints
-    # when a run fails: without this, the reporting path can raise while trying
-    # to report.
+    # Strict decoding is wrong in both directions and each was tried:
+    #
+    #   - ``text=True`` alone asks ``locale.getpreferredencoding(False)``, which
+    #     is cp1252 on a Windows box while the child writes UTF-8. Measured: an
+    #     em dash came back mojibake, so a fidelity check DISPLAYED false
+    #     infidelity on a note that was correct in the tree -- and cp1252 has
+    #     undefined bytes, so some input raised instead.
+    #   - ``encoding="utf-8"`` alone fixes the mojibake and moves the raise: a
+    #     Gramps banner or diagnostic emitted in a legacy code page is not valid
+    #     UTF-8, and strict decoding of it raises just as surely.
+    #
+    # ``errors="replace"`` is what closes it, and its guarantee is bounded and
+    # provable rather than argued: ``bytes.decode`` with ``replace`` is TOTAL --
+    # there is no byte sequence for which it raises. A stray byte becomes U+FFFD
+    # in a diagnostic a human reads, which is strictly better than an exception
+    # that hides a committed write.
+    #
+    # ⚠️ **This is stderr's guard, not the marker's.** The marker is ASCII by
+    # construction (see ``emit_marker``), so the protocol survives whatever the
+    # pipe does; substitution cannot corrupt it, because there is nothing
+    # non-ASCII in it to substitute. What is protected here is Gramps' own
+    # output, which is not ours to constrain and which the failure handler
+    # prints -- previously it could raise while trying to report.
     completed = subprocess.run(  # noqa: S603
         list(argv),
         env=dict(environ),
         capture_output=True,
         text=True,
         encoding="utf-8",
+        errors="replace",
         check=False,
     )
     return invocation.Completed(
