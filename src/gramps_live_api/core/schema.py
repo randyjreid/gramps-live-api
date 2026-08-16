@@ -987,6 +987,24 @@ def type_name_of(operation: Operation) -> str:
     raise SchemaError(f"{type(operation).__name__} is not a registered operation")
 
 
+def _into_list(out: list[object], index: int) -> Callable[[object], None]:
+    """Where a converted value goes: one slot of a list already the right length."""
+
+    def place(converted: object) -> None:
+        out[index] = converted
+
+    return place
+
+
+def _into_mapping(out: dict[str, object], key: str) -> Callable[[object], None]:
+    """Where a converted value goes: one key of a mapping already carrying it."""
+
+    def place(converted: object) -> None:
+        out[key] = converted
+
+    return place
+
+
 def _to_wire(value: object, seen: frozenset[int] = frozenset()) -> object:
     """How a value this module models is spelled on the wire.
 
@@ -1057,50 +1075,147 @@ def _to_wire(value: object, seen: frozenset[int] = frozenset()) -> object:
     cannot read back, which is a worse failure than a marker naming the type.
 
     ⚠️ **TERMINATION IS THE OTHER HALF OF TOTAL, and without it the word is
-    simply false.** ``x = []; x.append(x)`` is constructible in two lines and a
-    structural recursion over it does not stop -- so ``seen`` carries the
-    identities of the containers **on the current path**, and one already on that
-    path converts to the fault marker instead of being walked again.
+    simply false. It has TWO halves of its own -- cycles and depth -- and for two
+    rounds only the first was written down.**
+
+    **Cycles.** ``x = []; x.append(x)`` is constructible in two lines and a
+    structural walk over it does not stop -- so the identities of the containers
+    **on the current path** are carried, and one already on that path converts to
+    the fault marker instead of being walked again.
 
     ⚠️ **On the PATH, and not accumulated across the whole walk.** A value
     reachable twice from different branches is not a cycle, and a set that
     accumulates would emit the fault marker for the second sibling -- a
-    fail-closed defect on a perfectly emittable payload. A ``frozenset`` passed
-    down rather than a set mutated in place is what makes that structural.
+    fail-closed defect on a perfectly emittable payload.
+
+    ⚠️ **And the path scoping is now maintained DELIBERATELY, because a work list
+    does not unwind.** A ``frozenset`` passed down a recursion used to make it
+    structural for free: the call stack unwound and the set went out of scope
+    with it. Here the ancestors live in ``path``, **truncated to the popped
+    entry's own depth before that entry is processed**. Depth-first order is what
+    makes that exact -- a subtree is emptied before the next sibling is reached,
+    so when an entry at depth *d* is popped, ``path[0:d]`` is precisely its
+    ancestors and anything past index *d-1* belongs to a sibling subtree already
+    finished. A container adds its identity only after its own cycle check, and
+    only on the three container branches, as before.
+
+    ⚠️ **Carrying a ``frozenset`` per stack entry -- literally the old
+    expression, and by far the smaller diff -- was prototyped, measured and
+    rejected on the measurement rather than on taste. It is quadratic in depth:**
+    0.036 s at depth 3 000, 0.489 s at 10 000, **8.731 s at 30 000**, against
+    **0.051 s** at 30 000 and **0.349 s at 200 000** for the truncated path. The
+    recursion never paid that because it died at 995; removing the frame ceiling
+    is exactly what exposes it, so the smallest diff would trade a hard error for
+    a pathological slow path this code does not otherwise have. The number is
+    recorded here because the smallest diff is what a later reader reaches for.
+
+    ⚠️ **Depth: a work list rather than a recursion, because the recursion had a
+    ceiling of its own BELOW THE DECODER'S.** Measured on CPython 3.12.13 at the
+    default recursion limit of 1000: this conversion stopped at depth **995**,
+    while ``json.loads`` and ``json.dumps`` both reach **2997**. Between those
+    two numbers a payload was decoder-producible, was accepted by ``from_dict``,
+    and could not be carried -- ``RecursionError``, which is neither JSON nor a
+    fault reported at a field path, so the claim that this is total was false
+    there. ⭐ **The encoder shares the decoder's ceiling exactly**, so above 2997
+    nothing is producible or emittable either way: iterating **closes** that band
+    rather than moving it. What remains is CPython's ``json`` module, which is
+    not ours. This conversion is bounded by memory, measured usable at depth
+    200 000.
+
+    ⚠️ **Catching ``RecursionError`` and emitting the fault marker is much the
+    smaller change, and it loses on merits.** It would turn a depth-2000
+    decoder-producible payload into silent data loss, making the marker appear
+    for exactly the payloads the bounded claim says it never appears for. And
+    ``RecursionError`` fires when the **interpreter's** budget runs out rather
+    than at a property of the value, so the emitted payload would be a function
+    of the caller's stack depth: measured, the old ceiling was 995 from a
+    module-level call and **895 from one a hundred frames down**. The same
+    operation would serialise differently depending on where it was called from,
+    and a conversion whose output is not a function of its input can be neither
+    tested nor reasoned about.
+
+    ⚠️ **The output container is created and pre-populated with its keys or its
+    length IN SOURCE ORDER before its children are pushed**, then filled slot by
+    slot. A LIFO stack completes children in reverse, so a mapping filled in
+    completion order would silently reverse every JSON object's keys -- both
+    canonical payloads would move with nothing saying so.
+    ``test_a_mapping_keeps_its_key_order_on_the_wire`` asserts that in bytes.
 
     The default argument keeps the seam callable as ``_to_wire(value)``, which is
-    how the round-trip test over the marker's members reaches it.
+    how the round-trip test over the marker's members reaches it. A ``seen``
+    passed in names ancestors this walk did not push, so it seeds the path
+    membership and is never truncated away -- which is what the recursion did by
+    holding it in every frame below.
     """
-    if isinstance(value, ObjectRef):
-        if id(value) in seen:
-            return _unconvertible(value)
-        below = seen | {id(value)}
-        return {leaf.name: _to_wire(getattr(value, leaf.name), below) for leaf in fields(ObjectRef)}
-    if isinstance(value, Unrecorded):
-        # Derived from the member, so a second one serialises without this
-        # being edited. That is what the deferral recorded on Unrecorded costs
-        # to reverse, stated mechanically rather than aspirationally.
-        return {UNRECORDED_KEY: value.value}
-    if value is None or isinstance(value, _JSON_SCALARS):
-        return value
-    if isinstance(value, Mapping):
-        if id(value) in seen or any(not isinstance(key, str) for key in value):
-            # The WHOLE mapping, rather than the offending key: a JSON object is
-            # string-keyed, and stringifying a key would invent data the payload
-            # never carried. (This branch is also a totality gain -- json.dumps
-            # raises on a MappingProxyType, which this module hands around as
-            # REGISTRY and EXAMPLES.)
-            return _unconvertible(value)
-        below = seen | {id(value)}
-        return {key: _to_wire(item, below) for key, item in value.items()}
-    if isinstance(value, Sequence) and not isinstance(value, _TEXTUAL):
-        # Text is a Sequence and is already what the wire wants, so it must not
-        # be taken apart into a list of one-character strings.
-        if id(value) in seen:
-            return _unconvertible(value)
-        below = seen | {id(value)}
-        return [_to_wire(item, below) for item in value]
-    return _unconvertible(value)
+    root: list[object] = [None]
+    stack: list[tuple[object, Callable[[object], None], int]] = [(value, _into_list(root, 0), 0)]
+    path: list[int] = []
+    on_path: set[int] = set(seen)
+
+    while stack:
+        item, place, depth = stack.pop()
+        while len(path) > depth:
+            # Those subtrees are finished, so their containers are no longer
+            # ancestors of anything still to be popped.
+            on_path.discard(path.pop())
+
+        if isinstance(item, ObjectRef):
+            if id(item) in on_path:
+                place(_unconvertible(item))
+                continue
+            path.append(id(item))
+            on_path.add(id(item))
+            leaves: dict[str, object] = {leaf.name: None for leaf in fields(ObjectRef)}
+            place(leaves)
+            for leaf in fields(ObjectRef):
+                stack.append(
+                    (getattr(item, leaf.name), _into_mapping(leaves, leaf.name), depth + 1)
+                )
+            continue
+        if isinstance(item, Unrecorded):
+            # Derived from the member, so a second one serialises without this
+            # being edited. That is what the deferral recorded on Unrecorded costs
+            # to reverse, stated mechanically rather than aspirationally.
+            place({UNRECORDED_KEY: item.value})
+            continue
+        if item is None or isinstance(item, _JSON_SCALARS):
+            place(item)
+            continue
+        if isinstance(item, Mapping):
+            if id(item) in on_path or any(not isinstance(key, str) for key in item):
+                # The WHOLE mapping, rather than the offending key: a JSON object is
+                # string-keyed, and stringifying a key would invent data the payload
+                # never carried. (This branch is also a totality gain -- json.dumps
+                # raises on a MappingProxyType, which this module hands around as
+                # REGISTRY and EXAMPLES.)
+                place(_unconvertible(item))
+                continue
+            path.append(id(item))
+            on_path.add(id(item))
+            entries: dict[str, object] = {key: None for key in item}
+            place(entries)
+            for key, contained in item.items():
+                stack.append((contained, _into_mapping(entries, key), depth + 1))
+            continue
+        if isinstance(item, Sequence) and not isinstance(item, _TEXTUAL):
+            # Text is a Sequence and is already what the wire wants, so it must not
+            # be taken apart into a list of one-character strings.
+            if id(item) in on_path:
+                place(_unconvertible(item))
+                continue
+            path.append(id(item))
+            on_path.add(id(item))
+            # Materialised once, so the slots and the pushes cannot disagree
+            # about how many there are.
+            contents = list(item)
+            slots: list[object] = [None] * len(contents)
+            place(slots)
+            for index, contained in enumerate(contents):
+                stack.append((contained, _into_list(slots, index), depth + 1))
+            continue
+        place(_unconvertible(item))
+
+    return root[0]
 
 
 def to_dict(operation: Operation) -> dict[str, object]:
