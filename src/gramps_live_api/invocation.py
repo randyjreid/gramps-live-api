@@ -131,8 +131,23 @@ def emit_marker(payload: Mapping[str, object]) -> str:
     ⚠️ **One LINE.** ``json.dumps`` escapes a newline inside a value, so a note
     whose text carries one cannot break the marker it is being reported through
     -- which would look to the front end exactly like a crash.
+
+    ⚠️ **ASCII-ONLY, and that is a protocol decision rather than a style one.**
+    This line crosses a process boundary by being *printed*, and the plugin
+    prints it inside a bare ``except`` that swallows what print raises. When the
+    child's stdout is a redirected legacy code page -- which ``capture_output``
+    guarantees on Windows -- a payload carrying a character outside that page
+    makes ``print`` raise ``UnicodeEncodeError``, the except eats it, and NO
+    MARKER IS EMITTED. The front end then reports a failed run for a write that
+    has already committed, and the owner is told the opposite of what happened.
+
+    ``ensure_ascii=True`` escapes every non-ASCII character to ``\\uXXXX``, so
+    the line survives any code page the pipe happens to use and the protocol
+    stops depending on the machine's locale. It is strictly MORE escaping than
+    before, so the one-line guarantee above is unchanged. The reader recovers the
+    original text: ``json.loads`` un-escapes, and a test asserts the round trip.
     """
-    return f"{MARKER} {json.dumps(payload, ensure_ascii=False)}"
+    return f"{MARKER} {json.dumps(payload)}"
 
 
 def result_of(stdout: str) -> Mapping[str, object]:

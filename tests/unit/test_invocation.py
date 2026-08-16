@@ -180,3 +180,36 @@ def test_the_marker_survives_a_payload_carrying_a_newline() -> None:
 
     assert "\n" not in emitted
     assert invocation.result_of(f"chatter\n{emitted}\nmore chatter")["text"] == "first\nsecond"
+
+
+def test_the_marker_is_ascii_even_when_the_payload_is_not() -> None:
+    """The protocol may not depend on what code page the pipe happens to use.
+
+    ⚠️ **This is not a formatting preference.** The plugin emits this line by
+    PRINTING it, inside a bare ``except`` that swallows whatever print raises.
+    When the child's stdout is a redirected legacy code page -- which
+    ``capture_output`` guarantees on Windows -- a payload carrying a character
+    outside that page makes ``print`` raise ``UnicodeEncodeError``, the except
+    eats it, and no marker is emitted at all. The front end then reports a
+    failed run for a write that has ALREADY COMMITTED.
+
+    So the assertion is that the line is encodable by the narrowest thing it
+    could meet, not merely that it looks reasonable.
+    """
+    emitted = invocation.emit_marker({"text": "Иван — 🌳", "ok": True})
+
+    assert emitted.isascii(), "a non-ASCII marker is unprintable on a legacy code page"
+    # The narrowest code page this realistically meets, and one that cannot
+    # represent any of the three characters above.
+    emitted.encode("cp1252")
+
+
+def test_an_ascii_marker_still_returns_the_original_text() -> None:
+    # Escaping is only acceptable because it is lossless: the reader un-escapes
+    # and the caller sees what was written. A marker that were ASCII by
+    # TRUNCATION would pass the test above and be worthless.
+    text = "Иван — 🌳"
+
+    seen = invocation.result_of(f"chatter\n{invocation.emit_marker({'text': text})}\n")
+
+    assert seen["text"] == text
