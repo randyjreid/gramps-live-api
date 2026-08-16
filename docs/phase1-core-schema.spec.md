@@ -53,10 +53,20 @@ Schema validation without a database is **necessarily incomplete**. The danger i
 authoritative and silently defers the real checks to `core/apply`.
 
 - **Phase 1 validates** — shape, required fields, enum membership, type correctness, internal
-  consistency (a date range whose end precedes its start), reference *syntax*, and provenance
-  presence.
+  consistency (a date range whose end precedes its start), reference *syntax*, provenance presence,
+  and — where a field declares one — an explicit **not recorded** value, which is shape like any
+  other value.
 - **Phase 3 validates** — existence (does this handle resolve?), referential integrity, duplicate
   detection, and anything requiring tree state.
+
+⚠️ **Whether the record truly omits the part is on NEITHER side of that table.** It is the
+researcher's reading of a document, and no phase checks it — the same standing the boundary already
+takes on whether a citation supports what it is attached to. What Phase 1 decides is that the value
+is well-formed where it appears, and nothing more.
+
+The explicit value adds **no rule and no row**: a marker at a field whose declaration does not admit
+it is already reported as a wrong type at that path, by the same rule that judges every other value
+the wire delivers.
 
 A validated operation is **well-formed, not correct.** The module docstring says so, and a test
 asserts that a syntactically perfect reference to a nonexistent object passes Phase 1. The result
@@ -170,6 +180,9 @@ operation: attaching evidence to an object that already exists.
 | `link_child_to_family` / `link_spouse_to_family` | #22 | The relationships that are the actual product |
 | `delete_event` | #25 | **Deferred** — see D4 |
 
+⚠️ **#40 adds no operation type.** A record naming one part of a name is expressed by a **value**,
+not by another row in this table.
+
 `add_citation` and `add_note` are built first, together, because they exercise both sides of the
 provenance partition while needing no date model.
 
@@ -207,6 +220,90 @@ date, name or place from any real tree.
    — at the top level **and** nested at least one level deep.
 7. `preview()` asserted structurally over the registry: non-empty, single-line `str`, containing no
    opaque handle, no `None`, and no default `repr`.
+
+### Not recorded — #40
+
+Every declared field of an operation is required, so a register naming only one part of a name has
+no well-formed operation at all. #40 gives the vocabulary a way to say **the record does not give
+this part** without collapsing it into optionality, which here already means *this is a reference
+root*.
+
+⚠️ **The issue is split, and this heading carries both halves so the deferrals are on the record
+rather than in a scratch file.** The **spine** — the marker, its derivation, its wire spelling — is
+built now. The **application** — the operations that declare it, and their fixtures — waits for the
+reshape in #41, per the accepted OQ5.
+
+⚠️ **The counts below belong to the criteria, not to the files.** Each criterion names the tests
+that carry it; the totals of `tests/unit/test_schema_absence.py` and
+`tests/unit/test_schema_wire_shape.py` will move later for reasons #40 has nothing to do with, and a
+file's count read as a criterion's evidence is a number that goes stale with nothing announcing it.
+
+**Spine criteria — this build.**
+
+1. A single-member marker, closed like the other vocabularies, whose one member spells itself for
+   the wire and which the module offers alongside the single key a payload spells it under —
+   `test_the_marker_has_exactly_one_member`, `test_the_member_spells_itself_for_the_wire`,
+   `test_the_module_offers_the_member_and_its_wire_key`.
+2. The fields admitting the marker are **derived from the declaration**, as reference fields already
+   are, and the two derivations are disjoint over the same class. A plain text field and a reference
+   root are both excluded, and no registered type declares the marker yet —
+   `test_absence_is_read_off_the_declaration`,
+   `test_a_field_that_cannot_hold_the_marker_is_not_an_absence_field`,
+   `test_absence_and_reference_are_disjoint_on_the_same_class`,
+   `test_a_class_declaring_no_marker_has_no_absence_field`.
+3. The wire spelling converts in both directions, quantified over the enum so a second member is
+   covered before it exists; anything that is not the canonical spelling is **not** read as a marker
+   and does **not** raise — including an unhashable value under the key, which has a test of its own
+   so the type check ahead of the lookup is not removed as redundant —
+   `test_the_canonical_spelling_comes_back_as_the_member`, `test_every_member_survives_both_conversions`,
+   `test_anything_that_is_not_the_spelling_is_not_a_marker`,
+   `test_an_unhashable_value_under_the_key_does_not_raise`.
+4. **No new rule and no new row.** A marker at a field whose declaration does not admit it is
+   reported as a wrong type **at that path**, both when built as an object and when met from the
+   wire, and the two routes agree on the rule and the path — differing only in naming what actually
+   arrived, which is the recorded consequence of reading the declaration on the way in —
+   `test_a_marker_where_nothing_declares_one_is_judged_at_that_path`,
+   `test_the_two_routes_disagree_only_about_what_arrived`.
+5. **The serialiser's JSON-shaped claim is asserted rather than made.** A marker at a field that
+   does not declare it still serialises to something an encoder can emit, checked by a structural
+   walk that names the offending path and by the encoder itself —
+   `test_to_dict_emits_json_for_a_marker_at_a_field_that_does_not_declare_it`, over a matrix asserted
+   non-empty by `test_the_generated_marker_matrix_is_not_empty`. The sweep over the canonical
+   examples, `test_a_canonical_example_serialises_to_something_json_can_emit`, is a **regression
+   fence**: green before this work and after, and not evidence of it.
+6. **No canonical example carries the marker.** The preview guard's matrix skips any path whose
+   example value is not text, so a marker among the examples would drop that field out of the guard
+   matrix with nothing reporting it. The tripwire states that mechanism in its own failure message,
+   and lives outside the guard file because that file is registry-derived and is not edited —
+   `test_no_canonical_example_carries_the_marker`.
+7. **The composition is armed and empty, and the emptiness is asserted.** The round-trip over fields
+   declaring the marker is written now and quantified over the registry, so it generates no cases
+   until a declaration exists and needs no edit when one does —
+   `test_a_declared_marker_round_trips_in_both_directions`. Its companion,
+   `test_no_registered_type_declares_the_marker_yet`, asserts the emptiness and **fails on purpose**
+   when that stops being true, instructing its own deletion, so an empty matrix cannot read as
+   coverage.
+
+**Recorded deferrals.** Each is a decision on the record rather than a thing nobody did.
+
+- **A positive assertion of namelessness is not this marker.** *The record does not say* and *the
+  person bore none* are deliberately not distinguished. The second asserts a fact about a real
+  person, so it needs its own warrant and belongs in the fact vocabulary with a citation obligation
+  — **future CITED work**, and the single-member enum is what makes it cheap to add.
+- **The cross-field rule is NOT built** (accepted OQ3): an operation with both parts of a name
+  unrecorded is well-formed.
+- **The application half waits on #41's reshape** (accepted OQ5). Determinacy and the
+  unknown-is-a-value framing are cited as pending there (accepted OQ6) and are deliberately not
+  written here.
+
+**Application half — #41, and the criterion this build leaves it.** Recorded here because it is the
+only thing that closes the spine's residual: the wiring of the two conversions inside deserialisation
+is not executable while no registered type declares the marker.
+
+> An operation declaring the marker alongside text round-trips it through serialisation and
+> deserialisation in both directions and validates clean carrying it, asserted by the
+> registry-quantified suite #40 left armed. `test_no_registered_type_declares_the_marker_yet` is
+> deleted in the same commit.
 
 ### The date model — #21
 
