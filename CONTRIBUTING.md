@@ -1451,16 +1451,35 @@ Each phase has a spec with explicit out-of-scope items. Work outside them gets f
 even when it is obviously a good idea -- file it as an issue instead.
 
 In particular, nothing imports `gramps` or `gi` until the phase that introduces the bridge — with
-**one recorded exception**, adjudicated rather than assumed.
+**two recorded exceptions**, each adjudicated rather than assumed.
 
-The Phase 1 date-model ruling permits `gramps.gen.lib` inside `core/`, because a genealogical date
-is the one value this project cannot afford to translate: a hand-rolled model mapped at the write
-boundary puts a lossy layer exactly where a wrong date would be written silently. The exception is
-**conditional on an import check passing on every supported Python** — until it passes, nothing
-imports it, and if it fails the fallback is a hand-rolled model with the reason recorded.
+**The first.** The Phase 1 date-model ruling permits `gramps.gen.lib` inside `core/`, because a
+genealogical date is the one value this project cannot afford to translate: a hand-rolled model
+mapped at the write boundary puts a lossy layer exactly where a wrong date would be written
+silently. The exception is **conditional on an import check passing on every supported Python** —
+until it passes, nothing imports it, and if it fails the fallback is a hand-rolled model with the
+reason recorded. See `docs/phase1-core-schema.spec.md`.
 
-`gi` is not covered by the exception, and neither is anything else. See
-`docs/phase1-core-schema.spec.md`.
+**The second.** The Slice 1 route ruling permits `gramps` — and, through `gramps.gui.plug`, `gi` —
+inside a top-level **`gramps_plugin/`**, and nowhere else. That directory is **outside `src/`,
+outside the package, never imported by it, and excluded from `mypy src`**; Gramps loads it as a CLI
+tool plugin, and nothing here loads it at all.
+
+That is not a hole in the rule, it is the rule honoured. **What the rule is for is a core that tests
+without Gramps**, and moving the two files that must import it *outside* the package is what buys
+that: `core/apply.py` reaches the Gramps object model through a four-method protocol, so the whole
+write — the authorisation, the ordering, the undo record before the transaction — is exercised by
+ordinary unit tests on a runner that has never seen Gramps. Putting the same code under `src/` would
+have cost Gramps stubs for `mypy`, Gramps on CI, or a `# type: ignore` over the interesting part.
+
+**The boundary is the directory, and it is one-way.** Anything under `src/` importing `gramps` or
+`gi` is still the violation it always was, and `gramps_plugin/` may not be imported by the package.
+It is also a **source tree like `src/` and `tests/`, and it carries its own `.gitignore` negation**
+for the reason those two do — a Python file named after the thing it handles is exactly the shape
+the deny-list patterns match, and a swallowed file is simply absent from the clone CI builds.
+Enforced by `tests/integration/test_repository_hygiene.py`.
+
+Nothing else is covered by either exception.
 
 ## Commits
 
