@@ -99,8 +99,12 @@ ready
 python -m gramps_live_api check "<your live tree's directory>"
 ```
 
+The same report, with one line changed and a non-zero exit:
+
 ```
+  ok   name.txt: is a Gramps family tree directory
   NO   .gramps-live-api-copy: is NOT blessed for writing by hand
+  ok   lock: not locked
 
 not ready: .gramps-live-api-copy
 ```
@@ -163,10 +167,13 @@ python -m gramps_live_api apply "<wherever you put it>\op.json"
 add a research note to person I0044: “The note you want to attach.”
 write this into <the copy's directory>? [y/N] y
 note N0021 written
-  note handle   ...
-  person handle ...
+  note handle   104072952a584e83a027e511388d
+  person handle <the person's handle>
 read back from a fresh process: 'The note you want to attach.'
 ```
+
+The whole thing takes about **three and a half seconds** — two Gramps cold starts, one to write and
+one to go back and look.
 
 Answer anything but `y` and nothing at all happens.
 
