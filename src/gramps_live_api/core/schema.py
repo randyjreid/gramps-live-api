@@ -437,6 +437,20 @@ with a name a record actually gives, and this module refuses in-band signalling
 everywhere else.
 """
 
+UNCONVERTIBLE_KEY = "unconvertible"
+"""The single key a payload spells a value this module cannot model under.
+
+A mapping rather than an in-band reserved string, on exactly the reason recorded
+for ``UNRECORDED_KEY`` above.
+
+⚠️ **What it carries is the value's TYPE and never the value**, which is the
+rule on ``RuleViolation`` obeyed by the transport for the same reason: a payload
+echoed into the record becomes content this repository then has to scan, in a
+public repository whose previous phase existed to keep exactly that out. Naming
+the type is the same move ``_field_wrong_type`` already makes, and it is what a
+caller needs to fix it.
+"""
+
 
 class Phase(Enum):
     """Which phase is able to decide a rule."""
@@ -934,6 +948,19 @@ TYPE_KEY = "type"
 _TEXTUAL: tuple[type, ...] = (str, bytes, bytearray)
 """The sequences that are values on the wire rather than containers of them."""
 
+_JSON_SCALARS: tuple[type, ...] = (str, bool, int, float)
+"""What an encoder takes as it stands. ``None`` is checked separately, being one.
+
+``isinstance`` rather than an exact-type match, and that is the criterion rather
+than a looseness: a ``str`` subclass is what ``json.dumps`` accepts, and
+acceptance is what this conversion claims.
+"""
+
+
+def _unconvertible(value: object) -> dict[str, str]:
+    """The fault marker for a value this module cannot model, naming its type."""
+    return {UNCONVERTIBLE_KEY: type(value).__name__}
+
 
 class SchemaError(Exception):
     """A payload that is not an operation at all."""
@@ -998,8 +1025,36 @@ def _to_wire(value: object) -> object:
     mistake one container further out.** A list or a mapping holding a marker or
     a reference was copied out whole, so ``json.dumps`` raised on the payload
     while every one of those operations already had its verdict at its path.
-    Branching on what the value *is* -- reference, marker, scalar, mapping,
-    sequence -- is what stops this being patched a container at a time.
+
+    ⚠️ **So this is TOTAL, and totality is required rather than preferred
+    because THERE IS NO BOUND TO SHOW.** Values reaching here come from two
+    places. Through ``from_dict`` they are bounded -- whatever a JSON decoder
+    produced, plus an ``ObjectRef`` and the marker this module builds. Built in
+    process they are **unbounded by deliberate design**: ``Operation`` is a
+    transport dataclass whose fields accept anything, recorded on ``Operation``
+    itself, precisely so ``validate`` can be the only judge. A bounded
+    enumeration would therefore be an enumeration of nothing in particular --
+    patch the containers and dicts of lists remain, then lists of dicts of
+    references. Branch on **what the value is**, with an explicit final branch
+    for the unknown, and the next shape arrives already converted.
+
+    ⚠️ **A value this module cannot model emits a MARKER and does not raise, on
+    the line drawn at the top of this section.** A structural fault raises; a
+    value fault does not, because refusing one would be a second validator with
+    no field path. An alien object at a declared field is a value fault, and
+    ``validate`` already returns ``FIELD_WRONG_TYPE`` at its path. **A typed
+    transport error is this finding with a better name.**
+
+    **Unmodellable and modellable-but-misplaced share the surface and differ
+    only in the payload**, deliberately: splitting them would make a caller's
+    handling depend on a distinction it cannot predict. A modellable value keeps
+    its faithful spelling -- the marker's mapping, a reference's mapping -- and
+    stays readable; only an unmodellable one is replaced, because there is
+    nothing faithful to emit for it.
+
+    Deliberately NOT a generic dataclass walk for the unknown: inventing a wire
+    form for a type this module does not model produces something ``from_dict``
+    cannot read back, which is a worse failure than a marker naming the type.
     """
     if isinstance(value, ObjectRef):
         return {leaf.name: _to_wire(getattr(value, leaf.name)) for leaf in fields(ObjectRef)}
@@ -1008,13 +1063,22 @@ def _to_wire(value: object) -> object:
         # being edited. That is what the deferral recorded on Unrecorded costs
         # to reverse, stated mechanically rather than aspirationally.
         return {UNRECORDED_KEY: value.value}
+    if value is None or isinstance(value, _JSON_SCALARS):
+        return value
     if isinstance(value, Mapping):
+        if any(not isinstance(key, str) for key in value):
+            # The WHOLE mapping, rather than the offending key: a JSON object is
+            # string-keyed, and stringifying a key would invent data the payload
+            # never carried. (This branch is also a totality gain -- json.dumps
+            # raises on a MappingProxyType, which this module hands around as
+            # REGISTRY and EXAMPLES.)
+            return _unconvertible(value)
         return {key: _to_wire(item) for key, item in value.items()}
     if isinstance(value, Sequence) and not isinstance(value, _TEXTUAL):
         # Text is a Sequence and is already what the wire wants, so it must not
         # be taken apart into a list of one-character strings.
         return [_to_wire(item) for item in value]
-    return value
+    return _unconvertible(value)
 
 
 def to_dict(operation: Operation) -> dict[str, object]:
