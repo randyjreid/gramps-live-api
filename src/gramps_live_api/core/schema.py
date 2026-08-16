@@ -440,8 +440,49 @@ everywhere else.
 UNCONVERTIBLE_KEY = "unconvertible"
 """The single key a payload spells a value this module cannot model under.
 
-A mapping rather than an in-band reserved string, on exactly the reason recorded
-for ``UNRECORDED_KEY`` above.
+⚠️ **RESERVED: ``from_dict`` refuses a payload that spells this key**, at any
+depth below any declared field, with a ``ReservedKeyError`` naming where. That
+is what makes the marker an injective signal -- without it a payload could spell
+the key itself, ``from_dict`` accepted it, and ``to_dict`` re-emitted it
+byte-identical to a genuine conversion failure, so nothing anywhere could tell a
+fault from a value that merely looked like one.
+
+⚠️ **The inherited reason for the mapping was WRONG, and it is corrected here
+rather than repeated.** The line this docstring used to carry said *a mapping
+rather than an in-band reserved string, on exactly the reason recorded for*
+``UNRECORDED_KEY`` -- that a reserved string collides with a name a record
+actually gives. **A mapping's own key collides in exactly the same way**, which
+is the defect above, so that reason never distinguished the two. What the
+mapping actually buys is somewhere to put the value's type; what makes the key
+unambiguous is the reservation, and nothing else.
+
+**What the reservation costs, stated at its definition site.** One key of the
+payload vocabulary is spent. The refusal is loud and at the door rather than
+silent and downstream, so a caller who somehow needed the word learns it
+immediately and with a field path. And the practical collision probability for
+genealogical data is nil: no register, no field of any operation, and no value
+this project models is spelled ``unconvertible``.
+
+⚠️ **What the reservation does NOT reach, recorded as a cost taken rather than
+silently taken.** The refusal descends ``dict`` and ``list``, which is exactly
+what a decoder produces -- so the claim it supports is the bounded one, over
+**decoder-producible payloads**. A ``Mapping`` that is not a ``dict``, built in
+process and handed to ``from_dict`` carrying this key, is *not* refused. That is
+the same best-effort side ``to_dict`` already records, and widening the walk to
+every ``Mapping`` would refuse values no decoder can hand in, on a claim that
+does not ask for it.
+
+⭐ **The precedent, which outlives this key: an in-band signal must be INJECTIVE
+-- by reservation or by escaping.** Those are the two shapes; this key takes the
+first because it has exactly one producer and a refusal is cheap, and escaping
+would have to be undone on the way out and asserted in both directions.
+⚠️ **It decides the shape of #53 whenever use unparks that. Nothing here acts on
+#53 and nothing here unparks it.**
+
+``UNRECORDED_KEY`` is deliberately **not** reserved, and it is not the same
+defect: it is discriminated by POSITION -- only a field whose declaration admits
+the marker reads it -- so a payload spelling it anywhere else is an ordinary
+value that ``validate`` judges at its path.
 
 ⚠️ **What it carries is the value's TYPE and never the value**, which is the
 rule on ``RuleViolation`` obeyed by the transport for the same reason: a payload
@@ -979,6 +1020,36 @@ class UnknownFieldError(SchemaError):
         self.field_path = field_path
 
 
+class ReservedKeyError(SchemaError):
+    """A payload spelling the key this module reserves for its fault marker.
+
+    ⭐ **The precedent, which outlives this class: an in-band signal must be
+    INJECTIVE -- by reservation or by escaping.** ``UNCONVERTIBLE_KEY`` is what
+    ``_to_wire`` emits for a value nothing models, so a payload allowed to spell
+    it made the signal ambiguous: a genuine conversion failure and a
+    decoder-producible value that merely looked like one came back out of
+    ``to_dict`` byte-identical, with nothing anywhere able to tell them apart.
+    Reserving the key on the way in is what makes the marker injective by
+    construction rather than by hope.
+
+    ⚠️ **Not ``UnknownFieldError``, and the distinction is not cosmetic.** This
+    key is met at a VALUE position, where no declaration says which keys are
+    allowed -- so *"is not a field of this operation"* would be a lie about a
+    payload that may be perfectly well shaped. Both are a ``SchemaError``
+    carrying a ``field_path``, which is what a caller actually handles them by,
+    so this adds a truthful message rather than a surface.
+
+    ⚠️ **No ``RuleId`` and no ``RULES`` row.** This sits on the RAISING side of
+    the boundary drawn above, where ``UnknownFieldError`` already lives; the
+    rule table covers the non-raising validate side, and a test asserts that
+    line.
+    """
+
+    def __init__(self, field_path: str) -> None:
+        super().__init__(f"{field_path} is a key this module reserves for its fault marker")
+        self.field_path = field_path
+
+
 def type_name_of(operation: Operation) -> str:
     """The wire name of ``operation``'s type."""
     for name, spec in REGISTRY.items():
@@ -1335,7 +1406,18 @@ def from_dict(payload: Mapping[str, object]) -> Operation:
             continue
         value = payload[name]
         if name in references:
-            arguments[name] = _reference_from(name, value)
+            # ``_reference_from`` FIRST and unchanged, so the reserved key at a
+            # reference ROOT still comes back as an undeclared leaf --
+            # ``UnknownFieldError("target.unconvertible")`` -- which is the
+            # pre-existing structural surface the spec records, not something
+            # this reservation is entitled to take over. The walk then runs over
+            # the built reference's leaves, where a mapping is a value rather
+            # than how the wire spells an object.
+            reference = _reference_from(name, value)
+            if reference is not None:
+                for leaf in fields(ObjectRef):
+                    _refuse_reserved(f"{name}.{leaf.name}", getattr(reference, leaf.name))
+            arguments[name] = reference
         elif name in absences and (marker := _unrecorded_from_wire(value)) is not None:
             # By DECLARATION, mirroring _to_wire's by-value direction: on the way
             # in only the declaration is in hand. A mapping at an absence field
@@ -1345,8 +1427,79 @@ def from_dict(payload: Mapping[str, object]) -> Operation:
             # between the two error surfaces.
             arguments[name] = marker
         else:
+            # An absence field whose value is NOT the canonical spelling falls
+            # here too, and is walked like anything else: the marker's own
+            # mapping is exactly one key, so a payload reaching this branch has
+            # nothing the reservation would have let through.
+            _refuse_reserved(name, value)
             arguments[name] = value
     return cls(**arguments)
+
+
+def _refuse_reserved(path: str, value: object) -> None:
+    """Refuse ``value`` if any mapping in it spells ``UNCONVERTIBLE_KEY``.
+
+    ⚠️ **On KEY PRESENCE rather than on the marker's exact one-key shape, and
+    that is what makes the reservation injective** rather than merely narrow.
+    The detector the bounded closer runs calls a payload a marker when any
+    mapping CONTAINS the key, so a refusal matching anything narrower would
+    leave payloads the detector still reads as one -- and the closer would go on
+    being untriggered instead of becoming TRUE. Matching the detector exactly is
+    the whole argument.
+
+    ⚠️ **An explicit stack, and this is the FOURTH walk to need one.** The
+    bounded closer pushes a decoder-produced list 2 000 deep through
+    ``from_dict``, so a recursion here would die on exactly the payload the
+    claim says is carried. Written iterative from the start, per the rule
+    recorded on the test file's own walks after three of them learned it
+    separately.
+
+    ⚠️ **``dict`` and ``list`` by ``isinstance``, so a ``Mapping`` that is not a
+    ``dict`` -- a ``MappingProxyType`` built in process -- carrying the key is
+    NOT refused. Recorded as a cost taken rather than silently taken.** The
+    claim this serves is bounded over decoder-producible payloads, and a decoder
+    produces exactly ``dict`` and ``list``; a value built in process is the
+    best-effort side ``to_dict`` already records. Widening to every ``Mapping``
+    would refuse values no decoder can hand in, on a claim that does not ask for
+    it.
+
+    **Containers already visited are marked, so a cyclic in-process payload
+    terminates.** Accumulated across the whole walk rather than scoped to the
+    current path -- the opposite of ``_to_wire``, deliberately: a container that
+    did not raise the first time cannot raise the second, so revisiting one can
+    only cost time, and the fail-closed defect that path-scoping exists to
+    prevent there has no counterpart here. A cycle is not decoder-producible at
+    all, JSON being a tree; this is termination on the best-effort side, and
+    non-termination is the one failure mode where nothing propagates as itself
+    because nothing propagates at all.
+
+    Path grammar is the wire-shape walk's, so a refusal names the same position
+    that walk would. Children are pushed reversed, which a LIFO stack turns back
+    into source order: the path is quoted in the refusal, so which offending key
+    is named first is a quality-of-message obligation.
+    """
+    stack: list[tuple[object, str]] = [(value, path)]
+    visited: set[int] = set()
+    while stack:
+        item, where = stack.pop()
+        if isinstance(item, dict):
+            if UNCONVERTIBLE_KEY in item:
+                raise ReservedKeyError(f"{where}.{UNCONVERTIBLE_KEY}")
+            if id(item) in visited:
+                continue
+            visited.add(id(item))
+            stack.extend(
+                (contained, f"{where}.{key}") for key, contained in reversed(list(item.items()))
+            )
+            continue
+        if isinstance(item, list):
+            if id(item) in visited:
+                continue
+            visited.add(id(item))
+            stack.extend(
+                (contained, f"{where}[{index}]")
+                for index, contained in reversed(list(enumerate(item)))
+            )
 
 
 _UNRECORDED_BY_VALUE: Mapping[str, Unrecorded] = MappingProxyType(

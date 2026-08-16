@@ -1077,11 +1077,23 @@ _DECODED_VALUES: tuple[object, ...] = (
     *WIRE_VALUES,
     [[{"a key": [1, "a value"]}]],
     {"a key": {"another key": [None, 1.5]}},
+    {schema.UNCONVERTIBLE_KEY: "set"},
+    {"a key": [{schema.UNCONVERTIBLE_KEY: "set"}]},
 )
 """What a decoder can hand back where a field goes: the JSON types, and nested.
 
 ``WIRE_VALUES`` is the whole space one level deep, and the two composites are
 there because "bounded in kind" is a claim about composition too.
+
+⚠️ **The last two spell the fault marker's own key, and they are the reason the
+claim below is now true rather than merely untriggered.** A decoder produces
+them as readily as anything else, ``from_dict`` used to accept them and
+``to_dict`` re-emitted them byte-identical to a genuine conversion failure -- so
+the closer asserted something false and stayed green only because nothing
+sampled spelled the key. ``from_dict`` now RESERVES it, which is what makes the
+marker injective; the closer skips them as structural refusals, and
+``test_a_decoded_value_naming_the_fault_marker_is_refused_at_every_path`` is
+what keeps that skip from being the vacuous way to pass.
 """
 
 
@@ -1128,6 +1140,14 @@ _BOUNDED_CASES = [
     for type_name in sorted(EXAMPLES)
     for path in schema.required_paths(type(EXAMPLES[type_name]))
 ]
+
+_RESERVED_DECODED_VALUES = [value for value in _DECODED_VALUES if _names_the_fault_marker(value)]
+"""The decoded values that spell the reserved key, found by the detector itself.
+
+Derived rather than listed, so a value added to ``_DECODED_VALUES`` carrying the
+key is covered by the refusal test below without anything here being edited --
+and, more to the point, cannot be added as a value the closer silently skips.
+"""
 
 
 def _decoder_produced_nesting(depth: int) -> object:
@@ -1208,6 +1228,46 @@ def test_a_payload_a_decoder_could_have_produced_never_reaches_the_fault_marker(
         )
         assert _not_json(emitted, "") is None
         json.dumps(emitted)
+
+
+def test_the_decoded_values_include_one_that_names_the_fault_marker() -> None:
+    # ⚠️ **A tripwire, in the style of the partition's.** The closer above passes
+    # over a refused payload with ``continue``, so a value that spells the
+    # reserved key satisfies it by being REFUSED -- and if no such value is in
+    # the set at all, the refusal test below is quantified over nothing while
+    # still reading as the thing that closed the marker's ambiguity. Green on
+    # arrival and not evidence.
+    assert _RESERVED_DECODED_VALUES, (
+        "no decoded value spells the reserved key, so the closer above is once "
+        "again true only because nothing sampled tests it"
+    )
+
+
+@pytest.mark.parametrize(("type_name", "path"), _BOUNDED_CASES)
+def test_a_decoded_value_naming_the_fault_marker_is_refused_at_every_path(
+    type_name: str, path: str
+) -> None:
+    # ⭐ **This is what makes the closer's skip meaningful rather than vacuous.**
+    # The claim is quantified over what ``from_dict`` ACCEPTS, so a value it
+    # refuses is skipped -- which is correct, and is also exactly how a payload
+    # that quietly still round-tripped the marker would hide. So: refused at
+    # every declared path, loudly, with a field path naming where.
+    #
+    # Two truthful surfaces answer, and the assertion is over what they share. A
+    # reference ROOT is refused by ``_reference_from`` as an undeclared leaf,
+    # everything else by the reservation itself; ``test_schema_serialisation.py``
+    # pins which is which. A caller handles both by ``SchemaError`` and a path.
+    for value in _RESERVED_DECODED_VALUES:
+        with pytest.raises(schema.SchemaError) as raised:
+            schema.from_dict(payload_with(type_name, path, value))
+
+        field_path = getattr(raised.value, "field_path", "")
+
+        assert field_path.startswith(path), (
+            f"{type_name} refused a decoded value naming the fault marker at "
+            f"{path}, but reported {field_path!r} -- a refusal with no path, or "
+            "one pointing somewhere else, is one nobody can act on"
+        )
 
 
 # ---------------------------------------------------------------------------
