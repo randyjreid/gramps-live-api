@@ -1004,6 +1004,7 @@ def from_dict(payload: Mapping[str, object]) -> Operation:
     cls = REGISTRY[type_name].cls
     declared = {field.name for field in fields(cls)}
     references = set(reference_fields(cls))
+    absences = set(absence_fields(cls))
 
     for key in payload:
         if key != TYPE_KEY and key not in declared:
@@ -1014,8 +1015,53 @@ def from_dict(payload: Mapping[str, object]) -> Operation:
         if name not in payload:
             continue
         value = payload[name]
-        arguments[name] = _reference_from(name, value) if name in references else value
+        if name in references:
+            arguments[name] = _reference_from(name, value)
+        elif name in absences and (marker := _unrecorded_from_wire(value)) is not None:
+            # By DECLARATION, mirroring _to_wire's by-value direction: on the way
+            # in only the declaration is in hand. A mapping at an absence field
+            # that is not the canonical spelling passes through unchanged, as a
+            # value fault -- _field_wrong_type reports a dict at that path and
+            # validate is what says so, which is the line this module draws
+            # between the two error surfaces.
+            arguments[name] = marker
+        else:
+            arguments[name] = value
     return cls(**arguments)
+
+
+_UNRECORDED_BY_VALUE: Mapping[str, Unrecorded] = MappingProxyType(
+    {member.value: member for member in Unrecorded}
+)
+"""Every member by its wire spelling, built from the enum rather than beside it.
+
+A second member is deserialisable the moment it is declared, with nothing here
+edited -- the other half of what the deferral recorded on ``Unrecorded`` costs
+to reverse.
+"""
+
+
+def _unrecorded_from_wire(value: object) -> Unrecorded | None:
+    """The marker ``value`` spells, or ``None`` if it does not spell one.
+
+    ``None`` rather than a raise, deliberately. A value at an absence field that
+    is not the canonical spelling is a VALUE fault, and value faults survive
+    deserialisation so ``validate`` can report them with a field path. Refusing
+    here would be a second validator with no vocabulary for saying where.
+
+    ⚠️ **The ``str`` check ahead of the lookup is not defensive padding, and
+    removing it as redundant is the defect it exists to prevent.** ``dict.get``
+    raises ``TypeError`` on an unhashable key and the wire can carry a list -- so
+    without it a ``TypeError`` comes out of the transport carrying no verdict and
+    no field path, which is the failure ``_present_references`` already records
+    having been made once. Tested directly.
+    """
+    if not isinstance(value, Mapping) or set(value) != {UNRECORDED_KEY}:
+        return None
+    spelling = value[UNRECORDED_KEY]
+    if not isinstance(spelling, str):
+        return None
+    return _UNRECORDED_BY_VALUE.get(spelling)
 
 
 def _reference_from(name: str, value: object) -> ObjectRef | None:
