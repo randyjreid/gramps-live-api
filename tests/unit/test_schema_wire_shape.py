@@ -42,7 +42,7 @@ import pytest
 
 from gramps_live_api.core import schema
 from gramps_live_api.core.schema import UNRECORDED, ObjectRef, Operation, Unrecorded
-from tests.fixtures.operations import EXAMPLES, carrying
+from tests.fixtures.operations import EXAMPLES, WIRE_VALUES, carrying, payload_with
 
 _JSON_SCALARS = (bool, int, float, str)
 
@@ -678,3 +678,90 @@ def test_to_dict_emits_json_for_the_deepest_value_at_every_declared_path(
         f"{path} emitted something at {offending} that no encoder can emit"
     )
     json.dumps(payload)
+
+
+# ---------------------------------------------------------------------------
+# The bounded sub-property -- **this is the one that CLOSES**
+#
+# ⭐ Everything above samples an infinite space, and this project has a rule
+# about that: **an unbounded property cannot be closed by review.** A reviewer
+# asked to construct a value the generator does not reach will construct one,
+# every round, for ever, and each one will be genuine -- so the rounds are not
+# converging on correctness, they are sampling.
+#
+# **So the claim that closes is a bounded one:**
+#
+#     for every payload a JSON decoder could have produced and ``from_dict``
+#     accepts, ``to_dict`` emits JSON **and the fault marker never appears**.
+#
+# The marker's rarity becomes a property rather than a hope, and the space is
+# genuinely bounded **in kind**: a decoder emits ``dict``, ``list``, ``str``,
+# a number, a bool and ``None``, a JSON object is string-keyed, and the only
+# other things ``from_dict`` builds are an ``ObjectRef`` of decoded values and
+# the marker. Every one of those takes a branch that converts. No composition of
+# them reaches the branch for the unknown, and that is an argument over a closed
+# set of kinds rather than over a set of values.
+#
+# ⚠️ **"A payload a JSON decoder could have produced" is load-bearing and the
+# qualifier is not a hedge.** ``from_dict`` takes a ``Mapping``, so a caller can
+# hand it one built in process holding a set or an arbitrary object -- and the
+# marker WOULD appear for that. That is the unbounded side by design, recorded on
+# ``Operation``: fields accept anything so that ``validate`` can be the only
+# judge. Stating the property without the qualifier would make it false in
+# exactly the case the rest of this file exists for.
+# ---------------------------------------------------------------------------
+
+_DECODED_VALUES: tuple[object, ...] = (
+    *WIRE_VALUES,
+    [[{"a key": [1, "a value"]}]],
+    {"a key": {"another key": [None, 1.5]}},
+)
+"""What a decoder can hand back where a field goes: the JSON types, and nested.
+
+``WIRE_VALUES`` is the whole space one level deep, and the two composites are
+there because "bounded in kind" is a claim about composition too.
+"""
+
+
+def _names_the_fault_marker(value: object) -> bool:
+    """Whether the fault marker appears anywhere in an emitted payload."""
+    if isinstance(value, dict):
+        return schema.UNCONVERTIBLE_KEY in value or any(
+            _names_the_fault_marker(item) for item in value.values()
+        )
+    if isinstance(value, list):
+        return any(_names_the_fault_marker(item) for item in value)
+    return False
+
+
+_BOUNDED_CASES = [
+    (type_name, path)
+    for type_name in sorted(EXAMPLES)
+    for path in schema.required_paths(type(EXAMPLES[type_name]))
+]
+
+
+@pytest.mark.parametrize(("type_name", "path"), _BOUNDED_CASES)
+def test_a_payload_a_decoder_could_have_produced_never_reaches_the_fault_marker(
+    type_name: str, path: str
+) -> None:
+    # Payloads from_dict REFUSES are skipped rather than asserted about: the
+    # property is quantified over what it accepts, and a structural refusal is
+    # the other error surface, which this file has nothing to say about.
+    assert not _names_the_fault_marker(schema.to_dict(EXAMPLES[type_name]))
+
+    for value in _DECODED_VALUES:
+        try:
+            operation = schema.from_dict(payload_with(type_name, path, value))
+        except schema.SchemaError:
+            continue
+
+        emitted = schema.to_dict(operation)
+
+        assert not _names_the_fault_marker(emitted), (
+            f"{type_name} carrying a decodable value at {path} emitted the fault "
+            "marker, so the marker is reachable from the wire rather than only "
+            "from a value built in process"
+        )
+        assert _not_json(emitted, "") is None
+        json.dumps(emitted)
