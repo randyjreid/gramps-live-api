@@ -472,3 +472,54 @@ def test_the_real_runner_does_not_raise_on_output_that_is_not_utf8(tmp_path: Pat
     assert "�" in completed.stderr, "stderr takes the same path, and a failure prints it"
     # Substitution did not touch the marker, and it still round-trips.
     assert invocation.result_of(completed.stdout)["text"] == text
+
+
+def test_apply_shows_the_whole_note_before_asking_for_approval(tmp_path: Path) -> None:
+    """Nothing is written that the operator was not shown.
+
+    The one-line sentence elides free text at 60 characters. When the approval
+    was compared as that elided string, everything past the limit went into the
+    tree without ever reaching a screen -- so the prompt authorised content it
+    had never displayed.
+    """
+    copy, environ = blessed_environment(tmp_path)
+    tail = "and the part that used to be invisible"
+    long_note = schema.AddNote(
+        target=OPERATION.target,
+        note_type="research",
+        text="x" * schema._PREVIEW_TEXT_LIMIT + " " + tail,
+    )
+    runner = Recorder(marker(ok=True, note_handle="n0", note_gramps_id="N0001", person_handle="p0"))
+
+    _, out, _ = run(
+        "apply",
+        operation_file(tmp_path, schema.to_dict(long_note)),
+        environ=environ,
+        answer="n",
+        runner=runner,
+    )
+
+    assert tail not in schema.preview(long_note), "meaningless unless preview really elides"
+    assert tail in out, f"the operator was asked to approve text they were never shown; got {out!r}"
+    assert runner.runs == [], "declining still started a process"
+
+
+def test_apply_sends_a_digest_of_the_operation_beside_the_sentence(tmp_path: Path) -> None:
+    # The sentence is what the operator read; the digest is what binds the
+    # write, because a sentence is elided and a digest is not.
+    copy, environ = blessed_environment(tmp_path)
+    runner = Recorder(
+        marker(ok=True, note_handle="n0", note_gramps_id="N0001", person_handle="p0"),
+        marker(ok=True, text_matches=True, attached=True, text=OPERATION.text),
+    )
+
+    run(
+        "apply",
+        operation_file(tmp_path, schema.to_dict(OPERATION)),
+        environ=environ,
+        runner=runner,
+    )
+
+    _, child_env = runner.runs[0]
+    assert child_env[invocation.ENV_APPROVED_DIGEST] == apply.approval_digest(OPERATION)
+    assert child_env[invocation.ENV_APPROVED] == schema.preview(OPERATION)

@@ -51,6 +51,10 @@ MODE_VERIFY = "verify"
 ENV_MODE = "GRAMPS_LIVE_API_MODE"
 ENV_OPERATION = "GRAMPS_LIVE_API_OP"
 ENV_APPROVED = "GRAMPS_LIVE_API_APPROVED"
+ENV_APPROVED_DIGEST = "GRAMPS_LIVE_API_APPROVED_DIGEST"
+"""The lossless half of the approval. ``ENV_APPROVED`` carries the sentence the
+operator read; this carries a digest of the operation they approved, because a
+sentence is elided at 60 characters and cannot bind what follows it."""
 ENV_SOURCE = "GRAMPS_LIVE_API_SRC"
 ENV_HANDLES = "GRAMPS_LIVE_API_HANDLES"
 
@@ -107,6 +111,7 @@ def environment(
     mode: str,
     operation: str,
     approved_preview: str,
+    approved_digest: str,
     source: str,
     handles: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
@@ -119,6 +124,7 @@ def environment(
     settings[ENV_MODE] = mode
     settings[ENV_OPERATION] = operation
     settings[ENV_APPROVED] = approved_preview
+    settings[ENV_APPROVED_DIGEST] = approved_digest
     settings[ENV_SOURCE] = source
     if handles is not None:
         settings[ENV_HANDLES] = json.dumps(handles)

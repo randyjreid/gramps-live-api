@@ -77,6 +77,7 @@ def test_the_operation_travels_through_the_environment_and_not_through_argv() ->
         mode=invocation.MODE_APPLY,
         operation=payload,
         approved_preview="add a research note to person I0044",
+        approved_digest="a" * 64,
         source="a-source-directory",
     )
 
@@ -95,6 +96,7 @@ def test_verify_mode_carries_the_handles_the_write_produced() -> None:
         mode=invocation.MODE_VERIFY,
         operation="{}",
         approved_preview="",
+        approved_digest="a" * 64,
         source="a-source-directory",
         handles={"note_handle": "f00d1e5f00d1e5", "person_handle": "a1b2c3d4e5f607"},
     )

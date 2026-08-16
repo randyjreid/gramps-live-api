@@ -176,6 +176,34 @@ def _shortened(text: str, path: str) -> tuple[Fragment, ...]:
     return (_own("“"), _carried(path, collapsed), _own("”"))
 
 
+def _quoted(text: str, path: str) -> tuple[Fragment, ...]:
+    """Free text in full: the UN-ELIDED twin of ``_shortened``.
+
+    ⚠️ **This exists because the elision reached further than display.** The
+    approval compared rendered sentences, so two notes sharing a 59-character
+    prefix produced one sentence, and everything past it was written without
+    ever having been approved or shown. The binding is now over the operation
+    (see ``core.apply``), and this is the other half: what the person is shown
+    before the prompt has to be everything the tree will receive.
+
+    Same whitespace normalisation as ``_shortened`` and for the same reason --
+    the rendering guard reads what is EMITTED, and matching that normalisation
+    is what makes reading provenance off the fragments equivalent to scanning
+    the finished string.
+
+    ⚠️ **Recorded residual: whitespace is the one thing display and storage
+    still differ on.** A note carrying newlines or runs of spaces is shown
+    collapsed and stored as written. That is a deliberate trade rather than an
+    oversight: emitting the raw text would put a carriage return on a terminal,
+    which overwrites the line it is on and can hide the content this function
+    exists to reveal. Content is complete; layout is not preserved.
+    """
+    collapsed = " ".join(text.split())
+    if not collapsed:
+        return (_own("(no text)"),)
+    return (_own("“"), _carried(path, collapsed), _own("”"))
+
+
 @dataclass(frozen=True, slots=True)
 class ObjectRef:
     """A reference to one object that already exists in the tree.
@@ -227,6 +255,20 @@ class Operation:
         ``test_schema_preview_guard.py`` rather than degrading quietly.
         """
         raise NotImplementedError
+
+    def full(self) -> tuple[Fragment, ...]:
+        """Everything this operation would write, with nothing elided.
+
+        Called only through ``full_display``, which a caller shows before asking
+        for approval. The default IS ``render`` -- an operation carrying no
+        elided field shows the same thing twice, and saying so here means a new
+        operation type is covered without its author having to think about it.
+
+        ⚠️ **Override this wherever ``render`` elides.** An operation whose
+        renderer shortens a value and does not override here would be approved
+        against a summary again, which is the defect this pair exists to close.
+        """
+        return self.render()
 
 
 _Registered = TypeVar("_Registered", bound=type[Operation])
@@ -466,6 +508,17 @@ class AddNote(Operation):
             *_named(self.target, "target"),
             _own(": "),
             *_shortened(self.text, "text"),
+        )
+
+    def full(self) -> tuple[Fragment, ...]:
+        """The same sentence with the note's text entire, because ``render`` elides it."""
+        return (
+            _own("add a "),
+            _carried("note_type", self.note_type),
+            _own(" note to "),
+            *_named(self.target, "target"),
+            _own(": "),
+            *_quoted(self.text, "text"),
         )
 
 
@@ -940,11 +993,17 @@ def _reference_from(name: str, value: object) -> ObjectRef | None:
 # about which of these can appear in a Gramps identifier or a note that a
 # person still has to check against a record.
 #
-# ⚠️ **Truncation means a hidden character can go unrefused, and that is
-# correct.** ``_shortened`` elides free text, so a character past the limit is
-# never emitted -- and a guard over what we DISPLAY has nothing to say about a
-# character that reaches no screen. Stated so it is not later mistaken for a
-# bypass.
+# ⚠️ **Truncation USED to mean a hidden character went unrefused, and that
+# residual is now retired rather than merely qualified.** It read: ``_shortened``
+# elides free text, so a character past the limit is never emitted, and a guard
+# over what we DISPLAY has nothing to say about a character that reaches no
+# screen. The premise was true of ``preview`` alone.
+#
+# ``full_display`` emits the text entire, because a person cannot approve what
+# they were not shown, so a character past the elision point now DOES reach a
+# screen -- and the guard runs over those fragments too. The reasoning was sound
+# and its premise stopped holding the moment a second display site existed; it is
+# rewritten here rather than left for a reader to inherit as still-true.
 #
 # ⚠️ **Implicit reordering is not covered, and must not be.** A strong
 # right-to-left letter -- an ordinary name, category Lo -- reorders the neutral
@@ -1165,6 +1224,28 @@ def preview(operation: Operation) -> str:
     """
     type_name_of(operation)  # refuses anything unregistered
     fragments = operation.render()
+    rendered = " ".join("".join(fragment.text for fragment in fragments).split())
+    _refuse_unrenderable(fragments)
+    return rendered
+
+
+def full_display(operation: Operation) -> str:
+    """Everything ``operation`` would write, with nothing elided, for approval.
+
+    ``preview`` is the one-line summary a person reads; this is what they must
+    actually be shown before the write, because the summary elides free text at
+    ``_PREVIEW_TEXT_LIMIT`` and a person cannot approve what they were not shown.
+
+    ⚠️ **The rendering guard runs over THIS too, and that is the point rather
+    than symmetry.** Extending what is displayed extends what has to be guarded:
+    a bidirectional override or a zero-width character sitting past the elision
+    point reached no screen before and reaches one now. Guarding only ``preview``
+    would have moved the attack rather than closed it.
+
+    Same precondition as ``preview``: ``operation`` has passed ``validate``.
+    """
+    type_name_of(operation)  # refuses anything unregistered
+    fragments = operation.full()
     rendered = " ".join("".join(fragment.text for fragment in fragments).split())
     _refuse_unrenderable(fragments)
     return rendered

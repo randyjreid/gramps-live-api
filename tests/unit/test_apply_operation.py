@@ -35,6 +35,7 @@ def run(copy: apply.WritableCopy, tree: FakeTree, operation: schema.Operation = 
         copy,
         tree,
         approved_preview=schema.preview(operation),
+        approved_digest=apply.approval_digest(operation),
         gramps_version="6.0.8",
         written_utc=MOMENT,
     )
@@ -208,23 +209,75 @@ def test_a_reference_whose_two_halves_disagree_is_refused(tmp_path: Path) -> Non
     assert tree.records_on_disk() == []
 
 
-def test_an_approval_for_a_different_sentence_is_refused(tmp_path: Path) -> None:
+def test_an_approval_for_a_different_operation_is_refused(tmp_path: Path) -> None:
     """The binding between what was agreed and what is written, made checkable.
 
     The front end previews in one process and the write happens in another, so
-    "the approved sentence" arrives as a string beside the operation. Recording
-    it proves what was shown; comparing it proves they were about the same
+    the approval arrives beside the operation. The sentence is recorded, proving
+    what was shown; the DIGEST is compared, proving they were about the same
     operation.
     """
     copy = blessed(tmp_path / "tree")
     tree = FakeTree(tmp_path / "tree")
+    other = schema.AddNote(
+        target=OPERATION.target, note_type="research", text="an entirely different note"
+    )
 
     with pytest.raises(apply.ApprovalMismatch):
         apply.apply_operation(
             OPERATION,
             copy,
             tree,
-            approved_preview="add a research note to person I0044: “something else”",
+            approved_preview=schema.preview(other),
+            approved_digest=apply.approval_digest(other),
+            gramps_version="6.0.8",
+            written_utc=MOMENT,
+        )
+
+    assert tree.written == []
+    assert tree.records_on_disk() == []
+
+
+def test_an_approval_whose_sentence_matches_but_whose_text_differs_is_refused(
+    tmp_path: Path,
+) -> None:
+    """The defect this rework exists for, pinned as a negative control.
+
+    ⚠️ **These two notes render to the SAME sentence.** ``preview`` elides free
+    text at 60 characters, so two operations sharing a 59-character prefix are
+    indistinguishable to a comparison over sentences -- and the transaction
+    writes the whole of whichever it holds. The approval therefore covered the
+    prefix and nothing after it.
+
+    Comparing digests instead has no such horizon. Remove the digest check and
+    restore the sentence comparison, and this test passes a fabricated note
+    through an approval given for a different one.
+    """
+    copy = blessed(tmp_path / "tree")
+    tree = FakeTree(tmp_path / "tree")
+    shared = "Marriage recorded in the parish register, second volume, page "
+    approved = schema.AddNote(
+        target=OPERATION.target,
+        note_type="research",
+        text=shared + "141. Confirmed against the original.",
+    )
+    written = schema.AddNote(
+        target=OPERATION.target,
+        note_type="research",
+        text=shared + "141. FABRICATED: inheritance passes to the other line.",
+    )
+    assert schema.preview(approved) == schema.preview(written), (
+        "this test is meaningless unless the two sentences really are identical"
+    )
+    assert approved.text != written.text
+
+    with pytest.raises(apply.ApprovalMismatch):
+        apply.apply_operation(
+            written,
+            copy,
+            tree,
+            approved_preview=schema.preview(approved),
+            approved_digest=apply.approval_digest(approved),
             gramps_version="6.0.8",
             written_utc=MOMENT,
         )

@@ -271,6 +271,18 @@ def _apply(
     copy = apply.authorise(settings.copy_path)
     sentence = schema.preview(operation)
     print(sentence, file=out)
+    # ⚠️ **Nothing is written that was not shown.** The sentence above elides
+    # free text at 60 characters, and the approval used to be compared as that
+    # elided string -- so everything past the limit went into the tree without
+    # having been displayed or approved. The digest below now binds the whole
+    # operation, and this prints the rest of what the digest covers, because a
+    # binding the operator cannot read is not an approval.
+    #
+    # Printed only when it differs, so the ordinary short note still shows one
+    # line and the prompt stays where the eye expects it.
+    entire = schema.full_display(operation)
+    if entire != sentence:
+        print(f"  in full: {entire}", file=out)
     print(f"write this into {copy.tree_dir}? [y/N] ", end="", file=out)
     out.flush()
     if stdin.readline().strip().lower() not in {"y", "yes"}:
@@ -285,6 +297,7 @@ def _apply(
         mode=invocation.MODE_APPLY,
         operation=json.dumps(schema.to_dict(operation)),
         approved_preview=sentence,
+        approved_digest=apply.approval_digest(operation),
     )
     if not written.get("ok"):
         print(written.get("error", "the write failed and said nothing"), file=err)
@@ -314,6 +327,7 @@ def _apply(
         mode=invocation.MODE_VERIFY,
         operation=json.dumps(schema.to_dict(operation)),
         approved_preview=sentence,
+        approved_digest=apply.approval_digest(operation),
         handles={
             "note_handle": str(written.get("note_handle")),
             "person_handle": str(written.get("person_handle")),
@@ -339,6 +353,7 @@ def _one_run(
     mode: str,
     operation: str,
     approved_preview: str,
+    approved_digest: str,
     handles: Mapping[str, str] | None = None,
 ) -> Mapping[str, object]:
     completed = runner(
@@ -348,6 +363,7 @@ def _one_run(
             mode=mode,
             operation=operation,
             approved_preview=approved_preview,
+            approved_digest=approved_digest,
             source=_SOURCE_DIRECTORY,
             handles=handles,
         ),

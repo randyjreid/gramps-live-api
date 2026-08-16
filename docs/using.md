@@ -194,6 +194,16 @@ add a research note to person I0044: “The note you want to attach.”
 
 That sentence is the thing you are approving. `preview` writes nothing and opens nothing.
 
+> ⚠️ **`preview` and `apply` are not linked, and you should not act as though they are.** `preview`
+> leaves nothing behind — no token, no state — so `apply` has no knowledge that you ran it. `apply`
+> re-reads `op.json` for itself, shows you what it found, and asks. **Edit the file between the two
+> commands and `apply` will happily write the edited version**, because the version it shows you and
+> the version it writes both come from its own read.
+>
+> So the sentence you approve is always `apply`'s own, and reading it at the prompt is what protects
+> you — not having previewed earlier. `preview` is for looking before you commit to anything; it is
+> not a lock. Binding an approval across the two steps is [#71](https://github.com/randyjreid/gramps-live-api/issues/71).
+
 ### 3. `apply` — write it, then go and look
 
 ```powershell
@@ -213,6 +223,22 @@ The whole thing takes about **three and a half seconds** — two Gramps cold sta
 one to go back and look.
 
 Answer anything but `y` and nothing at all happens.
+
+> **A long note prints twice, and the second one is the one that matters.** The first line is the
+> one-sentence summary, and it shortens the note's text so it fits. Whenever it has shortened
+> anything you also get an `in full:` line carrying the whole text, because you cannot approve what
+> you were not shown:
+>
+> ```
+> add a research note to person I0044: “Marriage recorded in the parish register, second vo…”
+>   in full: add a research note to person I0044: “Marriage recorded in the parish register, second volume, page 141. Confirmed against the original.”
+> write this into <the copy's directory>? [y/N]
+> ```
+>
+> What is written is bound to the **whole operation**, not to the summary — so a note differing only
+> after the summary's cut-off is a different operation and is refused, not silently accepted.
+> Whitespace is the one thing the display does not preserve: runs of spaces and newlines are shown
+> collapsed, and stored exactly as you wrote them.
 
 `apply` exits **0 only when the note was written *and* found again by a second, fresh Gramps process**
 that went looking for it. Every other outcome exits non-zero: a declined prompt, a run that produced
@@ -248,7 +274,7 @@ nobody told you.
 | `the open database is not the copy this token authorises` | the tree Gramps opened is not the one that was blessed |
 | `locked` | Gramps has that tree open. Close it — we never break Gramps' lock, and that is the one-writer rail |
 | `the reference's handle names a different object` | the handle and the Gramps ID name two different people |
-| `the approved sentence is not this operation's sentence` | the file changed between the preview and the write |
+| `the approved operation is not this operation` | the operation that reached the write is not the one you approved |
 | `printed no GRAMPS-LIVE-API-RESULT line` | the Gramps run did not complete. Its own error output is printed underneath |
 
 That last one is worth knowing about: **the exit code of a Gramps run tells you nothing here.** Its

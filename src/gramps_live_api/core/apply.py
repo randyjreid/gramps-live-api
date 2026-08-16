@@ -46,7 +46,6 @@ from gramps_live_api.core.schema import (
     AddNote,
     ObjectRef,
     Operation,
-    preview,
     to_dict,
     type_name_of,
     validate,
@@ -228,10 +227,33 @@ def record_stem(operation: Operation, written_utc: datetime) -> str:
     writing the second one would produce two records nobody can tell apart over
     a tree that now holds two notes.
     """
-    payload = json.dumps(to_dict(operation), sort_keys=True, ensure_ascii=False)
-    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:_STEM_DIGEST_LENGTH]
+    digest = approval_digest(operation)[:_STEM_DIGEST_LENGTH]
     compact = written_utc.strftime("%Y%m%dT%H%M%SZ")
     return f"{compact}-{digest}"
+
+
+def approval_digest(operation: Operation) -> str:
+    """A LOSSLESS fingerprint of exactly what would be written.
+
+    ⚠️ **The approval used to be compared as a rendered sentence, and a sentence
+    is lossy.** ``preview`` elides free text at 60 characters, so two operations
+    sharing a 59-character prefix rendered identically and the comparison passed
+    between them -- while the transaction wrote the whole of whichever it held.
+    Everything past the limit was outside the approval entirely.
+
+    A digest over the canonical serialisation has no such horizon: every field,
+    at full length, in an order that does not depend on dictionary iteration.
+    ``sort_keys`` is what makes it reproducible across processes, which is the
+    only reason it can be compared across one.
+
+    ⚠️ **Not a security boundary against a hostile front end**, and must not be
+    read as one. Both sides derive from the same read of the same file, so this
+    asserts that the operation reaching the write is the operation that was
+    approved -- not that the operation is trustworthy. What makes the human's
+    approval meaningful is ``schema.full_display`` showing them all of it.
+    """
+    payload = json.dumps(to_dict(operation), sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def write_undo_record(
@@ -402,6 +424,7 @@ def apply_operation(
     tree: Tree,
     *,
     approved_preview: str,
+    approved_digest: str,
     gramps_version: str,
     written_utc: datetime | None = None,
 ) -> Applied:
@@ -412,7 +435,7 @@ def apply_operation(
 
     1. the token and the OPEN database must name the same tree;
     2. the operation must be one this slice writes, and well-formed;
-    3. the approved sentence must be this operation's sentence;
+    3. the approved DIGEST must be this operation's digest;
     4. the target must resolve, by Gramps ID, to exactly the handle it carries;
     5. **the undo record is written and forced to disk**;
     6. only then does the transaction open.
@@ -427,13 +450,26 @@ def apply_operation(
     second write nobody approved. The handles come back with ``record_error``
     set; the caller prints them and exits non-zero. An operator can reconstruct
     a record and cannot reconstruct a handle they were never told.
+
+    ⚠️ **``approved_preview`` no longer gates anything and is still REQUIRED.**
+    Step 3 moved to the digest because a sentence is elided and a digest is not,
+    and a reader meeting a parameter that no check consults will reasonably take
+    the narrowing as licence to delete it. It is not: it carries **the exact
+    sentence the operator was shown**, into the undo record, which is the only
+    place that fact survives the process. The digest proves what was written;
+    the sentence is what a human can read afterwards and recognise. They answer
+    different questions and the record needs both.
     """
     moment = utc_now() if written_utc is None else written_utc
     _agrees(copy, tree)
     note, target = _writable(operation)
-    if approved_preview != preview(note):
+    # ⚠️ The DIGEST, not the sentence. A sentence is elided at 60 characters, so
+    # comparing sentences let two operations sharing a 59-character prefix pass
+    # for each other while the transaction wrote the whole of whichever it held.
+    # The digest covers every field at full length.
+    if approved_digest != approval_digest(note):
         raise ApprovalMismatch(
-            "the approved sentence is not this operation's sentence, so the "
+            "the approved operation is not this operation, so the "
             "approval and the write are not about the same thing"
         )
     person_handle = _resolved(target, tree)

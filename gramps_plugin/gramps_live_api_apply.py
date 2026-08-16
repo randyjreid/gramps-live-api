@@ -113,6 +113,7 @@ class ApplyTool(tool.Tool):
             copy,
             tree,
             approved_preview=os.environ["GRAMPS_LIVE_API_APPROVED"],
+            approved_digest=os.environ["GRAMPS_LIVE_API_APPROVED_DIGEST"],
             gramps_version=VERSION,
         )
         return {

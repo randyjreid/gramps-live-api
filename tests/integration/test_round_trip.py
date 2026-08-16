@@ -165,6 +165,7 @@ def test_the_live_tree_refuses_the_write_it_was_never_blessed_for(tmp_path: Path
             mode=invocation.MODE_APPLY,
             operation=json.dumps(OPERATION),
             approved_preview=schema.preview(schema.from_dict(OPERATION)),
+            approved_digest=apply.approval_digest(schema.from_dict(OPERATION)),
             source=str(REPOSITORY_ROOT / "src"),
         ),
         capture_output=True,
