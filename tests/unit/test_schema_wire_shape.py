@@ -461,10 +461,18 @@ def test_a_read_only_mapping_converts_rather_than_raising() -> None:
 
 def test_a_self_referential_list_is_emitted_as_json() -> None:
     # ⚠️ **Termination is the OTHER HALF of "total", and without it the word is
-    # simply false.** A list holding itself is constructible in two lines, and a
-    # structural recursion over it does not stop. It is a termination condition
-    # rather than a case added to an enumeration, which is the distinction that
-    # keeps this from being the next shape nobody wrote down.
+    # simply false.** A list holding itself is constructible IN PROCESS in two
+    # lines, and a structural recursion over it does not stop. It is a
+    # termination condition rather than a case added to an enumeration, which is
+    # the distinction that keeps this from being the next shape nobody wrote
+    # down.
+    #
+    # ⚠️ **In process, and that is a scope rather than a hedge: a cycle is NOT
+    # decoder-producible, JSON being a tree, so this serves the BEST-EFFORT side
+    # of the narrowed claim.** It stays regardless, on its own merits -- without
+    # it the walk does not terminate, and non-termination is the one failure mode
+    # where nothing propagates as itself either, because nothing propagates at
+    # all. Depth, by contrast, is inside the bounded claim.
     cycle: list[object] = []
     cycle.append(cycle)
 

@@ -274,7 +274,9 @@ file's count read as a criterion's evidence is a number that goes stale with not
    *Every value the wire carries is JSON-emittable*, quantified over **paths derived from the
    declaration at every depth they reach** and over **values composed from the kinds `_to_wire`
    branches on**. Checked by a structural walk that names the offending path and by the encoder
-   itself — `test_to_dict_emits_json_for_any_value_the_grammar_composes` (the generated values),
+   itself — `test_a_value_a_decoder_could_have_produced_never_reaches_the_fault_marker_either` and
+   `test_to_dict_emits_json_for_any_other_value_the_grammar_composes` (the generated values,
+   **partitioned**: see the sampler note below),
    `test_to_dict_emits_json_for_the_deepest_value_at_every_declared_path` (the two dimensions
    crossed), `test_to_dict_emits_json_for_a_marker_at_a_field_that_does_not_declare_it` (every
    declared path against every unemittable atom, whose name records this criterion while its matrix
@@ -284,16 +286,67 @@ file's count read as a criterion's evidence is a number that goes stale with not
    generator's breadth is a budget somebody will trim and a reported shape must not be trimmable by
    arithmetic).
 
-   ⚠️ **The conversion is TOTAL, and totality is required rather than preferred because there is no
-   bound to show.** *Reference leaves are the last depth* is true of the **declaration** —
-   `ObjectRef`'s three leaves are all `str`, so the declared depth is exactly 2 — and **false of the
-   values**. Values reaching `_to_wire` come from two places: through `from_dict` they are bounded,
-   and built in process they are **unbounded by deliberate design**, because `Operation` is a
-   transport dataclass whose fields accept anything precisely so `validate` can be the only judge.
-   So a bounded enumeration would be an enumeration of nothing in particular — patch the containers
+   ⚠️ **THE CLAIM IS NARROWED, and the one it replaces was FALSE.** For three rounds this criterion
+   read *the conversion is TOTAL, and totality is required rather than preferred because there is no
+   bound to show.* A property quantified over every value that can be constructed has **no fixed
+   point**: interrogating a value runs the value's own code, so a reviewer can construct a fresh
+   pathological value every round, indefinitely, and each one is genuine. Three rounds of hardening
+   found it false in a new place each time, which is a property being **sampled** rather than a
+   conversion being finished — the repository's own rule that an unbounded property cannot be closed
+   by review, met head-on.
+
+   ⭐ **What closes:** *`to_dict` is total over **decoder-producible** values — every payload
+   `from_dict` accepts converts to a JSON-emittable wire carrying no fault marker, at any depth to
+   the encoder's own ceiling.* The space is bounded **in kind** rather than in size, which is the
+   whole argument; it is stated in full at the bounded sub-property below.
+
+   **Arbitrary in-process values are best-effort, by design rather than by concession.** `Operation`
+   is a transport dataclass whose fields accept anything precisely so `validate` can be the only
+   judge, so *reference leaves are the last depth* stays true of the **declaration** — `ObjectRef`'s
+   three leaves are all `str`, so the declared depth is exactly 2 — and false of the values. A
+   bounded enumeration would still be an enumeration of nothing in particular: patch the containers
    and dicts of lists remain, then lists of dicts of references, one reviewer round at a time. A
    conversion written for the 14 paths that exist today would close them and state nothing about why
    those were the right 14.
+
+   ⚠️ **The residual, recorded with its evidence rather than defended.** Interrogation runs the
+   object's own code — `list(value)` calls its `__iter__` and its `__len__`, `isinstance` reads its
+   `__class__` — so an object can raise before any branch decides anything. Measured at
+   `target.handle` of the `add_note` example:
+
+   | value | `to_dict` | `validate` |
+   | --- | --- | --- |
+   | released `memoryview` | `ValueError`, CPython's own message | `FIELD_WRONG_TYPE` at the path |
+   | `Sequence` whose `__iter__` raises | `ValueError`, **the caller's own message** | as above |
+   | `Sequence` whose `__len__` raises | `ValueError`, **the caller's own message** | as above |
+
+   In every case the exception arrives **as itself**, neither masked as the fault marker nor
+   swallowed — `test_an_exception_from_the_callers_own_object_propagates_as_itself`. The
+   `memoryview` is the one of the three that is a **standard library type** and it reaches the
+   sequence branch by no accident: `_collections_abc` carries `Sequence.register(memoryview)`, so it
+   is stable across 3.10–3.12 rather than an artefact of one version.
+
+   ⚠️ **These three are NOT a closable set and must not be read as an enumeration to extend.**
+   `__iter__`, `__len__`, `__eq__`, `__hash__`, `__getitem__` and a raising `__class__` are **one
+   defect with no enumeration**, because the defect is that interrogation runs the object's code
+   rather than any particular dunder. A fourth is always constructible — which is exactly why the
+   claim above is bounded instead of being defended here.
+
+   ⭐ **The remedy, stated where a caller meets it rather than in a commit message: `validate` reads
+   the object WITHOUT transporting it**, and returns `FIELD_WRONG_TYPE` at the field path in every
+   case measured. A caller wanting a verdict on a pathological value calls `validate`, which is what
+   it is for. Recorded on `to_dict`'s own docstring, the public surface.
+
+   ⚠️ **No broad exception handler is added, and the reason is written where the change would be
+   made.** A blanket `except Exception` emitting the fault marker would make **our own defect
+   indistinguishable from the caller's bad data**: every future bug in the conversion would surface
+   as a well-formed payload naming the caller's type, and the one signal that says *something here
+   is wrong and it is not yours* would be gone. That is the trade this module has now refused four
+   times, and the fence test above is what makes adding one fail a test rather than pass review.
+
+   ⚠️ **The recursion into a reference's leaves is required by the BOUNDED claim too**, not only by
+   the in-process side that motivated it — a decoder puts a nested `dict` at `target.handle` as
+   readily as anything else. Recorded because the narrowing otherwise reads as licence to delete it.
 
    ⚠️ **A value the module cannot model emits a marker under `UNCONVERTIBLE_KEY` naming its type,
    and does not raise.** The trade, stated: a marker reaches `validate`, which already returns
@@ -310,11 +363,20 @@ file's count read as a criterion's evidence is a number that goes stale with not
    ⚠️ **Termination is the other half of "total", and it has TWO halves of its own — cycles and
    depth. For two rounds only the first was written down.**
 
-   **Cycles.** `x = []; x.append(x)` is constructible, so the conversion carries the identities of
-   the containers **on the current path** and marks one already there. On the path rather than
-   accumulated across the walk: a value reachable twice from different branches is not a cycle, and
-   an accumulating set would mark the second sibling — a fail-closed defect on a perfectly emittable
-   payload, which `test_a_value_appearing_twice_is_not_read_as_a_cycle` exists to catch.
+   ⚠️ **The two halves sit on OPPOSITE sides of the narrowed claim, and saying so is what keeps
+   either from being deleted for the wrong reason.** **Depth is inside it** — a decoder produces a
+   2 000-deep payload without difficulty, so a conversion that cannot carry one makes the bounded
+   claim false. **A cycle is not decoder-producible at all**, JSON being a tree, so cycle
+   termination serves the best-effort side. It stays regardless, and on its own merits rather than
+   on the claim's: without it the walk does not terminate, and non-termination is the one failure
+   mode where nothing propagates as itself either — because nothing propagates at all.
+
+   **Cycles.** `x = []; x.append(x)` is constructible in process, so the conversion carries the
+   identities of the containers **on the current path** and marks one already there. On the path
+   rather than accumulated across the walk: a value reachable twice from different branches is not a
+   cycle, and an accumulating set would mark the second sibling — a fail-closed defect on a
+   perfectly emittable payload, which `test_a_value_appearing_twice_is_not_read_as_a_cycle` exists
+   to catch.
 
    ⚠️ **Depth.** The conversion was a structural recursion, so it had a ceiling of its own, and that
    ceiling was **below the decoder's**. Measured on CPython 3.12.13 at the default recursion limit
@@ -385,6 +447,27 @@ file's count read as a criterion's evidence is a number that goes stale with not
    the old ceiling, so raising the spine past it would force that helper iterative too, for no gain;
    sweeping the suite's remaining recursive walks belongs to the general repair, not here.
 
+   ⚠️ **The sampler is PARTITIONED on what a decoder can produce — relabelled, not truncated — and
+   the budget above does NOT move.** Two different claims are true of the generated values, and
+   asserting them together stated the weaker one about both. The **9 of 41** values a decoder could
+   have produced now carry the **strong** claim — JSON-emittable *and the fault marker never
+   appears*, which is the bounded claim sampled across the grammar's breadth. The other **32** carry
+   the honest **best-effort** one — JSON-emittable, marker permitted, since for a value nothing
+   models the marker is the correct answer — and are labelled in the file as evidence rather than as
+   something that closes.
+
+   **Why partition rather than scope it down**, measured: those nine values *are* the closer's own
+   `_DECODED_VALUES` under other names, so a strictly rescoped sampler would not become a sampler
+   that closes something — it would become a **duplicate of the closer**. It would cost **−46
+   cases** (`GENERATED` 41 → 25 and its matrix 82 → 50, `_UNEMITTABLE` 3 → 2 so the every-declared-
+   path marker matrix 42 → 28, `_KINDS` 7 → 4), deleting the **generative coverage of the fault
+   marker at every declared path** — which this criterion names as *inside* the bounded claim and
+   does not revert. Same 82 cases, then, and the half that can carry the strong claim now carries
+   it. The partition's own tripwire is the **83rd** case:
+   `test_the_partition_covers_the_generated_values_and_neither_half_is_empty`, which catches an
+   empty strong half reading as the thing that closes, a blind predicate waving everything through
+   as producible, and a value dropped from **both** halves by two independent comprehensions.
+
    **Tripwires, because an empty matrix, a shallow one and a narrow one all read as coverage.** Each
    is computed by the test file's own walk rather than by asking the module, and each is green on
    arrival and is not evidence: `test_the_generated_marker_matrix_is_not_empty`,
@@ -402,14 +485,31 @@ file's count read as a criterion's evidence is a number that goes stale with not
    property cannot be closed by review: the generative property above **samples** an infinite space,
    so a reviewer asked to construct a value outside the sample will succeed every round, for ever.
    The claim that closes is *for every payload a JSON decoder could have produced and `from_dict`
-   accepts, `to_dict` emits JSON **and the fault marker never appears*** —
-   `test_a_payload_a_decoder_could_have_produced_never_reaches_the_fault_marker`. The space is
+   accepts, `to_dict` emits JSON **and the fault marker never appears**, **at any depth to the
+   encoder's own ceiling*** —
+   `test_a_payload_a_decoder_could_have_produced_never_reaches_the_fault_marker` (breadth, over
+   every required path) and
+   `test_a_payload_a_decoder_could_have_produced_reaches_the_wire_at_depth` (the same paths at
+   `_PAST_THE_FRAME_LIMIT`). The space is
    bounded **in kind**: a decoder emits `dict`, `list`, `str`, a number, a bool and `null`, a JSON
    object is string-keyed, and the only other things `from_dict` builds are an `ObjectRef` of
    decoded values and the marker — every one of which takes a branch that converts.
    ⚠️ **The decoder qualifier is load-bearing rather than a hedge**: `from_dict` takes a `Mapping`,
    so a caller can hand it one built in process holding a value nothing models, and the marker would
    appear for that — the unbounded side, by design.
+
+   ⚠️ **The DEPTH clause was claimed before it was asserted, and that is the gap this round
+   closed.** For one round the closer was quantified over `_DECODED_VALUES`, whose deepest member
+   nests **3** levels, while the depth work above reached 2 000 with a value built **in process** —
+   never through `from_dict` — and asserted JSON-emittability without ever asking about the marker.
+   **Two dimensions, each asserted with the other held at its cheapest**, which is round 1's defect
+   and round 2's defect a third time. The deep case builds its value with `json.loads`, so
+   *decoder-producible* is a fact about the value rather than the test file's opinion of it;
+   measured, **11 of the 14 paths are accepted and 3 refused structurally**, zero fault markers.
+   Writing it went **red in the test file's own machinery** — `_names_the_fault_marker` was a
+   recursion and died at depth 2 000 — which is the third walk to have needed an explicit stack, and
+   the rule that a walk in that file is written iterative from the start is now recorded on it
+   rather than learned a fourth time.
 
    **Recorded consequences, met here rather than discovered later.**
 
