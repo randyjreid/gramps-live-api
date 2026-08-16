@@ -746,7 +746,11 @@ def _deepest_nesting_json_carries() -> int:
     assumed.** On 3.10 and 3.11 the json module draws on the same budget Python
     frames do, so the limit is a fair opening guess. On 3.12 the C recursion
     budget is a different quantity: measured here, a limit of 1000 against an
-    answer of 2793, so every run on this box walks the UPWARD arm to reach it.
+    answer near 2790, so every run on this box walks the UPWARD arm to reach it.
+    ⚠️ **"near", because four runs answered 2785, 2788, 2790 and 2793** -- the
+    ceiling moves with the caller's own stack, which is the whole reason
+    ``_PROBE_PAD_FRAMES`` exists, so a single figure written here as though it
+    were stable would be this file's original defect at a smaller scale.
     ``_bracket_and_bisect``'s own tests below drive both arms from seeds either
     side of a synthetic ceiling, so neither arm depends on which interpreter
     happens to be running.
