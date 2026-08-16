@@ -167,23 +167,47 @@ def test_an_unhashable_value_under_the_key_does_not_raise() -> None:
 # The stop condition that did not fire, asserted rather than argued: no new
 # PHASE_1 rule is needed, because machinery already on that side judges the
 # marker at any field whose declaration does not admit it.
+#
+# ⚠️ **The REFERENCE-LEAF half of this matrix is a FENCE, not evidence** -- the
+# same distinction this suite's sibling draws about its sweep over the canonical
+# examples. Those nine paths are green both before and after the change that made
+# _to_wire recurse, because validate always reported FIELD_WRONG_TYPE there and
+# reads the object rather than the payload. What the transport could not do was
+# CARRY the operation to it. So this asserts a verdict that already existed, at a
+# depth nothing had asked it at; the evidence for the change is in
+# test_schema_wire_shape.py, which was red.
 # ---------------------------------------------------------------------------
 
 
 def _undeclaring_paths() -> list[tuple[str, str]]:
-    """Every (type, field) where a marker is judged rather than structurally refused.
+    """Every (type, path) where a marker is judged rather than structurally refused.
 
-    Reference fields are excluded deliberately: a mapping at one is refused by
+    Reference **roots** are excluded deliberately: a mapping at one is refused by
     name at deserialisation, which is a structural fault on a different surface
-    and already covered. Restricting to the fields where both routes reach
+    and already covered. Restricting to the paths where both routes reach
     ``validate`` is what makes the two halves comparable at all.
+
+    ⚠️ **That reason is about the ROOT and does not reach the LEAVES**, which is
+    why no clause excludes a dotted path. A mapping at ``target`` is how the wire
+    spells an object; a mapping at ``target.handle`` is a value where a ``str``
+    is declared, and both routes reach ``validate`` for it exactly as they do at
+    the top level. The clause that used to drop every dotted path gave this
+    matrix the same one-depth shape the wire-shape matrix had -- and the finding
+    that deepened that one was stated as *"never reaches validate for its
+    FIELD_WRONG_TYPE verdict"*, which is the claim right here.
+
+    ⚠️ **Residual, recorded rather than pre-hardened:** ``absence_fields`` answers
+    at the top level, so the exclusion below does not consult an ``ObjectRef``
+    leaf's declaration. Nothing declares the marker at one today. The day one
+    does, this test's expectation is wrong for that path -- and it FAILS, loudly,
+    rather than passing quietly, because the marker would then be well-formed
+    there and no ``FIELD_WRONG_TYPE`` would be reported.
     """
     return [
         (type_name, declared)
         for type_name in sorted(EXAMPLES)
         for declared in schema.required_paths(type(EXAMPLES[type_name]))
-        if "." not in declared
-        and declared not in schema.reference_fields(type(EXAMPLES[type_name]))
+        if declared not in schema.reference_fields(type(EXAMPLES[type_name]))
         and declared not in schema.absence_fields(type(EXAMPLES[type_name]))
     ]
 
