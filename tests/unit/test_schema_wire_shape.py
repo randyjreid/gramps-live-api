@@ -374,6 +374,45 @@ def test_a_read_only_mapping_converts_rather_than_raising() -> None:
     assert type(wire) is dict
 
 
+def test_a_self_referential_list_is_emitted_as_json() -> None:
+    # ⚠️ **Termination is the OTHER HALF of "total", and without it the word is
+    # simply false.** A list holding itself is constructible in two lines, and a
+    # structural recursion over it does not stop. It is a termination condition
+    # rather than a case added to an enumeration, which is the distinction that
+    # keeps this from being the next shape nobody wrote down.
+    cycle: list[object] = []
+    cycle.append(cycle)
+
+    payload = schema.to_dict(_carrying_at_the_first_leaf("add_note", cycle))
+
+    assert _not_json(payload, "") is None
+    json.dumps(payload)
+
+
+def test_a_self_referential_mapping_is_emitted_as_json() -> None:
+    # The same, through the other container, because a fix applied to one branch
+    # of a structural recursion is a fix applied to one branch.
+    cycle: dict[str, object] = {}
+    cycle["a key"] = cycle
+
+    payload = schema.to_dict(_carrying_at_the_first_leaf("add_note", cycle))
+
+    assert _not_json(payload, "") is None
+    json.dumps(payload)
+
+
+def test_a_value_appearing_twice_is_not_read_as_a_cycle() -> None:
+    # ⚠️ **The guard on the SHAPE of the termination fix, and the reason it is
+    # here before the fix is.** "Seen" carried as a set that accumulates across
+    # the whole walk marks the second sibling as a cycle and emits the fault
+    # marker for a value that is perfectly emittable -- a fail-closed defect that
+    # every other test in this file would pass over. Carried along the current
+    # PATH instead, a shared value is converted twice and neither is a cycle.
+    shared = ["a value"]
+
+    assert schema._to_wire([shared, shared]) == [["a value"], ["a value"]]
+
+
 def test_a_tuple_becomes_a_json_array() -> None:
     # GREEN ON ARRIVAL, and recorded because it is a CONSEQUENCE rather than a
     # gain: that operation is no longer round-trip identical, since a tuple comes
