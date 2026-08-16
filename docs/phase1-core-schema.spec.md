@@ -269,27 +269,109 @@ file's count read as a criterion's evidence is a number that goes stale with not
    of a declared `str`. The leaf half is a **fence** — green both before and after the change in
    criterion 5, because `validate` reads the object rather than the payload — so it states the
    verdict at a depth nothing had asked it at rather than evidencing new behaviour.
-5. **The serialiser's JSON-shaped claim is asserted rather than made — as a property over paths, not
-   at whichever depth someone thought of.** *Every value the wire carries is JSON-emittable*,
-   quantified over **paths derived from the declaration at every depth it reaches** and over **the
-   values this module models that no encoder can emit** — which are exactly `_to_wire`'s two
-   branches, the marker and a reference. Checked by a structural walk that names the offending path
-   and by the encoder itself — `test_to_dict_emits_json_for_a_marker_at_a_field_that_does_not_declare_it`,
-   whose name records this criterion while its matrix is wider than the name.
+5. **The serialiser's JSON-shaped claim is asserted rather than made — as a property over paths
+   *and* over the module's own value grammar, not at whichever depth or shape someone thought of.**
+   *Every value the wire carries is JSON-emittable*, quantified over **paths derived from the
+   declaration at every depth they reach** and over **values composed from the kinds `_to_wire`
+   branches on**. Checked by a structural walk that names the offending path and by the encoder
+   itself — `test_to_dict_emits_json_for_any_value_the_grammar_composes` (the generated values),
+   `test_to_dict_emits_json_for_the_deepest_value_at_every_declared_path` (the two dimensions
+   crossed), `test_to_dict_emits_json_for_a_marker_at_a_field_that_does_not_declare_it` (every
+   declared path against every unemittable atom, whose name records this criterion while its matrix
+   is wider than the name), and
+   `test_to_dict_emits_json_for_a_container_holding_a_value_the_module_models` (the shapes the
+   second round reported, kept by name rather than folded into the generated set, because a
+   generator's breadth is a budget somebody will trim and a reported shape must not be trimmable by
+   arithmetic).
 
-   Two vacuity guards, because an empty matrix and a shallow one both read as coverage:
-   `test_the_generated_marker_matrix_is_not_empty` and
-   `test_the_marker_matrix_reaches_a_nested_path`. The second is not decoration — the first version
-   of this criterion asserted the claim at the top level only and stayed green while a marker inside
-   a reference was emitted raw and `json.dumps` raised, leaving an invalid operation
-   **untransportable rather than reportably invalid**. Both guards are green on arrival and neither
-   is evidence; they are what stops the evidence being read at the wrong depth.
+   ⚠️ **The conversion is TOTAL, and totality is required rather than preferred because there is no
+   bound to show.** *Reference leaves are the last depth* is true of the **declaration** —
+   `ObjectRef`'s three leaves are all `str`, so the declared depth is exactly 2 — and **false of the
+   values**. Values reaching `_to_wire` come from two places: through `from_dict` they are bounded,
+   and built in process they are **unbounded by deliberate design**, because `Operation` is a
+   transport dataclass whose fields accept anything precisely so `validate` can be the only judge.
+   So a bounded enumeration would be an enumeration of nothing in particular — patch the containers
+   and dicts of lists remain, then lists of dicts of references, one reviewer round at a time. A
+   conversion written for the 14 paths that exist today would close them and state nothing about why
+   those were the right 14.
 
-   ⚠️ **The recursion in `_to_wire` is not belt-and-braces over an enumerable set.** *Reference leaves
-   are the last depth* is true of the **declaration** — `ObjectRef`'s three leaves are all `str`, so
-   the declared depth is exactly 2 — and **false of the values**, because an operation is a transport
-   type and a reference is constructible at any path. A conversion written for the 14 paths that
-   exist today would close them and state nothing about why those were the right 14.
+   ⚠️ **A value the module cannot model emits a marker under `UNCONVERTIBLE_KEY` naming its type,
+   and does not raise.** The trade, stated: a marker reaches `validate`, which already returns
+   `FIELD_WRONG_TYPE` at that path, and reports the fault where every other value fault is reported;
+   a typed transport error reports it out of a surface that has no field path, and is therefore this
+   finding with a better name. The module already draws exactly this line — a **structural** fault
+   raises, a **value** fault does not, because refusing one would be a second validator with no
+   vocabulary for saying where. The cost taken: an invalid operation's payload is lossy at that leaf.
+   **Unmodellable and modellable-but-misplaced share the surface and differ only in the payload**,
+   so a caller's handling never depends on a distinction it cannot predict; a modellable value keeps
+   its faithful spelling and only an unmodellable one is replaced. The marker names the **type and
+   never the value**, which is `RuleViolation`'s rule obeyed by the transport.
+
+   ⚠️ **Termination is the other half of "total".** `x = []; x.append(x)` is constructible, so the
+   conversion carries the identities of the containers **on the current path** and marks one already
+   there. On the path rather than accumulated across the walk: a value reachable twice from
+   different branches is not a cycle, and an accumulating set would mark the second sibling —
+   a fail-closed defect on a perfectly emittable payload, which
+   `test_a_value_appearing_twice_is_not_read_as_a_cycle` exists to catch.
+
+   **The generator's budget, stated because a sample's size is a cost every future run pays.
+   ⚠️ These numbers are the CRITERION's, and they are the constants in the file; they are not any
+   file's test count, which moves for reasons this criterion has nothing to do with.**
+
+   | | |
+   | --- | --- |
+   | atoms, one per branch the conversion takes | **6** |
+   | composers, one per container it knows about | **5** |
+   | exhaustive composition depth | **1** — 6 + 30 = **36** values |
+   | one spine value per depth 2–6 | **5** values |
+   | generated values, placed at each type's first reference leaf | **41** |
+
+   **The exhaustive depth is 1 and not 2 deliberately.** Depth 2 was measured at 186 values and 380
+   cases — a **44%** suite growth, of which the second exhaustive level alone was 74%. What that
+   level buys is the cross product of the composers *with each other*, which is what a structural
+   recursion gives for free once each branch is right, so it is the level that was cut; composition
+   is still exercised by the spine, five composers deep, for five values. **The spine depth stays at
+   6** because depth is the dimension both previous rounds were wrong about and it costs one value
+   per level.
+
+   **Tripwires, because an empty matrix, a shallow one and a narrow one all read as coverage.** Each
+   is computed by the test file's own walk rather than by asking the module, and each is green on
+   arrival and is not evidence: `test_the_generated_marker_matrix_is_not_empty`,
+   `test_the_marker_matrix_reaches_a_nested_path`,
+   `test_the_generated_value_set_is_not_empty_and_names_each_value_once`,
+   `test_the_generated_values_reach_the_stated_depth` (the **measured** maximum depth equals the
+   stated 6, so a composer that stops composing fails here rather than reading as coverage) and
+   `test_every_kind_the_conversion_branches_on_is_generated` (a composer dropped from the table
+   deletes a kind while still generating plenty). The nested-path guard is not decoration — the
+   first version of this criterion asserted the claim at the top level only and stayed green while a
+   marker inside a reference was emitted raw and `json.dumps` raised, leaving an invalid operation
+   **untransportable rather than reportably invalid**.
+
+   ⭐ **The bounded sub-property is what CLOSES this criterion**, per the rule that an unbounded
+   property cannot be closed by review: the generative property above **samples** an infinite space,
+   so a reviewer asked to construct a value outside the sample will succeed every round, for ever.
+   The claim that closes is *for every payload a JSON decoder could have produced and `from_dict`
+   accepts, `to_dict` emits JSON **and the fault marker never appears*** —
+   `test_a_payload_a_decoder_could_have_produced_never_reaches_the_fault_marker`. The space is
+   bounded **in kind**: a decoder emits `dict`, `list`, `str`, a number, a bool and `null`, a JSON
+   object is string-keyed, and the only other things `from_dict` builds are an `ObjectRef` of
+   decoded values and the marker — every one of which takes a branch that converts.
+   ⚠️ **The decoder qualifier is load-bearing rather than a hedge**: `from_dict` takes a `Mapping`,
+   so a caller can hand it one built in process holding a value nothing models, and the marker would
+   appear for that — the unbounded side, by design.
+
+   **Recorded consequences, met here rather than discovered later.**
+
+   - **No valid operation's payload moves.** Every value a registered type carries is a `str` or an
+     `ObjectRef` of `str`s, which take branches that already existed. Verified by dumping both
+     canonical payloads before the change and comparing bytes after.
+   - A **tuple** at a field now emits a JSON array instead of raising, so that operation is no
+     longer round-trip identical. Correct — JSON has no tuple — and reachable only on an operation
+     that is invalid either way. No fixture carries one.
+   - The marker at a **reference root** comes back through `from_dict` as
+     `UnknownFieldError("target.unconvertible")`. That is the pre-existing structural surface for an
+     undeclared key inside a reference, unchanged by this work and reachable only on an operation
+     that is invalid either way.
 
    The sweep over the canonical examples, `test_a_canonical_example_serialises_to_something_json_can_emit`,
    is a **regression fence**: green before this work and after, and not evidence of it.

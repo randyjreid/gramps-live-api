@@ -18,6 +18,14 @@ this module models that no encoder can emit. That is the property; the recursion
 in ``_to_wire`` satisfies it, and this is what states it, so the next depth
 arrives already covered.
 
+⚠️ **And then it was false again one container further out**, at a list or a
+mapping holding either of those -- so the claim is no longer asserted over a
+list of shapes at all. It is asserted over the module's own **value grammar**:
+the kinds ``_to_wire`` branches on, composed. The generator's breadth and depth
+are a **stated budget with its reasoning**, at the bottom of this file, because
+a sample's size is a cost every future run pays; and the claim that actually
+**closes** is the bounded sub-property below it, not the sample.
+
 ⚠️ **The sweep over the canonical examples is a REGRESSION FENCE, not
 evidence.** It is green before the change that added this file and green after,
 because every registered type already carries only JSON-shaped values. It is
