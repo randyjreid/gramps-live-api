@@ -26,6 +26,25 @@ are a **stated budget with its reasoning**, at the bottom of this file, because
 a sample's size is a cost every future run pays; and the claim that actually
 **closes** is the bounded sub-property below it, not the sample.
 
+⚠️ **And for three rounds this file asserted an UNBOUNDED property, which is
+why it kept being false in a new place each round.** *Total over any value that
+can be constructed* has no fixed point: interrogating a value runs the value's
+own code, so a reviewer can build a fresh pathological one every round and each
+one is genuine -- the rounds were sampling an infinite space rather than
+converging on correctness. **The claim is now narrowed to one that closes:**
+
+    ``to_dict`` is TOTAL over DECODER-PRODUCIBLE values -- every payload
+    ``from_dict`` accepts converts to a JSON-emittable wire carrying no fault
+    marker, at any depth to the encoder's own ceiling.
+
+Arbitrary in-process objects are **best-effort**, with the boundary stated
+rather than defended: an exception raised by the caller's own object propagates
+**as itself**, and the remedy is ``validate``, which reads the object without
+transporting it. Three sections carry that split -- the generated values are
+**partitioned** into the half the strong claim covers and the half labelled
+evidence; the bounded sub-property at the bottom is the criterion, quantified
+over breadth **and** depth; and the residual is pinned as a fence beneath it.
+
 ⚠️ **The sweep over the canonical examples is a REGRESSION FENCE, not
 evidence.** It is green before the change that added this file and green after,
 because every registered type already carries only JSON-shaped values. It is
@@ -649,6 +668,24 @@ def test_a_mapping_keeps_its_key_order_on_the_wire() -> None:
 # file**, over a space that really is bounded. Read the two together: the sample
 # is evidence, and the bounded claim is the criterion.
 #
+# ⚠️ **So the generated values are PARTITIONED rather than asserted about
+# uniformly, because two different claims are true of them and running them
+# together states the weaker one about both.** A value a decoder could have
+# produced gets the **strong** claim -- JSON-emittable **and the fault marker
+# never appears** -- which is the bounded claim above, sampled across the
+# grammar's breadth. Everything else gets the honest **best-effort** claim:
+# JSON-emittable, marker permitted, because the marker is precisely the right
+# answer for a value nothing models.
+#
+# ⚠️ **Partitioned and relabelled, NOT truncated, and the measurement is why.**
+# Scoping the generator strictly to what it can close retains **9 of 41 values**
+# -- and those nine ARE the closer's own `_DECODED_VALUES` under other names, so
+# a truncated sampler would not become a sampler that closes something, it would
+# become a duplicate of the closer. It would cost **-46 cases**, deleting the
+# generative coverage of the fault marker at every declared path, which is inside
+# the bounded claim and is not to be reverted. Same 82 cases, then, and the half
+# that can carry the strong claim now carries it.
+#
 # ⚠️ **THE BUDGET IS STATED HERE, WITH ITS NUMBERS AND ITS REASONING, so that a
 # later round cannot raise it quietly.** A sample's size is not a coverage dial;
 # it is a cost every future run pays forever.
@@ -820,13 +857,127 @@ def test_every_kind_the_conversion_branches_on_is_generated() -> None:
     )
 
 
+def _a_decoder_could_have_produced(value: object) -> bool:
+    """Whether ``json.loads`` could have returned ``value``.
+
+    This file's own walk rather than a question put to the module, on the same
+    convention as ``_kind_of`` and ``_measured_depth``: the partition below
+    decides which claim each value is held to, so deriving it from the module
+    would let the module choose its own marking.
+
+    ⚠️ **EXACT types rather than ``isinstance``, and the direction is what makes
+    that right.** ``_JSON_SCALARS`` in the module uses ``isinstance`` deliberately
+    -- a ``str`` subclass is what ``json.dumps`` ACCEPTS, and acceptance is what
+    the conversion claims. This asks the opposite question: what a decoder
+    PRODUCES. ``json.loads`` returns ``dict``, ``list``, ``str``, ``int``,
+    ``float``, ``bool`` and ``None`` and nothing else -- never a subclass, never a
+    ``MappingProxyType``, never a tuple -- so admitting a subclass here would widen
+    the strong claim past the argument that supports it.
+
+    A JSON object is string-keyed, so a mapping with any other key is not
+    produced by a decoder however ordinary its values are.
+
+    An explicit stack, per the rule recorded on ``_names_the_fault_marker``:
+    walks in this file are iterative from the start rather than discovered to
+    need it. Called on generated values, which are acyclic by construction.
+    """
+    stack: list[object] = [value]
+    while stack:
+        item = stack.pop()
+        if item is None or type(item) in (bool, int, float, str):
+            continue
+        if type(item) is list:
+            stack.extend(item)
+            continue
+        if type(item) is dict:
+            if any(type(key) is not str for key in item):
+                return False
+            stack.extend(item.values())
+            continue
+        return False
+    return True
+
+
+_PRODUCIBLE = [pair for pair in GENERATED if _a_decoder_could_have_produced(pair[1])]
+"""The generated values the STRONG claim covers: no fault marker, ever."""
+
+_BEST_EFFORT = [pair for pair in GENERATED if not _a_decoder_could_have_produced(pair[1])]
+"""The rest -- evidence, held to JSON-emittability alone. The marker is allowed
+here, because for a value nothing models the marker is the correct answer."""
+
+
+def test_the_partition_covers_the_generated_values_and_neither_half_is_empty() -> None:
+    # ⚠️ **Three ways a partition lies, and this is the tripwire for all three.**
+    # An empty strong half makes that claim vacuous while it still reads as the
+    # thing that closes; an empty best-effort half means the predicate has gone
+    # blind and is waving everything through as producible; and two independent
+    # comprehensions can silently DROP a value from both halves, which is a
+    # coverage cut that no failure anywhere would announce.
+    #
+    # Green on arrival and not evidence, like the tripwires above it.
+    assert len(_PRODUCIBLE) + len(_BEST_EFFORT) == len(GENERATED), (
+        "the partition does not cover the generated values, so a value is "
+        "asserted about by neither half"
+    )
+    assert _PRODUCIBLE, (
+        "no generated value is decoder-producible, so the strong half of the "
+        "partition asserts nothing while still reading as the bounded claim"
+    )
+    assert _BEST_EFFORT, (
+        "every generated value is decoder-producible, so the predicate is "
+        "waving values through and the strong claim is being made about values "
+        "no argument covers"
+    )
+
+
 @pytest.mark.parametrize("type_name", sorted(EXAMPLES))
 @pytest.mark.parametrize(
-    ("description", "value"), GENERATED, ids=[description for description, _ in GENERATED]
+    ("description", "value"), _PRODUCIBLE, ids=[description for description, _ in _PRODUCIBLE]
 )
-def test_to_dict_emits_json_for_any_value_the_grammar_composes(
+def test_a_value_a_decoder_could_have_produced_never_reaches_the_fault_marker_either(
     description: str, value: object, type_name: str
 ) -> None:
+    # ⭐ **The STRONG half: the bounded claim, sampled across the grammar's
+    # breadth.** The closer at the bottom of this file quantifies the same claim
+    # over every declared path with a fixed set of values; this quantifies it over
+    # the grammar's compositions at one leaf. Neither subsumes the other, and the
+    # marker assertion is what makes this more than a restatement of the
+    # best-effort half below.
+    example = EXAMPLES[type_name]
+    payload = schema.to_dict(carrying(example, _first_reference_leaf(type(example)), value))
+
+    assert not _names_the_fault_marker(payload), (
+        f"to_dict emitted the fault marker for {description}, which a decoder "
+        "could have produced -- so the marker is reachable from the wire rather "
+        "than only from a value built in process"
+    )
+
+    offending = _not_json(payload, "")
+
+    assert offending is None, (
+        f"to_dict claims a JSON-shaped mapping; {description} at {offending} is "
+        "not one an encoder can emit"
+    )
+    json.dumps(payload)
+
+
+@pytest.mark.parametrize("type_name", sorted(EXAMPLES))
+@pytest.mark.parametrize(
+    ("description", "value"), _BEST_EFFORT, ids=[description for description, _ in _BEST_EFFORT]
+)
+def test_to_dict_emits_json_for_any_other_value_the_grammar_composes(
+    description: str, value: object, type_name: str
+) -> None:
+    # ⚠️ **The BEST-EFFORT half, and the label is the point.** These are values no
+    # decoder produces -- a value nothing models, a mapping no JSON object can
+    # spell, a read-only mapping, a reference. The marker is PERMITTED here and
+    # deliberately not asserted either way: for a value nothing models it is the
+    # correct answer, and pinning which of these get it would be an enumeration of
+    # the unbounded side.
+    #
+    # ⭐ **EVIDENCE, not a claim that closes.** What is asserted is the one thing
+    # the transport owes unconditionally: whatever comes out, an encoder can emit
+    # it.
     example = EXAMPLES[type_name]
     payload = schema.to_dict(carrying(example, _first_reference_leaf(type(example)), value))
 
@@ -883,7 +1034,19 @@ def test_to_dict_emits_json_for_the_deepest_value_at_every_declared_path(
 # **So the claim that closes is a bounded one:**
 #
 #     for every payload a JSON decoder could have produced and ``from_dict``
-#     accepts, ``to_dict`` emits JSON **and the fault marker never appears**.
+#     accepts, ``to_dict`` emits JSON **and the fault marker never appears**,
+#     **at any depth to the encoder's own ceiling**.
+#
+# ⚠️ **The depth clause is asserted rather than assumed, and it was not.** For
+# one round this claim was quantified over `_DECODED_VALUES`, whose deepest
+# member nests **3** levels, while the depth work above reached 2 000 with a
+# value built IN PROCESS -- never through `from_dict` -- and asserted
+# JSON-emittability without ever asking about the marker. **Two dimensions, each
+# asserted with the other held at its cheapest**, which is round 1's defect and
+# round 2's defect a third time. Both cases below are quantified over
+# `_BOUNDED_CASES`, and the deep one builds its value with `json.loads` so that
+# "decoder-producible" is a fact about the value rather than this file's opinion
+# of it.
 #
 # The marker's rarity becomes a property rather than a hope, and the space is
 # genuinely bounded **in kind**: a decoder emits ``dict``, ``list``, ``str``,
