@@ -915,13 +915,40 @@ there because "bounded in kind" is a claim about composition too.
 
 
 def _names_the_fault_marker(value: object) -> bool:
-    """Whether the fault marker appears anywhere in an emitted payload."""
-    if isinstance(value, dict):
-        return schema.UNCONVERTIBLE_KEY in value or any(
-            _names_the_fault_marker(item) for item in value.values()
-        )
-    if isinstance(value, list):
-        return any(_names_the_fault_marker(item) for item in value)
+    """Whether the fault marker appears anywhere in an emitted payload.
+
+    ⚠️ **An explicit stack rather than a recursion, for the reason recorded on
+    ``_not_json``, and this is the THIRD walk to have needed it.** ``_not_json``
+    was the first and the conversion itself was the second; this one was left
+    recursive both times, because nothing had yet asked it a deep question. It
+    died at ``_PAST_THE_FRAME_LIMIT`` the moment the closer above was quantified
+    over depth -- **a test walk that cannot reach the depth it is testing asserts
+    nothing**, which is now three helpers with the same defect discovered three
+    separate times.
+
+    ⚠️ **So the rule, written down here rather than learned a fourth time: a walk
+    added to this file is written with an explicit stack from the start.** The
+    one remaining recursion is ``_measured_depth``, and it is deliberate --
+    it walks only ``GENERATED``, whose depth is a stated 6 that
+    ``test_the_generated_values_reach_the_stated_depth`` pins.
+
+    Traversal order carries no obligation here, unlike ``_not_json``, whose
+    returned path is quoted in failure messages at seven call sites: this answers
+    yes or no, so any order finds the same marker.
+
+    Called on ``to_dict`` output, which is acyclic because the conversion breaks
+    cycles with the fault marker -- the same standing as ``_not_json``.
+    """
+    stack: list[object] = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            if schema.UNCONVERTIBLE_KEY in item:
+                return True
+            stack.extend(item.values())
+            continue
+        if isinstance(item, list):
+            stack.extend(item)
     return False
 
 
