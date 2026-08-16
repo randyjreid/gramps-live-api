@@ -2118,6 +2118,19 @@ def _filled_key_weight(category: str, value: str) -> int:
 
     ``value`` arrives as the SERIALIZATION of the string, so it is measured by
     what it denotes -- see the block above the two length functions.
+
+    ⚠️ **It also answers the NO-CONTENT case, and the XML attributed pass calls
+    it with the empty string for exactly that.** An element that encloses
+    nothing holds no more prose than one enclosing a space, so it is worth what
+    that one is worth; charging the flat category weight instead made the
+    element carrying strictly less score strictly more.
+
+    ⚠️ **Calling the JSON-side spelling of the floor from the XML side is not
+    the partial application this function exists to prevent, and the reason is
+    measurable rather than stylistic:** both length functions return 0 for no
+    content, so at empty content the two serializations cannot disagree. What
+    would be a leak is passing XML content through it -- that is the filled
+    pass's job, and the filled pass measures its own.
     """
     if category != "prose":
         return _CATEGORY_WEIGHT[category]
@@ -2361,7 +2374,24 @@ def _gramps_identity_score(text: str) -> tuple[int, int] | None:
             # first: a rule taught to one of these two loops and not the other
             # is the partial application this whole table exists to end.
             continue
-        weight = _CATEGORY_WEIGHT[_GRAMPS_CATEGORY_OF[tag]]
+        # THE SAME CONTENT-DEPENDENT RULE as the pass above, given the content
+        # this element has: none. Charging the flat category weight here made an
+        # element enclosing NOTHING outscore one enclosing a space -- the element
+        # carrying strictly less scoring strictly more, which is two passes
+        # reading one vocabulary by two rules. Stating the rule a third time is
+        # the partial application this table exists to end, so the pass above's
+        # own function is called rather than its condition re-written.
+        #
+        # ⚠️ **No drawing exemption here, and the ABSENCE is the decision.** The
+        # filled pass's exemption sits BEHIND a short-content gate: only prose
+        # too short to be prose is suppressed, which is what keeps it from
+        # swallowing a note. This pass has no content to measure and so
+        # structurally cannot carry that gate -- an exemption reaching it would
+        # suppress the element whatever it holds, and an export's cross
+        # references are exactly this element. An exemption that cannot carry
+        # the gate that makes it safe does not exist. Pinned by test in two
+        # directions, because prose cannot enforce it.
+        weight = _filled_key_weight(_GRAMPS_CATEGORY_OF[tag], "")
         if not weight:
             # The same rule as the pass above, for the same reason.
             continue

@@ -81,8 +81,8 @@ note in this directory. Every row of that table has a weight and a test, which i
 reached; the previous formulation, *every place where a container can hold prose or an identity
 field*, was quantified over a format and could not be shown to have been satisfied.
 
-`tests/unit/test_pii_guard_p2_genealogy.py` -- **105 tests**. ⚠️ **That is the FILE's count and not
-this criterion's**; see the warning below, which is now on its eighth reason. The crux of each
+`tests/unit/test_pii_guard_p2_genealogy.py` -- **112 tests**. ⚠️ **That is the FILE's count and not
+this criterion's**; see the warning below, which is now on its ninth reason. The crux of each
 mechanism:
 
 | Mechanism | Named by |
@@ -100,7 +100,7 @@ The two formats are held to one vocabulary by
 `test_one_life_is_judged_the_same_in_both_formats`.
 
 ⚠️ **That count is the FILE's, and it is not the number of tests carrying B2. It moves for
-reasons this criterion is not about, and it has now moved for eight.** Twelve of them
+reasons this criterion is not about, and it has now moved for nine.** Twelve of them
 arrived with #4 item 4, which taught the compiled patterns that read an element name to read
 a namespace-prefixed tag: **nine** with the two commits that shared one alternation between the four
 sites it then had, and **three** more with the commit that replaced the prefix's character class with
@@ -242,6 +242,41 @@ declared row rather than a spelling the pattern happens to admit. It arrived at 
 branch's own repairs** -- checked with `git merge-base --is-ancestor` against `c58b66d` rather than
 assumed -- so extending it is a fix rather than the modification of a pre-existing test.
 
+**Seven more arrived with #17's Change B** -- the round that made an attributed prose row's weight
+depend on what it encloses. Until it, the attributed pass charged the flat category weight while the
+filled pass measured content against the prose floor, so `<text …/>` -- enclosing *nothing* -- scored
+**4** and `<text …> </text>` -- enclosing a space -- scored **2**: the element carrying strictly less
+scored strictly more, and an empty positioned label in a drawing was reported as a biography. **Four
+of the seven carry B2**, which is the largest share any round has contributed, and the reason is that
+the change is a **reduction** -- most of its tests exist to bound what it must not take with it:
+
+| The seven | What they are |
+| --- | --- |
+| `test_an_attributed_row_that_is_not_prose_keeps_its_category_weight` and `test_a_drawing_does_not_exempt_export_syntax` | **two**, and B2 evidence in the ordinary way. Both bound the reduction: the first is what stops the change being a retraction -- every non-prose row is re-measured against the weight its category declares, so a wider answer that charged *every* empty attributed element less would pass the tests below and fail this one; the second is that answer at document level, over an export's cross references, which are handles and hlinks and are genealogy data precisely because they enclose nothing |
+| `test_a_drawing_does_not_change_what_an_attributed_prose_row_scores` and `test_empty_labels_in_a_prefixed_drawing_are_reported` | **two**, and B2 evidence of the same kind one level apart. The first is the quantity underneath the second: a drawing does not change what an attributed prose row is worth, derived over the prose rows rather than exampled, which is the mechanical half of the ruling that *an exemption which cannot carry the gate making it safe does not exist*. The second is Change A's residual re-measured rather than assumed still true -- a prefixed drawing's worded labels are still reported |
+| `test_an_element_with_no_content_is_worth_what_an_empty_one_is`, `test_what_a_drawing_exempts_is_what_its_filled_pass_can_read`, and `test_a_wrapper_inside_a_drawing_is_still_a_wrapper` | **three**, constraining what the guard must *not* report -- **B8's concern rather than this one**, exactly as the reproductions and recorded costs above them are. The first is the reproduction, asserted as **agreement** between no content and empty content so it survives a weight change rather than pinning today's number. The other two are the two residuals this round records, each asserted in both directions with its positive control in the same test: two of every label spelling outside a drawing is a finding and two inside one still split, and a wrapper keeps its children's weight with no drawing round it |
+
+⚠️ **What the first of those three does NOT assert, said here rather than left to be discovered:**
+it is an agreement between two measured weights, so a change taking prose weight to zero would
+satisfy it vacuously. What stops that is not in this round --
+`test_the_compiled_scorer_agrees_with_the_vocabulary_for_every_row` measures every row, prose
+included, against the weight its category declares, and `test_a_note_carrying_a_biography_is_a_finding`
+is the document-level control. The agreement is the right shape for the claim; the pin belongs where
+it already is.
+
+⚠️ **No pre-existing test in this file was modified by that round.** The two tests it changed are its
+own: `test_what_a_drawing_exempts_is_what_its_filled_pass_can_read` was restated one commit after it
+was written, because its non-vacuity premise -- a single empty label outside a drawing -- *is* the
+false positive the round removes, so the premise was asserting the thing under change. It now takes
+two labels. That is a repair inside the round, not the modification of a pre-existing test, and a
+rewrite moves no count either way.
+
+⚠️ **A pre-existing FIXTURE was edited, and deliberately.** `_A_WHOLE_IDENTITY` -- the name, date of
+birth and place -- was extracted from `gramps_short_notes`, which now reads it, so the children's
+contribution to the wrapper residual is derived from the fact tuple rather than written as a number
+in a test. Behaviour-preserving, and the whole suite was run across the extraction to say so rather
+than to assume it.
+
 ⚠️ **A separate file arrived with the same change and is counted nowhere above.**
 `tests/unit/test_derive_specified_containers.py` -- **9 tests** -- asserts the derivation script's
 own properties. It carries no criterion here: it is about a build step's fail-closed guarantee, not
@@ -284,7 +319,12 @@ moved the file's count from 95 to **98** and left the derivation file's at **9**
 **ninth**, the transcription audit, which moved it from 98 to **103** and again left the derivation
 file's at **9**: it grepped this page for both numbers before writing a single test, which is the
 order that makes the staleness impossible rather than merely noticed. So did the **tenth**, the URI
-scheme, which moved it from 103 to **105** and left the derivation file's at **9**.
+scheme, which moved it from 103 to **105** and left the derivation file's at **9**. So did the
+**eleventh**, #17's Change B, which moved it from 105 to **112** and left the derivation file's at
+**9** -- both numbers looked up here before a single test was written, both re-collected with
+`pytest --collect-only` on the head that carries this sentence, and `git diff --exit-code` over the
+derivation script and the table it emits returning 0 against `c4fab62`. Four rounds in a row have had
+a reason to expect nine; four rounds in a row have read it instead.
 
 ⚠️ **The ninth also says why the cheap half is not the whole repair, and #36 still owes the rest.**
 Looking the number up first works only for somebody who knows a documented count exists. It is the
