@@ -968,9 +968,34 @@ def _to_wire(value: object) -> object:
     would stay false in exactly the case the assertion of it exists to catch.
     That operation is not well-formed, and getting it to the judge that says so
     requires the transport to be able to carry it.
+
+    ⚠️ **Applied AT EVERY PATH, by recursing into a reference's leaves, and the
+    recursion is not belt-and-braces over an enumerable set.** ``to_dict`` calls
+    this on top-level fields only, so a leaf used to be copied out of the
+    reference verbatim: a marker at ``target.handle`` came back a raw
+    ``Unrecorded`` and ``json.dumps`` raised. **The verdict already existed** --
+    ``validate`` reports ``FIELD_WRONG_TYPE`` at that path -- so what the leaf
+    cost was not a verdict but the transport swallowing one, leaving an invalid
+    operation **untransportable rather than reportably invalid**, which inverts
+    this module's boundary: shape faults are reported at a field path, not raised
+    out of the transport.
+
+    ⚠️ **And the reason the fix is a recursion rather than a patch at the leaf:
+    "reference leaves are the last depth" is true of the DECLARATION and false of
+    the VALUES.** By declaration, nesting stops at ``ObjectRef``, whose three
+    leaves are all ``str`` -- depth exactly 2, and enumerable. By value it is
+    unbounded, because an operation is a *transport* type: ``target.handle =
+    ObjectRef(...)`` is constructible, and before this recursed it raised the
+    same ``TypeError``. A conversion written for today's 14 paths would close the
+    paths that exist this week and state nothing about why those were the right
+    14. Do not "simplify" this back to a copy.
+
+    Termination: ``ObjectRef`` is frozen and its leaves declare ``str``, so a
+    cycle is not constructible from the wire, and a value the wire did not build
+    is a fixture's -- which is the transport claim, judged by ``validate``.
     """
     if isinstance(value, ObjectRef):
-        return {leaf.name: getattr(value, leaf.name) for leaf in fields(ObjectRef)}
+        return {leaf.name: _to_wire(getattr(value, leaf.name)) for leaf in fields(ObjectRef)}
     if isinstance(value, Unrecorded):
         # Derived from the member, so a second one serialises without this
         # being edited. That is what the deferral recorded on Unrecorded costs
@@ -1065,6 +1090,27 @@ def _unrecorded_from_wire(value: object) -> Unrecorded | None:
 
 
 def _reference_from(name: str, value: object) -> ObjectRef | None:
+    """A reference read back off the wire, its leaves passed through unchanged.
+
+    ⚠️ **Deliberately NOT the mirror of ``_to_wire``'s recursion, and the
+    asymmetry is the one already recorded there rather than a second one.** The
+    way out is by value, so it recurses wherever a modelled value sits. The way
+    in is by declaration, and ``absence_fields(ObjectRef)`` is ``()`` -- no leaf
+    declares the marker -- so applying ``_unrecorded_from_wire`` to leaves here
+    would be machinery **no test can reach**, exercisable only from a synthetic
+    class nothing registers. That is the surface this module refuses to add
+    against a declaration that does not exist.
+
+    **So a marker at a leaf goes out as its mapping and comes back a plain
+    ``dict``**, and that is the consequence this module already records one
+    level up: the operation is invalid either way, both routes report
+    ``FIELD_WRONG_TYPE`` at the same path, and they differ only in naming what
+    arrived. Asserted in ``tests/unit/test_schema_absence.py``.
+
+    Recorded so it is not "improved" later: the day an ``ObjectRef`` leaf
+    declares the marker, this is what needs editing -- and the ruling that
+    ``ObjectRef | Unrecorded | None`` still needs comes first.
+    """
     if value is None:
         return None
     if not isinstance(value, Mapping):
