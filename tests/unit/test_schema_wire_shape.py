@@ -66,7 +66,9 @@ structural walk, which can name the path of the offending value, and
 
 from __future__ import annotations
 
+import functools
 import json
+import sys
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import fields, is_dataclass
 from types import MappingProxyType
@@ -693,27 +695,75 @@ def _carries_under_the_pad(frames: int, depth: int) -> bool:
     return answer
 
 
-def _deepest_nesting_json_carries() -> int:
-    """The deepest nesting this interpreter carries, by doubling then bisection.
+def _bracket_and_bisect(carries: Callable[[int], bool], seed: int) -> int:
+    """The deepest depth ``carries`` accepts, bracketed OUTWARD from ``seed``.
 
-    Doubling from 1 until a trial fails, then bisecting between the last good
-    depth and the first bad one -- logarithmic in the answer, and no ceiling
-    assumed anywhere.
+    ⚠️ **``seed`` is a hint and nothing else, and the two outward arms are what
+    make that true.** A trial at the seed decides which way to walk: accepted,
+    the bracket doubles UPWARD until a trial fails; refused, it halves DOWNWARD
+    until one succeeds. Only then does it bisect. So a seed above the answer and
+    a seed below it reach the same number, and a wrong seed costs a few trials
+    rather than capping the result. **Without both arms a seed is a cap wearing
+    a hint's name**, which is the one thing this constant may not become.
+
+    The invariant carried into the bisection is ``carries(good)`` and ``not
+    carries(bad)``, with ``good == 0`` standing for "nothing carries at all" so
+    the floor costs no trial of its own. Bisection is unchanged from the version
+    that doubled from 1; only how the bracket is reached has moved.
+    """
+    start = max(1, seed)
+    if carries(start):
+        good, bad = start, start * 2
+        while carries(bad):
+            good, bad = bad, bad * 2
+    else:
+        good, bad = start // 2, start
+        while good >= 1 and not carries(good):
+            good, bad = good // 2, good
+    while bad - good > 1:
+        middle = (good + bad) // 2
+        if carries(middle):
+            good = middle
+        else:
+            bad = middle
+    return good
+
+
+@functools.lru_cache(maxsize=1)
+def _deepest_nesting_json_carries() -> int:
+    """The deepest nesting this interpreter carries, seeded then bracketed then bisected.
+
+    The opening guess is ``sys.getrecursionlimit()`` rather than 1, which is the
+    only number the interpreter offers that is about frame budgets at all. It
+    replaces a doubling arm that started from 1 and so paid one trial per power
+    of two below the answer -- measured here, 24 trials against 14. ⚠️ **A trial
+    count rather than a saving: the whole search, before and after, is single-
+    digit MILLISECONDS, and the reason it is worth doing anyway is that a probe
+    nobody can afford to run is a probe that gets replaced by a literal again.**
+
+    ⚠️ **The seed is wrong in ordinary use, on the very version this probe
+    exists for, and that is why the outward arms are exercised rather than
+    assumed.** On 3.10 and 3.11 the json module draws on the same budget Python
+    frames do, so the limit is a fair opening guess. On 3.12 the C recursion
+    budget is a different quantity: measured here, a limit of 1000 against an
+    answer of 2793, so every run on this box walks the UPWARD arm to reach it.
+    ``_bracket_and_bisect``'s own tests below drive both arms from seeds either
+    side of a synthetic ceiling, so neither arm depends on which interpreter
+    happens to be running.
+
+    ``lru_cache`` is robustness against a second import rather than a saving:
+    the module-level call below is the only caller, and a module body runs once
+    per process already. It buys nothing measurable here and is not claimed to.
 
     ⚠️ **A degenerate answer raises rather than returning it**, so a broken
     probe can read neither as a test failure nor as a pass. Returning 0 or 1
     would leave every depth test below asserting about a value nested once,
     which is green and says nothing at all.
     """
-    good, bad = 0, 1
-    while _carries_under_the_pad(_PROBE_PAD_FRAMES, bad):
-        good, bad = bad, bad * 2
-    while bad - good > 1:
-        middle = (good + bad) // 2
-        if _carries_under_the_pad(_PROBE_PAD_FRAMES, middle):
-            good = middle
-        else:
-            bad = middle
+    good = _bracket_and_bisect(
+        lambda depth: _carries_under_the_pad(_PROBE_PAD_FRAMES, depth),
+        sys.getrecursionlimit(),
+    )
     if good < 2:
         raise RuntimeError(
             f"the depth probe answered {good}, which is not a ceiling -- this is a "
@@ -747,6 +797,92 @@ carry at all: past every ceiling this file has recorded on 3.12, and the most
 the frame budget allows on 3.10/3.11 -- which is what a test asserting behaviour
 at the limit can ask for. The machinery it exercises is the same either way.
 """
+
+
+_SYNTHETIC_CEILING = 137
+"""A ceiling the search below can be aimed at from either side, on any interpreter.
+
+⚠️ **The seeded search's outward arms have to be EXERCISED rather than reasoned
+about, and the real predicate cannot exercise both of them on one box.** Which
+arm a real run walks is decided by whether ``sys.getrecursionlimit()`` happens
+to sit above or below this interpreter's json ceiling -- upward on 3.12 here,
+plausibly downward on 3.10 and 3.11 -- so a suite that only ever ran the real
+probe would leave one arm untested on every machine and untested in CI.
+Odd, and not a power of two, so a bracket that ends on a rounder number than the
+answer cannot pass by coincidence.
+"""
+
+
+def _carries_below_the_synthetic_ceiling(depth: int) -> bool:
+    """``_bracket_and_bisect``'s predicate, with a known answer and no stack spent."""
+    return depth <= _SYNTHETIC_CEILING
+
+
+@pytest.mark.parametrize(
+    "seed",
+    [1, 2, 68, 136, 137, 138, 139, 274, 1000, 4096],
+    ids=lambda seed: f"seed-{seed}",
+)
+def test_the_seeded_search_finds_the_same_ceiling_from_either_side(seed: int) -> None:
+    # ⭐ **This is what keeps the seed from becoming a cap by accident**, which is
+    # the failure the derived constant exists to rule out and the one a seed
+    # introduces. Seeds below the answer force the doubling arm, seeds above it
+    # force the halving arm, and 137 itself forces neither -- and all of them
+    # have to agree, because the seed is a hint about where to start looking
+    # rather than a bound on what may be found.
+    assert _bracket_and_bisect(_carries_below_the_synthetic_ceiling, seed) == (
+        _SYNTHETIC_CEILING
+    ), (
+        f"a search seeded at {seed} answered something other than "
+        f"{_SYNTHETIC_CEILING}, so the seed is deciding the answer rather than "
+        "where the search begins"
+    )
+
+
+def test_the_real_probe_answers_the_same_from_a_seed_either_side_of_it() -> None:
+    # The synthetic case above proves the arms work; this proves they work on the
+    # predicate that actually measures json, whose ceiling no interpreter tells
+    # us in advance. 1 is below every interpreter's answer and 8192 is above
+    # every one this file has recorded, so between them the two arms are both
+    # walked here whatever is running.
+    #
+    # Compared to each other rather than to `_PAST_THE_FRAME_LIMIT`: the json
+    # ceiling moves with the CALLER'S stack depth -- that is the whole reason
+    # `_PROBE_PAD_FRAMES` exists -- so the constant measured at import and a
+    # measurement taken from a test body are not owed the same number, and
+    # asserting they are would be a flake rather than a property.
+    carries = functools.partial(_carries_under_the_pad, _PROBE_PAD_FRAMES)
+
+    from_below = _bracket_and_bisect(carries, 1)
+    from_above = _bracket_and_bisect(carries, 8192)
+
+    assert from_below == from_above, (
+        f"the probe answered {from_below} seeded from below and {from_above} "
+        "seeded from above, so on the real predicate the seed is a bound rather "
+        "than a starting point"
+    )
+
+
+def test_the_probe_is_measured_once_per_process() -> None:
+    # The cache, asserted for what it is: a second call returns the first call's
+    # answer without measuring again. ⚠️ **Not a saving, and not written up as
+    # one** -- the module-level constant below is the only caller and a module
+    # body already runs once per process. This is robustness against a second
+    # import, and the honest claim is that it costs nothing rather than that it
+    # bought anything.
+    #
+    # Stated as a DELTA rather than as absolute counts, so it does not depend on
+    # which tests ran before it.
+    before = _deepest_nesting_json_carries.cache_info()
+
+    again = _deepest_nesting_json_carries()
+
+    after = _deepest_nesting_json_carries.cache_info()
+    assert (after.hits, after.misses) == (before.hits + 1, before.misses), (
+        "the probe measured again on a second call, so the constant below is one "
+        "search per import rather than one per process"
+    )
+    assert again == _PAST_THE_FRAME_LIMIT
 
 
 def _nested_in_lists(innermost: object, depth: int) -> object:
