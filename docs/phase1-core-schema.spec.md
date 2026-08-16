@@ -263,14 +263,36 @@ file's count read as a criterion's evidence is a number that goes stale with not
    wire, and the two routes agree on the rule and the path — differing only in naming what actually
    arrived, which is the recorded consequence of reading the declaration on the way in —
    `test_a_marker_where_nothing_declares_one_is_judged_at_that_path`,
-   `test_the_two_routes_disagree_only_about_what_arrived`.
-5. **The serialiser's JSON-shaped claim is asserted rather than made.** A marker at a field that
-   does not declare it still serialises to something an encoder can emit, checked by a structural
-   walk that names the offending path and by the encoder itself —
-   `test_to_dict_emits_json_for_a_marker_at_a_field_that_does_not_declare_it`, over a matrix asserted
-   non-empty by `test_the_generated_marker_matrix_is_not_empty`. The sweep over the canonical
-   examples, `test_a_canonical_example_serialises_to_something_json_can_emit`, is a **regression
-   fence**: green before this work and after, and not evidence of it.
+   `test_the_two_routes_disagree_only_about_what_arrived`. **The matrix reaches reference leaves and
+   not only top-level fields:** the exclusion is of a reference **root**, where a mapping is how the
+   wire spells an object, and that reason does not reach a leaf, where a mapping is a value in place
+   of a declared `str`. The leaf half is a **fence** — green both before and after the change in
+   criterion 5, because `validate` reads the object rather than the payload — so it states the
+   verdict at a depth nothing had asked it at rather than evidencing new behaviour.
+5. **The serialiser's JSON-shaped claim is asserted rather than made — as a property over paths, not
+   at whichever depth someone thought of.** *Every value the wire carries is JSON-emittable*,
+   quantified over **paths derived from the declaration at every depth it reaches** and over **the
+   values this module models that no encoder can emit** — which are exactly `_to_wire`'s two
+   branches, the marker and a reference. Checked by a structural walk that names the offending path
+   and by the encoder itself — `test_to_dict_emits_json_for_a_marker_at_a_field_that_does_not_declare_it`,
+   whose name records this criterion while its matrix is wider than the name.
+
+   Two vacuity guards, because an empty matrix and a shallow one both read as coverage:
+   `test_the_generated_marker_matrix_is_not_empty` and
+   `test_the_marker_matrix_reaches_a_nested_path`. The second is not decoration — the first version
+   of this criterion asserted the claim at the top level only and stayed green while a marker inside
+   a reference was emitted raw and `json.dumps` raised, leaving an invalid operation
+   **untransportable rather than reportably invalid**. Both guards are green on arrival and neither
+   is evidence; they are what stops the evidence being read at the wrong depth.
+
+   ⚠️ **The recursion in `_to_wire` is not belt-and-braces over an enumerable set.** *Reference leaves
+   are the last depth* is true of the **declaration** — `ObjectRef`'s three leaves are all `str`, so
+   the declared depth is exactly 2 — and **false of the values**, because an operation is a transport
+   type and a reference is constructible at any path. A conversion written for the 14 paths that
+   exist today would close them and state nothing about why those were the right 14.
+
+   The sweep over the canonical examples, `test_a_canonical_example_serialises_to_something_json_can_emit`,
+   is a **regression fence**: green before this work and after, and not evidence of it.
 6. **No canonical example carries the marker.** The preview guard's matrix skips any path whose
    example value is not text, so a marker among the examples would drop that field out of the guard
    matrix with nothing reporting it. The tripwire states that mechanism in its own failure message,
