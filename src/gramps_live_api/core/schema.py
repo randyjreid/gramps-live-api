@@ -931,6 +931,9 @@ def _run(rules: Sequence[Rule], operation: Operation) -> WellFormedResult:
 TYPE_KEY = "type"
 """The key naming which operation a payload is."""
 
+_TEXTUAL: tuple[type, ...] = (str, bytes, bytearray)
+"""The sequences that are values on the wire rather than containers of them."""
+
 
 class SchemaError(Exception):
     """A payload that is not an operation at all."""
@@ -990,9 +993,13 @@ def _to_wire(value: object) -> object:
     paths that exist this week and state nothing about why those were the right
     14. Do not "simplify" this back to a copy.
 
-    Termination: ``ObjectRef`` is frozen and its leaves declare ``str``, so a
-    cycle is not constructible from the wire, and a value the wire did not build
-    is a fixture's -- which is the transport claim, judged by ``validate``.
+    ⚠️ **And the recursion is over CONTAINERS as well as references, because
+    "an ``ObjectRef`` is the only thing a value nests inside" was the same
+    mistake one container further out.** A list or a mapping holding a marker or
+    a reference was copied out whole, so ``json.dumps`` raised on the payload
+    while every one of those operations already had its verdict at its path.
+    Branching on what the value *is* -- reference, marker, scalar, mapping,
+    sequence -- is what stops this being patched a container at a time.
     """
     if isinstance(value, ObjectRef):
         return {leaf.name: _to_wire(getattr(value, leaf.name)) for leaf in fields(ObjectRef)}
@@ -1001,6 +1008,12 @@ def _to_wire(value: object) -> object:
         # being edited. That is what the deferral recorded on Unrecorded costs
         # to reverse, stated mechanically rather than aspirationally.
         return {UNRECORDED_KEY: value.value}
+    if isinstance(value, Mapping):
+        return {key: _to_wire(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, _TEXTUAL):
+        # Text is a Sequence and is already what the wire wants, so it must not
+        # be taken apart into a list of one-character strings.
+        return [_to_wire(item) for item in value]
     return value
 
 
