@@ -307,12 +307,53 @@ file's count read as a criterion's evidence is a number that goes stale with not
    its faithful spelling and only an unmodellable one is replaced. The marker names the **type and
    never the value**, which is `RuleViolation`'s rule obeyed by the transport.
 
-   ⚠️ **Termination is the other half of "total".** `x = []; x.append(x)` is constructible, so the
-   conversion carries the identities of the containers **on the current path** and marks one already
-   there. On the path rather than accumulated across the walk: a value reachable twice from
-   different branches is not a cycle, and an accumulating set would mark the second sibling —
-   a fail-closed defect on a perfectly emittable payload, which
-   `test_a_value_appearing_twice_is_not_read_as_a_cycle` exists to catch.
+   ⚠️ **Termination is the other half of "total", and it has TWO halves of its own — cycles and
+   depth. For two rounds only the first was written down.**
+
+   **Cycles.** `x = []; x.append(x)` is constructible, so the conversion carries the identities of
+   the containers **on the current path** and marks one already there. On the path rather than
+   accumulated across the walk: a value reachable twice from different branches is not a cycle, and
+   an accumulating set would mark the second sibling — a fail-closed defect on a perfectly emittable
+   payload, which `test_a_value_appearing_twice_is_not_read_as_a_cycle` exists to catch.
+
+   ⚠️ **Depth.** The conversion was a structural recursion, so it had a ceiling of its own, and that
+   ceiling was **below the decoder's**. Measured on CPython 3.12.13 at the default recursion limit
+   of 1000: the conversion stopped at depth **995**, while `json.loads` and `json.dumps` both reach
+   **2997**. Between those two numbers a payload was decoder-producible, was accepted by `from_dict`
+   and could not be carried — `RecursionError`, which is neither of the two outcomes this criterion
+   allows. **That band sits inside the bounded sub-property below, so it was a correction to a claim
+   that was false, not a residual.** The conversion now carries an **explicit stack**: depth is
+   bounded by memory rather than by the interpreter's frame budget, measured usable at depth
+   **200 000** in 0.371 s. ⭐ **Because the encoder shares the decoder's ceiling exactly, above 2997
+   nothing is decoder-producible or encoder-emittable — so the band is CLOSED rather than narrowed,
+   and the ceiling that remains is CPython's own rather than this module's** —
+   `test_a_value_nested_past_the_frame_limit_reaches_the_wire`.
+
+   ⚠️ **Catching `RecursionError` and emitting the fault marker is much the smaller change, and it
+   was rejected on merits.** It would turn a depth-2000 decoder-producible payload into silent data
+   loss, making the marker appear for exactly the payloads the bounded claim says it never appears
+   for; and `RecursionError` fires when the **interpreter's** budget runs out rather than at a
+   property of the value, so the emitted payload would be a function of the caller's stack depth —
+   measured, the old ceiling was 995 from a module-level call and **895 from one a hundred frames
+   down**. The same operation would serialise differently depending on where it was called from.
+
+   ⚠️ **A work list does not unwind, so the path scoping that came free from the call stack is now
+   maintained deliberately**: the ancestors live in a list **truncated to the popped entry's own
+   depth** before that entry is processed, which depth-first order makes exact. Both halves of that
+   discipline are pinned, because one test cannot do it — an implementation that never truncates
+   passes the cycle test, and one that truncates too far passes the sibling test:
+   `test_a_value_appearing_twice_is_not_read_as_a_cycle_at_depth` and
+   `test_a_cycle_closed_below_the_frame_limit_still_terminates`. Carrying a `frozenset` per stack
+   entry — literally the old expression, and by far the smaller diff — was prototyped and rejected
+   on **measurement**: quadratic in depth, 8.731 s at depth 30 000 against 0.349 s for the truncated
+   path at 200 000.
+
+   ⚠️ **The output container is pre-populated with its keys in source order before its children are
+   pushed**, because a LIFO stack completes children in reverse and a mapping filled in completion
+   order would reverse every JSON object's keys — both canonical payloads would move with nothing
+   saying so, since the fence checks JSON-ness and not bytes.
+   `test_a_mapping_keeps_its_key_order_on_the_wire` asserts it in bytes, and is a shape guard rather
+   than evidence.
 
    **The generator's budget, stated because a sample's size is a cost every future run pays.
    ⚠️ These numbers are the CRITERION's, and they are the constants in the file; they are not any
@@ -333,6 +374,16 @@ file's count read as a criterion's evidence is a number that goes stale with not
    is still exercised by the spine, five composers deep, for five values. **The spine depth stays at
    6** because depth is the dimension both previous rounds were wrong about and it costs one value
    per level.
+
+   ⚠️ **And it stays at 6 even though the frame limit is now the depth question**, which is the one
+   place that reasoning could have been read the other way. Raising the spine past the old ceiling
+   would cost ~991 extra values ≈ **1 982 extra cases** on an **82**-case criterion, and past the
+   encoder's ~5 982 — a 2× to 6× suite growth to sample one dimension, where every level past the
+   first cycle of composers is the same five branches again. **Depth past the frame limit is bought
+   by the four named tests above instead, for four cases.** The generator's own tripwire
+   `test_the_generated_values_reach_the_stated_depth` measures with a recursive helper that shares
+   the old ceiling, so raising the spine past it would force that helper iterative too, for no gain;
+   sweeping the suite's remaining recursive walks belongs to the general repair, not here.
 
    **Tripwires, because an empty matrix, a shallow one and a narrow one all read as coverage.** Each
    is computed by the test file's own walk rather than by asking the module, and each is green on
@@ -364,7 +415,13 @@ file's count read as a criterion's evidence is a number that goes stale with not
 
    - **No valid operation's payload moves.** Every value a registered type carries is a `str` or an
      `ObjectRef` of `str`s, which take branches that already existed. Verified by dumping both
-     canonical payloads before the change and comparing bytes after.
+     canonical payloads before the change and comparing bytes after — and again, by the same
+     method, when the conversion became iterative.
+   - ⚠️ **Above depth 2997 the `RecursionError` moves from the transport to the encoder.** `to_dict`
+     now *succeeds* there and returns a structure `json.dumps` cannot encode. This is a change in
+     **where** an unencodable value fails rather than a regression: it used to fail earlier and
+     harder, at 995. It is recorded with its number rather than implied, and it is not a band —
+     nothing above 2997 is decoder-producible either, so no payload reaches it from the wire.
    - A **tuple** at a field now emits a JSON array instead of raising, so that operation is no
      longer round-trip identical. Correct — JSON has no tuple — and reachable only on an operation
      that is invalid either way. No fixture carries one.
