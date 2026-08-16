@@ -57,10 +57,20 @@ def tracked_files() -> set[str]:
     return set(result.stdout.splitlines())
 
 
+SOURCE_TREES = ("src", "tests", "gramps_plugin")
+"""Every directory of ours that holds Python, and each needs its own negation.
+
+``gramps_plugin`` is the newest and the easiest to forget: it sits outside the
+package on purpose -- it is the one place permitted to import ``gramps`` -- so
+it is outside the two trees this file was originally written around, and the
+deny-list patterns reach it exactly as they reach them.
+"""
+
+
 def test_every_python_source_file_is_tracked() -> None:
     on_disk = {
         path.relative_to(REPOSITORY_ROOT).as_posix()
-        for directory in ("src", "tests")
+        for directory in SOURCE_TREES
         for path in (REPOSITORY_ROOT / directory).rglob("*.py")
         if "__pycache__" not in path.parts
     }
@@ -130,6 +140,27 @@ def test_the_workflow_directory_is_ignored() -> None:
         ".gitignore has re-admitted it, which is the interaction issue #27 warned "
         "would not be visible by reading the pattern"
     )
+
+
+def test_no_source_tree_is_hidden_by_a_deny_pattern() -> None:
+    """Every tree that holds Python needs its own negation, including the new one.
+
+    The deny-list patterns are matched against every path, and source files are
+    routinely named after the thing they handle -- ``*token*`` is the shape of a
+    perfectly ordinary module name. Nothing warns you: the file is simply absent
+    from the clone CI builds.
+
+    ``src`` and ``tests`` have carried negations since the patterns were written.
+    ``gramps_plugin`` is new, sits outside the package deliberately, and was NOT
+    covered -- which is this test, run against a filename that would be
+    swallowed rather than against the one file that happens to be there today.
+    """
+    for tree in SOURCE_TREES:
+        assert not is_ignored(f"{tree}/gramps_live_api_token.py"), (
+            f"a Python file under {tree}/ is hidden by a deny-list pattern, so it "
+            "would be missing from the clone CI builds and the suite there would "
+            "be quietly smaller -- add a negation for this tree to .gitignore"
+        )
 
 
 def test_no_path_is_both_untracked_and_unignored() -> None:
