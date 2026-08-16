@@ -55,30 +55,66 @@ from tests.fixtures.operations import EXAMPLES, WIRE_VALUES, carrying, payload_w
 _JSON_SCALARS = (bool, int, float, str)
 
 
+_A_KEY_NO_JSON_OBJECT_CAN_SPELL = object()
+"""Stands where a non-text key sat, so the key check keeps its place in order.
+
+The walk below reports the **first** offending path, and the recursion it
+replaced interleaved its two checks: for each entry in turn it refused a non-text
+key and only then descended into that entry's value. Hoisting the key check
+ahead of the descent would be shorter and would report a different path for the
+same payload -- the mapping itself rather than the unemittable value sitting at
+an earlier entry. Pushing this in the key's place keeps the order the failure
+messages already had.
+"""
+
+
 def _not_json(value: object, path: str) -> str | None:
     """The path of the first value no JSON encoder can emit, or ``None``.
 
     A path rather than a boolean: a refusal that does not say where the fault is
     is one nobody can act on, which is the rule the violations in this module
     already obey.
+
+    ⚠️ **An explicit stack rather than a recursion, and not for tidiness.** This
+    walk shared the recursive conversion's frame ceiling -- measured, both
+    stopped at depth 995 on this box -- so a test written past that depth failed
+    in this file's own machinery rather than in the module. **A test walk that
+    cannot reach the depth it is testing asserts nothing**, and the file's "two
+    sources must agree" convention would have had a hole at exactly the depth the
+    section below is about.
+
+    Depth-first in **source order** is preserved deliberately. The returned path
+    is quoted in failure messages at seven call sites, so which offending value
+    is named first is a quality-of-message obligation -- no test asserts a
+    particular path, which is why it has to be written down here instead.
+
+    Called on ``to_dict`` output, which is acyclic because the conversion breaks
+    cycles with the fault marker. A cyclic input does not terminate here, the
+    same way it did not terminate in the recursion this replaced.
     """
-    if value is None or isinstance(value, _JSON_SCALARS):
-        return None
-    if isinstance(value, list):
-        for index, item in enumerate(value):
-            offending = _not_json(item, f"{path}[{index}]")
-            if offending is not None:
-                return offending
-        return None
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if not isinstance(key, str):
-                return path
-            offending = _not_json(item, f"{path}.{key}" if path else key)
-            if offending is not None:
-                return offending
-        return None
-    return path
+    stack: list[tuple[object, str]] = [(value, path)]
+    while stack:
+        item, where = stack.pop()
+        if item is None or isinstance(item, _JSON_SCALARS):
+            continue
+        if isinstance(item, list):
+            # Reversed, because a LIFO stack completes what was pushed last:
+            # pushing backwards is what makes it come out in source order.
+            stack.extend(
+                (contained, f"{where}[{index}]")
+                for index, contained in reversed(list(enumerate(item)))
+            )
+            continue
+        if isinstance(item, dict):
+            stack.extend(
+                (contained, f"{where}.{key}" if where else key)
+                if isinstance(key, str)
+                else (_A_KEY_NO_JSON_OBJECT_CAN_SPELL, where)
+                for key, contained in reversed(list(item.items()))
+            )
+            continue
+        return where
+    return None
 
 
 _A_REFERENCE = ObjectRef(object_type="person", handle="a1b2c3d4e5f607", gramps_id="I0044")
@@ -449,6 +485,153 @@ def test_a_tuple_becomes_a_json_array() -> None:
     # back a list. Correct -- JSON has no tuple -- and reachable only on an
     # operation that is invalid either way. No fixture carries one.
     assert schema._to_wire(("a value",)) == ["a value"]
+
+
+# ---------------------------------------------------------------------------
+# DEPTH -- the half of termination that was still false
+#
+# ⚠️ **Cycles were the half that got written down; depth was the half that did
+# not.** The conversion was a structural recursion, so it had a ceiling of its
+# own, and that ceiling was BELOW the decoder's. Measured on this box, CPython
+# 3.12.13 at the default recursion limit of 1000:
+#
+#   the recursive _to_wire                   995
+#   this file's own _not_json, as it was     995
+#   json.loads                              2997
+#   json.dumps                              2997
+#
+# ⚠️ **So there was a band -- above the conversion's ceiling and below the
+# encoder's -- where a payload was decoder-producible, was accepted by
+# from_dict, and could not be carried.** to_dict raised RecursionError, which is
+# neither of the two outcomes criterion 5 allows: it is not JSON, and it is not
+# failing closed visibly at a field path. That band sits INSIDE the bounded
+# sub-property at the bottom of this file, so it was a **correction** to a claim
+# that was false, not a residual to record.
+#
+# ⚠️ **The lower number is not a property of the value -- it moves with the
+# CALLER'S OWN STACK DEPTH.** Measured: 995 from a module-level call, 895 from
+# one a hundred frames down. That is what decided the fix. Catching
+# RecursionError and emitting the fault marker is much the smaller change, and it
+# loses on merits rather than on taste: it would turn a depth-2000
+# decoder-producible payload into silent data loss, making the marker appear for
+# a payload the bounded claim says it never appears for -- and it would make the
+# emitted payload a function of where the conversion was called from rather than
+# of the value converted. The same operation would serialise differently under
+# pytest's assertion-rewriting frames than from a plain call.
+#
+# The conversion now carries an explicit stack, so its depth is bounded by memory
+# rather than by the interpreter's frame budget; measured usable at depth
+# 200 000. ⭐ **The ceiling that remains is CPython's own json module -- 2997,
+# for dumps and loads alike -- so above it a payload is neither
+# decoder-producible nor encoder-emittable. The band is CLOSED, not narrowed.**
+# ---------------------------------------------------------------------------
+
+_PAST_THE_FRAME_LIMIT = 2000
+"""A depth inside the band, chosen by construction rather than by luck.
+
+Above the 995 the recursive conversion stopped at, and below the 2997 that
+``json.dumps`` and ``json.loads`` stop at -- so a value nested this deep is one
+a decoder could hand over and an encoder can take back, and it is exactly what
+the conversion could not carry.
+"""
+
+
+def _nested_in_lists(innermost: object, depth: int) -> object:
+    """``innermost`` wrapped in ``depth`` ordinary lists, built without recursing.
+
+    Ordinary lists rather than the composers above, because the point is the
+    interpreter's frame budget rather than the grammar's breadth -- and because
+    the builder itself must not share the ceiling it is building past.
+    """
+    value = innermost
+    for _ in range(depth):
+        value = [value]
+    return value
+
+
+def test_a_value_nested_past_the_frame_limit_reaches_the_wire() -> None:
+    # RED before the traversal became iterative, with RecursionError out of
+    # to_dict rather than an assertion -- which is the finding, stated as a test:
+    # the value is transportable, and the transport was what could not carry it.
+    deep = _nested_in_lists("a value", _PAST_THE_FRAME_LIMIT)
+
+    payload = schema.to_dict(_carrying_at_the_first_leaf("add_note", deep))
+
+    offending = _not_json(payload, "")
+
+    assert offending is None, (
+        f"to_dict claims a JSON-shaped mapping; a value nested "
+        f"{_PAST_THE_FRAME_LIMIT} deep emitted something at {offending} that no "
+        "encoder can emit"
+    )
+    json.dumps(payload)
+
+
+def test_a_value_appearing_twice_is_not_read_as_a_cycle_at_depth() -> None:
+    # ⚠️ **The path-scoping guard, carried to the depth where the mechanism
+    # changed.** With a recursion, path scoping came free: the call stack unwound
+    # and the frozenset went out of scope with it. An explicit stack does not
+    # unwind, so the ancestors are held in a list that is TRUNCATED to the popped
+    # entry's own depth -- and if that truncation never happens, the set has
+    # quietly become the accumulated one, and the second sibling gets the fault
+    # marker for a value that is perfectly emittable.
+    #
+    # This is half one of the discipline. The test below is half two, and one of
+    # them alone cannot pin it: an implementation that never truncates passes
+    # that one, and an implementation that truncates too far passes this one.
+    shared = _nested_in_lists("a value", _PAST_THE_FRAME_LIMIT)
+
+    payload = schema.to_dict(_carrying_at_the_first_leaf("add_note", [shared, shared]))
+
+    assert schema.UNCONVERTIBLE_KEY not in json.dumps(payload), (
+        "a value reachable twice from different branches was read as a cycle, so "
+        "the ancestors are being accumulated across the walk rather than "
+        "truncated to the current path"
+    )
+
+
+def test_a_cycle_closed_below_the_frame_limit_still_terminates() -> None:
+    # Half two. A spine deep enough that the recursion could not reach the end of
+    # it, whose innermost element points back at the outermost container -- so
+    # the ancestor that closes the cycle was pushed 2 000 entries ago and must
+    # still be there. Truncating too eagerly drops it, and the walk then has no
+    # reason to stop.
+    outermost: list[object] = []
+    innermost = outermost
+    for _ in range(_PAST_THE_FRAME_LIMIT):
+        deeper: list[object] = []
+        innermost.append(deeper)
+        innermost = deeper
+    innermost.append(outermost)
+
+    payload = schema.to_dict(_carrying_at_the_first_leaf("add_note", outermost))
+
+    assert schema.UNCONVERTIBLE_KEY in json.dumps(payload), (
+        "a cycle closed 2 000 levels down was not marked, so an ancestor was "
+        "dropped from the current path before the entry that needed it"
+    )
+    assert _not_json(payload, "") is None
+    json.dumps(payload)
+
+
+def test_a_mapping_keeps_its_key_order_on_the_wire() -> None:
+    # ⚠️ **GREEN ON ARRIVAL, and a shape guard rather than evidence** -- the same
+    # standing as the sibling test above it, and here for a sharper reason. A
+    # LIFO stack completes children in REVERSE, so an output mapping filled in
+    # completion order comes out with every JSON object's keys backwards. Both
+    # canonical payloads would move, and nothing else in this file would say so:
+    # the fence above checks JSON-ness, not bytes.
+    #
+    # What stops it is that the container is created and pre-populated with its
+    # keys in source order BEFORE its children are pushed, then filled slot by
+    # slot. This is what asserts that, in bytes.
+    ordered = {"zephyr": 1, "aster": 2, "marigold": {"quill": 4, "brack": 5}}
+
+    wire = schema._to_wire(ordered)
+
+    assert json.dumps(wire) == (
+        '{"zephyr": 1, "aster": 2, "marigold": {"quill": 4, "brack": 5}}'
+    ), "the emitted mapping's keys are not in the order the value carried them"
 
 
 # ---------------------------------------------------------------------------
