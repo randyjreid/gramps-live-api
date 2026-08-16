@@ -381,6 +381,63 @@ NOTE_TYPES: frozenset[str] = frozenset({"research", "todo"})
 """What a note is for. Closed, and a member of it is a PHASE_1 rule."""
 
 
+# ---------------------------------------------------------------------------
+# What the record does not give -- #40
+#
+# Every declared field of an operation is required, so a register naming only
+# one part of a name has no well-formed operation at all. The marker is how a
+# declaration says *this part is not in the document*, without collapsing that
+# into ``Optional``, which already means something else here: a reference root
+# that may be absent.
+#
+# ⚠️ **An ``Enum`` and NOT a frozen dataclass singleton, and the Python kind is
+# load-bearing for a test nobody would think to look at.** The negative-case
+# generator in the fixtures excludes a mapping wire value at any path whose
+# declaration NESTS A DATACLASS -- that is how ``{}`` at a reference field is
+# kept out, since a mapping is how the wire spells an object rather than a
+# wrong-typed value. A dataclass-shaped marker would make a field declared
+# ``str | <marker>`` nest a dataclass too, so ``{}`` at that field would
+# **silently drop out of the generated forbidden values**, deleting a negative
+# case with nothing announcing it. An ``Enum`` class is a ``type`` and is not a
+# dataclass, so the case survives. Do not "simplify" this into a dataclass.
+#
+# ⚠️ **One member, and the second is DEFERRED rather than absent.** *"The
+# record does not say"* and *"the person bore none"* are not distinguished. A
+# positive assertion of namelessness is a claim about a real person, so it is
+# FACT-ASSERTING and needs its own warrant -- it belongs in the fact vocabulary
+# with a citation obligation, not in an absence vocabulary. **Recorded as
+# deferred future CITED work**, here and in the spec, so it is not left
+# implied. A reader who does not find this reason will reasonably "improve" the
+# enum by adding the member.
+#
+# A single-member enum is what makes that reversal cheap: it arrives as a
+# second member and every consumer is already a match over the enum. The wire
+# spelling is derived from the member rather than written beside it -- out as
+# ``{UNRECORDED_KEY: member.value}``, back in via a lookup over ``Unrecorded``
+# -- so a second member serialises and deserialises **without ``to_dict`` or
+# ``from_dict`` being edited**. That is what "cheap" has to mean mechanically
+# rather than aspirationally.
+# ---------------------------------------------------------------------------
+
+
+class Unrecorded(Enum):
+    """What the record does not give. A VALUE, not an absence."""
+
+    NOT_IN_THE_RECORD = "not_in_the_record"
+
+
+UNRECORDED = Unrecorded.NOT_IN_THE_RECORD
+"""The one marker there is, for a field whose declaration admits it."""
+
+UNRECORDED_KEY = "unrecorded"
+"""The single key a payload spells the marker under.
+
+A mapping rather than an in-band reserved string: a reserved string can collide
+with a name a record actually gives, and this module refuses in-band signalling
+everywhere else.
+"""
+
+
 class Phase(Enum):
     """Which phase is able to decide a rule."""
 
