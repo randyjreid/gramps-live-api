@@ -16,16 +16,36 @@ It ships no server, no endpoint and no unattended path. Nothing runs without you
 
 ## Once: three pieces of setup
 
+> **Every command in this document is PowerShell**, and every one of them is run **from the root of
+> this checkout** — that is what `$PWD` refers to below. Nothing here needs `cmd.exe`, and nothing
+> here needs a placeholder filled in by hand.
+
 ### 1. A copy of your tree, blessed by hand
 
 In Gramps: **Family Trees → Export** your tree to Gramps XML, then **Family Trees → Import into a new
 family tree** and give it a name that says it is a copy.
 
-Then find that copy's directory. Gramps keeps its trees under `%APPDATA%\gramps\grampsdb\`, one
-opaque directory per tree; the copy's directory is the one whose `name.txt` holds the name you just
-gave it.
+Then find that copy's directory. Gramps keeps its trees under `$env:APPDATA\gramps\grampsdb\`, one
+opaque directory per tree, with the tree's name in a `name.txt` inside it. This lists them by name:
 
-**Create an empty file inside that directory called `.gramps-live-api-copy`.**
+```powershell
+Get-ChildItem "$env:APPDATA\gramps\grampsdb" -Directory | ForEach-Object {
+  [pscustomobject]@{ Name = (Get-Content "$($_.FullName)\name.txt" -Raw).Trim(); Path = $_.FullName }
+}
+```
+
+Hold the copy's path in a variable — the next two steps both use it, and it is the one value in this
+setup that is worth not retyping:
+
+```powershell
+$copy = "$env:APPDATA\gramps\grampsdb\<the Path for your copy from the table above>"
+```
+
+**Then create an empty file inside that directory called `.gramps-live-api-copy`:**
+
+```powershell
+New-Item -ItemType File "$copy\.gramps-live-api-copy"
+```
 
 That file is the whole permission model. Nothing is written to any tree that does not carry it, there
 is no flag that overrides it, and there is no configuration key that reaches the check. The check
@@ -37,30 +57,44 @@ tree.
 
 ### 2. The plugin, where Gramps looks for plugins
 
-Gramps runs our code through its own CLI tool door, so it has to be able to find it. From an
-**Administrator** command prompt, make a junction from Gramps' user plugin folder to this checkout:
+Gramps runs our code through its own CLI tool door, so it has to be able to find it. Make a junction
+from Gramps' user plugin folder to this checkout — **from the checkout root**, so that `$PWD` is it:
 
+```powershell
+New-Item -ItemType Directory -Force "$env:APPDATA\gramps\gramps60\plugins" | Out-Null
+New-Item -ItemType Junction -Path "$env:APPDATA\gramps\gramps60\plugins\gramps-live-api" -Target "$PWD\gramps_plugin"
 ```
-mklink /J "%APPDATA%\gramps\gramps60\plugins\gramps-live-api" "<your checkout>\gramps_plugin"
-```
+
+A **junction** does not require Administrator — only a symbolic link does. If that surprises you, it
+surprised us too; it is measured, not assumed.
 
 Copying the two files works just as well and goes stale; the junction does not.
 
 ### 3. Where the copy is
 
-Create `%APPDATA%\gramps-live-api\config.json`:
+The config file lives at `$env:APPDATA\gramps-live-api\config.json` and holds one key. Write it with
+`ConvertTo-Json` rather than by hand — JSON requires every backslash in a Windows path to be doubled,
+and that is a trap worth handing to the machine:
 
-```json
-{
-  "copy_path": "<the copy's directory, with every backslash doubled>"
-}
+```powershell
+New-Item -ItemType Directory -Force "$env:APPDATA\gramps-live-api" | Out-Null
+@{ copy_path = $copy } | ConvertTo-Json | Set-Content "$env:APPDATA\gramps-live-api\config.json" -Encoding utf8
 ```
 
+That uses the `$copy` variable from step 1. Read it back to see what it wrote:
+
+```powershell
+Get-Content "$env:APPDATA\gramps-live-api\config.json"
+```
+
+One object, one key — `copy_path`, holding your copy's directory with each backslash doubled, which
+is what makes writing it by hand worth avoiding.
+
 **This file lives outside the repository, and that is deliberate** — it is the one value this project
-must never commit. Nothing expands environment variables inside it, so write the path out in full.
-Add `"gramps_runtime"` beside it if you have more than one Gramps installed, or if it is not under
-`%ProgramFiles%\GrampsAIO64-<version>\`; with exactly one installed it is found for you, and with two
-you are asked to name one rather than have this guess.
+must never commit. Nothing expands environment variables inside it, so the path is written out in
+full. Add `"gramps_runtime"` beside it if you have more than one Gramps installed, or if it is not
+under `$env:ProgramFiles\GrampsAIO64-<version>\`; with exactly one installed it is found for you, and
+with two you are asked to name one rather than have this guess.
 
 `GRAMPS_LIVE_API_COPY` and `GRAMPS_LIVE_API_RUNTIME` override both, for a one-off run.
 
@@ -83,9 +117,9 @@ python -m gramps_live_api check
 You should see the runtime, the plugin, your copy, and each of the two files the check looks at:
 
 ```
-  ok   runtime: %ProgramFiles%\GrampsAIO64-<version>\grampsd.exe
-  ok   plugin: %APPDATA%\gramps\gramps60\plugins\gramps-live-api
-  ok   copy: <the copy's directory>
+  ok   runtime: ...\GrampsAIO64-<version>\grampsd.exe
+  ok   plugin: ...\gramps\gramps60\plugins\gramps-live-api
+  ok   copy: ...\grampsdb\1a2b3c4d
   ok   name.txt: is a Gramps family tree directory
   ok   .gramps-live-api-copy: is blessed for writing by hand
   ok   lock: not locked
@@ -93,10 +127,11 @@ You should see the runtime, the plugin, your copy, and each of the two files the
 ready
 ```
 
-**Now point it at your real tree** and watch it refuse:
+**Now point it at your real tree** and watch it refuse — its directory is the *other* row in step 1's
+table, the one whose `name.txt` holds your live tree's name:
 
 ```powershell
-python -m gramps_live_api check "<your live tree's directory>"
+python -m gramps_live_api check "$env:APPDATA\gramps\grampsdb\<the Path for your LIVE tree>"
 ```
 
 The same report, with one line changed and a non-zero exit:
@@ -119,7 +154,8 @@ anything.
 
 ### 2. `preview` — what exactly would be written?
 
-Write the note you want as a file. Call it `op.json`, anywhere outside the checkout:
+Write the note you want as a file. Call it `op.json` and put it anywhere outside the checkout —
+`$env:USERPROFILE\op.json` will do, and is what the two commands below assume:
 
 ```json
 {
@@ -148,7 +184,7 @@ person, and if the handle names a different object the write is refused rather t
 one you meant.
 
 ```powershell
-python -m gramps_live_api preview "<wherever you put it>\op.json"
+python -m gramps_live_api preview "$env:USERPROFILE\op.json"
 ```
 
 ```
@@ -160,7 +196,7 @@ That sentence is the thing you are approving. `preview` writes nothing and opens
 ### 3. `apply` — write it, then go and look
 
 ```powershell
-python -m gramps_live_api apply "<wherever you put it>\op.json"
+python -m gramps_live_api apply "$env:USERPROFILE\op.json"
 ```
 
 ```
