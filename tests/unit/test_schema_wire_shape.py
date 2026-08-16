@@ -41,7 +41,7 @@ structural walk, which can name the path of the offending value, and
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import fields, is_dataclass
 from types import MappingProxyType
 from typing import get_args, get_type_hints
@@ -49,7 +49,7 @@ from typing import get_args, get_type_hints
 import pytest
 
 from gramps_live_api.core import schema
-from gramps_live_api.core.schema import UNRECORDED, ObjectRef, Operation, Unrecorded
+from gramps_live_api.core.schema import UNRECORDED, ObjectRef, Operation, RuleId, Unrecorded
 from tests.fixtures.operations import EXAMPLES, WIRE_VALUES, carrying, payload_with
 
 _JSON_SCALARS = (bool, int, float, str)
@@ -1037,3 +1037,154 @@ def test_a_payload_a_decoder_could_have_produced_never_reaches_the_fault_marker(
         )
         assert _not_json(emitted, "") is None
         json.dumps(emitted)
+
+
+# ---------------------------------------------------------------------------
+# The OTHER side of the boundary -- best-effort, and what that honestly means
+#
+# ⚠️ **The bounded claim above is what closes. Everything outside it is
+# BEST-EFFORT, and the boundary is stated rather than left to be discovered.**
+# ``from_dict`` takes a ``Mapping``, and ``Operation``'s fields accept anything,
+# so a caller can build a value in process that no decoder could have produced.
+# **Interrogating such a value RUNS THE VALUE'S OWN CODE** -- ``list(item)`` calls
+# its ``__iter__`` and its ``__len__``, ``id(item) in on_path`` is a set
+# membership, ``isinstance`` reads its ``__class__`` -- and any of those may
+# raise.
+#
+# ⭐ **What is guaranteed there is the SHAPE of the failure, not its absence: an
+# exception from the caller's own object arrives AS ITSELF -- same type, same
+# message -- never masked as the fault marker and never swallowed.** The measured
+# residual, all three at ``target.handle`` of the ``add_note`` example:
+#
+#   released memoryview              to_dict=ValueError   validate=FIELD_WRONG_TYPE
+#   Sequence whose __iter__ raises   to_dict=ValueError   validate=FIELD_WRONG_TYPE
+#   Sequence whose __len__ raises    to_dict=ValueError   validate=FIELD_WRONG_TYPE
+#
+# ⚠️ **This is not a closable set and the three are not an enumeration to be
+# extended.** ``__iter__``, ``__len__``, ``__eq__``, ``__hash__``, ``__getitem__``
+# and a raising ``__class__`` are ONE defect with no enumeration, because the
+# defect is *interrogation runs the object's own code* rather than any particular
+# dunder. A fourth is always constructible, which is exactly why the claim is
+# bounded above instead of being defended here.
+#
+# ⚠️ **THE REMEDY IS ``validate``, and it is the reason no handler is added
+# here.** It reads the object **without transporting it** and returns
+# FIELD_WRONG_TYPE at the path, in every case measured -- so a caller wanting a
+# verdict on a pathological value already has one that works.
+#
+# ⚠️ **A FENCE, not evidence** -- green on arrival, the same standing as
+# ``test_a_mapping_keeps_its_key_order_on_the_wire``. Its job is to make the
+# broad exception handler the owner ruled against **fail a test rather than pass
+# review**: a blanket ``except Exception`` would return a payload here instead of
+# raising, making our own defect indistinguishable from the caller's bad data.
+# ---------------------------------------------------------------------------
+
+_A_MESSAGE_ONLY_THE_CALLERS_ITERATION_COULD_RAISE = "Quillon-Vasterby-9903"
+"""Invented, distinctive, and the same register and rule as ``SENTINELS``.
+
+Distinctive because the assertion is that the CALLER's message arrives, and a
+generic one would pass against a message this module invented. A bare token
+rather than a sentence, no path separator and no ``~``, because this is a
+literal in a tracked file the guard scans.
+"""
+
+_A_MESSAGE_ONLY_THE_CALLERS_LENGTH_COULD_RAISE = "Merrowbeck-Talvane-2216"
+"""Its own value, not shared with the one above: two objects failing by two
+different dunders must be distinguishable, or one test passes on the other's
+exception."""
+
+
+class _IterationRaises(Sequence[object]):
+    """A ``Sequence`` that refuses to be iterated, raising the caller's own error.
+
+    A real ``Sequence`` registration rather than an arbitrary object, and that is
+    the whole point: an arbitrary object takes the branch for the unknown and
+    gets the fault marker without anything being run. Reaching the code that
+    **interrogates** the value requires passing the isinstance check first.
+    """
+
+    def __iter__(self) -> Iterator[object]:
+        raise ValueError(_A_MESSAGE_ONLY_THE_CALLERS_ITERATION_COULD_RAISE)
+
+    def __getitem__(self, index: int) -> object:
+        raise ValueError(_A_MESSAGE_ONLY_THE_CALLERS_ITERATION_COULD_RAISE)
+
+    def __len__(self) -> int:
+        return 1
+
+
+class _LengthRaises(Sequence[object]):
+    """A ``Sequence`` whose length cannot be taken. The other dunder, same defect.
+
+    Two of them rather than one, because ``list(value)`` consults both and a fix
+    that guarded only the first would leave this one raising -- which is the
+    "patch the shape you were shown" failure this module has refused three times.
+    """
+
+    def __getitem__(self, index: int) -> object:
+        raise IndexError(index)
+
+    def __len__(self) -> int:
+        raise ValueError(_A_MESSAGE_ONLY_THE_CALLERS_LENGTH_COULD_RAISE)
+
+
+def _a_released_memoryview() -> memoryview:
+    """A buffer whose every operation now raises. Not a hand-written pathology.
+
+    ⚠️ **The one of the three that is a STANDARD LIBRARY type**, and it reaches
+    the sequence branch by a route that is not incidental: ``_collections_abc``
+    carries ``Sequence.register(memoryview)``, so this is stable across 3.10-3.12
+    rather than an accident of one version. A reader who dismisses the two
+    hand-written classes as contrived has to account for this one.
+    """
+    view = memoryview(bytearray(b"abc"))
+    view.release()
+    return view
+
+
+_THE_RESIDUAL: Mapping[str, tuple[object, str | None]] = MappingProxyType(
+    {
+        "a released memoryview": (_a_released_memoryview(), None),
+        "a sequence whose iteration raises": (
+            _IterationRaises(),
+            _A_MESSAGE_ONLY_THE_CALLERS_ITERATION_COULD_RAISE,
+        ),
+        "a sequence whose length raises": (
+            _LengthRaises(),
+            _A_MESSAGE_ONLY_THE_CALLERS_LENGTH_COULD_RAISE,
+        ),
+    }
+)
+"""The measured residual, with the message each caller's object raises.
+
+``None`` for the memoryview: its message is CPython's own, and pinning a message
+this repository does not author would be a test of the standard library's
+wording. Its **type** is pinned like the others.
+"""
+
+
+@pytest.mark.parametrize("description", sorted(_THE_RESIDUAL))
+def test_an_exception_from_the_callers_own_object_propagates_as_itself(
+    description: str,
+) -> None:
+    value, message = _THE_RESIDUAL[description]
+    operation = _carrying_at_the_first_leaf("add_note", value)
+
+    with pytest.raises(ValueError) as raised:
+        schema.to_dict(operation)
+
+    if message is not None:
+        assert str(raised.value) == message, (
+            f"{description} was transported and the caller's own message did not "
+            "survive, so the exception was masked rather than propagated"
+        )
+
+    # The remedy, asserted rather than promised: the verdict the caller wants
+    # exists on the same operation, from the surface that reads the object
+    # WITHOUT transporting it.
+    verdict = schema.validate(operation)
+
+    assert not verdict.well_formed
+    assert [(violation.rule, violation.field_path) for violation in verdict.violations] == [
+        (RuleId.FIELD_WRONG_TYPE, _first_reference_leaf(type(EXAMPLES["add_note"])))
+    ], f"{description} has no verdict from validate, so the residual has no remedy"
