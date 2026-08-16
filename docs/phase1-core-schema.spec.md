@@ -300,10 +300,9 @@ file's count read as a criterion's evidence is a number that goes stale with not
 only thing that closes the spine's residual: the wiring of the two conversions inside deserialisation
 is not executable while no registered type declares the marker.
 
-> An operation declaring the marker alongside text round-trips it through serialisation and
-> deserialisation in both directions and validates clean carrying it, asserted by the
-> registry-quantified suite #40 left armed. `test_no_registered_type_declares_the_marker_yet` is
-> deleted in the same commit.
+> An operation declaring `str | Unrecorded` round-trips the marker through `to_dict` / `from_dict`
+> in both directions and validates clean carrying it, asserted by the registry-quantified suite #40
+> left armed. `test_no_registered_type_declares_the_marker_yet` is deleted in the same commit.
 
 ### The date model — #21
 
