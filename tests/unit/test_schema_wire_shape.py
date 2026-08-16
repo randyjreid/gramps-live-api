@@ -160,6 +160,24 @@ def test_the_generated_marker_matrix_is_not_empty() -> None:
     assert MARKER_CASES, "no field was reached; every marker case below is vacuous"
 
 
+def test_the_marker_matrix_reaches_a_nested_path() -> None:
+    # ⚠️ **The same idiom as the guard above and for the same reason, one level
+    # deeper.** An empty matrix reads as coverage; so does a matrix that quietly
+    # stops at depth 1 -- which is not hypothetical, it is exactly what this file
+    # did while the claim it asserts was false inside a reference. The non-empty
+    # guard cannot see it, because a shallow walk still generates plenty.
+    #
+    # A VACUITY GUARD, so it is green on arrival: it is not evidence of the
+    # behaviour, it is what stops the evidence being read at the wrong depth.
+    nested = sorted({path for _, path, _ in MARKER_CASES if "." in path})
+
+    assert nested, (
+        "no generated path is nested, so the matrix asserts to_dict's claim at "
+        "the top level only -- which is how a raw value inside a reference "
+        "passed this file green"
+    )
+
+
 @pytest.mark.parametrize("type_name", sorted(EXAMPLES))
 def test_a_canonical_example_serialises_to_something_json_can_emit(type_name: str) -> None:
     # ⚠️ The FENCE. Green before this file existed and green after -- it is not
