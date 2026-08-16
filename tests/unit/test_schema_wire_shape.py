@@ -932,6 +932,60 @@ _BOUNDED_CASES = [
 ]
 
 
+def _decoder_produced_nesting(depth: int) -> object:
+    """``depth`` nested JSON arrays, built by the DECODER rather than in process.
+
+    ⚠️ **``json.loads`` rather than ``_nested_in_lists``, and the difference is
+    the whole point of the case below.** The claim is quantified over what a
+    decoder could have produced, and a value assembled in process is only
+    decoder-producible *in kind* -- it is this file asserting that the kinds
+    match, which is the assumption under test rather than evidence for it. Handed
+    to the decoder, the qualifier is a fact about the value: this text went
+    through ``json.loads`` and that is what came back.
+
+    Ordinary arrays, because the dimension here is depth rather than breadth, and
+    the string is built without recursing so the builder cannot share the ceiling
+    it is building past.
+    """
+    return json.loads("[" * depth + "]" * depth)
+
+
+@pytest.mark.parametrize(("type_name", "path"), _BOUNDED_CASES)
+def test_a_payload_a_decoder_could_have_produced_reaches_the_wire_at_depth(
+    type_name: str, path: str
+) -> None:
+    # ⚠️ **The two dimensions of the narrowed claim, crossed -- and each was
+    # asserted with the other held at its cheapest.** The closer below quantifies
+    # over `_DECODED_VALUES`, whose deepest member nests 3 levels; round 3's depth
+    # work reaches 2 000 but builds its value in process, never through
+    # `from_dict`, and asserts JSON-emittability only, **not marker-absence**. So
+    # *decoder-producible* x *depth* is exactly the corner neither covers -- which
+    # is round 1's defect and round 2's defect, one helper further out.
+    #
+    # No new dial: the existing `_PAST_THE_FRAME_LIMIT` is above the conversion's
+    # old ceiling and below the decoder's own, so this depth is one a decoder can
+    # in fact produce.
+    deep = _decoder_produced_nesting(_PAST_THE_FRAME_LIMIT)
+
+    try:
+        operation = schema.from_dict(payload_with(type_name, path, deep))
+    except schema.SchemaError:
+        # Skipped rather than asserted about, exactly as the sibling closer does:
+        # the property is quantified over what `from_dict` ACCEPTS, and a
+        # structural refusal is the other error surface.
+        return
+
+    emitted = schema.to_dict(operation)
+
+    assert not _names_the_fault_marker(emitted), (
+        f"{type_name} carrying a decoder-produced value {_PAST_THE_FRAME_LIMIT} "
+        f"deep at {path} emitted the fault marker, so the bounded claim holds at "
+        "the depth it was sampled at rather than at the depth it states"
+    )
+    assert _not_json(emitted, "") is None
+    json.dumps(emitted)
+
+
 @pytest.mark.parametrize(("type_name", "path"), _BOUNDED_CASES)
 def test_a_payload_a_decoder_could_have_produced_never_reaches_the_fault_marker(
     type_name: str, path: str
