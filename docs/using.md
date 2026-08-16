@@ -35,10 +35,11 @@ Get-ChildItem "$env:APPDATA\gramps\grampsdb" -Directory | ForEach-Object {
 ```
 
 Hold the copy's path in a variable — the next two steps both use it, and it is the one value in this
-setup that is worth not retyping:
+setup that is worth not retyping. **The table's `Path` column is already the full path**, so paste it
+as it stands and do not put the directory in front of it again:
 
 ```powershell
-$copy = "$env:APPDATA\gramps\grampsdb\<the Path for your copy from the table above>"
+$copy = "<the Path for your copy from the table above>"
 ```
 
 **Then create an empty file inside that directory called `.gramps-live-api-copy`:**
@@ -131,7 +132,7 @@ ready
 table, the one whose `name.txt` holds your live tree's name:
 
 ```powershell
-python -m gramps_live_api check "$env:APPDATA\gramps\grampsdb\<the Path for your LIVE tree>"
+python -m gramps_live_api check "<the Path for your LIVE tree>"
 ```
 
 The same report, with one line changed and a non-zero exit:
