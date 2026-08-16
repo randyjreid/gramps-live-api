@@ -987,7 +987,7 @@ def type_name_of(operation: Operation) -> str:
     raise SchemaError(f"{type(operation).__name__} is not a registered operation")
 
 
-def _to_wire(value: object) -> object:
+def _to_wire(value: object, seen: frozenset[int] = frozenset()) -> object:
     """How a value this module models is spelled on the wire.
 
     ⚠️ **By VALUE, and not by the field's declaration, which is the asymmetry
@@ -1055,9 +1055,27 @@ def _to_wire(value: object) -> object:
     Deliberately NOT a generic dataclass walk for the unknown: inventing a wire
     form for a type this module does not model produces something ``from_dict``
     cannot read back, which is a worse failure than a marker naming the type.
+
+    ⚠️ **TERMINATION IS THE OTHER HALF OF TOTAL, and without it the word is
+    simply false.** ``x = []; x.append(x)`` is constructible in two lines and a
+    structural recursion over it does not stop -- so ``seen`` carries the
+    identities of the containers **on the current path**, and one already on that
+    path converts to the fault marker instead of being walked again.
+
+    ⚠️ **On the PATH, and not accumulated across the whole walk.** A value
+    reachable twice from different branches is not a cycle, and a set that
+    accumulates would emit the fault marker for the second sibling -- a
+    fail-closed defect on a perfectly emittable payload. A ``frozenset`` passed
+    down rather than a set mutated in place is what makes that structural.
+
+    The default argument keeps the seam callable as ``_to_wire(value)``, which is
+    how the round-trip test over the marker's members reaches it.
     """
     if isinstance(value, ObjectRef):
-        return {leaf.name: _to_wire(getattr(value, leaf.name)) for leaf in fields(ObjectRef)}
+        if id(value) in seen:
+            return _unconvertible(value)
+        below = seen | {id(value)}
+        return {leaf.name: _to_wire(getattr(value, leaf.name), below) for leaf in fields(ObjectRef)}
     if isinstance(value, Unrecorded):
         # Derived from the member, so a second one serialises without this
         # being edited. That is what the deferral recorded on Unrecorded costs
@@ -1066,18 +1084,22 @@ def _to_wire(value: object) -> object:
     if value is None or isinstance(value, _JSON_SCALARS):
         return value
     if isinstance(value, Mapping):
-        if any(not isinstance(key, str) for key in value):
+        if id(value) in seen or any(not isinstance(key, str) for key in value):
             # The WHOLE mapping, rather than the offending key: a JSON object is
             # string-keyed, and stringifying a key would invent data the payload
             # never carried. (This branch is also a totality gain -- json.dumps
             # raises on a MappingProxyType, which this module hands around as
             # REGISTRY and EXAMPLES.)
             return _unconvertible(value)
-        return {key: _to_wire(item) for key, item in value.items()}
+        below = seen | {id(value)}
+        return {key: _to_wire(item, below) for key, item in value.items()}
     if isinstance(value, Sequence) and not isinstance(value, _TEXTUAL):
         # Text is a Sequence and is already what the wire wants, so it must not
         # be taken apart into a list of one-character strings.
-        return [_to_wire(item) for item in value]
+        if id(value) in seen:
+            return _unconvertible(value)
+        below = seen | {id(value)}
+        return [_to_wire(item, below) for item in value]
     return _unconvertible(value)
 
 
