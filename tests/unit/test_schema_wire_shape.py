@@ -41,7 +41,7 @@ from typing import get_args, get_type_hints
 import pytest
 
 from gramps_live_api.core import schema
-from gramps_live_api.core.schema import UNRECORDED, ObjectRef, Unrecorded
+from gramps_live_api.core.schema import UNRECORDED, ObjectRef, Operation, Unrecorded
 from tests.fixtures.operations import EXAMPLES, carrying
 
 _JSON_SCALARS = (bool, int, float, str)
@@ -278,3 +278,105 @@ def test_to_dict_emits_json_for_a_container_holding_a_value_the_module_models(
         f"{offending} is not one an encoder can emit"
     )
     json.dumps(payload)
+
+
+# ---------------------------------------------------------------------------
+# The branch for the unknown
+#
+# ⚠️ **A value the module cannot model emits a MARKER rather than raising, and
+# the reason is the line this module already draws and writes down.** A
+# STRUCTURAL fault raises; a VALUE fault does not, because refusing one would be
+# a second validator with no field path. An alien object at a declared field is a
+# value fault, and ``validate`` already returns FIELD_WRONG_TYPE at its path.
+# **A typed transport error is this finding with a better name.**
+#
+# Unmodellable and modellable-but-misplaced share the surface and differ only in
+# the payload: a modellable value keeps its faithful spelling, and only an
+# unmodellable one is replaced. Splitting them across two error surfaces would
+# make a caller's handling depend on a distinction it cannot predict.
+# ---------------------------------------------------------------------------
+
+_A_VALUE_NO_MESSAGE_MAY_REPEAT = "Thessaly-Grendlemere-4417"
+"""Invented, and distinctive so its absence from the payload means something.
+
+Same register and the same rule as ``SENTINELS``: no path separator, no ``~``,
+nothing path-shaped, because this is a literal in a file the guard scans.
+"""
+
+
+class _Unmodellable:
+    """A value nothing here models, carrying something no payload may repeat.
+
+    A module-level class rather than a lambda or a bare ``object()``: the fault
+    marker names ``type(value).__name__``, so the name has to be one a reader
+    meets in the failure message.
+    """
+
+    def __init__(self, carried: str) -> None:
+        self.carried = carried
+
+    def __repr__(self) -> str:
+        return f"<{type(self).__name__} {self.carried}>"
+
+
+def _carrying_at_the_first_leaf(type_name: str, value: object) -> Operation:
+    example = EXAMPLES[type_name]
+    return carrying(example, _first_reference_leaf(type(example)), value)
+
+
+@pytest.mark.parametrize("type_name", sorted(EXAMPLES))
+def test_to_dict_emits_json_for_a_value_the_module_cannot_model(type_name: str) -> None:
+    # The transport must carry it to the judge. validate already reports
+    # FIELD_WRONG_TYPE at that path, so what raising would cost is not a verdict
+    # -- it is the verdict's field path, reported out of a surface that has none.
+    payload = schema.to_dict(_carrying_at_the_first_leaf(type_name, _Unmodellable("a value")))
+
+    offending = _not_json(payload, "")
+
+    assert offending is None, (
+        f"to_dict claims a JSON-shaped mapping; {offending} carries a value the "
+        "module cannot model, which no JSON encoder can emit"
+    )
+    json.dumps(payload)
+
+
+def test_the_fault_marker_names_the_type_and_never_the_value() -> None:
+    # The rule on RuleViolation, obeyed by the transport for the same reason: a
+    # payload echoed into the record becomes content this repository then has to
+    # scan. The TYPE is what a caller needs to fix it, and it is ours to name.
+    value = _Unmodellable(_A_VALUE_NO_MESSAGE_MAY_REPEAT)
+
+    wire = schema._to_wire(value)
+
+    assert wire == {schema.UNCONVERTIBLE_KEY: type(value).__name__}
+    assert _A_VALUE_NO_MESSAGE_MAY_REPEAT not in json.dumps(wire), (
+        "the fault marker repeated the value it refused, which is the one thing "
+        "no message in this module may do"
+    )
+
+
+def test_a_mapping_keyed_by_something_that_is_not_text_is_unconvertible() -> None:
+    # A whole-mapping verdict rather than a per-key one, deliberately: a JSON
+    # object is string-keyed, and stringifying the key would invent data the
+    # payload never carried.
+    value = {0: "a value"}
+
+    assert schema._to_wire(value) == {schema.UNCONVERTIBLE_KEY: type(value).__name__}
+
+
+def test_a_read_only_mapping_converts_rather_than_raising() -> None:
+    # GREEN ON ARRIVAL from the container recursion, and kept because it is the
+    # totality gain nobody asked for: this module hands MappingProxyType around
+    # as REGISTRY and EXAMPLES, and json.dumps raises on one.
+    wire = schema._to_wire(MappingProxyType({"a key": "a value"}))
+
+    assert wire == {"a key": "a value"}
+    assert type(wire) is dict
+
+
+def test_a_tuple_becomes_a_json_array() -> None:
+    # GREEN ON ARRIVAL, and recorded because it is a CONSEQUENCE rather than a
+    # gain: that operation is no longer round-trip identical, since a tuple comes
+    # back a list. Correct -- JSON has no tuple -- and reachable only on an
+    # operation that is invalid either way. No fixture carries one.
+    assert schema._to_wire(("a value",)) == ["a value"]
