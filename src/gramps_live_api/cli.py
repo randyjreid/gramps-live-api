@@ -364,11 +364,25 @@ def _one_run(
 
 def _with_subprocess(argv: Sequence[str], environ: Mapping[str, str]) -> invocation.Completed:
     """The real runner. The only place in this package that starts a process."""
+    # ⚠️ ``encoding`` is explicit because ``text=True`` alone decodes with
+    # ``locale.getpreferredencoding(False)`` -- cp1252 on a Windows box -- while
+    # the child writes UTF-8. That is a check whose answer comes from the machine
+    # rather than from the protocol, and it fails two ways: a correct note comes
+    # back as mojibake in the read-back line, so a fidelity check DISPLAYS false
+    # infidelity; and a byte cp1252 does not map raises UnicodeDecodeError on the
+    # strict default, after the write has committed.
+    #
+    # The marker itself is ASCII by construction now (see ``emit_marker``), so
+    # this is not the marker's guard -- it is stderr's. Gramps' own error output
+    # is not ours to constrain, and it is what the NoResultMarker handler prints
+    # when a run fails: without this, the reporting path can raise while trying
+    # to report.
     completed = subprocess.run(  # noqa: S603
         list(argv),
         env=dict(environ),
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=False,
     )
     return invocation.Completed(
