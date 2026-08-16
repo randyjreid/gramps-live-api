@@ -34,11 +34,23 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections.abc import Mapping
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from types import MappingProxyType
+from typing import Protocol
 
 from gramps_live_api import __version__
-from gramps_live_api.core.schema import Operation, to_dict
+from gramps_live_api.core.schema import (
+    AddNote,
+    ObjectRef,
+    Operation,
+    preview,
+    to_dict,
+    type_name_of,
+    validate,
+)
 
 SENTINEL_NAME = ".gramps-live-api-copy"
 """The file the owner creates by hand, INSIDE the tree directory.
@@ -73,6 +85,58 @@ class UndoRecordRefused(ApplyError):
     Raised **before** the transaction opens, and it aborts the whole operation.
     A write nobody can reverse by hand is the outcome this rail exists to
     prevent, so the record is a precondition rather than a courtesy.
+    """
+
+
+class UnsupportedOperation(ApplyError):
+    """An operation type this slice does not write. Named, not silently skipped."""
+
+
+class UnsupportedTarget(ApplyError):
+    """A target object type this slice does not write.
+
+    ``AddNote.target`` may name any of the nine primary types. This slice
+    implements ``person`` and refuses the other eight, because a dispatch table
+    across nine get-and-commit pairs is the generalisation the brief says to
+    resist and the demo is about a person.
+    """
+
+
+class NotWellFormed(ApplyError):
+    """``validate`` rejects this operation, so nothing is written.
+
+    The front end validates before it previews. This is the same judge again at
+    the write boundary, because the operation crosses a process boundary in
+    between, and a boundary is where a claim stops being checked.
+    """
+
+
+class ApprovalMismatch(ApplyError):
+    """The sentence that was approved is not the sentence this operation renders.
+
+    ⚠️ **The whole review model in one check.** The preview happens in the front
+    end and the write happens inside Gramps, so the approved sentence arrives as
+    a string beside the operation. Recording it proves what was shown; comparing
+    it proves the two were about the same operation.
+    """
+
+
+class TargetNotFound(ApplyError):
+    """The tree holds no object with that Gramps ID.
+
+    ``RuleId.TARGET_DOES_NOT_EXIST``, declared PHASE_3 in ``schema`` and
+    undecidable there, met for the first time now that there is a database.
+    """
+
+
+class TargetDisagrees(ApplyError):
+    """The reference's two halves name two different objects.
+
+    Which half is authoritative is decided here: the **Gramps ID** is what a
+    person supplied and what the preview showed them, so it is what resolves.
+    The handle is machine identity, and if it names something else then the
+    sentence that was approved and the object that would be written are not the
+    same thing.
     """
 
 
@@ -241,3 +305,238 @@ def _durably(path: str, record: dict[str, object]) -> str:
     except OSError as failure:
         raise UndoRecordRefused(f"{path}: {failure.strerror or failure}") from failure
     return path
+
+
+# ---------------------------------------------------------------------------
+# The tree, as this module needs to see it
+#
+# ⚠️ **Four questions, and the Gramps object model is behind all four.** The
+# adapter that answers them lives in ``gramps_plugin/`` and is the only code in
+# this project that imports ``gramps``. Keeping the protocol this narrow is
+# what lets `mypy src` run without Gramps stubs and lets the ordering above be
+# tested on a runner that has never seen Gramps -- and it is also the honest
+# boundary, because everything on the far side of it is what CI cannot reach.
+# ---------------------------------------------------------------------------
+
+TARGET_OBJECT_TYPE = "person"
+"""The one object type this slice attaches a note to. See ``UnsupportedTarget``."""
+
+OPERATION_TYPE = "add_note"
+"""The one operation this slice writes. See ``UnsupportedOperation``."""
+
+NOTE_TYPE_ATTRIBUTES: Mapping[str, str] = MappingProxyType({"research": "RESEARCH", "todo": "TODO"})
+"""``schema.NOTE_TYPES`` in the spelling ``gramps.gen.lib.NoteType`` uses.
+
+⚠️ **Attribute NAMES rather than the integers behind them.** Gramps publishes
+``NoteType.RESEARCH`` and ``NoteType.TODO`` as class attributes; their numeric
+values are an implementation detail this repository has no business pinning, and
+a renumbering would silently file every note under the wrong type. Looked up
+with ``getattr`` in the shim, so a rename fails loudly there instead.
+
+Asserted **total over ``schema.NOTE_TYPES``** by test: a note type ``validate``
+accepts and this cannot spell would reach the owner as a ``KeyError`` at a
+terminal.
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class NoteIdentity:
+    """What Gramps minted for a note inside the transaction."""
+
+    handle: str
+    gramps_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class NoteSighting:
+    """What a note looks like when read back in a fresh process."""
+
+    text: str
+    attached: bool
+
+
+class Tree(Protocol):
+    """The Gramps database, reduced to what one ``add_note`` needs."""
+
+    def save_path(self) -> str:
+        """Where the OPEN database lives. The rail reads this, never an argument."""
+
+    def person_handle_of(self, gramps_id: str) -> str | None:
+        """The handle of the person with that Gramps ID, or ``None``."""
+
+    def transaction(self, message: str) -> AbstractContextManager[object]:
+        """Gramps' own transaction, so undo and referential integrity are Gramps'."""
+
+    def add_note_to_person(
+        self, *, person_handle: str, note_type: str, text: str, transaction: object
+    ) -> NoteIdentity:
+        """Create the note and attach it, inside ``transaction``."""
+
+    def note_on_person(self, *, note_handle: str, person_handle: str) -> NoteSighting:
+        """Read the note back and say whether the person still carries it."""
+
+
+@dataclass(frozen=True, slots=True)
+class Applied:
+    """What one completed write produced, including how its record went."""
+
+    written: NoteWritten
+    record: str
+    result_record: str | None
+    record_error: str | None
+    """Set when the commit succeeded and its record did not. See ``apply_operation``."""
+
+
+@dataclass(frozen=True, slots=True)
+class Verified:
+    """What a fresh process saw when it went looking for the note."""
+
+    text_matches: bool
+    attached: bool
+    text: str
+
+
+def apply_operation(
+    operation: Operation,
+    copy: WritableCopy,
+    tree: Tree,
+    *,
+    approved_preview: str,
+    gramps_version: str,
+    written_utc: datetime | None = None,
+) -> Applied:
+    """Write ``operation`` into ``copy``, in the one order that is safe.
+
+    The order is the design, and every step before the record leaves nothing
+    behind:
+
+    1. the token and the OPEN database must name the same tree;
+    2. the operation must be one this slice writes, and well-formed;
+    3. the approved sentence must be this operation's sentence;
+    4. the target must resolve, by Gramps ID, to exactly the handle it carries;
+    5. **the undo record is written and forced to disk**;
+    6. only then does the transaction open.
+
+    ⚠️ **A ``WritableCopy`` is required and is still not sufficient.** It is
+    proof about a directory; step 1 is what makes it proof about the database
+    Gramps is actually holding. A wrong ``-O`` argument therefore produces a
+    refusal naming the path rather than a write.
+
+    ⚠️ **A result record that fails AFTER the commit does not roll anything
+    back.** The change is committed, and discarding it silently would be a
+    second write nobody approved. The handles come back with ``record_error``
+    set; the caller prints them and exits non-zero. An operator can reconstruct
+    a record and cannot reconstruct a handle they were never told.
+    """
+    moment = utc_now() if written_utc is None else written_utc
+    _agrees(copy, tree)
+    note, target = _writable(operation)
+    if approved_preview != preview(note):
+        raise ApprovalMismatch(
+            "the approved sentence is not this operation's sentence, so the "
+            "approval and the write are not about the same thing"
+        )
+    person_handle = _resolved(target, tree)
+
+    record = write_undo_record(
+        copy,
+        note,
+        approved_preview=approved_preview,
+        written_utc=moment,
+        gramps_version=gramps_version,
+    )
+
+    with tree.transaction(f"gramps-live-api: {OPERATION_TYPE}") as transaction:
+        identity = tree.add_note_to_person(
+            person_handle=person_handle,
+            note_type=NOTE_TYPE_ATTRIBUTES[note.note_type],
+            text=note.text,
+            transaction=transaction,
+        )
+
+    written = NoteWritten(
+        note_handle=identity.handle,
+        note_gramps_id=identity.gramps_id,
+        person_handle=person_handle,
+    )
+    try:
+        result_record = write_result_record(record, written, written_utc=moment)
+    except UndoRecordRefused as failure:
+        return Applied(
+            written=written, record=record, result_record=None, record_error=str(failure)
+        )
+    return Applied(written=written, record=record, result_record=result_record, record_error=None)
+
+
+def verify_operation(
+    operation: Operation,
+    copy: WritableCopy,
+    tree: Tree,
+    *,
+    note_handle: str,
+    person_handle: str,
+) -> Verified:
+    """Read the note back and say whether it is what was agreed.
+
+    ⚠️ **Run in a SECOND, FRESH process, which is what makes it evidence.** The
+    assertion then crosses the database file rather than a live object graph --
+    the difference between "we wrote it" and "it is there".
+
+    Two questions, and the second is the one an export-and-import round trip
+    cannot ask: the note existing is not the note being *on* the person.
+    """
+    _agrees(copy, tree)
+    note, _ = _writable(operation)
+    sighting = tree.note_on_person(note_handle=note_handle, person_handle=person_handle)
+    return Verified(
+        text_matches=sighting.text == note.text,
+        attached=sighting.attached,
+        text=sighting.text,
+    )
+
+
+def _agrees(copy: WritableCopy, tree: Tree) -> None:
+    """Refuse unless the token and the open database name the same tree."""
+    open_tree = os.path.realpath(tree.save_path())
+    if open_tree != copy.tree_dir:
+        raise UnblessedTree(
+            f"{open_tree}: the open database is not the copy this token authorises "
+            f"({copy.tree_dir}), so nothing is written"
+        )
+
+
+def _writable(operation: Operation) -> tuple[AddNote, ObjectRef]:
+    """``operation`` as the one thing this slice writes, or refuse by name.
+
+    Returns the target alongside it rather than leaving the caller to re-read a
+    field this has already proved is there -- an ``Optional`` that has been
+    checked and then re-checked is two claims about one value.
+    """
+    type_name = type_name_of(operation)
+    if type_name != OPERATION_TYPE or not isinstance(operation, AddNote):
+        raise UnsupportedOperation(f"{type_name}: this slice writes {OPERATION_TYPE} only")
+    if not validate(operation).well_formed:
+        raise NotWellFormed("this operation is not well-formed, so nothing is written")
+    target = operation.target
+    if target is None or target.object_type != TARGET_OBJECT_TYPE:
+        named = "nothing" if target is None else target.object_type
+        raise UnsupportedTarget(
+            f"{named}: this slice attaches a note to a {TARGET_OBJECT_TYPE} only"
+        )
+    return operation, target
+
+
+def _resolved(target: ObjectRef, tree: Tree) -> str:
+    """The handle of the person ``target`` names, or refuse and write nothing."""
+    found = tree.person_handle_of(target.gramps_id)
+    if found is None:
+        raise TargetNotFound(
+            f"{target.gramps_id}: this tree holds no {TARGET_OBJECT_TYPE} with that Gramps ID"
+        )
+    if target.handle != found:
+        raise TargetDisagrees(
+            f"{target.gramps_id}: the reference's handle names a different object, so "
+            "the sentence that was approved and the object that would be written "
+            "are not the same thing"
+        )
+    return found
