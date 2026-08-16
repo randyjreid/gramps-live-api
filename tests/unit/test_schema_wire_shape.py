@@ -6,8 +6,15 @@ the trip unchanged passes whether or not any encoder could emit it. A non-JSON
 value therefore passed straight through while the suite stayed green and the
 claim quietly became false.
 
-A new file rather than an edit, because ``test_schema_serialisation.py`` is
-registry-derived structural work and its diff must stay empty.
+A new file rather than an edit, because the claim is not a round-trip claim:
+``test_schema_serialisation.py`` compares an object to itself through both
+directions, which is exactly the comparison this property is invisible to.
+
+⚠️ **That reason used to be written as "its diff must stay empty", and the
+reserved key made that false** -- a structural refusal quantified over the
+registry is what that file is *for*, so the reservation's cases went beside its
+unknown-field ones. Corrected rather than left standing: what must stay out of
+it is wire-SHAPE work, not everything.
 
 ⚠️ **And it asserted the claim at ONE DEPTH, which is how the claim stayed
 false.** A marker inside an ``ObjectRef`` was copied straight out of the
