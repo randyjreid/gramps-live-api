@@ -957,16 +957,39 @@ def type_name_of(operation: Operation) -> str:
     raise SchemaError(f"{type(operation).__name__} is not a registered operation")
 
 
+def _to_wire(value: object) -> object:
+    """How a value this module models is spelled on the wire.
+
+    ⚠️ **By VALUE, and not by the field's declaration, which is the asymmetry
+    ``from_dict`` mirrors in the other direction rather than an inconsistency.**
+    On the way out the value is in hand; on the way in only the declaration is.
+    A declaration-driven ``to_dict`` would leave a marker at a field that does
+    not admit it serialising as a raw ``Enum`` -- so the JSON-shaped claim above
+    would stay false in exactly the case the assertion of it exists to catch.
+    That operation is not well-formed, and getting it to the judge that says so
+    requires the transport to be able to carry it.
+    """
+    if isinstance(value, ObjectRef):
+        return {leaf.name: getattr(value, leaf.name) for leaf in fields(ObjectRef)}
+    if isinstance(value, Unrecorded):
+        # Derived from the member, so a second one serialises without this
+        # being edited. That is what the deferral recorded on Unrecorded costs
+        # to reverse, stated mechanically rather than aspirationally.
+        return {UNRECORDED_KEY: value.value}
+    return value
+
+
 def to_dict(operation: Operation) -> dict[str, object]:
-    """``operation`` as a JSON-shaped mapping, every declared field present."""
+    """``operation`` as a JSON-shaped mapping, every declared field present.
+
+    The JSON-shaped part is asserted rather than claimed -- see
+    ``tests/unit/test_schema_wire_shape.py``, which is a separate file because
+    a round trip cannot check it: comparing an object to itself through both
+    directions passes on a value no encoder could emit.
+    """
     payload: dict[str, object] = {TYPE_KEY: type_name_of(operation)}
     for declared in fields(operation):
-        value = getattr(operation, declared.name)
-        payload[declared.name] = (
-            {leaf.name: getattr(value, leaf.name) for leaf in fields(ObjectRef)}
-            if isinstance(value, ObjectRef)
-            else value
-        )
+        payload[declared.name] = _to_wire(getattr(operation, declared.name))
     return payload
 
 
