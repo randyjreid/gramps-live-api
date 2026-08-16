@@ -1033,10 +1033,18 @@ def _to_wire(value: object, seen: frozenset[int] = frozenset()) -> object:
     the VALUES.** By declaration, nesting stops at ``ObjectRef``, whose three
     leaves are all ``str`` -- depth exactly 2, and enumerable. By value it is
     unbounded, because an operation is a *transport* type: ``target.handle =
-    ObjectRef(...)`` is constructible, and before this recursed it raised the
-    same ``TypeError``. A conversion written for today's 14 paths would close the
-    paths that exist this week and state nothing about why those were the right
-    14. Do not "simplify" this back to a copy.
+    ObjectRef(...)`` is constructible **in process**, and before this recursed it
+    raised the same ``TypeError``. A conversion written for today's 14 paths
+    would close the paths that exist this week and state nothing about why those
+    were the right 14. Do not "simplify" this back to a copy.
+
+    ⚠️ **And the recursion is required by the BOUNDED claim too, not only by the
+    in-process one that motivated it** -- which matters, because a reader who
+    takes the narrowed claim as licence to delete best-effort machinery would
+    reach for this first. A decoder puts a nested ``dict`` or ``list`` at
+    ``target.handle`` as readily as anything else, ``from_dict`` accepts it, and
+    the wire must carry it. Descending into a reference's leaves is inside what
+    closes.
 
     ⚠️ **And the recursion is over CONTAINERS as well as references, because
     "an ``ObjectRef`` is the only thing a value nests inside" was the same
@@ -1044,17 +1052,66 @@ def _to_wire(value: object, seen: frozenset[int] = frozenset()) -> object:
     a reference was copied out whole, so ``json.dumps`` raised on the payload
     while every one of those operations already had its verdict at its path.
 
-    ⚠️ **So this is TOTAL, and totality is required rather than preferred
-    because THERE IS NO BOUND TO SHOW.** Values reaching here come from two
-    places. Through ``from_dict`` they are bounded -- whatever a JSON decoder
-    produced, plus an ``ObjectRef`` and the marker this module builds. Built in
-    process they are **unbounded by deliberate design**: ``Operation`` is a
-    transport dataclass whose fields accept anything, recorded on ``Operation``
-    itself, precisely so ``validate`` can be the only judge. A bounded
-    enumeration would therefore be an enumeration of nothing in particular --
-    patch the containers and dicts of lists remain, then lists of dicts of
-    references. Branch on **what the value is**, with an explicit final branch
-    for the unknown, and the next shape arrives already converted.
+    ⚠️ **TOTAL OVER DECODER-PRODUCIBLE VALUES -- and the claim this replaces,
+    "total, because THERE IS NO BOUND TO SHOW", was FALSE.** A property stated
+    over every value that can be constructed has no fixed point: interrogating a
+    value runs the value's own code, so a fresh pathological value is always
+    constructible and every one of them is genuine. Three rounds hardened this
+    conversion against that property and it was false in a new place each round
+    -- which is a property being sampled, not a conversion being finished.
+
+    **The claim that closes:** every payload ``from_dict`` accepts converts to a
+    JSON-emittable wire carrying no fault marker, at any depth to the encoder's
+    own ceiling. The space is bounded **in kind** rather than in size -- a decoder
+    emits ``dict``, ``list``, ``str``, a number, a bool and ``None``, a JSON
+    object is string-keyed, and the only other things ``from_dict`` builds are an
+    ``ObjectRef`` of decoded values and the marker. Every one of those takes a
+    branch that converts, and no composition of them reaches the branch for the
+    unknown. That is an argument over a closed set of KINDS rather than over a
+    set of values, which is why it closes.
+
+    **Values built IN PROCESS are best-effort**, by design rather than by
+    concession: ``Operation`` is a transport dataclass whose fields accept
+    anything, recorded on ``Operation`` itself, precisely so ``validate`` can be
+    the only judge. The by-value dispatch is what makes best-effort worth
+    anything -- a bounded enumeration would be an enumeration of nothing in
+    particular, since patching the containers leaves dicts of lists, then lists
+    of dicts of references. Branch on **what the value is**, with an explicit
+    final branch for the unknown, and the next shape arrives already converted.
+
+    ⚠️ **The boundary, stated with its measurement rather than defended.**
+    Interrogation runs the object's own code -- ``list(item)`` calls ``__iter__``
+    and ``__len__``, ``isinstance`` reads ``__class__`` -- so an object can raise
+    before any branch here decides anything. Measured at ``target.handle`` of the
+    ``add_note`` example:
+
+        released memoryview             to_dict=ValueError  validate=FIELD_WRONG_TYPE
+        Sequence whose __iter__ raises  to_dict=ValueError  validate=FIELD_WRONG_TYPE
+        Sequence whose __len__ raises   to_dict=ValueError  validate=FIELD_WRONG_TYPE
+
+    In every case the exception arrives **as itself** -- the caller's own type
+    carrying the caller's own message -- neither masked as the fault marker nor
+    swallowed.
+
+    ⚠️ **Those three are NOT a closable set, and reading them as an enumeration
+    to extend is the mistake this paragraph exists to prevent.** ``__iter__``,
+    ``__len__``, ``__eq__``, ``__hash__``, ``__getitem__`` and a raising
+    ``__class__`` are **one defect with no enumeration**, because the defect is
+    that interrogation runs the object's code rather than any particular dunder.
+    A fourth is always constructible, which is exactly why the claim above is
+    bounded instead of being defended here.
+    ``test_an_exception_from_the_callers_own_object_propagates_as_itself`` pins
+    the shape of that failure.
+
+    ⚠️ **And why NO broad exception handler is added -- the change this boundary
+    most invites.** Wrapping the interrogation in ``except Exception`` and
+    emitting the fault marker would make **our own defect indistinguishable from
+    the caller's bad data**: every future bug in this conversion would surface as
+    a well-formed payload naming the caller's type, and the one signal that
+    currently says *something here is wrong and it is not yours* would be gone.
+    **The remedy for a caller wanting a verdict rather than an exception is
+    ``validate``**, which reads the object **without transporting it** and
+    returned ``FIELD_WRONG_TYPE`` at the right path in every case measured above.
 
     ⚠️ **A value this module cannot model emits a MARKER and does not raise, on
     the line drawn at the top of this section.** A structural fault raises; a
@@ -1078,8 +1135,18 @@ def _to_wire(value: object, seen: frozenset[int] = frozenset()) -> object:
     simply false. It has TWO halves of its own -- cycles and depth -- and for two
     rounds only the first was written down.**
 
-    **Cycles.** ``x = []; x.append(x)`` is constructible in two lines and a
-    structural walk over it does not stop -- so the identities of the containers
+    ⚠️ **The two halves sit on OPPOSITE SIDES of the narrowed claim, and saying
+    so is what keeps either from being deleted for the wrong reason.** Depth is
+    **inside** it: a decoder produces a 2 000-deep payload without difficulty, so
+    a conversion that cannot carry one makes the bounded claim false. A cycle is
+    **not** decoder-producible at all -- JSON is a tree -- so cycle termination
+    serves the best-effort side. It stays anyway, and on its own merits rather
+    than on the claim's: without it the walk does not terminate, and
+    non-termination is the one failure mode where nothing propagates as itself
+    either, because nothing propagates at all.
+
+    **Cycles.** ``x = []; x.append(x)`` is constructible in process in two lines
+    and a structural walk over it does not stop -- so the identities of the containers
     **on the current path** are carried, and one already on that path converts to
     the fault marker instead of being walked again.
 
@@ -1225,6 +1292,19 @@ def to_dict(operation: Operation) -> dict[str, object]:
     ``tests/unit/test_schema_wire_shape.py``, which is a separate file because
     a round trip cannot check it: comparing an object to itself through both
     directions passes on a value no encoder could emit.
+
+    ⚠️ **What is guaranteed, and where it stops.** Every payload ``from_dict``
+    accepts converts to a JSON-emittable mapping carrying no fault marker, at any
+    depth to the encoder's own ceiling. An operation carrying values built **in
+    process** is best-effort: a value this module cannot model becomes a marker
+    naming its type, and **an object that raises while being read raises out of
+    here as itself** -- the caller's own exception, not masked and not swallowed.
+
+    ⭐ **Wanting a verdict on such a value rather than an exception? Call
+    ``validate``.** It reads the operation **without transporting it**, so an
+    object that cannot survive conversion still gets ``FIELD_WRONG_TYPE`` at its
+    field path. Judging a value and carrying it are different questions, and this
+    is the one that carries.
     """
     payload: dict[str, object] = {TYPE_KEY: type_name_of(operation)}
     for declared in fields(operation):
