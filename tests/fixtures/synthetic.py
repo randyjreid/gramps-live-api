@@ -112,6 +112,58 @@ def gramps_person_fragment() -> str:
     return _element("person", attributes='handle="_h1" id="I0001"', body="\n  " + inner + "\n")
 
 
+GRAMPS_XML_VERSION = "1.7.2"
+"""What Gramps 6.0 reads and writes, per ``plugins/lib/libgrampsxml.py``."""
+
+SEED_PERSON_HANDLE = "slice1person"
+SEED_PERSON_GRAMPS_ID = "I0001"
+"""The one person in ``importable_tree_document``, by both of its names.
+
+⚠️ **The handle here has NO leading underscore, and the document below writes
+one.** ``plugins/importer/importxml.py`` reads the attribute as
+``attrs["handle"].replace("_", "")``, so the value in the database is the
+stripped one -- which is what an operation has to name, and what cost a probe
+run to find out.
+"""
+
+
+def importable_tree_document() -> str:
+    """A whole Gramps XML document holding one invented person.
+
+    Assembled from parts for the reason the whole module is: a literal person
+    element in a tracked file is a genuine finding here. This one is a complete
+    document rather than a fragment because Gramps has to be able to *import*
+    it -- it is how the round-trip test gets a real tree without any real tree.
+
+    ⚠️ **Imported into an EMPTY tree, which is what preserves the handles.**
+    ``importxml.py`` sets ``replace_import_handle = db.get_number_of_people() >
+    0``, so a fresh tree keeps what the document says and a populated one
+    renames everything. The test needs the first behaviour, and the owner's
+    export-then-import-as-a-new-tree copy gets it for the same reason.
+    """
+    namespace = "http:" + "//gramps-project" + ".org/xml/" + GRAMPS_XML_VERSION + _SLASH
+    person = _element(
+        "person",
+        attributes=f'handle="_{SEED_PERSON_HANDLE}" id="{SEED_PERSON_GRAMPS_ID}"',
+        body=_element("gender", body="F")
+        + _element(
+            "name",
+            attributes='type="Birth Name"',
+            body=_element("first", body="Quorvane") + _element("surname", body="Ashenmoor"),
+        ),
+    )
+    header = _element(
+        "header",
+        body=_element("created", attributes='date="2026-08-16" version="6.0.8"', empty=True)
+        + _element("researcher"),
+    )
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + _element(
+        "database",
+        attributes=f'xmlns="{namespace}"',
+        body=header + _element("people", body=person),
+    )
+
+
 def gramps_name_block() -> str:
     """A name and nothing else: three elements and a complete person."""
     return _element(

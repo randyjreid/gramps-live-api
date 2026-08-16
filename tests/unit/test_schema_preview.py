@@ -117,3 +117,88 @@ def test_the_single_line_rule_survives_a_value_containing_newlines() -> None:
 def test_previewing_something_that_is_not_a_registered_operation_is_refused() -> None:
     with pytest.raises(schema.SchemaError):
         schema.preview(schema.Operation())
+
+
+# ---------------------------------------------------------------------------
+# full_display -- what the operator is shown before the write
+# ---------------------------------------------------------------------------
+
+
+def _note(text: str) -> schema.AddNote:
+    return schema.AddNote(
+        target=schema.ObjectRef(object_type="person", handle="a1b2c3d4e5f607", gramps_id="I0044"),
+        note_type="research",
+        text=text,
+    )
+
+
+def test_full_display_carries_the_whole_text_where_preview_elides_it() -> None:
+    """A person cannot approve what they were not shown.
+
+    ``preview`` is the one-line summary; it elides free text, and the approval
+    used to be compared as that elided string -- so everything past the limit
+    reached the tree without ever reaching a screen.
+    """
+    tail = "and the part that used to be invisible"
+    note = _note("x" * schema._PREVIEW_TEXT_LIMIT + " " + tail)
+
+    summary = schema.preview(note)
+    entire = schema.full_display(note)
+
+    assert tail not in summary, "this test is meaningless unless preview really elides"
+    assert tail in entire
+    assert note.text in entire
+
+
+def test_two_notes_sharing_a_prefix_differ_in_full_display_though_not_in_preview() -> None:
+    shared = "Marriage recorded in the parish register, second volume, page "
+    a = _note(shared + "141. Confirmed against the original.")
+    b = _note(shared + "141. FABRICATED: inheritance passes to the other line.")
+
+    assert schema.preview(a) == schema.preview(b)
+    assert schema.full_display(a) != schema.full_display(b)
+
+
+def test_full_display_is_one_line_like_preview() -> None:
+    # Same normalisation, and for the same reason: a carriage return emitted
+    # raw overwrites the line it is on, which hides the content this function
+    # exists to reveal.
+    note = _note("first line\r\nsecond line\tand a tab")
+
+    entire = schema.full_display(note)
+
+    assert "\n" not in entire and "\r" not in entire and "\t" not in entire
+
+
+def test_the_guard_reaches_a_hidden_character_past_the_elision_point() -> None:
+    """The residual that Fix B retired, pinned shut.
+
+    The guard used to be justified partly by truncation: a character past the
+    limit was never emitted, so a guard over what we DISPLAY had nothing to say
+    about it. ``full_display`` emits it, so the guard has to reach it -- else
+    extending the display would have moved the attack rather than closed it.
+    """
+    right_to_left_override = chr(0x202E)
+    note = _note("y" * (schema._PREVIEW_TEXT_LIMIT + 20) + right_to_left_override + "hidden")
+
+    # preview elides it away, and says nothing about it. That is still correct.
+    assert schema.preview(note)
+
+    with pytest.raises(schema.UnrenderableFieldError) as refused:
+        schema.full_display(note)
+
+    assert refused.value.field_path == "text"
+
+
+def test_full_display_defaults_to_the_sentence_for_an_operation_that_elides_nothing() -> None:
+    citation = schema.AddCitation(
+        target=schema.ObjectRef(object_type="person", handle="a1b2c3d4e5f607", gramps_id="I0044"),
+        citation=schema.ObjectRef(object_type="citation", handle="c1t4t10n", gramps_id="C0042"),
+    )
+
+    assert schema.full_display(citation) == schema.preview(citation)
+
+
+def test_full_display_refuses_something_that_is_not_a_registered_operation() -> None:
+    with pytest.raises(schema.SchemaError):
+        schema.full_display(schema.Operation())

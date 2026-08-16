@@ -292,6 +292,13 @@ __marimo__/
 # Enforced by tests/integration/test_repository_hygiene.py.
 !src/**/*.py
 !tests/**/*.py
+# gramps_plugin/ is a source tree like the two above and needs the same
+# negation. It is the easiest one to forget precisely because it sits outside
+# the package on purpose -- it is the one place permitted to import `gramps` --
+# so it is outside the two trees these patterns were originally written around,
+# while the deny-list reaches it exactly as it reaches them.
+# Enforced by tests/integration/test_repository_hygiene.py.
+!gramps_plugin/**/*.py
 !.github/**/*.yml
 !*.md
 

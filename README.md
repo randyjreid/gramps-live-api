@@ -27,11 +27,25 @@ machine.
 
 ## Status
 
-**Phase 1 of 8 -- `core/schema`**, in progress: the operation model and its validation, on pure
-unit tests. There is no product functionality yet. What exists is the test skeleton, the CI gates,
-and the guard that keeps personal data out of this public repository.
+**Phase 1 of 8 -- `core/schema`** is complete: the operation model, its validation and its preview,
+on pure unit tests.
 
-Nothing in this repository imports `gramps` or `gi` yet, and there is no HTTP server.
+**Slice 1 adds the other half of one sentence.** A validated, previewed, human-approved `add_note`
+now becomes a note attached to a person in a Gramps tree you can then open and look at. It is one
+interactive command, it writes only into a copy blessed by hand, and it is the first thing here that
+writes anything at all. See `docs/using.md`.
+
+Two things follow, and both are load-bearing:
+
+- **`src/` still imports no `gramps` and no `gi`.** The two files that must are a top-level
+  `gramps_plugin/`, outside the package and never imported by it — Gramps loads them, we do not.
+  That is the second recorded exception in `CONTRIBUTING.md`, and it is what keeps the core testable
+  without Gramps.
+- **CI cannot see the write.** The runners have no Gramps, so the round-trip test skips there, by
+  name, in the log. **Green CI is not evidence slice 1 works** — opening the copy and finding the
+  note is.
+
+There is still no HTTP server, no MCP client and no endpoint of any kind.
 
 ## Roadmap
 
@@ -46,12 +60,29 @@ than re-argued.
 | --- | --- | --- |
 | 0 | Scaffold | Repo, GPL-2.0, `.gitignore` in the first commit, `pyproject`, ruff/mypy, CI green on an empty suite |
 | 1 | core/schema | Operation model and validation. Pure unit tests. Gramps' `Date` model used directly, conditional on an import check passing on 3.10/3.11/3.12 |
-| 2 | Backup mechanism | How a pre-batch backup is produced from inside a running Gramps. No write endpoint ships before this |
+| 2 | Backup mechanism | How a pre-batch backup is produced from inside a running Gramps. **No write ENDPOINT ships before this** — see the ruling below |
 | 3 | core/apply | `DbTxn` writes. Integration tests assert reference backlink integrity after every operation |
 | 4 | core/query | Read helpers over a seeded synthetic tree |
 | 5 | bridge/server | Loopback HTTP with token auth and the four endpoints. Tests against a stub core |
 | 6 | gramplet | GTK shell and `GLib.idle_add` marshalling. Manual verification checklist; not CI-testable |
 | 7 | mcp | stdio MCP client, `claude mcp add`, full end-to-end verification against the live tree |
+
+### Recorded ruling: slice 1 writes, and Phase 2 is still required
+
+Phase 2 above used to read *"No write endpoint ships before this"*, and slice 1 — which adds
+`core/apply` and a command that writes a note into a tree — reached it first. **The ruling is that
+this is not the thing that row forbids, and the row now says so rather than being quietly
+overtaken.**
+
+Slice 1 ships **no endpoint**: no HTTP, no MCP, no unattended path, nothing that runs without a
+person typing it. It writes only into a copy the owner has blessed by hand with a sentinel file
+inside the tree directory, refuses every other tree including the live one, and writes an `fsync`'d
+undo record before the transaction opens — aborting the whole operation if that record cannot be
+written.
+
+**What that undo record is not is a backup.** It makes one write reversible by hand. The Phase 2
+backup mechanism remains in scope, remains unbuilt, and remains **required before any write
+endpoint ships**. See `docs/using.md`.
 
 ## Privacy
 
