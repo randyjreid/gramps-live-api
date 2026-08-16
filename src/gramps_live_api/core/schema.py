@@ -1208,13 +1208,13 @@ def _to_wire(value: object, seen: frozenset[int] = frozenset()) -> object:
 
     ⚠️ **The two halves sit on OPPOSITE SIDES of the narrowed claim, and saying
     so is what keeps either from being deleted for the wrong reason.** Depth is
-    **inside** it: a decoder produces a 2 000-deep payload without difficulty, so
-    a conversion that cannot carry one makes the bounded claim false. A cycle is
-    **not** decoder-producible at all -- JSON is a tree -- so cycle termination
-    serves the best-effort side. It stays anyway, and on its own merits rather
-    than on the claim's: without it the walk does not terminate, and
-    non-termination is the one failure mode where nothing propagates as itself
-    either, because nothing propagates at all.
+    **inside** it: a decoder produces a payload nested as deep as its own ceiling
+    without difficulty, so a conversion that stops short of that ceiling makes
+    the bounded claim false. A cycle is **not** decoder-producible at all -- JSON
+    is a tree -- so cycle termination serves the best-effort side. It stays
+    anyway, and on its own merits rather than on the claim's: without it the walk
+    does not terminate, and non-termination is the one failure mode where nothing
+    propagates as itself either, because nothing propagates at all.
 
     **Cycles.** ``x = []; x.append(x)`` is constructible in process in two lines
     and a structural walk over it does not stop -- so the identities of the containers
@@ -1248,20 +1248,28 @@ def _to_wire(value: object, seen: frozenset[int] = frozenset()) -> object:
     recorded here because the smallest diff is what a later reader reaches for.
 
     ⚠️ **Depth: a work list rather than a recursion, because the recursion had a
-    ceiling of its own BELOW THE DECODER'S.** Measured on CPython 3.12.13 at the
+    ceiling of its own BELOW THE DECODER'S.** ⚠️ **The numbers here are one box's
+    measurements rather than properties of ``json``** -- CPython 3.12.13 at the
     default recursion limit of 1000: this conversion stopped at depth **995**,
-    while ``json.loads`` and ``json.dumps`` both reach **2997**. Between those
+    while ``json.loads`` and ``json.dumps`` both reached **2997**. Between those
     two numbers a payload was decoder-producible, was accepted by ``from_dict``,
     and could not be carried -- ``RecursionError``, which is neither JSON nor a
     fault reported at a field path, so the claim that this is total was false
-    there. ⭐ **The encoder shares the decoder's ceiling exactly**, so above 2997
-    nothing is producible or emittable either way: iterating **closes** that band
-    rather than moving it. What remains is CPython's ``json`` module, which is
-    not ours. This conversion is bounded by memory, measured usable at depth
-    200 000.
+    there. ⭐ **The encoder and the decoder draw on the same interpreter budget**,
+    so above that ceiling nothing is producible or emittable either way:
+    iterating **closes** that band rather than moving it. What remains is
+    CPython's ``json`` module, which is not ours. This conversion is bounded by
+    memory, measured usable at depth 200 000 on the same box.
+
+    ⚠️ **Where the remaining ceiling sits is an interpreter's answer rather than
+    a number.** On 3.12 the C json module carries a recursion budget of its own;
+    on 3.10 and 3.11 it draws on the same budget Python frames do, so it lands
+    far lower there and moves with the caller's stack depth. Nothing in this
+    module depends on which; the depth tests measure it at import rather than
+    remembering it.
 
     ⚠️ **Catching ``RecursionError`` and emitting the fault marker is much the
-    smaller change, and it loses on merits.** It would turn a depth-2000
+    smaller change, and it loses on merits.** It would turn a deep
     decoder-producible payload into silent data loss, making the marker appear
     for exactly the payloads the bounded claim says it never appears for. And
     ``RecursionError`` fires when the **interpreter's** budget runs out rather
@@ -1448,10 +1456,10 @@ def _refuse_reserved(path: str, value: object) -> None:
     the whole argument.
 
     ⚠️ **An explicit stack, and this is the FOURTH walk to need one.** The
-    bounded closer pushes a decoder-produced list 2 000 deep through
-    ``from_dict``, so a recursion here would die on exactly the payload the
-    claim says is carried. Written iterative from the start, per the rule
-    recorded on the test file's own walks after three of them learned it
+    bounded closer pushes a decoder-produced list nested to the interpreter's own
+    json ceiling through ``from_dict``, so a recursion here would die on exactly
+    the payload the claim says is carried. Written iterative from the start, per
+    the rule recorded on the test file's own walks after three of them learned it
     separately.
 
     ⚠️ **``dict`` and ``list`` by ``isinstance``, so a ``Mapping`` that is not a

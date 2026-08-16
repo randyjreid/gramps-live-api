@@ -380,8 +380,8 @@ file's count read as a criterion's evidence is a number that goes stale with not
 
    ⚠️ **The two halves sit on OPPOSITE sides of the narrowed claim, and saying so is what keeps
    either from being deleted for the wrong reason.** **Depth is inside it** — a decoder produces a
-   2 000-deep payload without difficulty, so a conversion that cannot carry one makes the bounded
-   claim false. **A cycle is not decoder-producible at all**, JSON being a tree, so cycle
+   payload nested as deep as its own ceiling without difficulty, so a conversion that stops short of
+   that ceiling makes the bounded claim false. **A cycle is not decoder-producible at all**, JSON being a tree, so cycle
    termination serves the best-effort side. It stays regardless, and on its own merits rather than
    on the claim's: without it the walk does not terminate, and non-termination is the one failure
    mode where nothing propagates as itself either — because nothing propagates at all.
@@ -394,20 +394,40 @@ file's count read as a criterion's evidence is a number that goes stale with not
    to catch.
 
    ⚠️ **Depth.** The conversion was a structural recursion, so it had a ceiling of its own, and that
-   ceiling was **below the decoder's**. Measured on CPython 3.12.13 at the default recursion limit
-   of 1000: the conversion stopped at depth **995**, while `json.loads` and `json.dumps` both reach
-   **2997**. Between those two numbers a payload was decoder-producible, was accepted by `from_dict`
-   and could not be carried — `RecursionError`, which is neither of the two outcomes this criterion
-   allows. **That band sits inside the bounded sub-property below, so it was a correction to a claim
-   that was false, not a residual.** The conversion now carries an **explicit stack**: depth is
-   bounded by memory rather than by the interpreter's frame budget, measured usable at depth
-   **200 000** in 0.371 s. ⭐ **Because the encoder shares the decoder's ceiling exactly, above 2997
-   nothing is decoder-producible or encoder-emittable — so the band is CLOSED rather than narrowed,
-   and the ceiling that remains is CPython's own rather than this module's** —
+   ceiling was **below the decoder's**. ⚠️ **The numbers that follow are one box's measurements —
+   Windows CPython 3.12.13 at the default recursion limit of 1000 — and none of them is a property
+   of `json`.** There: the conversion stopped at depth **995**, while `json.loads` and `json.dumps`
+   both reached **2997**. Between those two numbers a payload was decoder-producible, was accepted
+   by `from_dict` and could not be carried — `RecursionError`, which is neither of the two outcomes
+   this criterion allows. **That band sits inside the bounded sub-property below, so it was a
+   correction to a claim that was false, not a residual.** The conversion now carries an **explicit
+   stack**: depth is bounded by memory rather than by the interpreter's frame budget, measured
+   usable at depth **200 000** in 0.371 s on that same box. ⭐ **The ceiling that remains is
+   CPython's own json module rather than this module's — decoder and encoder draw on the same
+   interpreter budget, so above whichever of them binds first a payload is neither
+   decoder-producible nor encoder-emittable, and the band is CLOSED rather than narrowed** —
    `test_a_value_nested_past_the_frame_limit_reaches_the_wire`.
 
+   ⚠️ **Where that ceiling sits is an interpreter's answer, not a constant, and one interpreter's
+   answer was written into the test file as a literal `2000`.** On 3.12 the C json module carries a
+   recursion budget of its own; on 3.10 and 3.11 it draws on the same budget Python frames do, so
+   the ceiling lands far lower there **and moves with the caller's stack depth**. The literal was
+   comfortably inside the band on 3.12 and blew the stack inside the tests' own builders on 3.10 and
+   3.11. `_PAST_THE_FRAME_LIMIT` is now **measured at import** by `_deepest_nesting_json_carries`,
+   which doubles and then bisects on `json.dumps(json.loads(...))` — both directions in one trial,
+   so the answer is the lesser of the two ceilings — from a deliberately padded stack, and raises on
+   a degenerate answer so that a broken probe can read neither as a test failure nor as a pass. The
+   trial spends the container levels the depth tests wrap around the value (`_WRAPPING_LEVELS`, 4,
+   counted off the four tests) before it measures, so what it answers is a depth those tests can use
+   and nothing is subtracted from it afterwards. ⚠️ **The pad depth is itself a chosen number**,
+   recorded as one on the constant that holds it rather than argued away.
+   ⚠️ **Recorded residual: on 3.10 and 3.11 the derived depth lands below the old recursion's 995,
+   so the names `_PAST_THE_FRAME_LIMIT`, `..._past_the_frame_limit` and `..._below_the_frame_limit`
+   are false there.** Kept rather than rippled through four test names and the references below;
+   stated in the constant's own docstring.
+
    ⚠️ **Catching `RecursionError` and emitting the fault marker is much the smaller change, and it
-   was rejected on merits.** It would turn a depth-2000 decoder-producible payload into silent data
+   was rejected on merits.** It would turn a deep decoder-producible payload into silent data
    loss, making the marker appear for exactly the payloads the bounded claim says it never appears
    for; and `RecursionError` fires when the **interpreter's** budget runs out rather than at a
    property of the value, so the emitted payload would be a function of the caller's stack depth —
@@ -515,14 +535,15 @@ file's count read as a criterion's evidence is a number that goes stale with not
 
    ⚠️ **The DEPTH clause was claimed before it was asserted, and that is the gap this round
    closed.** For one round the closer was quantified over `_DECODED_VALUES`, whose deepest member
-   nests **3** levels, while the depth work above reached 2 000 with a value built **in process** —
-   never through `from_dict` — and asserted JSON-emittability without ever asking about the marker.
+   nests **3** levels, while the depth work above reached the interpreter's ceiling with a value
+   built **in process** — never through `from_dict` — and asserted JSON-emittability without ever
+   asking about the marker.
    **Two dimensions, each asserted with the other held at its cheapest**, which is round 1's defect
    and round 2's defect a third time. The deep case builds its value with `json.loads`, so
    *decoder-producible* is a fact about the value rather than the test file's opinion of it;
    measured, **11 of the 14 paths are accepted and 3 refused structurally**, zero fault markers.
    Writing it went **red in the test file's own machinery** — `_names_the_fault_marker` was a
-   recursion and died at depth 2 000 — which is the third walk to have needed an explicit stack, and
+   recursion and died at that depth — which is the third walk to have needed an explicit stack, and
    the rule that a walk in that file is written iterative from the start is now recorded on it
    rather than learned a fourth time.
 
@@ -532,11 +553,14 @@ file's count read as a criterion's evidence is a number that goes stale with not
      `ObjectRef` of `str`s, which take branches that already existed. Verified by dumping both
      canonical payloads before the change and comparing bytes after — and again, by the same
      method, when the conversion became iterative.
-   - ⚠️ **Above depth 2997 the `RecursionError` moves from the transport to the encoder.** `to_dict`
-     now *succeeds* there and returns a structure `json.dumps` cannot encode. This is a change in
-     **where** an unencodable value fails rather than a regression: it used to fail earlier and
-     harder, at 995. It is recorded with its number rather than implied, and it is not a band —
-     nothing above 2997 is decoder-producible either, so no payload reaches it from the wire.
+   - ⚠️ **Above the encoder's own ceiling the `RecursionError` moves from the transport to the
+     encoder.** `to_dict` now *succeeds* there and returns a structure `json.dumps` cannot encode.
+     This is a change in **where** an unencodable value fails rather than a regression: it used to
+     fail earlier and harder, at the conversion's own ceiling — 995 against 2997 on the box
+     measured above. It is recorded rather than implied, and it is not a band: nothing above the
+     encoder's ceiling is decoder-producible either, because both draw on the same interpreter's
+     budget, so no payload reaches it from the wire. **The ceiling is named by where it comes from
+     rather than by a number**, since the number is a different one on 3.10 and 3.11.
    - A **tuple** at a field now emits a JSON array instead of raising, so that operation is no
      longer round-trip identical. Correct — JSON has no tuple — and reachable only on an operation
      that is invalid either way. No fixture carries one.
@@ -561,8 +585,8 @@ file's count read as a criterion's evidence is a number that goes stale with not
      hand-written case: `test_a_decoded_value_naming_the_fault_marker_is_refused_at_every_path` is
      what keeps the closer's `except SchemaError: continue` from being the vacuous way to pass.
    - **An explicit stack — the FOURTH walk to need one.** The depth case above pushes a
-     decoder-produced list 2 000 deep through `from_dict`, so a recursive refusal would die on
-     exactly the payload the claim says is carried.
+     decoder-produced list nested to the interpreter's own json ceiling through `from_dict`, so a
+     recursive refusal would die on exactly the payload the claim says is carried.
    - ⚠️ **`dict` and `list` by `isinstance`, so a `Mapping` that is not a `dict` carrying the key is
      NOT refused — a cost taken rather than silently taken.** A decoder produces exactly `dict` and
      `list`, so this is the bounded claim's own boundary; a `MappingProxyType` built in process is

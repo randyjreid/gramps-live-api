@@ -526,13 +526,21 @@ def test_a_tuple_becomes_a_json_array() -> None:
 #
 # ⚠️ **Cycles were the half that got written down; depth was the half that did
 # not.** The conversion was a structural recursion, so it had a ceiling of its
-# own, and that ceiling was BELOW the decoder's. Measured on this box, CPython
-# 3.12.13 at the default recursion limit of 1000:
+# own, and that ceiling was BELOW the decoder's.
+#
+# ⚠️ **Every number in this banner is ONE BOX'S MEASUREMENT rather than a
+# property of `json` or of this module** -- Windows CPython 3.12.13 at the
+# default recursion limit of 1000:
 #
 #   the recursive _to_wire                   995
 #   this file's own _not_json, as it was     995
 #   json.loads                              2997
 #   json.dumps                              2997
+#
+# They are kept because they are the record of WHY the conversion became
+# iterative, which is what a later reader needs. They are not bounds anything
+# below relies on: the depth the tests use is measured at import, on whatever
+# interpreter is running them -- `_deepest_nesting_json_carries`.
 #
 # ⚠️ **So there was a band -- above the conversion's ceiling and below the
 # encoder's -- where a payload was decoder-producible, was accepted by
@@ -546,7 +554,7 @@ def test_a_tuple_becomes_a_json_array() -> None:
 # CALLER'S OWN STACK DEPTH.** Measured: 995 from a module-level call, 895 from
 # one a hundred frames down. That is what decided the fix. Catching
 # RecursionError and emitting the fault marker is much the smaller change, and it
-# loses on merits rather than on taste: it would turn a depth-2000
+# loses on merits rather than on taste: it would turn a deep
 # decoder-producible payload into silent data loss, making the marker appear for
 # a payload the bounded claim says it never appears for -- and it would make the
 # emitted payload a function of where the conversion was called from rather than
@@ -555,18 +563,189 @@ def test_a_tuple_becomes_a_json_array() -> None:
 #
 # The conversion now carries an explicit stack, so its depth is bounded by memory
 # rather than by the interpreter's frame budget; measured usable at depth
-# 200 000. ⭐ **The ceiling that remains is CPython's own json module -- 2997,
-# for dumps and loads alike -- so above it a payload is neither
-# decoder-producible nor encoder-emittable. The band is CLOSED, not narrowed.**
+# 200 000 on that same box. ⭐ **The ceiling that remains is CPython's own json
+# module rather than this module's -- for dumps and loads alike, so above it a
+# payload is neither decoder-producible nor encoder-emittable. The band is
+# CLOSED, not narrowed.**
+#
+# ⚠️ **But WHERE that ceiling sits is an interpreter's answer, and writing one
+# interpreter's answer into this file as a literal is what broke CI.** On 3.12
+# the C json module carries a recursion budget of its own; on 3.10 and 3.11 it
+# draws on the same budget Python frames do, so the ceiling lands far lower AND
+# moves with the caller's stack depth. A literal `2000` was comfortably inside
+# the band on 3.12 and blew the stack in the tests' own builders on 3.10 and
+# 3.11 -- RecursionError out of `json.loads`, before any assertion. The probe
+# below asks the running interpreter instead of remembering an answer.
 # ---------------------------------------------------------------------------
 
-_PAST_THE_FRAME_LIMIT = 2000
-"""A depth inside the band, chosen by construction rather than by luck.
+_PROBE_PAD_FRAMES = 100
+"""Python frames the depth probe descends through before it measures.
 
-Above the 995 the recursive conversion stopped at, and below the 2997 that
-``json.dumps`` and ``json.loads`` stop at -- so a value nested this deep is one
-a decoder could hand over and an encoder can take back, and it is exactly what
-the conversion could not carry.
+⚠️ **A CHOSEN number, and recorded here as one rather than in a commit message,
+because a number nobody can justify later is how the literal above got here.**
+
+What is justified is the DIRECTION. The json ceiling moves with the caller's
+stack depth -- this file records 995 from a module-level call against 895 from
+one a hundred frames down -- so a probe run at import measures headroom a test
+body may not have, and the two stacks are genuinely different: measured under
+pytest, a test module imports 39 frames down and a test body runs 34 frames
+down, and which of them has more room varies with how the run was invoked.
+**The whole suite and this file alone disagreed by enough to fail one test.**
+Padding first can only make the answer too SHALLOW, and too shallow merely means
+the tests below assert a little less than they could; a chosen MARGIN, by
+contrast, has to be exactly right in both directions. That argument justifies
+padding. It does not justify 100.
+
+100 is the distance the file's own 995/895 pair was measured over, which is the
+only anchor there is. Measured for scale on 3.12.13 here: a pad this deep costs
+two budget units per frame, so from a test body the probe answers 2778 against
+an unpadded 2978 -- about 7% of the ceiling given up, and roughly a fifth of the
+1000-frame budget on 3.10/3.11. That is the price of not choosing a margin, paid
+in depth the tests do not need.
+
+⚠️ **The pad has to be spent in the SAME CURRENCY as the thing it protects, and
+a plain recursion is not.** See ``_carries_under_the_pad``: on 3.12 json counts
+C recursion, which Python-to-Python calls do not touch, so the obvious pad
+measured 2978 padded and 2978 unpadded and protected nothing on the one version
+this whole change exists for.
+"""
+
+_WRAPPING_LEVELS = 4
+"""Container levels a depth test puts AROUND the deep value before it dumps.
+
+⚠️ **Derived by enumerating what the tests do rather than chosen, and
+load-bearing precisely because the probe measures the ceiling EXACTLY.** Every
+depth test below closes with ``json.dumps`` of a whole payload rather than of
+the bare value, so the payload is deeper than the value by however much each one
+wraps. Counted, with *d* for the constant below:
+
+  reaches_the_wire            d lists, in a payload   ->  d + 2
+  ..._not_read_as_a_cycle_    the pair around it      ->  d + 3
+  ..._a_cycle_closed_...      d + 1 lists, then the
+                              marker the cycle emits  ->  d + 4
+  ..._could_have_produced_    d arrays, in a payload  ->  d + 2
+
+The payload's own two are its root mapping and one nested reference mapping;
+``payload_with`` reaches at most the same ``payload[head][rest]``. The worst of
+the four is what this has to be. ⚠️ **It was 2 for one gate run -- the payload's
+own envelope counted and the levels each test adds INSIDE it missed -- and the
+cycle test failed with a ``RecursionError`` out of its own closing
+``json.dumps``, which is the failure this constant exists to prevent.**
+
+The probe spends these inside its own trial, so ``_PAST_THE_FRAME_LIMIT`` needs
+no margin subtracted from it and none chosen for it. Mapping levels there
+against lists here is deliberate and costs nothing: CPython's encoder and
+decoder charge one recursion per container whichever it is. Measured unpadded on
+3.12.13 here: 2978 with no wrapping, 2976 with two, 2974 with four -- one
+apiece, exactly.
+
+⚠️ **A depth test that wraps deeper than any of the four above must move this
+number with it.** What keeps that from being fatal on the day someone forgets is
+``_PROBE_PAD_FRAMES``, which is slack the probe gives up deliberately -- not the
+few levels the import stack happens to be short by, which vary with how the
+suite was invoked and are not headroom at all.
+"""
+
+
+def _json_carries(depth: int) -> bool:
+    """Whether this interpreter both decodes and re-emits a value nested ``depth`` deep.
+
+    One trial is ``json.dumps(json.loads(...))``, which is BOTH ceilings in one
+    call: the loads side is exactly what ``_decoder_produced_nesting`` does, and
+    the dumps side is exactly what every depth test below closes with. The
+    answer is therefore the lesser of the two without this file having to say
+    which one bound it, and without it having to assume they are equal.
+
+    The trial is run with ``_WRAPPING_LEVELS`` containers already spent, so what
+    it answers is the depth a test can actually USE rather than the raw ceiling.
+
+    The text is built with ``"[" * depth``, never by recursing, because the
+    builder must not share the ceiling it is measuring. ``RecursionError`` is
+    caught around the trial and around nothing else.
+    """
+    text = '{"a": ' * _WRAPPING_LEVELS + "[" * depth + "]" * depth + "}" * _WRAPPING_LEVELS
+    try:
+        json.dumps(json.loads(text))
+    except RecursionError:
+        return False
+    return True
+
+
+def _carries_under_the_pad(frames: int, depth: int) -> bool:
+    """``_json_carries``, called ``frames`` further down the stack.
+
+    A recursion, deliberately: spending stack is the whole job. It sits OUTSIDE
+    the ``try`` above, so a pad that cannot fit propagates as itself rather than
+    being mistaken for a ceiling. See ``_PROBE_PAD_FRAMES``.
+
+    ⚠️ **The recursive call goes through ``map`` rather than being written
+    directly, and that is the only reason the pad does anything on 3.12.** A
+    Python function called from Python spends the Python frame budget alone;
+    called from C it spends the C recursion budget as well, and the C budget is
+    the one 3.12's json module counts. Written as a direct call the pad was
+    measurably inert there -- padded and unpadded answered identically to the
+    unit -- so it padded exactly the versions that were already green and left
+    the one it was written for unprotected.
+    """
+    if frames <= 0:
+        return _json_carries(depth)
+    (answer,) = map(_carries_under_the_pad, (frames - 1,), (depth,))
+    return answer
+
+
+def _deepest_nesting_json_carries() -> int:
+    """The deepest nesting this interpreter carries, by doubling then bisection.
+
+    Doubling from 1 until a trial fails, then bisecting between the last good
+    depth and the first bad one -- logarithmic in the answer, and no ceiling
+    assumed anywhere.
+
+    ⚠️ **A degenerate answer raises rather than returning it**, so a broken
+    probe can read neither as a test failure nor as a pass. Returning 0 or 1
+    would leave every depth test below asserting about a value nested once,
+    which is green and says nothing at all.
+    """
+    good, bad = 0, 1
+    while _carries_under_the_pad(_PROBE_PAD_FRAMES, bad):
+        good, bad = bad, bad * 2
+    while bad - good > 1:
+        middle = (good + bad) // 2
+        if _carries_under_the_pad(_PROBE_PAD_FRAMES, middle):
+            good = middle
+        else:
+            bad = middle
+    if good < 2:
+        raise RuntimeError(
+            f"the depth probe answered {good}, which is not a ceiling -- this is a "
+            "PROBE failure rather than a result, and the depth tests below would "
+            "otherwise run against a value nested once and pass saying nothing"
+        )
+    return good
+
+
+_PAST_THE_FRAME_LIMIT = _deepest_nesting_json_carries()
+"""The deepest nesting THIS interpreter both decodes and emits, measured at import.
+
+⚠️ **Not a literal any more, and that is the whole fix.** It was `2000`: one
+box's 3.12 measurement written down as though it were a property of `json`. On
+3.10 and 3.11 the C json module shares the interpreter's frame budget with
+Python frames, so 2000 is far above the ceiling there and the depth tests blew
+the stack inside their own builders.
+
+⚠️ **The NAME is false on 3.10 and 3.11, and is kept anyway -- a recorded
+residual rather than an oversight.** There the derived depth lands BELOW the 995
+the old recursive conversion reached, so a value nested this deep is not past
+the frame limit; it is merely deep. The same goes for
+``test_a_value_nested_past_the_frame_limit_reaches_the_wire``,
+``test_a_cycle_closed_below_the_frame_limit_still_terminates``, their two
+siblings, and the references to those names in
+``docs/phase1-core-schema.spec.md``. Renaming ripples through four test names and
+five spec references, which is more than this change is.
+
+What the constant buys on every interpreter is the deepest value that one will
+carry at all: past every ceiling this file has recorded on 3.12, and the most
+the frame budget allows on 3.10/3.11 -- which is what a test asserting behaviour
+at the limit can ask for. The machinery it exercises is the same either way.
 """
 
 
@@ -625,11 +804,11 @@ def test_a_value_appearing_twice_is_not_read_as_a_cycle_at_depth() -> None:
 
 
 def test_a_cycle_closed_below_the_frame_limit_still_terminates() -> None:
-    # Half two. A spine deep enough that the recursion could not reach the end of
-    # it, whose innermost element points back at the outermost container -- so
-    # the ancestor that closes the cycle was pushed 2 000 entries ago and must
-    # still be there. Truncating too eagerly drops it, and the walk then has no
-    # reason to stop.
+    # Half two. A spine as deep as the interpreter will carry, whose innermost
+    # element points back at the outermost container -- so the ancestor that
+    # closes the cycle was pushed as many entries ago as the spine is deep and
+    # must still be there. Truncating too eagerly drops it, and the walk then has
+    # no reason to stop.
     outermost: list[object] = []
     innermost = outermost
     for _ in range(_PAST_THE_FRAME_LIMIT):
@@ -641,8 +820,9 @@ def test_a_cycle_closed_below_the_frame_limit_still_terminates() -> None:
     payload = schema.to_dict(_carrying_at_the_first_leaf("add_note", outermost))
 
     assert schema.UNCONVERTIBLE_KEY in json.dumps(payload), (
-        "a cycle closed 2 000 levels down was not marked, so an ancestor was "
-        "dropped from the current path before the entry that needed it"
+        f"a cycle closed {_PAST_THE_FRAME_LIMIT} levels down was not marked, so "
+        "an ancestor was dropped from the current path before the entry that "
+        "needed it"
     )
     assert _not_json(payload, "") is None
     json.dumps(payload)
@@ -1054,8 +1234,8 @@ def test_to_dict_emits_json_for_the_deepest_value_at_every_declared_path(
 #
 # ⚠️ **The depth clause is asserted rather than assumed, and it was not.** For
 # one round this claim was quantified over `_DECODED_VALUES`, whose deepest
-# member nests **3** levels, while the depth work above reached 2 000 with a
-# value built IN PROCESS -- never through `from_dict` -- and asserted
+# member nests **3** levels, while the depth work above reached the interpreter's
+# ceiling with a value built IN PROCESS -- never through `from_dict` -- and asserted
 # JSON-emittability without ever asking about the marker. **Two dimensions, each
 # asserted with the other held at its cheapest**, which is round 1's defect and
 # round 2's defect a third time. Both cases below are quantified over
@@ -1182,14 +1362,15 @@ def test_a_payload_a_decoder_could_have_produced_reaches_the_wire_at_depth(
     # ⚠️ **The two dimensions of the narrowed claim, crossed -- and each was
     # asserted with the other held at its cheapest.** The closer below quantifies
     # over `_DECODED_VALUES`, whose deepest member nests 3 levels; round 3's depth
-    # work reaches 2 000 but builds its value in process, never through
-    # `from_dict`, and asserts JSON-emittability only, **not marker-absence**. So
+    # work reaches the interpreter's ceiling but builds its value in process,
+    # never through `from_dict`, and asserts JSON-emittability only, **not
+    # marker-absence**. So
     # *decoder-producible* x *depth* is exactly the corner neither covers -- which
     # is round 1's defect and round 2's defect, one helper further out.
     #
-    # No new dial: the existing `_PAST_THE_FRAME_LIMIT` is above the conversion's
-    # old ceiling and below the decoder's own, so this depth is one a decoder can
-    # in fact produce.
+    # No new dial: the existing `_PAST_THE_FRAME_LIMIT` is the deepest nesting
+    # this interpreter's decoder produces at all, envelope included, so this
+    # depth is one a decoder can in fact produce.
     deep = _decoder_produced_nesting(_PAST_THE_FRAME_LIMIT)
 
     try:
