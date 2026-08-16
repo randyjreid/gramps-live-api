@@ -31,7 +31,9 @@ through the **environment**, which has no such parsing.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Protocol
 
 TOOL_ID = "gramps_live_api_apply"
 """The plugin id registered in ``gramps_plugin/gramps_live_api_apply.gpr.py``.
@@ -51,6 +53,31 @@ ENV_OPERATION = "GRAMPS_LIVE_API_OP"
 ENV_APPROVED = "GRAMPS_LIVE_API_APPROVED"
 ENV_SOURCE = "GRAMPS_LIVE_API_SRC"
 ENV_HANDLES = "GRAMPS_LIVE_API_HANDLES"
+
+
+@dataclass(frozen=True, slots=True)
+class Completed:
+    """What a finished Gramps run left behind.
+
+    ``returncode`` is carried and **is not consulted anywhere**. It is here so a
+    failing run can show it to the owner, who will otherwise wonder why nobody
+    looked -- see this module's docstring for why looking would be wrong.
+    """
+
+    stdout: str
+    stderr: str
+    returncode: int
+
+
+class Runner(Protocol):
+    """Whatever actually starts a Gramps process.
+
+    Injected rather than called directly, so every step up to the process
+    boundary is covered by unit tests and the boundary itself is where the
+    coverage honestly stops.
+    """
+
+    def __call__(self, argv: Sequence[str], environ: Mapping[str, str]) -> Completed: ...
 
 
 class NoResultMarker(Exception):
