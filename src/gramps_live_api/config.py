@@ -116,7 +116,15 @@ def _from_file(path: Path) -> Mapping[str, str]:
     if not path.is_file():
         return {}
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        # utf-8-sig, matching cli.py's reader of op.json, and for a sharper
+        # reason than symmetry: docs/using.md tells the owner to write this file
+        # with `Set-Content -Encoding utf8`, and on Windows PowerShell 5.1 that
+        # writes a BOM -- there is no utf8NoBOM before PowerShell 6. Reading it
+        # as plain utf-8 leaves a leading U+FEFF that json.loads refuses, so the
+        # documented setup produced a config the tool would not load. A BOM is
+        # what this project's own instructions generate; refusing it is refusing
+        # our own output.
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError) as failure:
         raise ConfigError(f"{path}: {failure}") from failure
     if not isinstance(payload, dict):

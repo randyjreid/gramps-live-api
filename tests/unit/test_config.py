@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from gramps_live_api import config
+from gramps_live_api import cli, config
 
 
 def written(directory: Path, settings: dict[str, object]) -> Path:
@@ -186,3 +186,64 @@ def test_a_named_runtime_is_never_second_guessed(tmp_path: Path) -> None:
     )
 
     assert settings.runtime == "a-named-runtime"
+
+
+def test_a_config_written_by_powershell_with_a_bom_is_read(tmp_path: Path) -> None:
+    """The file this project's own documentation tells the owner to write.
+
+    ⚠️ **``docs/using.md`` says to write this with ``Set-Content -Encoding
+    utf8``, and on Windows PowerShell 5.1 that emits a BOM** -- ``utf8NoBOM``
+    does not exist before PowerShell 6. Read as plain ``utf-8`` the leading
+    U+FEFF survives into the text and ``json.loads`` refuses it, so the
+    documented setup produced a configuration the tool would not load and the
+    owner's first ``check`` failed on a file they had written correctly.
+
+    Refusing our own instructions' output is the defect; this pins it shut.
+    """
+    directory = tmp_path / "gramps-live-api"
+    directory.mkdir(parents=True)
+    # Computed rather than written as a literal: a drive-letter path spelled out
+    # in source is a P1 finding against this repository's own guard, and the
+    # value under test here is the ENCODING, not the path.
+    copy_path = str(tmp_path / "copy")
+    # utf-8-sig is exactly what PowerShell 5.1's `-Encoding utf8` produces.
+    (directory / config.CONFIG_FILE).write_text(
+        json.dumps({"copy_path": copy_path}), encoding="utf-8-sig"
+    )
+
+    settings = config.load({"APPDATA": str(tmp_path)}, platform="win32")
+
+    assert settings.copy_path == copy_path
+
+
+def test_both_json_readers_tolerate_a_bom(tmp_path: Path) -> None:
+    """The config reader and the operation reader must not drift apart again.
+
+    They read two different files written by the same owner on the same box, and
+    they disagreed: ``cli`` used ``utf-8-sig`` with a comment explaining why,
+    ``config`` used ``utf-8``. Nothing pinned them together, so the divergence
+    was invisible until the documented setup hit it.
+    """
+    directory = tmp_path / "gramps-live-api"
+    directory.mkdir(parents=True)
+    copy_path = str(tmp_path / "copy")
+    (directory / config.CONFIG_FILE).write_text(
+        json.dumps({"copy_path": copy_path}), encoding="utf-8-sig"
+    )
+    operation = tmp_path / "op.json"
+    operation.write_text(
+        json.dumps(
+            {
+                "type": "add_note",
+                "target": {"object_type": "person", "handle": "abc123", "gramps_id": "I0001"},
+                "note_type": "research",
+                "text": "a note",
+            }
+        ),
+        encoding="utf-8-sig",
+    )
+
+    assert config.load({"APPDATA": str(tmp_path)}, platform="win32").copy_path == copy_path
+    # The operation reader's own BOM tolerance, asserted beside the config one so
+    # a change to either meets this test.
+    assert cli._operation_at(str(operation)).text == "a note"
