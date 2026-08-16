@@ -590,6 +590,27 @@ def reference_fields(cls: type[Operation]) -> tuple[str, ...]:
     return tuple(field.name for field in fields(cls) if ObjectRef in get_args(hints[field.name]))
 
 
+def absence_fields(cls: type[Operation]) -> tuple[str, ...]:
+    """The fields of ``cls`` whose declaration admits the not-recorded marker.
+
+    ``reference_fields``' mirror, written as one derivation with two questions
+    rather than as a second list: what may this field point at, and may this
+    field say the record does not give it.
+
+    A bare ``Unrecorded`` annotation is deliberately NOT found, and that falls
+    out of ``get_args`` being ``()`` for one rather than being ruled out here.
+    The marker only ever *widens* a declaration; a field that can hold nothing
+    else says the record never gives it, which is not a field.
+
+    ⚠️ A declaration admitting both a reference and the marker
+    (``ObjectRef | Unrecorded | None``) is not expressible by anything today and
+    would need a ruling before it is written -- which of the two wire
+    conversions owns a mapping at that path is not decided anywhere.
+    """
+    hints = get_type_hints(cls)
+    return tuple(field.name for field in fields(cls) if Unrecorded in get_args(hints[field.name]))
+
+
 def required_paths(cls: type[Operation]) -> tuple[str, ...]:
     """Every dotted path of ``cls`` that must carry a value to be well-formed.
 
