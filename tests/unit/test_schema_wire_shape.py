@@ -33,7 +33,7 @@ structural walk, which can name the path of the offending value, and
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import fields, is_dataclass
 from types import MappingProxyType
 from typing import get_args, get_type_hints
@@ -76,20 +76,64 @@ def _not_json(value: object, path: str) -> str | None:
 _A_REFERENCE = ObjectRef(object_type="person", handle="a1b2c3d4e5f607", gramps_id="I0044")
 """A reference built from invented values, in the register ``EXAMPLES`` uses."""
 
+_A_VALUE_NO_MESSAGE_MAY_REPEAT = "Thessaly-Grendlemere-4417"
+"""Invented, and distinctive so its absence from a payload means something.
+
+Same register and the same rule as ``SENTINELS``: no path separator, no ``~``,
+nothing path-shaped, because this is a literal in a file the guard scans.
+"""
+
+
+class _Unmodellable:
+    """A value nothing here models, carrying something no payload may repeat.
+
+    A module-level class rather than a lambda or a bare ``object()``: the fault
+    marker names ``type(value).__name__``, so the name has to be one a reader
+    meets in a failure message.
+    """
+
+    def __init__(self, carried: str) -> None:
+        self.carried = carried
+
+    def __repr__(self) -> str:
+        return f"<{type(self).__name__} {self.carried}>"
+
+
+_THE_UNKNOWN = "a value the module cannot model"
+"""The atom the deep spine is built over, named so the spine can find it."""
+
+_ATOMS: Mapping[str, object] = MappingProxyType(
+    {
+        "an empty string": "",
+        "zero": 0,
+        "a null": None,
+        "the not-recorded marker": UNRECORDED,
+        "a reference": _A_REFERENCE,
+        _THE_UNKNOWN: _Unmodellable("a value"),
+    }
+)
+"""One value per branch the conversion takes, and that is what makes it a grammar.
+
+Not a guess at what a client might send: these are the *kinds* ``_to_wire``
+decides between, so a branch that stops being reached is a branch the tripwire
+below reports missing.
+"""
+
 
 _UNEMITTABLE: Mapping[str, object] = MappingProxyType(
     {
-        "the not-recorded marker": UNRECORDED,
-        "a reference": _A_REFERENCE,
+        description: value
+        for description, value in _ATOMS.items()
+        if _not_json(value, "") is not None
     }
 )
 """The values this module models that no JSON encoder can emit.
 
-⚠️ **Exactly ``_to_wire``'s two branches, and that is what makes this the
-module's vocabulary rather than a guess at what might turn up.** Everything else
-reaching ``to_dict`` arrived through ``from_dict``, which passes JSON through
-already decoded. So a value the wire cannot carry is one of these two or one
-nobody converts -- and the second set is empty by the same reading.
+⚠️ **DERIVED from the atoms rather than written out, and the old justification
+is exactly why.** It used to be a hand-written pair on the ground that those were
+"exactly ``_to_wire``'s two branches" -- which stopped being true the moment the
+conversion had six. A list kept beside a thing it claims to mirror goes stale
+with nothing announcing it; asking ``_not_json`` which atoms it refuses cannot.
 
 The reference is built from invented values, in the register ``EXAMPLES``
 already uses, for the reason recorded on ``SENTINELS``.
@@ -296,28 +340,6 @@ def test_to_dict_emits_json_for_a_container_holding_a_value_the_module_models(
 # make a caller's handling depend on a distinction it cannot predict.
 # ---------------------------------------------------------------------------
 
-_A_VALUE_NO_MESSAGE_MAY_REPEAT = "Thessaly-Grendlemere-4417"
-"""Invented, and distinctive so its absence from the payload means something.
-
-Same register and the same rule as ``SENTINELS``: no path separator, no ``~``,
-nothing path-shaped, because this is a literal in a file the guard scans.
-"""
-
-
-class _Unmodellable:
-    """A value nothing here models, carrying something no payload may repeat.
-
-    A module-level class rather than a lambda or a bare ``object()``: the fault
-    marker names ``type(value).__name__``, so the name has to be one a reader
-    meets in the failure message.
-    """
-
-    def __init__(self, carried: str) -> None:
-        self.carried = carried
-
-    def __repr__(self) -> str:
-        return f"<{type(self).__name__} {self.carried}>"
-
 
 def _carrying_at_the_first_leaf(type_name: str, value: object) -> Operation:
     example = EXAMPLES[type_name]
@@ -419,3 +441,240 @@ def test_a_tuple_becomes_a_json_array() -> None:
     # back a list. Correct -- JSON has no tuple -- and reachable only on an
     # operation that is invalid either way. No fixture carries one.
     assert schema._to_wire(("a value",)) == ["a value"]
+
+
+# ---------------------------------------------------------------------------
+# The generative property -- the module's own grammar, composed
+#
+# The claim: **for any value composed from the module's own grammar to the
+# stated depth, ``json.dumps(to_dict(op))`` does not raise and a structural walk
+# finds no unemittable value.** A fixed list of shapes is the same mistake at a
+# new depth, and the last two rounds were each "the shape nobody wrote down".
+#
+# ⚠️ **THIS PROPERTY CANNOT CLOSE, AND SAYING SO IS THE POINT.** It quantifies
+# over an infinite space, so this generator SAMPLES it -- and a reviewer asked to
+# construct a value outside the sample always can, every round, indefinitely.
+# What actually closes is the **bounded sub-property at the bottom of this
+# file**, over a space that really is bounded. Read the two together: the sample
+# is evidence, and the bounded claim is the criterion.
+#
+# ⚠️ **THE BUDGET IS STATED HERE, WITH ITS NUMBERS AND ITS REASONING, so that a
+# later round cannot raise it quietly.** A sample's size is not a coverage dial;
+# it is a cost every future run pays forever.
+#
+#   6 atoms x 5 composers, exhaustive to depth 1  =  6 + 30  =  36 values
+#   one spine value per depth 2..6                            =   5 values
+#                                                             ------------
+#                                                                41 values
+#   x 2 registered types, at each type's first reference leaf =  82 cases
+#
+# **Why the exhaustive depth is 1 and not 2.** Exhaustive to depth 2 was
+# measured at 186 values and 380 cases: **+405 tests on a 923-test suite, +44%**,
+# of which the second exhaustive level alone was 300 -- 74% of the whole growth.
+# What that level buys is the cross product of the composers *with each other*,
+# which is the one thing a structural recursion gives for free once each branch
+# is right. So it is the level that was cut, and composition is still exercised
+# -- by the spine, five composers deep, which costs five values rather than 300.
+#
+# **Why the spine depth stays at 6.** Depth is the dimension both previous
+# rounds were wrong about, and it is nearly free: one value per level. Trimming
+# the cheap dimension to protect the expensive one would be the trade backwards.
+#
+# ⚠️ **A generator that stops shallow must not read as coverage**, which is why
+# three tripwires below are computed by THIS FILE's own walk rather than by
+# asking the module. They are green on arrival and none of them is evidence;
+# they are what stops the evidence being read at the wrong breadth or depth.
+# ---------------------------------------------------------------------------
+
+_EXHAUSTIVE_DEPTH = 1
+"""How many composer levels every atom is put through. The expensive dial."""
+
+_SPINE_DEPTH = 6
+"""How deep the single spine reaches past the atoms. The cheap dial."""
+
+_COMPOSERS: Mapping[str, Callable[[object], object]] = MappingProxyType(
+    {
+        "a list holding {}": lambda value: [value],
+        "a mapping holding {}": lambda value: {"a key": value},
+        "a mapping keyed by something that is not text, holding {}": lambda value: {0: value},
+        "a read-only mapping holding {}": lambda value: MappingProxyType({"a key": value}),
+        "a reference whose leaf holds {}": lambda value: ObjectRef(handle=value),
+    }
+)
+"""One way of nesting a value per container the conversion knows about.
+
+Their descriptions are templates rather than names, so a composed value carries
+the story of how it was built into the failure message.
+"""
+
+
+def _spine() -> list[tuple[str, object]]:
+    """One value per depth past the exhaustive core, cycling the composers.
+
+    Built over the atom nothing models, whose own measured depth is zero, so the
+    value produced at depth ``d`` measures exactly ``d`` -- which is what lets
+    the depth tripwire state a number rather than an inequality.
+    """
+    order = sorted(_COMPOSERS)
+    value = _ATOMS[_THE_UNKNOWN]
+    deepened = []
+    for depth in range(1, _SPINE_DEPTH + 1):
+        value = _COMPOSERS[order[(depth - 1) % len(order)]](value)
+        if depth > _EXHAUSTIVE_DEPTH:
+            deepened.append((f"a spine of depth {depth} over {_THE_UNKNOWN}", value))
+    return deepened
+
+
+def _generated_values() -> list[tuple[str, object]]:
+    """Every value the generator reaches, each described by how it was composed."""
+    frontier = [(description, _ATOMS[description]) for description in sorted(_ATOMS)]
+    generated = list(frontier)
+    for _ in range(_EXHAUSTIVE_DEPTH):
+        frontier = [
+            (template.format(inner), _COMPOSERS[template](value))
+            for template in sorted(_COMPOSERS)
+            for inner, value in frontier
+        ]
+        generated.extend(frontier)
+    return generated + _spine()
+
+
+GENERATED = _generated_values()
+
+
+def _measured_depth(value: object, seen: frozenset[int] = frozenset()) -> int:
+    """How deeply ``value`` nests, by this file's own walk over what it IS.
+
+    Its own walk rather than the module's, following this suite's precedent that
+    a test reads the same thing by a different route: two sources that must agree
+    is a test, and one source read twice would pass just as happily if the module
+    had stopped composing.
+    """
+    if id(value) in seen:
+        return 0
+    below = seen | {id(value)}
+    if isinstance(value, ObjectRef):
+        return 1 + max(
+            (_measured_depth(getattr(value, leaf.name), below) for leaf in fields(ObjectRef)),
+            default=0,
+        )
+    if isinstance(value, Mapping):
+        return 1 + max((_measured_depth(item, below) for item in value.values()), default=0)
+    if isinstance(value, (list, tuple)):
+        return 1 + max((_measured_depth(item, below) for item in value), default=0)
+    return 0
+
+
+_KINDS: tuple[str, ...] = (
+    "a reference",
+    "the not-recorded marker",
+    "a value an encoder takes as it stands",
+    "a mapping",
+    "a mapping no JSON object can spell",
+    "a sequence",
+    _THE_UNKNOWN,
+)
+"""What the conversion branches on, named by this file rather than read off it."""
+
+
+def _kind_of(value: object) -> str:
+    """Which branch ``value`` takes, decided here and not by calling the module."""
+    if isinstance(value, ObjectRef):
+        return "a reference"
+    if isinstance(value, Unrecorded):
+        return "the not-recorded marker"
+    if value is None or isinstance(value, _JSON_SCALARS):
+        return "a value an encoder takes as it stands"
+    if isinstance(value, Mapping):
+        if any(not isinstance(key, str) for key in value):
+            return "a mapping no JSON object can spell"
+        return "a mapping"
+    if isinstance(value, (list, tuple)):
+        return "a sequence"
+    return _THE_UNKNOWN
+
+
+def test_the_generated_value_set_is_not_empty_and_names_each_value_once() -> None:
+    # The non-empty idiom this file already uses, plus the uniqueness the case
+    # ids rest on: two composed values sharing a description would collapse into
+    # one reported case and the other would vanish without a word.
+    assert GENERATED, "the generator produced nothing; every generative case is vacuous"
+    assert len({description for description, _ in GENERATED}) == len(GENERATED), (
+        "two generated values share a description, so one of them is unreportable"
+    )
+
+
+def test_the_generated_values_reach_the_stated_depth() -> None:
+    # ⚠️ **The tripwire the budget rests on.** The dials above are constants, and
+    # a constant is trimmable by anyone; what must not be trimmable is the CLAIM.
+    # A composer that silently stops composing -- or a spine that stops being
+    # applied -- makes this state a number that is no longer 6.
+    deepest = max(_measured_depth(value) for _, value in GENERATED)
+
+    assert deepest == _SPINE_DEPTH, (
+        f"the generator states depth {_SPINE_DEPTH} and reaches {deepest}, so its "
+        "breadth is being read as a depth it does not have"
+    )
+
+
+def test_every_kind_the_conversion_branches_on_is_generated() -> None:
+    # ⚠️ The breadth half of the same guard. A composer dropped from the table
+    # deletes a KIND, and a sample missing a kind is a sample that says nothing
+    # about the branch it belongs to -- while still generating plenty.
+    reached = {_kind_of(value) for _, value in GENERATED}
+
+    assert reached == set(_KINDS), (
+        f"the generated values reach {sorted(reached)}, and the conversion "
+        f"branches on {sorted(_KINDS)}"
+    )
+
+
+@pytest.mark.parametrize("type_name", sorted(EXAMPLES))
+@pytest.mark.parametrize(
+    ("description", "value"), GENERATED, ids=[description for description, _ in GENERATED]
+)
+def test_to_dict_emits_json_for_any_value_the_grammar_composes(
+    description: str, value: object, type_name: str
+) -> None:
+    example = EXAMPLES[type_name]
+    payload = schema.to_dict(carrying(example, _first_reference_leaf(type(example)), value))
+
+    offending = _not_json(payload, "")
+
+    assert offending is None, (
+        f"to_dict claims a JSON-shaped mapping; {description} at {offending} is "
+        "not one an encoder can emit"
+    )
+    json.dumps(payload)
+
+
+_THE_DEEPEST_VALUE = max(GENERATED, key=lambda pair: _measured_depth(pair[1]))[1]
+"""The deepest value the generator built, for the path dimension below."""
+
+
+_DEEP_PATH_CASES = [
+    (type_name, path)
+    for type_name in sorted(EXAMPLES)
+    for path in _declared_paths(type(EXAMPLES[type_name]))
+]
+
+
+@pytest.mark.parametrize(("type_name", "path"), _DEEP_PATH_CASES)
+def test_to_dict_emits_json_for_the_deepest_value_at_every_declared_path(
+    type_name: str, path: str
+) -> None:
+    # ⚠️ **This is what crosses DEPTH with PATH.** The matrix above places every
+    # generated value at one leaf, and the matrix at the top of this file places
+    # an unemittable atom at every path -- so on their own the two dimensions are
+    # each asserted with the other held at its cheapest. Round 1's defect lived
+    # at a path the conversion did not visit and round 2's lived at a depth it did
+    # not reach, which is precisely the corner neither matrix covers alone.
+    payload = schema.to_dict(carrying(EXAMPLES[type_name], path, _THE_DEEPEST_VALUE))
+
+    offending = _not_json(payload, "")
+
+    assert offending is None, (
+        f"to_dict claims a JSON-shaped mapping; the deepest generated value at "
+        f"{path} emitted something at {offending} that no encoder can emit"
+    )
+    json.dumps(payload)
