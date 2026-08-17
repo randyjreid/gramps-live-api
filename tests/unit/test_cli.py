@@ -71,19 +71,34 @@ def equipped(tmp_path: Path, **extra: str) -> dict[str, str]:
     and the ``ProgramFiles`` tree stays because ``discover_runtime`` itself is
     tested through it elsewhere -- this helper is about the doctor's other
     checks, not about discovery.
+
+    ⚠️ **The export joined the picture in slice 2, and for the same reason the
+    runtime override did.** ``check`` now reports on it, so a test about the
+    *copy* that supplied no export would assert the exit code of a machine that
+    has not finished its setup -- a different question, answered the same way
+    every time. A caller that IS about the export passes ``GRAMPS_LIVE_API_EXPORT``
+    itself; passing it empty is how a test says *no export configured*, because
+    an empty value is not a value.
+
+    ⚠️ **It is written AFTER the copy exists, deliberately.** The doctor reports
+    an export older than the copy as stale, so a helper that made one first would
+    hand every caller a stale setup.
     """
     program_files = tmp_path / "program-files"
     install = program_files / "GrampsAIO64-6.0.8"
-    install.mkdir(parents=True)
+    install.mkdir(parents=True, exist_ok=True)
     runtime = install / config.RUNTIME_NAME
     runtime.write_text("", encoding="utf-8")
     plugins = tmp_path / "roaming" / "gramps" / "gramps60" / "plugins" / "gramps-live-api"
-    plugins.mkdir(parents=True)
+    plugins.mkdir(parents=True, exist_ok=True)
     (plugins / "gramps_live_api_apply.gpr.py").write_text("", encoding="utf-8")
+    export = tmp_path / "equipped.gramps"
+    export.write_text("<database/>", encoding="utf-8")
     return {
         "ProgramFiles": str(program_files),
         "APPDATA": str(tmp_path / "roaming"),
         config.ENV_RUNTIME: str(runtime),
+        config.ENV_EXPORT: str(export),
         **extra,
     }
 

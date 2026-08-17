@@ -1,4 +1,11 @@
-"""The three commands the owner types: ``preview``, ``apply``, ``check``.
+"""The commands the owner types: ``preview``, ``apply``, ``check``, ``approve``.
+
+⚠️ **``approve`` is a console window, and it is slice 2's whole trust model.**
+The MCP server can spawn it; it cannot type in it. What that window prints comes
+off the disk -- the operation stored in the proposal, re-rendered here by the
+same ``full_display`` the digest covers -- never off anything an agent sent. If
+the window disagrees with what the transcript claimed, the window is right, and
+that is the point of the design rather than a caveat on it.
 
 ⚠️ **``apply`` exits 0 only when the note was written AND read back.** Every
 other outcome -- a declined prompt, a run with no result marker, a read-back
@@ -31,7 +38,7 @@ from pathlib import Path
 from typing import TextIO
 
 from gramps_live_api import config, invocation
-from gramps_live_api.core import apply, schema
+from gramps_live_api.core import apply, proposals, schema
 
 LOCK_FILE = "lock"
 """What Gramps drops in a tree directory it has open, per ``cli/clidbman.py``."""
@@ -82,6 +89,10 @@ def main(
         parser.add_argument("operation", help="the operation file")
     doctor = commands.add_parser("check", help="report on the runtime, the copy and the plugin")
     doctor.add_argument("tree", nargs="?", help="a tree to report on; defaults to the copy")
+    console = commands.add_parser(
+        "approve", help="show a proposal in full, ask, and write it into the blessed copy"
+    )
+    console.add_argument("proposal", help="the proposal id the server claimed")
 
     out = sys.stdout if stdout is None else stdout
     err = sys.stderr if stderr is None else stderr
@@ -93,6 +104,15 @@ def main(
             return _preview(arguments.operation, out=out, err=err)
         if arguments.command == "check":
             return _check(arguments.tree, settings_environ, out=out, err=err)
+        if arguments.command == "approve":
+            return _approve(
+                arguments.proposal,
+                settings_environ,
+                stdin=sys.stdin if stdin is None else stdin,
+                out=out,
+                err=err,
+                runner=_with_subprocess if runner is None else runner,
+            )
         return _apply(
             arguments.operation,
             settings_environ,
@@ -105,6 +125,7 @@ def main(
         config.ConfigError,
         apply.ApplyError,
         invocation.NoResultMarker,
+        proposals.ProposalError,
         schema.SchemaError,
         OSError,
     ) as failure:
@@ -199,7 +220,69 @@ def inspect(tree: str | None, environ: Mapping[str, str]) -> list[Check]:
             else "not locked",
         )
     )
+    checks.append(_export_check(settings, resolved, environ))
     return checks
+
+
+def _export_check(settings: config.Settings, copy: str, environ: Mapping[str, str]) -> Check:
+    """The export ``list_people`` reads, and whether it still speaks for the copy.
+
+    ⚠️ **The staleness comparison is a PRIVACY check, and that is why it fails
+    the doctor rather than warning inside a passing report.** The two kinds of
+    staleness fail in opposite directions. A stale *handle* fails closed at the
+    write -- ``TargetNotFound`` or ``TargetDisagrees`` -- and costs the owner a
+    confusing refusal. A stale ``priv`` **flag fails open**: a person marked
+    private in the copy after the export was taken is still listed by
+    ``list_people`` and still accepted as a target, and nothing anywhere says so.
+    Ruling 1 bounds this feature by the tree's own mechanism, and a mechanism
+    read out of a snapshot older than the tree is not the tree's mechanism.
+
+    ⚠️ **It compares against files directly INSIDE the tree directory only**,
+    which is what keeps our own writes out of the comparison: the undo records
+    and the proposal store are subdirectories, so minting a proposal cannot make
+    the doctor report its own side effect. What it does over-report is a copy
+    Gramps merely opened -- the lock file is touched either way. That direction
+    is deliberate: this answer has to be wrong toward *re-export*, never toward
+    *the flag you are reading is current*.
+    """
+    if settings.export_path is None:
+        return Check(
+            "export",
+            False,
+            "no export is configured -- set export_path in "
+            f"{config.user_config_path(environ)} or {config.ENV_EXPORT}. "
+            "list_people and propose_note cannot run without it",
+        )
+    export = os.path.realpath(settings.export_path)
+    if not os.path.isfile(export):
+        return Check("export", False, f"{export} is not a file")
+    taken = os.path.getmtime(export)
+    changed = _copy_touched(copy)
+    if changed is not None and changed > taken:
+        return Check(
+            "export",
+            False,
+            f"{export} is older than the copy, so the privacy flag it carries may be "
+            "stale -- a person marked private since it was taken would still be listed. "
+            "Export the tree again",
+        )
+    return Check("export", True, export)
+
+
+def _copy_touched(copy: str) -> float | None:
+    """When the copy's own files were last written, or ``None`` if none can be read.
+
+    Non-recursive on purpose. See ``_export_check``.
+    """
+    try:
+        stamps = [
+            entry.stat().st_mtime
+            for entry in os.scandir(copy)
+            if entry.is_file(follow_symlinks=False)
+        ]
+    except OSError:
+        return None
+    return max(stamps) if stamps else None
 
 
 def _runtime_check(environ: Mapping[str, str]) -> Check:
@@ -289,21 +372,89 @@ def _apply(
         print("nothing was written", file=out)
         return 1
 
-    written = _one_run(
-        runner,
-        runtime,
-        copy,
-        environ,
-        mode=invocation.MODE_APPLY,
-        operation=json.dumps(schema.to_dict(operation)),
-        approved_preview=sentence,
-        approved_digest=apply.approval_digest(operation),
+    code, _ = _write_and_verify(
+        operation, runtime, copy, environ, sentence=sentence, out=out, err=err, runner=runner
     )
+    return code
+
+
+# ---------------------------------------------------------------------------
+# The write itself -- shared by ``apply`` and by ``approve``
+#
+# ⚠️ **Shared rather than reimplemented, and that is the load-bearing part.**
+# Criterion 8 is that every slice 1 rail still holds with an agent standing in
+# front of it: the sentinel, the token whose constructor performs the check, the
+# lock Gramps owns, the undo record before the transaction, the read-back in a
+# fresh process. A second copy of this body would be a second place for one of
+# them to be quietly dropped. Only the SOURCE of the operation differs between
+# the two commands -- a file the owner wrote, or a proposal the store holds.
+# ---------------------------------------------------------------------------
+
+
+def _write_and_verify(
+    operation: schema.Operation,
+    runtime: str,
+    copy: apply.WritableCopy,
+    environ: Mapping[str, str],
+    *,
+    sentence: str,
+    out: TextIO,
+    err: TextIO,
+    runner: invocation.Runner,
+) -> tuple[int, dict[str, object]]:
+    """Run the write, then the read-back, and say what happened in both places.
+
+    Returns the exit code and a payload the console files as its report -- the
+    same facts, once for a person at a terminal and once for an agent that will
+    relay them. ``outcome`` is the word the agent reads, and it is deliberately
+    not a boolean: *written*, *failed*, *unverified* and *unknown* are four
+    different things to do next.
+    """
+    payload = json.dumps(schema.to_dict(operation))
+    digest = apply.approval_digest(operation)
+    try:
+        written = _one_run(
+            runner,
+            runtime,
+            copy,
+            environ,
+            mode=invocation.MODE_APPLY,
+            operation=payload,
+            approved_preview=sentence,
+            approved_digest=digest,
+        )
+    except invocation.NoResultMarker as failure:
+        # ⚠️ **#69's vocabulary.** A run that printed no marker may or may not
+        # have committed, and the exit code says nothing here by construction.
+        # The honest report is that it is unknown and that retrying is not the
+        # answer -- the proposal is already consumed, so a retry cannot write a
+        # second note, and what settles it is the undo record on disk.
+        print(failure, file=err)
+        return 1, {
+            "outcome": "unknown",
+            "error": (
+                f"{failure}\nThe write may have committed. The proposal is consumed and "
+                "will not be retried, so no second note can arrive this way -- look in "
+                f"{os.path.join(copy.tree_dir, apply.UNDO_DIRECTORY)} for what happened."
+            ),
+        }
+
     if not written.get("ok"):
-        print(written.get("error", "the write failed and said nothing"), file=err)
-        return 1
+        # ⚠️ Verbatim, never paraphrased. #62's refusal message now reaches an
+        # AGENT, which will summarise it, and the remedy is inside the words.
+        message = str(written.get("error", "the write failed and said nothing"))
+        print(message, file=err)
+        return 1, {"outcome": "failed", "error": message}
 
     code = 0
+    report: dict[str, object] = {
+        "outcome": "written",
+        "note_gramps_id": written.get("note_gramps_id"),
+        "note_handle": written.get("note_handle"),
+        "person_handle": written.get("person_handle"),
+        "record": written.get("record"),
+        "record_error": written.get("record_error"),
+    }
     print(f"note {written.get('note_gramps_id')} written", file=out)
     print(f"  note handle   {written.get('note_handle')}", file=out)
     print(f"  person handle {written.get('person_handle')}", file=out)
@@ -325,22 +476,111 @@ def _apply(
         copy,
         environ,
         mode=invocation.MODE_VERIFY,
-        operation=json.dumps(schema.to_dict(operation)),
+        operation=payload,
         approved_preview=sentence,
-        approved_digest=apply.approval_digest(operation),
+        approved_digest=digest,
         handles={
             "note_handle": str(written.get("note_handle")),
             "person_handle": str(written.get("person_handle")),
         },
     )
     if not (seen.get("ok") and seen.get("text_matches") and seen.get("attached")):
-        print(
+        disagreement = (
             "the read-back disagrees with what was written: "
-            f"text matches={seen.get('text_matches')}, on the person={seen.get('attached')}",
-            file=err,
+            f"text matches={seen.get('text_matches')}, on the person={seen.get('attached')}"
         )
-        return 1
+        print(disagreement, file=err)
+        report["outcome"] = "unverified"
+        report["error"] = disagreement
+        return 1, report
     print(f"read back from a fresh process: {seen.get('text')!r}", file=out)
+    return code, report
+
+
+# ---------------------------------------------------------------------------
+# approve -- the console window, and slice 2's whole trust model
+# ---------------------------------------------------------------------------
+
+
+def _approve(
+    proposal_id: str,
+    environ: Mapping[str, str],
+    *,
+    stdin: TextIO,
+    out: TextIO,
+    err: TextIO,
+    runner: invocation.Runner,
+) -> int:
+    """Show one claimed proposal in full, ask, and write it if the answer is yes.
+
+    ⚠️ **The operation comes off the disk and the sentence is RE-RENDERED from
+    it**, never taken from the sentence stored beside it. ``ProposalCorrupt``
+    binds the stored operation to the digest; nothing binds the stored sentence,
+    so printing that one would show whatever last edited the file while writing
+    what the operation says -- which is precisely the agreed-versus-written
+    disagreement this window exists to make impossible.
+
+    ⚠️ **The proposal is consumed BEFORE Gramps is launched**, and the ordering
+    is #69's whole disposition. Everything after that point can crash, time out
+    or be retried, and none of it can produce a second note: a retried
+    ``approve`` meets ``ProposalNotFound``. A second note needs a second
+    proposal, a second console and **a second human yes**.
+    """
+    settings = config.load(environ)
+    if settings.copy_path is None:
+        raise config.ConfigError(
+            f"no copy is configured -- set copy_path in {config.user_config_path(environ)} "
+            f"or {config.ENV_COPY}"
+        )
+    runtime = settings.runtime or config.discover_runtime(environ)
+    if runtime is None:
+        raise config.ConfigError(f"no {config.RUNTIME_NAME} found; set gramps_runtime")
+
+    copy = apply.authorise(settings.copy_path)
+    store = proposals.Store(proposals.store_directory(copy.tree_dir), session="")
+    proposal = store.claimed(proposal_id)
+    operation = proposal.operation
+
+    sentence = schema.preview(operation)
+    entire = schema.full_display(operation)
+    print(entire, file=out)
+    print(f"write this into {copy.tree_dir}? [y/N] ", end="", file=out)
+    out.flush()
+
+    if stdin.readline().strip().lower() not in {"y", "yes"}:
+        store.consume(proposal_id, approved=False)
+        store.write_report(proposal_id, {"outcome": "declined"})
+        print("nothing was written", file=out)
+        return _closed(stdin, out, 1)
+
+    store.consume(proposal_id, approved=True)
+    try:
+        code, report = _write_and_verify(
+            operation, runtime, copy, environ, sentence=sentence, out=out, err=err, runner=runner
+        )
+    except (apply.ApplyError, schema.SchemaError, OSError) as failure:
+        # ⚠️ **A report is filed even here, and that is not tidiness.** The
+        # server is blocked reading for one, and a failure that files none
+        # leaves it waiting out its whole timeout for an answer that already
+        # exists -- reporting *still open* over a run that ended.
+        store.write_report(proposal_id, {"outcome": "failed", "error": str(failure)})
+        print(failure, file=err)
+        return _closed(stdin, out, 1)
+
+    store.write_report(proposal_id, report)
+    return _closed(stdin, out, code)
+
+
+def _closed(stdin: TextIO, out: TextIO, code: int) -> int:
+    """Hold the window open until the owner has read it, then return ``code``.
+
+    A console the server spawned closes the instant its process exits, taking
+    the note's identifiers and any refusal with it. The owner is the only reader
+    this window has.
+    """
+    print("\npress Enter to close this window ", end="", file=out)
+    out.flush()
+    stdin.readline()
     return code
 
 

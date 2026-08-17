@@ -247,3 +247,38 @@ def test_both_json_readers_tolerate_a_bom(tmp_path: Path) -> None:
     # The operation reader's own BOM tolerance, asserted beside the config one so
     # a change to either meets this test.
     assert cli._operation_at(str(operation)).text == "a note"
+
+
+# ---------------------------------------------------------------------------
+# The export -- slice 2's third setting
+#
+# ⚠️ **It is not a convenience index.** Ruling 1 makes the export the place the
+# privacy flag is read from, so a setting that is absent or stale is a privacy
+# question rather than an ergonomic one. See the doctor's staleness line.
+# ---------------------------------------------------------------------------
+
+
+def test_the_file_supplies_the_export(tmp_path: Path) -> None:
+    written(tmp_path / config.DIRECTORY_NAME, {"export_path": "a-tree.gramps"})
+    settings = config.load({"APPDATA": str(tmp_path)}, platform="win32")
+    assert settings.export_path == "a-tree.gramps"
+
+
+def test_the_environment_overrides_the_filed_export(tmp_path: Path) -> None:
+    written(tmp_path / config.DIRECTORY_NAME, {"export_path": "from-the-file"})
+    settings = config.load(
+        {"APPDATA": str(tmp_path), config.ENV_EXPORT: "from-the-environment"}, platform="win32"
+    )
+    assert settings.export_path == "from-the-environment"
+
+
+def test_no_export_configured_is_not_a_failure(tmp_path: Path) -> None:
+    assert config.load({"APPDATA": str(tmp_path)}, platform="win32").export_path is None
+
+
+def test_export_path_is_a_declared_setting_rather_than_an_unknown_key(tmp_path: Path) -> None:
+    """The loader refuses a key nobody declared, so adding a setting means
+    adding it to ``_KEYS`` -- and forgetting makes the documented setup fail."""
+    path = written(tmp_path / config.DIRECTORY_NAME, {"export_path": "x"})
+    config.load({"APPDATA": str(tmp_path)}, platform="win32")
+    assert path.is_file()
