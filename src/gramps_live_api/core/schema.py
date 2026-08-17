@@ -381,6 +381,118 @@ NOTE_TYPES: frozenset[str] = frozenset({"research", "todo"})
 """What a note is for. Closed, and a member of it is a PHASE_1 rule."""
 
 
+# ---------------------------------------------------------------------------
+# What the record does not give -- #40
+#
+# Every declared field of an operation is required, so a register naming only
+# one part of a name has no well-formed operation at all. The marker is how a
+# declaration says *this part is not in the document*, without collapsing that
+# into ``Optional``, which already means something else here: a reference root
+# that may be absent.
+#
+# ⚠️ **An ``Enum`` and NOT a frozen dataclass singleton, and the Python kind is
+# load-bearing for a test nobody would think to look at.** The negative-case
+# generator in the fixtures excludes a mapping wire value at any path whose
+# declaration NESTS A DATACLASS -- that is how ``{}`` at a reference field is
+# kept out, since a mapping is how the wire spells an object rather than a
+# wrong-typed value. A dataclass-shaped marker would make a field declared
+# ``str | <marker>`` nest a dataclass too, so ``{}`` at that field would
+# **silently drop out of the generated forbidden values**, deleting a negative
+# case with nothing announcing it. An ``Enum`` class is a ``type`` and is not a
+# dataclass, so the case survives. Do not "simplify" this into a dataclass.
+#
+# ⚠️ **One member, and the second is DEFERRED rather than absent.** *"The
+# record does not say"* and *"the person bore none"* are not distinguished. A
+# positive assertion of namelessness is a claim about a real person, so it is
+# FACT-ASSERTING and needs its own warrant -- it belongs in the fact vocabulary
+# with a citation obligation, not in an absence vocabulary. **Recorded as
+# deferred future CITED work**, here and in the spec, so it is not left
+# implied. A reader who does not find this reason will reasonably "improve" the
+# enum by adding the member.
+#
+# A single-member enum is what makes that reversal cheap: it arrives as a
+# second member and every consumer is already a match over the enum. The wire
+# spelling is derived from the member rather than written beside it -- out as
+# ``{UNRECORDED_KEY: member.value}``, back in via a lookup over ``Unrecorded``
+# -- so a second member serialises and deserialises **without ``to_dict`` or
+# ``from_dict`` being edited**. That is what "cheap" has to mean mechanically
+# rather than aspirationally.
+# ---------------------------------------------------------------------------
+
+
+class Unrecorded(Enum):
+    """What the record does not give. A VALUE, not an absence."""
+
+    NOT_IN_THE_RECORD = "not_in_the_record"
+
+
+UNRECORDED = Unrecorded.NOT_IN_THE_RECORD
+"""The one marker there is, for a field whose declaration admits it."""
+
+UNRECORDED_KEY = "unrecorded"
+"""The single key a payload spells the marker under.
+
+A mapping rather than an in-band reserved string: a reserved string can collide
+with a name a record actually gives, and this module refuses in-band signalling
+everywhere else.
+"""
+
+UNCONVERTIBLE_KEY = "unconvertible"
+"""The single key a payload spells a value this module cannot model under.
+
+⚠️ **RESERVED: ``from_dict`` refuses a payload that spells this key**, at any
+depth below any declared field, with a ``ReservedKeyError`` naming where. That
+is what makes the marker an injective signal -- without it a payload could spell
+the key itself, ``from_dict`` accepted it, and ``to_dict`` re-emitted it
+byte-identical to a genuine conversion failure, so nothing anywhere could tell a
+fault from a value that merely looked like one.
+
+⚠️ **The inherited reason for the mapping was WRONG, and it is corrected here
+rather than repeated.** The line this docstring used to carry said *a mapping
+rather than an in-band reserved string, on exactly the reason recorded for*
+``UNRECORDED_KEY`` -- that a reserved string collides with a name a record
+actually gives. **A mapping's own key collides in exactly the same way**, which
+is the defect above, so that reason never distinguished the two. What the
+mapping actually buys is somewhere to put the value's type; what makes the key
+unambiguous is the reservation, and nothing else.
+
+**What the reservation costs, stated at its definition site.** One key of the
+payload vocabulary is spent. The refusal is loud and at the door rather than
+silent and downstream, so a caller who somehow needed the word learns it
+immediately and with a field path. And the practical collision probability for
+genealogical data is nil: no register, no field of any operation, and no value
+this project models is spelled ``unconvertible``.
+
+⚠️ **What the reservation does NOT reach, recorded as a cost taken rather than
+silently taken.** The refusal descends ``dict`` and ``list``, which is exactly
+what a decoder produces -- so the claim it supports is the bounded one, over
+**decoder-producible payloads**. A ``Mapping`` that is not a ``dict``, built in
+process and handed to ``from_dict`` carrying this key, is *not* refused. That is
+the same best-effort side ``to_dict`` already records, and widening the walk to
+every ``Mapping`` would refuse values no decoder can hand in, on a claim that
+does not ask for it.
+
+⭐ **The precedent, which outlives this key: an in-band signal must be INJECTIVE
+-- by reservation or by escaping.** Those are the two shapes; this key takes the
+first because it has exactly one producer and a refusal is cheap, and escaping
+would have to be undone on the way out and asserted in both directions.
+⚠️ **It decides the shape of #53 whenever use unparks that. Nothing here acts on
+#53 and nothing here unparks it.**
+
+``UNRECORDED_KEY`` is deliberately **not** reserved, and it is not the same
+defect: it is discriminated by POSITION -- only a field whose declaration admits
+the marker reads it -- so a payload spelling it anywhere else is an ordinary
+value that ``validate`` judges at its path.
+
+⚠️ **What it carries is the value's TYPE and never the value**, which is the
+rule on ``RuleViolation`` obeyed by the transport for the same reason: a payload
+echoed into the record becomes content this repository then has to scan, in a
+public repository whose previous phase existed to keep exactly that out. Naming
+the type is the same move ``_field_wrong_type`` already makes, and it is what a
+caller needs to fix it.
+"""
+
+
 class Phase(Enum):
     """Which phase is able to decide a rule."""
 
@@ -531,6 +643,27 @@ def reference_fields(cls: type[Operation]) -> tuple[str, ...]:
     """The fields of ``cls`` that hold a reference to another object."""
     hints = get_type_hints(cls)
     return tuple(field.name for field in fields(cls) if ObjectRef in get_args(hints[field.name]))
+
+
+def absence_fields(cls: type[Operation]) -> tuple[str, ...]:
+    """The fields of ``cls`` whose declaration admits the not-recorded marker.
+
+    ``reference_fields``' mirror, written as one derivation with two questions
+    rather than as a second list: what may this field point at, and may this
+    field say the record does not give it.
+
+    A bare ``Unrecorded`` annotation is deliberately NOT found, and that falls
+    out of ``get_args`` being ``()`` for one rather than being ruled out here.
+    The marker only ever *widens* a declaration; a field that can hold nothing
+    else says the record never gives it, which is not a field.
+
+    ⚠️ A declaration admitting both a reference and the marker
+    (``ObjectRef | Unrecorded | None``) is not expressible by anything today and
+    would need a ruling before it is written -- which of the two wire
+    conversions owns a mapping at that path is not decided anywhere.
+    """
+    hints = get_type_hints(cls)
+    return tuple(field.name for field in fields(cls) if Unrecorded in get_args(hints[field.name]))
 
 
 def required_paths(cls: type[Operation]) -> tuple[str, ...]:
@@ -853,6 +986,22 @@ def _run(rules: Sequence[Rule], operation: Operation) -> WellFormedResult:
 TYPE_KEY = "type"
 """The key naming which operation a payload is."""
 
+_TEXTUAL: tuple[type, ...] = (str, bytes, bytearray)
+"""The sequences that are values on the wire rather than containers of them."""
+
+_JSON_SCALARS: tuple[type, ...] = (str, bool, int, float)
+"""What an encoder takes as it stands. ``None`` is checked separately, being one.
+
+``isinstance`` rather than an exact-type match, and that is the criterion rather
+than a looseness: a ``str`` subclass is what ``json.dumps`` accepts, and
+acceptance is what this conversion claims.
+"""
+
+
+def _unconvertible(value: object) -> dict[str, str]:
+    """The fault marker for a value this module cannot model, naming its type."""
+    return {UNCONVERTIBLE_KEY: type(value).__name__}
+
 
 class SchemaError(Exception):
     """A payload that is not an operation at all."""
@@ -871,6 +1020,36 @@ class UnknownFieldError(SchemaError):
         self.field_path = field_path
 
 
+class ReservedKeyError(SchemaError):
+    """A payload spelling the key this module reserves for its fault marker.
+
+    ⭐ **The precedent, which outlives this class: an in-band signal must be
+    INJECTIVE -- by reservation or by escaping.** ``UNCONVERTIBLE_KEY`` is what
+    ``_to_wire`` emits for a value nothing models, so a payload allowed to spell
+    it made the signal ambiguous: a genuine conversion failure and a
+    decoder-producible value that merely looked like one came back out of
+    ``to_dict`` byte-identical, with nothing anywhere able to tell them apart.
+    Reserving the key on the way in is what makes the marker injective by
+    construction rather than by hope.
+
+    ⚠️ **Not ``UnknownFieldError``, and the distinction is not cosmetic.** This
+    key is met at a VALUE position, where no declaration says which keys are
+    allowed -- so *"is not a field of this operation"* would be a lie about a
+    payload that may be perfectly well shaped. Both are a ``SchemaError``
+    carrying a ``field_path``, which is what a caller actually handles them by,
+    so this adds a truthful message rather than a surface.
+
+    ⚠️ **No ``RuleId`` and no ``RULES`` row.** This sits on the RAISING side of
+    the boundary drawn above, where ``UnknownFieldError`` already lives; the
+    rule table covers the non-raising validate side, and a test asserts that
+    line.
+    """
+
+    def __init__(self, field_path: str) -> None:
+        super().__init__(f"{field_path} is a key this module reserves for its fault marker")
+        self.field_path = field_path
+
+
 def type_name_of(operation: Operation) -> str:
     """The wire name of ``operation``'s type."""
     for name, spec in REGISTRY.items():
@@ -879,16 +1058,336 @@ def type_name_of(operation: Operation) -> str:
     raise SchemaError(f"{type(operation).__name__} is not a registered operation")
 
 
+def _into_list(out: list[object], index: int) -> Callable[[object], None]:
+    """Where a converted value goes: one slot of a list already the right length."""
+
+    def place(converted: object) -> None:
+        out[index] = converted
+
+    return place
+
+
+def _into_mapping(out: dict[str, object], key: str) -> Callable[[object], None]:
+    """Where a converted value goes: one key of a mapping already carrying it."""
+
+    def place(converted: object) -> None:
+        out[key] = converted
+
+    return place
+
+
+def _to_wire(value: object, seen: frozenset[int] = frozenset()) -> object:
+    """How a value this module models is spelled on the wire.
+
+    ⚠️ **By VALUE, and not by the field's declaration, which is the asymmetry
+    ``from_dict`` mirrors in the other direction rather than an inconsistency.**
+    On the way out the value is in hand; on the way in only the declaration is.
+    A declaration-driven ``to_dict`` would leave a marker at a field that does
+    not admit it serialising as a raw ``Enum`` -- so the JSON-shaped claim above
+    would stay false in exactly the case the assertion of it exists to catch.
+    That operation is not well-formed, and getting it to the judge that says so
+    requires the transport to be able to carry it.
+
+    ⚠️ **Applied AT EVERY PATH, by recursing into a reference's leaves, and the
+    recursion is not belt-and-braces over an enumerable set.** ``to_dict`` calls
+    this on top-level fields only, so a leaf used to be copied out of the
+    reference verbatim: a marker at ``target.handle`` came back a raw
+    ``Unrecorded`` and ``json.dumps`` raised. **The verdict already existed** --
+    ``validate`` reports ``FIELD_WRONG_TYPE`` at that path -- so what the leaf
+    cost was not a verdict but the transport swallowing one, leaving an invalid
+    operation **untransportable rather than reportably invalid**, which inverts
+    this module's boundary: shape faults are reported at a field path, not raised
+    out of the transport.
+
+    ⚠️ **And the reason the fix is a recursion rather than a patch at the leaf:
+    "reference leaves are the last depth" is true of the DECLARATION and false of
+    the VALUES.** By declaration, nesting stops at ``ObjectRef``, whose three
+    leaves are all ``str`` -- depth exactly 2, and enumerable. By value it is
+    unbounded, because an operation is a *transport* type: ``target.handle =
+    ObjectRef(...)`` is constructible **in process**, and before this recursed it
+    raised the same ``TypeError``. A conversion written for today's 14 paths
+    would close the paths that exist this week and state nothing about why those
+    were the right 14. Do not "simplify" this back to a copy.
+
+    ⚠️ **And the recursion is required by the BOUNDED claim too, not only by the
+    in-process one that motivated it** -- which matters, because a reader who
+    takes the narrowed claim as licence to delete best-effort machinery would
+    reach for this first. A decoder puts a nested ``dict`` or ``list`` at
+    ``target.handle`` as readily as anything else, ``from_dict`` accepts it, and
+    the wire must carry it. Descending into a reference's leaves is inside what
+    closes.
+
+    ⚠️ **And the recursion is over CONTAINERS as well as references, because
+    "an ``ObjectRef`` is the only thing a value nests inside" was the same
+    mistake one container further out.** A list or a mapping holding a marker or
+    a reference was copied out whole, so ``json.dumps`` raised on the payload
+    while every one of those operations already had its verdict at its path.
+
+    ⚠️ **TOTAL OVER DECODER-PRODUCIBLE VALUES -- and the claim this replaces,
+    "total, because THERE IS NO BOUND TO SHOW", was FALSE.** A property stated
+    over every value that can be constructed has no fixed point: interrogating a
+    value runs the value's own code, so a fresh pathological value is always
+    constructible and every one of them is genuine. Three rounds hardened this
+    conversion against that property and it was false in a new place each round
+    -- which is a property being sampled, not a conversion being finished.
+
+    **The claim that closes:** every payload ``from_dict`` accepts converts to a
+    JSON-emittable wire carrying no fault marker, at any depth to the encoder's
+    own ceiling. The space is bounded **in kind** rather than in size -- a decoder
+    emits ``dict``, ``list``, ``str``, a number, a bool and ``None``, a JSON
+    object is string-keyed, and the only other things ``from_dict`` builds are an
+    ``ObjectRef`` of decoded values and the marker. Every one of those takes a
+    branch that converts, and no composition of them reaches the branch for the
+    unknown. That is an argument over a closed set of KINDS rather than over a
+    set of values, which is why it closes.
+
+    **Values built IN PROCESS are best-effort**, by design rather than by
+    concession: ``Operation`` is a transport dataclass whose fields accept
+    anything, recorded on ``Operation`` itself, precisely so ``validate`` can be
+    the only judge. The by-value dispatch is what makes best-effort worth
+    anything -- a bounded enumeration would be an enumeration of nothing in
+    particular, since patching the containers leaves dicts of lists, then lists
+    of dicts of references. Branch on **what the value is**, with an explicit
+    final branch for the unknown, and the next shape arrives already converted.
+
+    ⚠️ **The boundary, stated with its measurement rather than defended.**
+    Interrogation runs the object's own code -- ``list(item)`` calls ``__iter__``
+    and ``__len__``, ``isinstance`` reads ``__class__`` -- so an object can raise
+    before any branch here decides anything. Measured at ``target.handle`` of the
+    ``add_note`` example:
+
+        released memoryview             to_dict=ValueError  validate=FIELD_WRONG_TYPE
+        Sequence whose __iter__ raises  to_dict=ValueError  validate=FIELD_WRONG_TYPE
+        Sequence whose __len__ raises   to_dict=ValueError  validate=FIELD_WRONG_TYPE
+
+    In every case the exception arrives **as itself** -- the caller's own type
+    carrying the caller's own message -- neither masked as the fault marker nor
+    swallowed.
+
+    ⚠️ **Those three are NOT a closable set, and reading them as an enumeration
+    to extend is the mistake this paragraph exists to prevent.** ``__iter__``,
+    ``__len__``, ``__eq__``, ``__hash__``, ``__getitem__`` and a raising
+    ``__class__`` are **one defect with no enumeration**, because the defect is
+    that interrogation runs the object's code rather than any particular dunder.
+    A fourth is always constructible, which is exactly why the claim above is
+    bounded instead of being defended here.
+    ``test_an_exception_from_the_callers_own_object_propagates_as_itself`` pins
+    the shape of that failure.
+
+    ⚠️ **And why NO broad exception handler is added -- the change this boundary
+    most invites.** Wrapping the interrogation in ``except Exception`` and
+    emitting the fault marker would make **our own defect indistinguishable from
+    the caller's bad data**: every future bug in this conversion would surface as
+    a well-formed payload naming the caller's type, and the one signal that
+    currently says *something here is wrong and it is not yours* would be gone.
+    **The remedy for a caller wanting a verdict rather than an exception is
+    ``validate``**, which reads the object **without transporting it** and
+    returned ``FIELD_WRONG_TYPE`` at the right path in every case measured above.
+
+    ⚠️ **A value this module cannot model emits a MARKER and does not raise, on
+    the line drawn at the top of this section.** A structural fault raises; a
+    value fault does not, because refusing one would be a second validator with
+    no field path. An alien object at a declared field is a value fault, and
+    ``validate`` already returns ``FIELD_WRONG_TYPE`` at its path. **A typed
+    transport error is this finding with a better name.**
+
+    **Unmodellable and modellable-but-misplaced share the surface and differ
+    only in the payload**, deliberately: splitting them would make a caller's
+    handling depend on a distinction it cannot predict. A modellable value keeps
+    its faithful spelling -- the marker's mapping, a reference's mapping -- and
+    stays readable; only an unmodellable one is replaced, because there is
+    nothing faithful to emit for it.
+
+    Deliberately NOT a generic dataclass walk for the unknown: inventing a wire
+    form for a type this module does not model produces something ``from_dict``
+    cannot read back, which is a worse failure than a marker naming the type.
+
+    ⚠️ **TERMINATION IS THE OTHER HALF OF TOTAL, and without it the word is
+    simply false. It has TWO halves of its own -- cycles and depth -- and for two
+    rounds only the first was written down.**
+
+    ⚠️ **The two halves sit on OPPOSITE SIDES of the narrowed claim, and saying
+    so is what keeps either from being deleted for the wrong reason.** Depth is
+    **inside** it: a decoder produces a payload nested as deep as its own ceiling
+    without difficulty, so a conversion that stops short of that ceiling makes
+    the bounded claim false. A cycle is **not** decoder-producible at all -- JSON
+    is a tree -- so cycle termination serves the best-effort side. It stays
+    anyway, and on its own merits rather than on the claim's: without it the walk
+    does not terminate, and non-termination is the one failure mode where nothing
+    propagates as itself either, because nothing propagates at all.
+
+    **Cycles.** ``x = []; x.append(x)`` is constructible in process in two lines
+    and a structural walk over it does not stop -- so the identities of the containers
+    **on the current path** are carried, and one already on that path converts to
+    the fault marker instead of being walked again.
+
+    ⚠️ **On the PATH, and not accumulated across the whole walk.** A value
+    reachable twice from different branches is not a cycle, and a set that
+    accumulates would emit the fault marker for the second sibling -- a
+    fail-closed defect on a perfectly emittable payload.
+
+    ⚠️ **And the path scoping is now maintained DELIBERATELY, because a work list
+    does not unwind.** A ``frozenset`` passed down a recursion used to make it
+    structural for free: the call stack unwound and the set went out of scope
+    with it. Here the ancestors live in ``path``, **truncated to the popped
+    entry's own depth before that entry is processed**. Depth-first order is what
+    makes that exact -- a subtree is emptied before the next sibling is reached,
+    so when an entry at depth *d* is popped, ``path[0:d]`` is precisely its
+    ancestors and anything past index *d-1* belongs to a sibling subtree already
+    finished. A container adds its identity only after its own cycle check, and
+    only on the three container branches, as before.
+
+    ⚠️ **Carrying a ``frozenset`` per stack entry -- literally the old
+    expression, and by far the smaller diff -- was prototyped, measured and
+    rejected on the measurement rather than on taste. It is quadratic in depth:**
+    0.036 s at depth 3 000, 0.489 s at 10 000, **8.731 s at 30 000**, against
+    **0.051 s** at 30 000 and **0.349 s at 200 000** for the truncated path. The
+    recursion never paid that because it died at 995; removing the frame ceiling
+    is exactly what exposes it, so the smallest diff would trade a hard error for
+    a pathological slow path this code does not otherwise have. The number is
+    recorded here because the smallest diff is what a later reader reaches for.
+
+    ⚠️ **Depth: a work list rather than a recursion, because the recursion had a
+    ceiling of its own BELOW THE DECODER'S.** ⚠️ **The numbers here are one box's
+    measurements rather than properties of ``json``** -- CPython 3.12.13 at the
+    default recursion limit of 1000: this conversion stopped at depth **995**,
+    while ``json.loads`` and ``json.dumps`` both reached **2997**. Between those
+    two numbers a payload was decoder-producible, was accepted by ``from_dict``,
+    and could not be carried -- ``RecursionError``, which is neither JSON nor a
+    fault reported at a field path, so the claim that this is total was false
+    there. ⭐ **The encoder and the decoder draw on the same interpreter budget**,
+    so above that ceiling nothing is producible or emittable either way:
+    iterating **closes** that band rather than moving it. What remains is
+    CPython's ``json`` module, which is not ours. This conversion is bounded by
+    memory, measured usable at depth 200 000 on the same box.
+
+    ⚠️ **Where the remaining ceiling sits is an interpreter's answer rather than
+    a number.** On 3.12 the C json module carries a recursion budget of its own;
+    on 3.10 and 3.11 it draws on the same budget Python frames do, so it lands
+    far lower there and moves with the caller's stack depth. Nothing in this
+    module depends on which; the depth tests measure it at import rather than
+    remembering it.
+
+    ⚠️ **Catching ``RecursionError`` and emitting the fault marker is much the
+    smaller change, and it loses on merits.** It would turn a deep
+    decoder-producible payload into silent data loss, making the marker appear
+    for exactly the payloads the bounded claim says it never appears for. And
+    ``RecursionError`` fires when the **interpreter's** budget runs out rather
+    than at a property of the value, so the emitted payload would be a function
+    of the caller's stack depth: measured, the old ceiling was 995 from a
+    module-level call and **895 from one a hundred frames down**. The same
+    operation would serialise differently depending on where it was called from,
+    and a conversion whose output is not a function of its input can be neither
+    tested nor reasoned about.
+
+    ⚠️ **The output container is created and pre-populated with its keys or its
+    length IN SOURCE ORDER before its children are pushed**, then filled slot by
+    slot. A LIFO stack completes children in reverse, so a mapping filled in
+    completion order would silently reverse every JSON object's keys -- both
+    canonical payloads would move with nothing saying so.
+    ``test_a_mapping_keeps_its_key_order_on_the_wire`` asserts that in bytes.
+
+    The default argument keeps the seam callable as ``_to_wire(value)``, which is
+    how the round-trip test over the marker's members reaches it. A ``seen``
+    passed in names ancestors this walk did not push, so it seeds the path
+    membership and is never truncated away -- which is what the recursion did by
+    holding it in every frame below.
+    """
+    root: list[object] = [None]
+    stack: list[tuple[object, Callable[[object], None], int]] = [(value, _into_list(root, 0), 0)]
+    path: list[int] = []
+    on_path: set[int] = set(seen)
+
+    while stack:
+        item, place, depth = stack.pop()
+        while len(path) > depth:
+            # Those subtrees are finished, so their containers are no longer
+            # ancestors of anything still to be popped.
+            on_path.discard(path.pop())
+
+        if isinstance(item, ObjectRef):
+            if id(item) in on_path:
+                place(_unconvertible(item))
+                continue
+            path.append(id(item))
+            on_path.add(id(item))
+            leaves: dict[str, object] = {leaf.name: None for leaf in fields(ObjectRef)}
+            place(leaves)
+            for leaf in fields(ObjectRef):
+                stack.append(
+                    (getattr(item, leaf.name), _into_mapping(leaves, leaf.name), depth + 1)
+                )
+            continue
+        if isinstance(item, Unrecorded):
+            # Derived from the member, so a second one serialises without this
+            # being edited. That is what the deferral recorded on Unrecorded costs
+            # to reverse, stated mechanically rather than aspirationally.
+            place({UNRECORDED_KEY: item.value})
+            continue
+        if item is None or isinstance(item, _JSON_SCALARS):
+            place(item)
+            continue
+        if isinstance(item, Mapping):
+            if id(item) in on_path or any(not isinstance(key, str) for key in item):
+                # The WHOLE mapping, rather than the offending key: a JSON object is
+                # string-keyed, and stringifying a key would invent data the payload
+                # never carried. (This branch is also a totality gain -- json.dumps
+                # raises on a MappingProxyType, which this module hands around as
+                # REGISTRY and EXAMPLES.)
+                place(_unconvertible(item))
+                continue
+            path.append(id(item))
+            on_path.add(id(item))
+            entries: dict[str, object] = {key: None for key in item}
+            place(entries)
+            for key, contained in item.items():
+                stack.append((contained, _into_mapping(entries, key), depth + 1))
+            continue
+        if isinstance(item, Sequence) and not isinstance(item, _TEXTUAL):
+            # Text is a Sequence and is already what the wire wants, so it must not
+            # be taken apart into a list of one-character strings.
+            if id(item) in on_path:
+                place(_unconvertible(item))
+                continue
+            path.append(id(item))
+            on_path.add(id(item))
+            # Materialised once, so the slots and the pushes cannot disagree
+            # about how many there are.
+            contents = list(item)
+            slots: list[object] = [None] * len(contents)
+            place(slots)
+            for index, contained in enumerate(contents):
+                stack.append((contained, _into_list(slots, index), depth + 1))
+            continue
+        place(_unconvertible(item))
+
+    return root[0]
+
+
 def to_dict(operation: Operation) -> dict[str, object]:
-    """``operation`` as a JSON-shaped mapping, every declared field present."""
+    """``operation`` as a JSON-shaped mapping, every declared field present.
+
+    The JSON-shaped part is asserted rather than claimed -- see
+    ``tests/unit/test_schema_wire_shape.py``, which is a separate file because
+    a round trip cannot check it: comparing an object to itself through both
+    directions passes on a value no encoder could emit.
+
+    ⚠️ **What is guaranteed, and where it stops.** Every payload ``from_dict``
+    accepts converts to a JSON-emittable mapping carrying no fault marker, at any
+    depth to the encoder's own ceiling. An operation carrying values built **in
+    process** is best-effort: a value this module cannot model becomes a marker
+    naming its type, and **an object that raises while being read raises out of
+    here as itself** -- the caller's own exception, not masked and not swallowed.
+
+    ⭐ **Wanting a verdict on such a value rather than an exception? Call
+    ``validate``.** It reads the operation **without transporting it**, so an
+    object that cannot survive conversion still gets ``FIELD_WRONG_TYPE`` at its
+    field path. Judging a value and carrying it are different questions, and this
+    is the one that carries.
+    """
     payload: dict[str, object] = {TYPE_KEY: type_name_of(operation)}
     for declared in fields(operation):
-        value = getattr(operation, declared.name)
-        payload[declared.name] = (
-            {leaf.name: getattr(value, leaf.name) for leaf in fields(ObjectRef)}
-            if isinstance(value, ObjectRef)
-            else value
-        )
+        payload[declared.name] = _to_wire(getattr(operation, declared.name))
     return payload
 
 
@@ -903,6 +1402,7 @@ def from_dict(payload: Mapping[str, object]) -> Operation:
     cls = REGISTRY[type_name].cls
     declared = {field.name for field in fields(cls)}
     references = set(reference_fields(cls))
+    absences = set(absence_fields(cls))
 
     for key in payload:
         if key != TYPE_KEY and key not in declared:
@@ -913,11 +1413,159 @@ def from_dict(payload: Mapping[str, object]) -> Operation:
         if name not in payload:
             continue
         value = payload[name]
-        arguments[name] = _reference_from(name, value) if name in references else value
+        if name in references:
+            # ``_reference_from`` FIRST and unchanged, so the reserved key at a
+            # reference ROOT still comes back as an undeclared leaf --
+            # ``UnknownFieldError("target.unconvertible")`` -- which is the
+            # pre-existing structural surface the spec records, not something
+            # this reservation is entitled to take over. The walk then runs over
+            # the built reference's leaves, where a mapping is a value rather
+            # than how the wire spells an object.
+            reference = _reference_from(name, value)
+            if reference is not None:
+                for leaf in fields(ObjectRef):
+                    _refuse_reserved(f"{name}.{leaf.name}", getattr(reference, leaf.name))
+            arguments[name] = reference
+        elif name in absences and (marker := _unrecorded_from_wire(value)) is not None:
+            # By DECLARATION, mirroring _to_wire's by-value direction: on the way
+            # in only the declaration is in hand. A mapping at an absence field
+            # that is not the canonical spelling passes through unchanged, as a
+            # value fault -- _field_wrong_type reports a dict at that path and
+            # validate is what says so, which is the line this module draws
+            # between the two error surfaces.
+            arguments[name] = marker
+        else:
+            # An absence field whose value is NOT the canonical spelling falls
+            # here too, and is walked like anything else: the marker's own
+            # mapping is exactly one key, so a payload reaching this branch has
+            # nothing the reservation would have let through.
+            _refuse_reserved(name, value)
+            arguments[name] = value
     return cls(**arguments)
 
 
+def _refuse_reserved(path: str, value: object) -> None:
+    """Refuse ``value`` if any mapping in it spells ``UNCONVERTIBLE_KEY``.
+
+    ⚠️ **On KEY PRESENCE rather than on the marker's exact one-key shape, and
+    that is what makes the reservation injective** rather than merely narrow.
+    The detector the bounded closer runs calls a payload a marker when any
+    mapping CONTAINS the key, so a refusal matching anything narrower would
+    leave payloads the detector still reads as one -- and the closer would go on
+    being untriggered instead of becoming TRUE. Matching the detector exactly is
+    the whole argument.
+
+    ⚠️ **An explicit stack, and this is the FOURTH walk to need one.** The
+    bounded closer pushes a decoder-produced list nested to the interpreter's own
+    json ceiling through ``from_dict``, so a recursion here would die on exactly
+    the payload the claim says is carried. Written iterative from the start, per
+    the rule recorded on the test file's own walks after three of them learned it
+    separately.
+
+    ⚠️ **``dict`` and ``list`` by ``isinstance``, so a ``Mapping`` that is not a
+    ``dict`` -- a ``MappingProxyType`` built in process -- carrying the key is
+    NOT refused. Recorded as a cost taken rather than silently taken.** The
+    claim this serves is bounded over decoder-producible payloads, and a decoder
+    produces exactly ``dict`` and ``list``; a value built in process is the
+    best-effort side ``to_dict`` already records. Widening to every ``Mapping``
+    would refuse values no decoder can hand in, on a claim that does not ask for
+    it.
+
+    **Containers already visited are marked, so a cyclic in-process payload
+    terminates.** Accumulated across the whole walk rather than scoped to the
+    current path -- the opposite of ``_to_wire``, deliberately: a container that
+    did not raise the first time cannot raise the second, so revisiting one can
+    only cost time, and the fail-closed defect that path-scoping exists to
+    prevent there has no counterpart here. A cycle is not decoder-producible at
+    all, JSON being a tree; this is termination on the best-effort side, and
+    non-termination is the one failure mode where nothing propagates as itself
+    because nothing propagates at all.
+
+    Path grammar is the wire-shape walk's, so a refusal names the same position
+    that walk would. Children are pushed reversed, which a LIFO stack turns back
+    into source order: the path is quoted in the refusal, so which offending key
+    is named first is a quality-of-message obligation.
+    """
+    stack: list[tuple[object, str]] = [(value, path)]
+    visited: set[int] = set()
+    while stack:
+        item, where = stack.pop()
+        if isinstance(item, dict):
+            if UNCONVERTIBLE_KEY in item:
+                raise ReservedKeyError(f"{where}.{UNCONVERTIBLE_KEY}")
+            if id(item) in visited:
+                continue
+            visited.add(id(item))
+            stack.extend(
+                (contained, f"{where}.{key}") for key, contained in reversed(list(item.items()))
+            )
+            continue
+        if isinstance(item, list):
+            if id(item) in visited:
+                continue
+            visited.add(id(item))
+            stack.extend(
+                (contained, f"{where}[{index}]")
+                for index, contained in reversed(list(enumerate(item)))
+            )
+
+
+_UNRECORDED_BY_VALUE: Mapping[str, Unrecorded] = MappingProxyType(
+    {member.value: member for member in Unrecorded}
+)
+"""Every member by its wire spelling, built from the enum rather than beside it.
+
+A second member is deserialisable the moment it is declared, with nothing here
+edited -- the other half of what the deferral recorded on ``Unrecorded`` costs
+to reverse.
+"""
+
+
+def _unrecorded_from_wire(value: object) -> Unrecorded | None:
+    """The marker ``value`` spells, or ``None`` if it does not spell one.
+
+    ``None`` rather than a raise, deliberately. A value at an absence field that
+    is not the canonical spelling is a VALUE fault, and value faults survive
+    deserialisation so ``validate`` can report them with a field path. Refusing
+    here would be a second validator with no vocabulary for saying where.
+
+    ⚠️ **The ``str`` check ahead of the lookup is not defensive padding, and
+    removing it as redundant is the defect it exists to prevent.** ``dict.get``
+    raises ``TypeError`` on an unhashable key and the wire can carry a list -- so
+    without it a ``TypeError`` comes out of the transport carrying no verdict and
+    no field path, which is the failure ``_present_references`` already records
+    having been made once. Tested directly.
+    """
+    if not isinstance(value, Mapping) or set(value) != {UNRECORDED_KEY}:
+        return None
+    spelling = value[UNRECORDED_KEY]
+    if not isinstance(spelling, str):
+        return None
+    return _UNRECORDED_BY_VALUE.get(spelling)
+
+
 def _reference_from(name: str, value: object) -> ObjectRef | None:
+    """A reference read back off the wire, its leaves passed through unchanged.
+
+    ⚠️ **Deliberately NOT the mirror of ``_to_wire``'s recursion, and the
+    asymmetry is the one already recorded there rather than a second one.** The
+    way out is by value, so it recurses wherever a modelled value sits. The way
+    in is by declaration, and ``absence_fields(ObjectRef)`` is ``()`` -- no leaf
+    declares the marker -- so applying ``_unrecorded_from_wire`` to leaves here
+    would be machinery **no test can reach**, exercisable only from a synthetic
+    class nothing registers. That is the surface this module refuses to add
+    against a declaration that does not exist.
+
+    **So a marker at a leaf goes out as its mapping and comes back a plain
+    ``dict``**, and that is the consequence this module already records one
+    level up: the operation is invalid either way, both routes report
+    ``FIELD_WRONG_TYPE`` at the same path, and they differ only in naming what
+    arrived. Asserted in ``tests/unit/test_schema_absence.py``.
+
+    Recorded so it is not "improved" later: the day an ``ObjectRef`` leaf
+    declares the marker, this is what needs editing -- and the ruling that
+    ``ObjectRef | Unrecorded | None`` still needs comes first.
+    """
     if value is None:
         return None
     if not isinstance(value, Mapping):
