@@ -1182,3 +1182,124 @@ def gramps_caption_spelled_with_character_references() -> str:
     originally measured in.
     """
     return _element("te" + "xt", body="&amp;" * 4)
+
+
+# ---------------------------------------------------------------------------
+# A Gramps XML export, assembled -- what ``core.people`` reads
+#
+# ⚠️ **The whole document is built from ``_element`` for the reason at the top
+# of this module, and the reason bites harder here than anywhere else.** A
+# committed ``.gramps`` fixture carries a ``<database ... gramps...>`` line that
+# trips ``_GENEALOGY_TEXT_SIGNATURES`` outright, so it would be a guaranteed
+# finding and a red build with no way to fix it but to weaken the guard.
+#
+# The builders below take every field, so a test names the one shape it is
+# about instead of reading a fixed cast and hoping the case it needs is in it.
+# ---------------------------------------------------------------------------
+
+
+def gramps_namespace(version: str = GRAMPS_XML_VERSION) -> str:
+    """The declared namespace for one schema version, assembled.
+
+    ⚠️ **Takes the version as an argument on purpose.** The reader must match on
+    LOCAL NAME, so a document written by a different Gramps has to read the same
+    -- and a test can only assert that if it can produce one.
+    """
+    return "http:" + "//gramps-project" + ".org/xml/" + version + _SLASH
+
+
+def gramps_dateval(val: str, *, quality: str = "") -> str:
+    """``<dateval val="..."/>`` -- one point in time, the commonest shape."""
+    attributes = f'val="{val}"' + (f' quality="{quality}"' if quality else "")
+    return _element("dateval", attributes=attributes, empty=True)
+
+
+def gramps_daterange(start: str, stop: str) -> str:
+    """``<daterange start="..." stop="..."/>`` -- somewhere between two dates."""
+    return _element("daterange", attributes=f'start="{start}" stop="{stop}"', empty=True)
+
+
+def gramps_datespan(start: str, stop: str) -> str:
+    """``<datespan start="..." stop="..."/>`` -- an interval, not a point."""
+    return _element("datespan", attributes=f'start="{start}" stop="{stop}"', empty=True)
+
+
+def gramps_datestr(val: str) -> str:
+    """``<datestr val="..."/>`` -- free text nobody could parse into a date."""
+    return _element("datestr", attributes=f'val="{val}"', empty=True)
+
+
+def gramps_event(
+    *, handle: str, gramps_id: str = "", event_type: str = "Birth", date: str = ""
+) -> str:
+    """One ``<event>``, with whichever date shape the caller passed, or none."""
+    attributes = f'handle="_{handle}"' + (f' id="{gramps_id}"' if gramps_id else "")
+    return _element(
+        "event",
+        attributes=attributes,
+        body=_element("type", body=event_type) + date,
+    )
+
+
+def gramps_name(
+    *, first: str, surname: str, alt: bool = False, name_type: str = "Birth Name"
+) -> str:
+    """One ``<name>``. ``alt`` writes the ``alt="1"`` a display name never carries."""
+    attributes = f'type="{name_type}"' + (' alt="1"' if alt else "")
+    return _element(
+        "name",
+        attributes=attributes,
+        body=_element("first", body=first) + _element("surname", body=surname),
+    )
+
+
+def gramps_person(
+    *,
+    handle: str,
+    gramps_id: str,
+    names: str = "",
+    private: str = "",
+    event_handles: tuple[tuple[str, str], ...] = (),
+) -> str:
+    """One ``<person>``, with its name blocks and its event references.
+
+    ``private`` is written verbatim as the ``priv`` attribute when non-empty, so
+    a test can produce the unstated case, the stated cases, and a value the
+    schema does not declare. ``event_handles`` is ``(handle, role)`` pairs.
+    """
+    attributes = f'handle="_{handle}" id="{gramps_id}"'
+    if private:
+        attributes += f' priv="{private}"'
+    references = "".join(
+        _element(
+            "eventref",
+            attributes=f'hlink="_{event_handle}"' + (f' role="{role}"' if role else ""),
+            empty=True,
+        )
+        for event_handle, role in event_handles
+    )
+    return _element(
+        "person", attributes=attributes, body=_element("gender", body="U") + names + references
+    )
+
+
+def gramps_export_document(
+    *, people: str = "", events: str = "", version: str = GRAMPS_XML_VERSION
+) -> str:
+    """A whole export: prolog, namespace, header, then the two collections.
+
+    ⚠️ **``<events>`` is written AFTER ``<people>``**, which is the opposite of
+    what a real export does, and deliberately: a reader that resolves an event
+    reference as it meets it works on Gramps' ordering and fails on this one.
+    Order-independence is the property, so the fixture is the hostile order.
+    """
+    header = _element(
+        "header",
+        body=_element("created", attributes='date="2026-08-17" version="6.0.8"', empty=True)
+        + _element("researcher"),
+    )
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + _element(
+        "database",
+        attributes=f'xmlns="{gramps_namespace(version)}"',
+        body=header + _element("people", body=people) + _element("events", body=events),
+    )
