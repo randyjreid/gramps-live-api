@@ -175,6 +175,34 @@ def test_a_file_that_is_not_readable_json_is_corrupt(tmp_path: Path) -> None:
         made.claim(proposal.id, proposal.approval_digest)
 
 
+def test_a_naive_created_utc_is_corrupt_rather_than_a_stranded_file(tmp_path: Path) -> None:
+    """L3, and the damage is the STRANDING rather than the exception.
+
+    ``created_utc`` is not covered by the digest -- the digest covers the
+    operation -- so it is editable in a file ``ProposalCorrupt`` otherwise
+    passes. A time with no UTC offset parses, and then ``self._now() - created``
+    raises ``TypeError``: *can't subtract offset-naive and offset-aware
+    datetimes*. That happens **after** ``_take``'s rename, so the proposal is
+    already at ``.pending.json``, the exception is not a ``ProposalError``, and
+    the file sits there with nothing left that will ever act on it.
+
+    Refused the way every other corrupt-store state is refused, which puts it at
+    ``.refused.json`` where the record says what happened to it.
+    """
+    made, proposal = minted(tmp_path)
+    path = Path(made.path_of(proposal.id))
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record["created_utc"] = "2026-08-17T12:34:56"
+    path.write_text(json.dumps(record), encoding="utf-8")
+
+    with pytest.raises(proposals.ProposalCorrupt) as refusal:
+        made.claim(proposal.id, proposal.approval_digest)
+
+    assert "offset" in str(refusal.value), "the message names what is wrong with the value"
+    assert not Path(made.path_of(proposal.id, ".pending.json")).exists(), "stranded"
+    assert Path(made.path_of(proposal.id, ".refused.json")).is_file()
+
+
 def test_naming_one_proposal_with_another_digest_is_refused(tmp_path: Path) -> None:
     """Criterion 4. The agent cannot supply an operation, so this is the whole
     of what it can get wrong about which proposal it is approving."""

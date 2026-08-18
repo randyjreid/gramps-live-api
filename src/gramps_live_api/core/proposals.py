@@ -477,13 +477,37 @@ class Store:
         return operation
 
     def _created(self, proposal_id: str, record: Mapping[str, object]) -> datetime:
+        """When it was minted -- **and it must be comparable with ``now``**.
+
+        ⚠️ **A NAIVE time parses and then poisons the caller, which is L3.**
+        ``created_utc`` is not covered by the digest -- the digest covers the
+        operation -- so it survives in a file every other check passes. A value
+        with no UTC offset reads fine here and makes ``self._now() - created``
+        raise ``TypeError``, which is not a ``ProposalError``: it escapes past
+        every refusal, **after** ``_take`` has already renamed the file, so the
+        proposal sits at ``.pending.json`` with nothing left that will act on
+        it. Refusing it here puts it at ``.refused.json`` with the other corrupt
+        states, which is where the record can say what happened.
+
+        ``mint`` writes ``apply.utc_now()``, which is aware, so no proposal this
+        store produced reaches the second refusal below.
+        """
         try:
-            return datetime.fromisoformat(str(record.get("created_utc")))
+            created = datetime.fromisoformat(str(record.get("created_utc")))
         except ValueError:
             self._refuse(
                 proposal_id,
                 ProposalCorrupt(f"{proposal_id}: the stored proposal carries no readable time"),
             )
+        if created.utcoffset() is None:
+            self._refuse(
+                proposal_id,
+                ProposalCorrupt(
+                    f"{proposal_id}: the stored proposal's time {created.isoformat()!r} carries "
+                    "no UTC offset, so nothing here can say how old it is. Propose it again."
+                ),
+            )
+        return created
 
     def _durably(self, path: str, record: dict[str, object]) -> str:
         """Create ``path`` exclusively, write ``record``, and force it to disk.
