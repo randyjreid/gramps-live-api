@@ -597,6 +597,73 @@ def test_an_unreadable_copy_fails_the_export_check_rather_than_passing_it(
     assert "older than the copy" not in line.detail, "unreadable and stale are not one state"
 
 
+def a_tree_at(directory: Path) -> Path:
+    """A directory that looks enough like a tree for ``check <tree>`` to report."""
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / apply.NAME_FILE).write_text("Another Invented Tree\n", encoding="utf-8")
+    return directory
+
+
+def test_the_export_is_compared_against_the_configured_copy_not_the_named_tree(
+    tmp_path: Path,
+) -> None:
+    """L4, direction one: a FALSE staleness failure.
+
+    ``docs/using.md`` documents ``check <live tree>`` and tells the owner to run
+    it -- it is how he watches the blessing refusal happen. That argument became
+    ``resolved``, and ``_export_check``'s parameter is named ``copy`` and
+    received it. So the export was compared against whatever tree was named on
+    the command line, and pointing the doctor at a tree touched more recently
+    than the export reported the export stale when it speaks for the copy
+    perfectly well.
+    """
+    copy = blessed(tmp_path / "copy")
+    export = tmp_path / "tree.gramps"
+    export.write_text("<database/>", encoding="utf-8")
+    aged(export, seconds=60)
+    aged(Path(copy.tree_dir) / apply.NAME_FILE, seconds=120)
+    aged(Path(copy.tree_dir) / apply.SENTINEL_NAME, seconds=120)
+    named = a_tree_at(tmp_path / "somewhere-else")  # touched just now, after the export
+
+    checks = cli.inspect(
+        str(named),
+        equipped(tmp_path, **{config.ENV_COPY: copy.tree_dir, config.ENV_EXPORT: str(export)}),
+    )
+    line = next(check for check in checks if check.label == "export")
+
+    assert line.ok, f"the export is newer than the COPY, which is what it speaks for; {line.detail}"
+
+
+def test_a_named_tree_older_than_the_export_cannot_make_a_stale_export_look_current(
+    tmp_path: Path,
+) -> None:
+    """L4, direction two, and it is **the fail-open the check exists to forbid**.
+
+    The same parameter mix-up read the other way: point the doctor at an old
+    scratch tree and the comparison it makes is *export versus that*, which
+    passes -- while the configured copy has moved on since the export was taken.
+    ``_export_check``'s own docstring says which way unknown or wrong has to
+    err: *toward re-export, never toward the flag you are reading is current.*
+    A person marked private since the export would still be listed, and the one
+    place that says so would be printing ``ok``.
+    """
+    named = a_tree_at(tmp_path / "old-scratch")
+    export = tmp_path / "tree.gramps"
+    export.write_text("<database/>", encoding="utf-8")
+    aged(export, seconds=60)
+    aged(named / apply.NAME_FILE, seconds=120)
+    copy = blessed(tmp_path / "copy")  # written last, so the export is stale against it
+
+    checks = cli.inspect(
+        str(named),
+        equipped(tmp_path, **{config.ENV_COPY: copy.tree_dir, config.ENV_EXPORT: str(export)}),
+    )
+    line = next(check for check in checks if check.label == "export")
+
+    assert not line.ok, "a stale export reported current is the fail-open, not a nuisance"
+    assert "again" in line.detail, "the remedy is named"
+
+
 def test_our_own_directories_inside_the_copy_do_not_make_the_export_stale(
     tmp_path: Path,
 ) -> None:

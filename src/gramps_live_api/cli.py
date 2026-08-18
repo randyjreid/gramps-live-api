@@ -221,12 +221,26 @@ def inspect(tree: str | None, environ: Mapping[str, str]) -> list[Check]:
             else "not locked",
         )
     )
-    checks.append(_export_check(settings, resolved, environ))
+    checks.append(_export_check(settings, environ))
     return checks
 
 
-def _export_check(settings: config.Settings, copy: str, environ: Mapping[str, str]) -> Check:
+def _export_check(settings: config.Settings, environ: Mapping[str, str]) -> Check:
     """The export ``list_people`` reads, and whether it still speaks for the copy.
+
+    ⚠️ **The copy is read from the SETTINGS here, not passed in, and that is
+    L4.** This used to take ``inspect``'s ``resolved`` -- which is the tree
+    NAMED ON THE COMMAND LINE whenever there is one -- through a parameter
+    called ``copy``. ``docs/using.md`` documents ``check <live tree>`` and tells
+    the owner to run it, so the wrong tree was not a corner: pointing it at a
+    tree touched since the export reported a false staleness, and pointing it at
+    an old scratch tree reported a genuinely stale export as current. **The
+    second direction is the fail-open this whole check exists to forbid.**
+
+    The question is not *is this export newer than whatever you typed*. It is
+    *does this export still speak for the copy ``list_people`` will answer
+    about*, and the copy is a configured value. Taking it as an argument made
+    that a fact about a call site.
 
     ⚠️ **The staleness comparison is a PRIVACY check, and that is why it fails
     the doctor rather than warning inside a passing report.** The two kinds of
@@ -282,6 +296,21 @@ def _export_check(settings: config.Settings, copy: str, environ: Mapping[str, st
     if not os.path.isfile(export):
         return Check("export", False, f"{export} is not a file")
     taken = os.path.getmtime(export)
+    if settings.copy_path is None:
+        # ⚠️ **Nothing to be stale AGAINST, and that is not the same as being
+        # fresh.** ``list_people`` reads the export and needs no copy at all --
+        # a test asserts that -- so this is a real configuration rather than a
+        # half-finished one. What cannot be answered here is the staleness
+        # question, and saying so is the honest report. It is not the forbidden
+        # direction: the fail-open being guarded against is a ``priv`` flag read
+        # out of a snapshot older than the copy, and there is no copy.
+        return Check(
+            "export",
+            True,
+            f"{export} -- no copy is configured, so whether it still speaks for one "
+            "was not compared",
+        )
+    copy = os.path.realpath(settings.copy_path)
     try:
         changed = _copy_touched(copy)
     except OSError as failure:
