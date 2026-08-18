@@ -9,6 +9,13 @@ what the tree receives are the same object.
 Covered here up to the process boundary and no further, exactly as ``test_cli``
 covers ``apply``: the runner is injected. Whether a note reaches a tree is
 observable only where Gramps is, and the demo is what observes it.
+
+⭐ **What this window prints is now the ONLY channel by which any of it reaches
+a person.** The cross-process report the server used to read is deleted, so
+every assertion below is against stdout, stderr and the exit code -- which is
+what the owner has in front of him. The distinctions they carry did not move:
+*committed* versus *refused* is still C1-1's, and it is still the difference
+between an owner who knows what is in his tree and one who does not.
 """
 
 from __future__ import annotations
@@ -127,10 +134,6 @@ def approve(
     return code, out.getvalue(), err.getvalue()
 
 
-def report_of(directory: str, proposal_id: str) -> dict[str, object]:
-    return proposals.Store(directory, session="anything").read_report(proposal_id) or {}
-
-
 # ---------------------------------------------------------------------------
 # The console is the approval
 # ---------------------------------------------------------------------------
@@ -177,7 +180,8 @@ def test_a_declined_proposal_writes_nothing_at_all(tmp_path: Path) -> None:
     assert code != 0
     assert runner.runs == [], "a declined proposal started a Gramps process"
     assert "nothing was written" in out
-    assert report_of(directory, proposal_id)["outcome"] == "declined"
+    assert "press Enter" in out, "the owner is the only reader, so the window holds"
+    assert not Path(directory, f"{proposal_id}.approved.json").exists(), "consumed as declined"
 
 
 def test_the_proposal_is_consumed_before_gramps_is_launched(tmp_path: Path) -> None:
@@ -238,100 +242,105 @@ def test_the_approved_digest_travels_with_every_run(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_a_completed_write_reports_the_note_the_agent_will_relay(tmp_path: Path) -> None:
-    copy, directory, proposal_id = prepared(tmp_path)
+def test_a_completed_write_prints_the_note_the_owner_will_relay(tmp_path: Path) -> None:
+    """The Gramps ID reaches the transcript only if he reads it here and says so."""
+    copy, _, proposal_id = prepared(tmp_path)
 
     code, out, err = approve(proposal_id, tmp_path, copy, runner=Recorder(*written_and_read_back()))
 
     assert code == 0, err
-    report = report_of(directory, proposal_id)
-    assert report["outcome"] == "written"
-    assert report["note_gramps_id"] == "N0021"
+    assert "note N0021 written" in out
     assert "read back from a fresh process" in out
 
 
-def test_an_ambiguous_run_is_reported_rather_than_left_to_be_retried(tmp_path: Path) -> None:
+def test_an_ambiguous_run_is_told_rather_than_left_to_be_retried(tmp_path: Path) -> None:
     """#69's other half: the vocabulary the result marker lacks.
 
     A run that printed no marker may or may not have committed. The proposal is
-    already consumed, so a retry cannot write a second note -- and the agent has
-    to be told that in words rather than handed a failure it will read as
+    already consumed, so a retry cannot write a second note -- and the owner has
+    to be told that in words rather than handed a failure he will read as
     *try again*.
+
+    ⚠️ **The words moved from the report to the screen, and there were more of
+    them in the report than on the screen.** ``err`` used to carry the bare
+    exception while the sentence naming the undo directory went only to the
+    agent. Nobody reads a report now, so it is printed.
     """
-    copy, directory, proposal_id = prepared(tmp_path)
+    copy, _, proposal_id = prepared(tmp_path)
     silent = invocation.Completed(stdout="Gramps says nothing\n", stderr="", returncode=0)
 
     code, _, err = approve(proposal_id, tmp_path, copy, runner=Recorder(silent))
 
     assert code != 0
-    report = report_of(directory, proposal_id)
-    assert report["outcome"] == "unknown"
-    assert apply.UNDO_DIRECTORY in str(report["error"])
-    assert "will not be retried" in str(report["error"])
     assert invocation.MARKER in err, "the underlying message is relayed, not paraphrased"
+    assert "may have committed" in err, "the honest word for a run that printed no marker"
+    assert apply.UNDO_DIRECTORY in err, "where to look"
+    assert "will not be retried" in err
 
 
-def test_a_refusal_from_inside_gramps_reaches_the_report_verbatim(tmp_path: Path) -> None:
-    """#62 is not fixed here and it is now worse, because the message reaches an
-    agent that will paraphrase it. So it is relayed word for word."""
-    copy, directory, proposal_id = prepared(tmp_path)
+def test_a_refusal_from_inside_gramps_reaches_the_console_verbatim(tmp_path: Path) -> None:
+    """#62 is not fixed here, and the message must not be paraphrased on its way
+    to the one person who can act on it."""
+    copy, _, proposal_id = prepared(tmp_path)
     refusal = "UnblessedTree: this tree has not been blessed for writing"
 
-    code, _, err = approve(
+    code, out, err = approve(
         proposal_id, tmp_path, copy, runner=Recorder(marker(ok=False, error=refusal))
     )
 
     assert code != 0
     assert refusal in err
-    report = report_of(directory, proposal_id)
-    assert report["outcome"] == "failed"
-    assert report["error"] == refusal
+    assert "written" not in out, "nothing committed, so nothing may read as committed"
 
 
-def test_a_read_back_that_cannot_launch_is_not_reported_as_a_refusal(tmp_path: Path) -> None:
-    """C1-1, and the exact input that makes an agent propose again.
+def test_a_read_back_that_cannot_launch_is_not_told_as_a_refusal(tmp_path: Path) -> None:
+    """C1-1, and it is the difference between an owner who knows what is in his
+    tree and one who does not.
 
     The apply run committed; the read-back could not start. On Windows that is
     reachable because ``_one_run`` adds ``ENV_HANDLES`` to the verification
     environment, so it can cross the block limit the apply run sat under -- but
     the cause does not matter and the cap is #66, filed and out of scope. What
-    matters is that ``failed`` is what ``APPROVE_DESCRIPTION`` calls a refusal,
-    and a committed note reported as refused is the duplicate-write path slice 2
-    claims to have closed.
+    matters is that a committed note told as *refused* costs him his knowledge
+    of the tree, and loses the handles an undo by hand needs.
+
+    ⚠️ **The word ``failed`` is gone with the vocabulary that defined it. The
+    distinction is not** -- it is now the sentence on the screen, and this
+    asserts the sentence.
     """
-    copy, directory, proposal_id = prepared(tmp_path)
+    copy, _, proposal_id = prepared(tmp_path)
     wrote, _ = written_and_read_back()
     runner = Recorder(wrote, OSError(7, "the environment block is too small"))
 
-    code, _, err = approve(proposal_id, tmp_path, copy, runner=runner)
+    code, out, err = approve(proposal_id, tmp_path, copy, runner=runner)
 
     assert code != 0
-    report = report_of(directory, proposal_id)
-    assert report["outcome"] == "unverified", "a committed note may not be reported as refused"
-    assert report["note_gramps_id"] == "N0021", "the identifiers an undo by hand needs survive"
-    assert apply.UNDO_DIRECTORY in str(report["error"]), "the operator is told where to look"
+    assert "THE NOTE WAS WRITTEN AND THE READ-BACK DID NOT RUN" in err
+    assert "this is not a refusal" in err, "a committed note may not read as refused"
+    assert "note N0021 written" in out, "the identifiers an undo by hand needs survive"
+    assert apply.UNDO_DIRECTORY in err, "the operator is told where to look"
     assert "environment block" in err, "the underlying failure is relayed, not paraphrased"
 
 
-def test_a_read_back_that_prints_no_marker_still_files_a_report(tmp_path: Path) -> None:
+def test_a_read_back_that_prints_no_marker_still_says_the_note_is_in_the_tree(
+    tmp_path: Path,
+) -> None:
     """The same boundary, reached by the other post-commit failure.
 
-    ``NoResultMarker`` from the read-back is not in the set ``_approve``
-    catches, so it escaped past the report entirely: the note was committed, the
-    console printed a traceback-free message and exited, and **no report was
-    filed at all** -- leaving the server to wait out its whole timeout and tell
-    the agent *still_open* about a run that had ended.
+    ``NoResultMarker`` from the read-back was once not in the set ``_approve``
+    caught, so it escaped the reporting entirely: the note was committed, the
+    console printed a message and exited, and nothing said so anywhere. It is
+    caught, and what it prints is the committed sentence rather than a refusal.
     """
-    copy, directory, proposal_id = prepared(tmp_path)
+    copy, _, proposal_id = prepared(tmp_path)
     wrote, _ = written_and_read_back()
     silent = invocation.Completed(stdout="Gramps says nothing\n", stderr="", returncode=0)
 
-    code, _, _ = approve(proposal_id, tmp_path, copy, runner=Recorder(wrote, silent))
+    code, out, err = approve(proposal_id, tmp_path, copy, runner=Recorder(wrote, silent))
 
     assert code != 0
-    report = report_of(directory, proposal_id)
-    assert report.get("outcome") == "unverified", "a post-commit failure files a report"
-    assert report["note_handle"] == "f00d1e5f00d1e5"
+    assert "THE NOTE WAS WRITTEN AND THE READ-BACK DID NOT RUN" in err
+    assert "f00d1e5f00d1e5" in out, "the note handle is on the screen he is reading"
 
 
 def test_the_consumed_proposal_is_still_the_reason_no_second_note_can_arrive(
@@ -346,46 +355,48 @@ def test_the_consumed_proposal_is_still_the_reason_no_second_note_can_arrive(
     ``ProposalNotFound``. A fix that weakened this sentence to one true of both
     callers would have papered over exactly the seam the finding is about.
     """
-    copy, directory, proposal_id = prepared(tmp_path)
+    copy, _, proposal_id = prepared(tmp_path)
     wrote, _ = written_and_read_back()
     silent = invocation.Completed(stdout="Gramps says nothing\n", stderr="", returncode=0)
 
-    approve(proposal_id, tmp_path, copy, runner=Recorder(wrote, silent))
+    _, _, err = approve(proposal_id, tmp_path, copy, runner=Recorder(wrote, silent))
 
-    error = str(report_of(directory, proposal_id)["error"])
-    assert "proposal is consumed" in error
-    assert "second note" in error
-    assert "SECOND note on the person" not in error, "that is the other caller's sentence"
+    assert "proposal is consumed" in err
+    assert "second note" in err
+    assert "SECOND note on the person" not in err, "that is the other caller's sentence"
 
 
-def test_a_write_that_never_launched_is_still_reported_as_a_refusal(tmp_path: Path) -> None:
+def test_a_write_that_never_launched_is_still_told_as_a_refusal(tmp_path: Path) -> None:
     """The other side of C1-1's distinction, and it must not move.
 
-    Nothing committed here, so ``failed`` is the true word and the agent may act
-    on it. A fix that reported every launch failure as *committed but
-    unverified* would have widened the claim it was asked to narrow.
+    Nothing committed here, so the committed sentence would be a lie in the
+    other direction. A repair that told every launch failure as *written but not
+    read back* would have widened the claim it was asked to narrow.
     """
-    copy, directory, proposal_id = prepared(tmp_path)
+    copy, _, proposal_id = prepared(tmp_path)
     runner = Recorder(OSError(7, "the environment block is too small"))
 
-    code, _, _ = approve(proposal_id, tmp_path, copy, runner=runner)
+    code, out, err = approve(proposal_id, tmp_path, copy, runner=runner)
 
     assert code != 0
-    assert report_of(directory, proposal_id)["outcome"] == "failed"
+    assert "environment block" in err
+    assert "THE NOTE WAS WRITTEN" not in err, "nothing committed, so nothing may say it did"
+    assert "written" not in out
 
 
-def test_a_read_back_that_disagrees_is_not_reported_as_written(tmp_path: Path) -> None:
-    copy, directory, proposal_id = prepared(tmp_path)
+def test_a_read_back_that_disagrees_is_not_told_as_written(tmp_path: Path) -> None:
+    copy, _, proposal_id = prepared(tmp_path)
     wrote, _ = written_and_read_back()
     disagrees = marker(ok=True, text_matches=False, attached=True, text="something else")
 
-    code, _, _ = approve(proposal_id, tmp_path, copy, runner=Recorder(wrote, disagrees))
+    code, out, err = approve(proposal_id, tmp_path, copy, runner=Recorder(wrote, disagrees))
 
     assert code != 0
-    assert report_of(directory, proposal_id)["outcome"] == "unverified"
+    assert "the read-back disagrees with what was written" in err
+    assert "read back from a fresh process" not in out, "it did not agree, so it may not say so"
 
 
-def test_a_console_that_fails_after_the_read_back_is_not_reported_as_a_refusal(
+def test_a_console_that_fails_after_the_read_back_does_not_turn_into_a_refusal(
     tmp_path: Path,
 ) -> None:
     """C2-1, and it is inside C1-1's repair rather than beside it.
@@ -393,16 +404,16 @@ def test_a_console_that_fails_after_the_read_back_is_not_reported_as_a_refusal(
     Both markers said ok and the read-back agreed, so the note is in the tree
     and confirmed. Then the success line cannot print. That statement sat
     *after* the post-commit ``try`` ended, so the ``OSError`` reached
-    ``_approve``'s pre-commit handler and filed ``failed`` -- the word
-    ``APPROVE_DESCRIPTION`` defines as *it was refused* -- without the handles,
-    for the most successful run this program has.
+    ``_approve``'s pre-commit handler -- which is the handler that says *the
+    write was refused* -- for the most successful run this program has.
 
-    ⚠️ **A console that broke is not an outcome.** The outcome describes what
-    is in the tree, and printing is how the operator is told about it; a report
-    that downgraded itself because the telling failed would assert something
-    untrue in the other direction.
+    ⚠️ **A console that broke is not an outcome, and the exit code is where
+    that survives the deletion.** ``docs/using.md`` documents zero as *the note
+    is in the tree and a second Gramps process found it again*; a stream that
+    went away is not a reason it stopped being true. This is the assertion the
+    call boundary in ``_write_and_verify`` exists to keep passing.
     """
-    copy, directory, proposal_id = prepared(tmp_path)
+    copy, _, proposal_id = prepared(tmp_path)
     out = Unavailable(failing_on="read back from a fresh process")
 
     code, _, err = approve(
@@ -410,36 +421,38 @@ def test_a_console_that_fails_after_the_read_back_is_not_reported_as_a_refusal(
     )
 
     assert code == 0, err
-    report = report_of(directory, proposal_id)
-    assert report["outcome"] == "written", "a committed and verified note may not read as refused"
-    assert report["note_gramps_id"] == "N0021", "the identifiers an undo by hand needs survive"
+    assert "THE NOTE WAS WRITTEN" not in err, "it was written AND verified; nothing is wrong"
 
 
-def test_a_disagreement_that_cannot_be_printed_is_still_reported_as_unverified(
+def test_a_disagreement_that_cannot_be_printed_does_not_turn_into_a_refusal(
     tmp_path: Path,
 ) -> None:
     """C2-1's other statement, and the finding named it: *printing a
     disagreement has the same routing.*
 
-    The read-back ran and disagreed, which is ``unverified``. The console then
-    fails while saying so, and the exception took the report from *the note is
-    in the tree and does not match* to *the write was refused*.
+    The read-back ran and disagreed -- the note is in the tree and does not
+    match -- and the console then fails while saying so. The exception used to
+    take that all the way to *the write was refused*.
+
+    ⚠️ **R4, and it is a REAL LOSS accepted rather than hidden.** The report
+    used to carry the disagreement even when the printing of it failed. Nobody
+    reads a report now, so a console whose stream breaks while printing this
+    tells nobody anything: what survives is the non-zero exit, the handles
+    already on ``out``, and the undo record on disk.
     """
-    copy, directory, proposal_id = prepared(tmp_path)
+    copy, _, proposal_id = prepared(tmp_path)
     wrote, _ = written_and_read_back()
     disagrees = marker(ok=True, text_matches=False, attached=True, text="something else")
     err = Unavailable(failing_on="the read-back disagrees")
 
-    code, _, _ = approve(proposal_id, tmp_path, copy, runner=Recorder(wrote, disagrees), err=err)
+    code, out, _ = approve(proposal_id, tmp_path, copy, runner=Recorder(wrote, disagrees), err=err)
 
-    assert code != 0
-    report = report_of(directory, proposal_id)
-    assert report["outcome"] == "unverified", "a committed note may not be reported as refused"
-    assert report["note_handle"] == "f00d1e5f00d1e5", "the handles survive the failed printing"
-    assert "read-back disagrees" in str(report["error"]), "the report says what actually happened"
+    assert code != 0, "a disagreement is a non-zero exit whatever the console did"
+    assert "f00d1e5f00d1e5" in out, "the handles were printed before any of this could fail"
+    assert "read back from a fresh process" not in out
 
 
-def test_a_post_commit_failure_reports_even_when_its_own_message_cannot_print(
+def test_a_post_commit_failure_still_exits_when_its_own_message_cannot_print(
     tmp_path: Path,
 ) -> None:
     """⚠️ **The repair's own diagnostic is a post-commit statement too.**
@@ -447,64 +460,63 @@ def test_a_post_commit_failure_reports_even_when_its_own_message_cannot_print(
     C1-1's handler catches the read-back's ``OSError`` and prints an
     explanation. If the console is *why* we are here, that print raises inside
     the ``except`` block, and an exception raised there propagates exactly like
-    the original -- so the handler that exists to prevent ``failed`` produces
-    it. Widening the ``try`` around the statements the finding named would not
-    have touched this, because it is not one of them.
+    the original -- so the handler that exists to prevent a false refusal
+    produces one. Widening the ``try`` around the statements the finding named
+    would not have touched this, because it is not one of them.
     """
-    copy, directory, proposal_id = prepared(tmp_path)
+    copy, _, proposal_id = prepared(tmp_path)
     wrote, _ = written_and_read_back()
     runner = Recorder(wrote, OSError(7, "the environment block is too small"))
     err = Unavailable(failing_on="THE NOTE WAS WRITTEN")
 
-    code, _, _ = approve(proposal_id, tmp_path, copy, runner=runner, err=err)
+    code, out, _ = approve(proposal_id, tmp_path, copy, runner=runner, err=err)
 
     assert code != 0
-    report = report_of(directory, proposal_id)
-    assert report["outcome"] == "unverified", "a committed note may not be reported as refused"
-    assert report["note_gramps_id"] == "N0021", "the identifiers an undo by hand needs survive"
-    assert apply.UNDO_DIRECTORY in str(report["error"]), "the operator is still told where to look"
+    assert "note N0021 written" in out, "the identifiers an undo by hand needs survive"
+    assert "press Enter" in out, "and the window still holds so he can read them"
 
 
-def test_a_console_that_fails_before_the_read_back_reports_unverified_not_written(
+def test_a_console_that_fails_before_the_read_back_says_written_not_refused(
     tmp_path: Path,
 ) -> None:
     """The direction that must NOT move, and it is why printing is not uniformly
     best-effort.
 
-    Here the handles line is what cannot print, so the read-back never launches.
-    ``unverified`` is then literally true -- the note is in the tree and nothing
-    read it back -- and the handler's own words say exactly that. Swallowing
-    this one to keep the outcome ``written`` would claim a read-back that never
+    Here the handles line is what cannot print, so the read-back never launches
+    -- *the note is in the tree and nothing read it back* is then literally
+    true, and the handler's own words say exactly that. Swallowing this one to
+    keep the run reading as a success would claim a read-back that never
     happened, which is C2-1 pointing the other way.
+
+    ⭐ **And this is why the handles are repeated into that message.** ``out``
+    is what broke, so the copy on ``err`` is the only one the owner gets -- the
+    report used to be where they survived.
     """
-    copy, directory, proposal_id = prepared(tmp_path)
+    copy, _, proposal_id = prepared(tmp_path)
     runner = Recorder(*written_and_read_back())
     out = Unavailable(failing_on="note handle")
 
-    code, _, _ = approve(proposal_id, tmp_path, copy, runner=runner, out=out)
+    code, _, err = approve(proposal_id, tmp_path, copy, runner=runner, out=out)
 
     assert code != 0
-    assert len(runner.runs) == 1, "the read-back did not run, which is what unverified means"
-    report = report_of(directory, proposal_id)
-    assert report["outcome"] == "unverified"
-    assert report["note_gramps_id"] == "N0021"
+    assert len(runner.runs) == 1, "the read-back did not run, which is what the message says"
+    assert "THE NOTE WAS WRITTEN AND THE READ-BACK DID NOT RUN" in err
+    assert "note N0021 written" in err, "the identifiers reach the stream that still works"
+    assert apply.UNDO_DIRECTORY in err
 
 
-def test_a_failure_before_the_answer_still_files_a_report(tmp_path: Path) -> None:
-    """L7's fixable half: the PRE-ANSWER region filed nothing at all.
+def test_a_failure_before_the_answer_is_told_and_the_window_holds(tmp_path: Path) -> None:
+    """L7's surviving half, and the deletion PROMOTES it.
 
-    Every failure recorded so far is post-answer -- C1-1, C2-1 and the handlers
-    they built. Everything between the console starting and the owner answering
-    was outside all of it: a corrupt store, a copy that stopped being blessed, a
-    console whose stream broke while printing the prompt. Those raised past
-    ``_approve`` into ``main``, which prints and exits 1 **without filing a
-    report** -- and the server is blocked reading for one, so it waited out its
-    whole timeout and told the agent ``still_open`` about a console that had
-    already gone.
+    Everything between the console starting and the owner answering -- a corrupt
+    store, a copy that stopped being blessed, a stream that broke while printing
+    the prompt -- used to raise past ``_approve`` into ``main``, which prints and
+    exits 1. The other half of that defect was a report the server was blocked
+    reading for; that half is deleted along with the server's waiting.
 
-    The window is held open too. A console that exits the instant it refuses
-    takes the refusal off the screen with it, and the owner is the only reader
-    this window has.
+    ⚠️ **What is left is the window, and it is now the ONLY channel.** A console
+    that exits the instant it refuses takes the refusal off the screen with it,
+    and there is no longer anywhere else the refusal exists.
     """
     copy, directory, proposal_id = prepared(tmp_path)
     path = Path(directory) / f"{proposal_id}.pending.json"
@@ -517,14 +529,8 @@ def test_a_failure_before_the_answer_still_files_a_report(tmp_path: Path) -> Non
 
     assert code != 0
     assert runner.runs == [], "nothing may be written when the store is corrupt"
-    report = report_of(directory, proposal_id)
-    assert report.get("outcome") == "failed", (
-        "a pre-answer failure that files no report leaves the server waiting out its "
-        "whole timeout for an answer that already exists"
-    )
-    assert "digest covers" in str(report["error"]), "the refusal travels verbatim"
+    assert "digest covers" in err, "the refusal travels verbatim"
     assert "press Enter" in out, "the window holds, or the owner never reads the refusal"
-    assert err.strip()
 
 
 def test_a_proposal_nobody_claimed_is_refused_by_name(tmp_path: Path) -> None:

@@ -439,7 +439,7 @@ def _apply(
         print("nothing was written", file=out)
         return 1
 
-    code, _ = _write_and_verify(
+    return _write_and_verify(
         operation,
         runtime,
         copy,
@@ -450,7 +450,6 @@ def _apply(
         err=err,
         runner=runner,
     )
-    return code
 
 
 NO_SECOND_NOTE_FROM_A_PROPOSAL = (
@@ -508,31 +507,34 @@ def _write_and_verify(
     out: TextIO,
     err: TextIO,
     runner: invocation.Runner,
-) -> tuple[int, dict[str, object]]:
+) -> int:
     """Run the write, then the read-back, and say what happened in both places.
 
-    Returns the exit code and a payload the console files as its report -- the
-    same facts, once for a person at a terminal and once for an agent that will
-    relay them. ``outcome`` is the word the agent reads, and it is deliberately
-    not a boolean: *written*, *failed*, *unverified* and *unknown* are four
-    different things to do next.
+    Returns the exit code. **Everything else it has to say, it says to a
+    person** -- there is no report and no agent reading one, so the words on
+    these two streams are the whole of what anybody learns.
 
     ⚠️ **The APPLY RUN'S RESULT MARKER is the line this function is divided by,
     and that division is C1-1.** Two Gramps runs happen here. A failure before
-    the marker is ``failed``, which ``APPROVE_DESCRIPTION`` tells the agent means
-    the write was refused. A failure after it is ``unverified``: the note is in
-    the tree and nothing has read it back. Reporting the second as the first
-    costs the owner his knowledge of what is in the tree, and loses the handles
-    an undo by hand needs, so the two sides are separated structurally rather
-    than by care: everything past the marker is ONE CALL, made inside one
-    ``try`` whose handler cannot say *failed*.
+    the marker is a refusal: nothing was written. A failure after it is not:
+    the note is in the tree and nothing has read it back. Telling the owner the
+    second as the first costs him his knowledge of what is in the tree, and
+    loses the handles an undo by hand needs, so the two sides are separated
+    structurally rather than by care: everything past the marker is ONE CALL,
+    made inside one ``try`` whose handler cannot say *refused*.
+
+    ⚠️ **The DISTINCTION survives the deletion of the vocabulary that named
+    it.** The outcome words -- ``failed``, ``unverified``, ``unknown`` -- are
+    gone with the report they travelled in. What C1-1 is about is not the word;
+    it is that two different facts must not be told as one, and they are now
+    told as two sentences on ``err``.
 
     ⚠️ **A call rather than a block, and that distinction is C2-1.** The first
     repair put the post-marker statements inside a ``try``, and the block then
     ended before the last two of them -- the disagreement message and the
     success line -- so a console that broke while printing either one reached
-    the caller's pre-commit handler and filed ``failed`` for a note that was in
-    the tree and confirmed. A block's boundary is *which statements happen to
+    the caller's pre-commit handler and was told as a refusal, for a note that
+    was in the tree and confirmed. A block's boundary is *which statements happen to
     sit inside it*, which is a fact about where somebody stopped typing; a
     call's boundary is the callee. A statement appended to the end of the
     post-commit body next year is inside the handler by construction, which is
@@ -565,26 +567,27 @@ def _write_and_verify(
             approved_digest=digest,
         )
     except invocation.NoResultMarker as failure:
-        # ⚠️ **#69's vocabulary.** A run that printed no marker may or may not
-        # have committed, and the exit code says nothing here by construction.
-        # The honest report is that it is unknown, that what a re-run would do
-        # is the caller's own answer, and that what settles it is the undo
-        # record on disk.
-        print(failure, file=err)
-        return 1, {
-            "outcome": "unknown",
-            "error": (
-                f"{failure}\nThe write may have committed. {second_note}\nLook in "
-                f"{os.path.join(copy.tree_dir, apply.UNDO_DIRECTORY)} for what happened."
-            ),
-        }
+        # ⚠️ **A run that printed no marker may or may not have committed**, and
+        # the exit code says nothing here by construction. The honest answer is
+        # that nobody knows, that what a re-run would do is this caller's own,
+        # and that what settles it is the undo record on disk.
+        #
+        # ⚠️ **All three sentences are PRINTED now.** Only the first used to
+        # be: the other two went into the report, which is where the server read
+        # them, and the person at the console was told less than the agent was.
+        # There is no report and no agent, so this is the whole audience.
+        print(
+            f"{failure}\nThe write may have committed. {second_note}\nLook in "
+            f"{os.path.join(copy.tree_dir, apply.UNDO_DIRECTORY)} for what happened.",
+            file=err,
+        )
+        return 1
 
     if not written.get("ok"):
-        # ⚠️ Verbatim, never paraphrased. #62's refusal message now reaches an
-        # AGENT, which will summarise it, and the remedy is inside the words.
-        message = str(written.get("error", "the write failed and said nothing"))
-        print(message, file=err)
-        return 1, {"outcome": "failed", "error": message}
+        # ⚠️ Verbatim, never paraphrased. #62's refusal message names the remedy
+        # inside its own words, and the owner is the one who acts on it.
+        print(str(written.get("error", "the write failed and said nothing")), file=err)
+        return 1
 
     # The marker said the write committed. There is no region between this line
     # and the handler below: the whole post-commit body is the call, so nothing
@@ -603,28 +606,36 @@ def _write_and_verify(
             err=err,
         )
     except (invocation.NoResultMarker, apply.ApplyError, schema.SchemaError, OSError) as failure:
-        # ⚠️ **Enumerated, not ``Exception``.** *No post-commit failure is
-        # misreported* is a claim over an unbounded space; what is claimed here
-        # is the bounded one -- these four, which are the set the callers of
-        # this function already catch and turn into ``failed``. Anything else
-        # still escapes to ``main``, and files no report, which is a residual
-        # rather than a fix.
-        report = _committed_report(written, "unverified")
-        report["error"] = (
+        # ⚠️ **Enumerated, not ``Exception``.** *No post-commit failure is told
+        # wrongly* is a claim over an unbounded space; what is claimed here is
+        # the bounded one -- these four, which are the set the callers of this
+        # function already catch and turn into a refusal. Anything else still
+        # escapes to ``main``, which is a residual rather than a fix.
+        #
+        # ⚠️ **The telling is best-effort, because a console that broke is how
+        # this handler gets reached in the first place**: a bare ``print`` would
+        # raise inside the ``except`` and propagate exactly like the original,
+        # so the machinery that exists to prevent a false refusal would produce
+        # one. ⚠️ **And that is R4 in one line: if this stream is the broken
+        # one, nobody is told at all.** The report used to catch part of it.
+        # What is left is the exit code, the handles already on ``out``, and the
+        # undo record on disk.
+        _say(
             f"{failure}\n"
             "THE NOTE WAS WRITTEN AND THE READ-BACK DID NOT RUN. The write reported "
             "success before this failure, so the note is in the tree and nothing here "
             f"has read it back -- this is not a refusal. {second_note}\n"
+            # ⚠️ **Repeated, and that repetition is load-bearing.** These are
+            # printed to ``out`` the moment the marker says the note committed
+            # -- and the failure that brings us here can BE that printing, in
+            # which case this copy is the only one the owner gets. They are what
+            # an undo by hand needs and the one thing he cannot reconstruct.
+            f"{_handles(written)}\n"
             f"Look in {os.path.join(copy.tree_dir, apply.UNDO_DIRECTORY)}, and in the "
-            "tree itself, for what happened."
+            "tree itself, for what happened.",
+            err,
         )
-        # ⚠️ **The report is finished BEFORE the telling is attempted**, and the
-        # telling is best-effort, because a console that broke is how this
-        # handler gets reached in the first place: a ``print`` here would raise
-        # inside the ``except`` and propagate exactly like the original, so the
-        # machinery that exists to prevent ``failed`` would produce it.
-        _say(str(report["error"]), err)
-        return 1, report
+        return 1
 
 
 def _after_commit(
@@ -639,7 +650,7 @@ def _after_commit(
     digest: str,
     out: TextIO,
     err: TextIO,
-) -> tuple[int, dict[str, object]]:
+) -> int:
     """Read the note back, and say what both runs found. **All of it post-commit.**
 
     ⚠️ **This is a function so that its caller's handler has a boundary nobody
@@ -651,16 +662,14 @@ def _after_commit(
     ⚠️ **Which is why nothing PAST the read-back is allowed to raise.** Once
     ``_one_run`` returns, the caller's verdict -- *the read-back did not run* --
     has stopped being true, so a statement down there that could reach it would
-    file a report contradicting itself. What is left past it is lookups on a
+    print a sentence contradicting itself. What is left past it is lookups on a
     ``dict`` (``result_of`` refuses a marker that is not an object) and
     best-effort ``_say``. **That is a claim about the statements written below,
     checkable by reading them -- not a claim that nothing here can fail**, and
     it is the obligation anything added after ``_one_run`` inherits.
     """
     code = 0
-    print(f"note {written.get('note_gramps_id')} written", file=out)
-    print(f"  note handle   {written.get('note_handle')}", file=out)
-    print(f"  person handle {written.get('person_handle')}", file=out)
+    print(_handles(written), file=out)
     if written.get("record_error"):
         # The commit stands. Rolling it back would be a second write nobody
         # approved, and the handles above are the part that cannot be
@@ -674,9 +683,9 @@ def _after_commit(
         code = 1
 
     # ⚠️ **The printing above is NOT best-effort, and the asymmetry is the
-    # point.** A console that fails here leaves the read-back unlaunched, so
-    # ``unverified`` is literally true and the handler's own words are the right
-    # ones. Below, it would be false.
+    # point.** A console that fails here leaves the read-back unlaunched, so the
+    # handler's *the note is in the tree and nothing read it back* is literally
+    # true and its words are the right ones. Below, they would be false.
     seen = _one_run(
         runner,
         runtime,
@@ -692,34 +701,32 @@ def _after_commit(
         },
     )
     if not (seen.get("ok") and seen.get("text_matches") and seen.get("attached")):
-        report = _committed_report(written, "unverified")
-        report["error"] = (
+        _say(
             "the read-back disagrees with what was written: "
-            f"text matches={seen.get('text_matches')}, on the person={seen.get('attached')}"
+            f"text matches={seen.get('text_matches')}, on the person={seen.get('attached')}",
+            err,
         )
-        _say(str(report["error"]), err)
-        return 1, report
+        return 1
     _say(f"read back from a fresh process: {seen.get('text')!r}", out)
-    return code, _committed_report(written, "written")
+    return code
 
 
-def _committed_report(written: Mapping[str, object], outcome: str) -> dict[str, object]:
+def _handles(written: Mapping[str, object]) -> str:
     """What an operator needs about a note the marker said committed.
 
-    Built the same way down every path out of the post-commit body, including
-    the failing ones: the handles are what an undo by hand needs and this report
-    is the only place they exist once the window is gone. ``outcome`` is passed
-    rather than defaulted so that no path can file the word by forgetting to
-    change it.
+    ⚠️ **The only place these exist once the window is gone.** The note's
+    Gramps ID and the two handles cannot be reconstructed from anything else in
+    the room -- the undo record on disk is what remains, and this is what he
+    reads off the screen while it is in front of him.
+
+    Built once and printed down every path out of the post-commit body,
+    including the failing ones, so no path can lose them by forgetting.
     """
-    return {
-        "outcome": outcome,
-        "note_gramps_id": written.get("note_gramps_id"),
-        "note_handle": written.get("note_handle"),
-        "person_handle": written.get("person_handle"),
-        "record": written.get("record"),
-        "record_error": written.get("record_error"),
-    }
+    return (
+        f"note {written.get('note_gramps_id')} written\n"
+        f"  note handle   {written.get('note_handle')}\n"
+        f"  person handle {written.get('person_handle')}"
+    )
 
 
 def _say(message: str, stream: TextIO) -> None:
@@ -729,8 +736,15 @@ def _say(message: str, stream: TextIO) -> None:
     An outcome describes what is in the tree; printing is how a person is told
     about it. A console that has gone away is a reason the telling fails, never
     a reason the note stopped being written -- and C2-1 is exactly what happens
-    when the two are allowed to be the same exception. The record survives on
-    disk in the report, which is what the server is blocked reading for.
+    when the two are allowed to be the same exception. What survives it is the
+    **exit code**, whose meaning ``docs/using.md`` documents, and the undo and
+    result records on disk.
+
+    ⚠️ **R4, said here rather than left to be discovered.** There used to be a
+    report as well, so a broken stream lost the telling and not the account.
+    There is no report now: **a console whose stream breaks while printing this
+    tells nobody anything.** That is a real loss, accepted -- the human is the
+    only reader, and a broken console has no reader.
 
     ⚠️ **``OSError`` only, which is the bounded set the post-commit handler
     already names.** A stream that is *closed* rather than broken raises
@@ -770,14 +784,14 @@ def _approve(
     ``approve`` meets ``ProposalNotFound``. A second note needs a second
     proposal, a second console and **a second human yes**.
 
-    ⚠️ **Every region of this function files a report, and the PRE-ANSWER one
-    did not -- that is L7.** The recorded failures are all post-answer: C1-1,
-    C2-1 and the handlers they built. Between the console starting and the owner
-    answering there was nothing -- a corrupt store, a copy that stopped being
-    blessed, a console whose stream broke while printing the prompt, all raised
-    past this function into ``main``, which prints and exits 1 and files
-    nothing. **The server is blocked reading for a report**, so it waited out its
-    whole timeout and reported ``still_open`` about a console that had ended.
+    ⭐ **NOTHING LEAVES THIS PROCESS BUT AN EXIT CODE, and the window is the
+    channel.** There is no report file and no server waiting on one: what the
+    owner reads here is the only account of what happened, and the only route
+    from it to the transcript is him saying so. Which is why every region below
+    ends at ``_closed`` rather than letting an exception reach ``main`` -- a
+    console that exits the instant it refuses takes the refusal off the screen
+    with it. That was L7's second half, and the deletion promotes it from a
+    courtesy to the whole mechanism.
     """
     settings = config.load(environ)
     if settings.copy_path is None:
@@ -801,24 +815,21 @@ def _approve(
         out.flush()
         answered = stdin.readline()
     except (proposals.ProposalError, schema.SchemaError, apply.ApplyError, OSError) as failure:
-        # ⚠️ **``failed`` is the true word here, and the region is what makes it
-        # true.** Nothing past this point has run, so nothing has been written
-        # -- which is exactly what ``APPROVE_DESCRIPTION`` tells the agent the
-        # word means. It is the post-commit region where ``failed`` would be the
-        # lie, and that region is below and unchanged.
-        _filed(store, proposal_id, {"outcome": "failed", "error": str(failure)})
+        # ⚠️ **A refusal is the true thing to say here, and the region is what
+        # makes it true.** Nothing past this point has run, so nothing has been
+        # written. It is the post-commit region where the same sentence would be
+        # the lie, and that region is below and unchanged.
         _say(str(failure), err)
         return _closed(stdin, out, 1)
 
     if answered.strip().lower() not in {"y", "yes"}:
         store.consume(proposal_id, approved=False)
-        store.write_report(proposal_id, {"outcome": "declined"})
         print("nothing was written", file=out)
         return _closed(stdin, out, 1)
 
     store.consume(proposal_id, approved=True)
     try:
-        code, report = _write_and_verify(
+        code = _write_and_verify(
             operation,
             runtime,
             copy,
@@ -830,34 +841,16 @@ def _approve(
             runner=runner,
         )
     except (apply.ApplyError, schema.SchemaError, OSError) as failure:
-        # ⚠️ **A report is filed even here, and that is not tidiness.** The
-        # server is blocked reading for one, and a failure that files none
-        # leaves it waiting out its whole timeout for an answer that already
-        # exists -- reporting *still open* over a run that ended.
-        store.write_report(proposal_id, {"outcome": "failed", "error": str(failure)})
+        # ⚠️ **This handler is kept, and the plan proposed deleting it with the
+        # report write it used to carry.** Without it a launch failure -- the
+        # apply run's own ``OSError``, which ``_write_and_verify`` does not
+        # catch -- escapes to ``main``, which prints and returns 1 without
+        # reaching ``_closed``. The window would then vanish with the message
+        # still on it, and there is no longer anywhere else the message exists.
         print(failure, file=err)
         return _closed(stdin, out, 1)
 
-    store.write_report(proposal_id, report)
     return _closed(stdin, out, code)
-
-
-def _filed(store: proposals.Store, proposal_id: str, payload: dict[str, object]) -> None:
-    """File a report, best-effort. **A failure to file may not replace what failed.**
-
-    ⚠️ **The suppression is the point, and it is ``_say``'s argument one layer
-    out.** This is called from a handler that already holds a failure worth
-    telling somebody about; a report write that raised in there would propagate
-    exactly like the original and lose it. The residual is the one already
-    recorded and unchanged: **no report can record its own failure to be
-    written.**
-
-    ``ProposalError`` as well as ``OSError`` because ``Store`` wraps the second
-    in the first, and because an id that is not the shape the store mints has no
-    path to write to at all -- which is a refusal, not a reason to lose it.
-    """
-    with contextlib.suppress(proposals.ProposalError, OSError):
-        store.write_report(proposal_id, payload)
 
 
 def _closed(stdin: TextIO, out: TextIO, code: int) -> int:
@@ -866,6 +859,10 @@ def _closed(stdin: TextIO, out: TextIO, code: int) -> int:
     A console the server spawned closes the instant its process exits, taking
     the note's identifiers and any refusal with it. The owner is the only reader
     this window has.
+
+    ⭐ **Promoted by the deletion.** It was a courtesy while a report carried
+    the same facts to the server; it is now the only channel by which any of
+    them reaches anybody at all.
     """
     print("\npress Enter to close this window ", end="", file=out)
     out.flush()
