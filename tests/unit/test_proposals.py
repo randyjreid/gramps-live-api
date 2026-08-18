@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import builtins
 import json
+import os
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -80,6 +81,25 @@ def deny_reading(monkeypatch: pytest.MonkeyPatch, proposal_id: str) -> None:
     monkeypatch.setattr(builtins, "open", guarded)
 
 
+def fail_the_claim_rename(monkeypatch: pytest.MonkeyPatch, lost: OSError) -> None:
+    """Make only the CLAIM rename fail -- the one landing at ``.pending.json``.
+
+    ⚠️ **Concurrency is argued, not simulated.** A two-process race is not
+    reproducible on CI, so the loser's behaviour is tested by injecting the
+    rename failure the argument rests on. The burn and rollback renames are
+    left working, or the test would be about a store with no renames at all
+    rather than about a caller that lost one.
+    """
+    real = os.rename
+
+    def guarded(source: Any, destination: Any, *args: Any, **kwargs: Any) -> Any:
+        if str(destination).endswith(proposals._PENDING):
+            raise lost
+        return real(source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(os, "rename", guarded)
+
+
 # ---------------------------------------------------------------------------
 # Minting
 # ---------------------------------------------------------------------------
@@ -108,6 +128,27 @@ def test_a_claim_takes_the_proposal_out_of_reach_of_a_second_claim(tmp_path: Pat
     made._claim(proposal.id, proposal.approval_digest)
     with pytest.raises(proposals.ProposalNotFound):
         made._claim(proposal.id, proposal.approval_digest)
+
+
+def test_a_second_claim_is_told_a_retry_lands_here(tmp_path: Path) -> None:
+    """The sentence #69's disposition rests on, and reading first MOVED it.
+
+    It used to come from ``_take``, which was the first thing a claim did and
+    so was where a consumed proposal was noticed. ``_take`` is now the *last*
+    thing, and a consumed proposal is noticed by the read -- so the sentence
+    has to live there or an agent that retries gets a bare strerror instead of
+    the one refusal ``docs/slice2-mcp.md`` quotes.
+    """
+    made, proposal = minted(tmp_path)
+    made._claim(proposal.id, proposal.approval_digest)
+
+    with pytest.raises(proposals.ProposalNotFound) as refusal:
+        made._claim(proposal.id, proposal.approval_digest)
+
+    message = str(refusal.value)
+    assert "no proposal is awaiting approval under that name" in message
+    assert "One approve consumes one proposal" in message
+    assert "propose again" in message
 
 
 def test_a_proposal_consumed_after_yes_cannot_be_claimed_again(tmp_path: Path) -> None:
@@ -202,6 +243,45 @@ def test_a_proposal_that_could_not_be_read_is_not_reported_as_not_found(
     assert "propose" not in message.lower(), (
         "propose-again is the one instruction that turns this failure into a loop"
     )
+
+
+@pytest.mark.parametrize(
+    "lost",
+    [
+        FileNotFoundError(2, "the system cannot find the file specified"),
+        PermissionError(32, "the file is in use by another process"),
+    ],
+    ids=["the source had already moved", "the other caller still held it open"],
+)
+def test_a_claim_rename_that_fails_did_not_get_the_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lost: OSError
+) -> None:
+    """⚠️ **Where a careless implementation silently loses mutual exclusion.**
+
+    The rename **is** the exclusion, so its failure is the whole of losing.
+    Both spellings are covered by one rule -- *any* ``OSError`` out of the claim
+    rename means the claim was not obtained -- rather than by telling them
+    apart: ``FileNotFoundError`` when the winner's rename already moved the
+    source, and on Windows ``PermissionError`` (``ERROR_SHARING_VIOLATION``)
+    while the winner still holds the file open for its read, which is new to
+    reading first because ``open`` omits ``FILE_SHARE_DELETE``.
+
+    ⚠️ **Suppressing it the way ``_refuse`` and ``_rollback`` suppress theirs
+    would let a caller that renamed nothing go on and open a console** -- two
+    consoles for one proposal, and #69's bounded claim gone with no error
+    anywhere. That is what ``opened == []`` is here to catch.
+    """
+    made, proposal = minted(tmp_path)
+    fail_the_claim_rename(monkeypatch, lost)
+    opened: list[str] = []
+
+    with pytest.raises(proposals.ProposalError) as refusal:
+        made.claim_then(proposal.id, proposal.approval_digest, lambda: opened.append("a window"))
+
+    assert opened == [], "a caller that did not get the claim followed through anyway"
+    assert "claimed by another approve" in str(refusal.value)
+    assert not Path(made.path_of(proposal.id, ".pending.json")).exists()
+    assert Path(made.path_of(proposal.id)).is_file(), "nothing was renamed, so nothing was burnt"
 
 
 # ---------------------------------------------------------------------------

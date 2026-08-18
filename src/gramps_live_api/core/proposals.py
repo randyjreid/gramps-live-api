@@ -555,8 +555,9 @@ class Store:
             self._move(proposal_id, ".json", _PENDING)
         except OSError as failure:
             raise ProposalNotFound(
-                f"{proposal_id}: no proposal is awaiting approval under that name. "
-                "One approve consumes one proposal, so a retry lands here -- propose again."
+                f"{proposal_id}: this proposal was claimed by another approve, so this call "
+                "did not get it and nothing was written. One approve consumes one proposal "
+                "-- propose again."
             ) from failure
 
     def _move(self, proposal_id: str, was: str, becomes: str) -> str:
@@ -594,7 +595,10 @@ class Store:
             with open(self.path_of(proposal_id, was), encoding="utf-8") as handle:
                 record = json.load(handle)
         except FileNotFoundError as failure:
-            raise ProposalNotFound(f"{proposal_id}: {failure.strerror or failure}") from failure
+            raise ProposalNotFound(
+                f"{proposal_id}: no proposal is awaiting approval under that name. "
+                "One approve consumes one proposal, so a retry lands here -- propose again."
+            ) from failure
         except OSError as failure:
             raise ProposalUnreadable(
                 f"{proposal_id}: the proposal is still here and still approvable, but this "
