@@ -471,3 +471,54 @@ record — re-finding C1-1, C1-2, C1-3, C2-1 or L1–L8 is still a re-find.
 
 **That is a use-derived trigger, recorded before the fact**, which is the shape this project requires
 before hardening work is scheduled.
+
+---
+
+## Codex round 1 (post-reset) — 1 finding, verified, BLOCKING
+
+Head `8a01dc4`. **Nothing dispositioned was re-found** — the reset count did not reset the record and
+the reviewer respected it.
+
+### E-1 — [P1] A post-rename read failure strands the claim — `core/proposals.py`
+
+> When the proposal directory permits create/write/rename but denies reading the created files — or a
+> Windows sharing lock permits delete but not read — `_take` moves a valid proposal to
+> `.pending.json`, then `_parsed` raises `ProposalNotFound`. Because `_claim` runs before this `try`,
+> the follow-through never runs and no restoration is attempted, so no console opens and **the same
+> filesystem state burns every newly proposed ID**, recreating the loop the last-irreversible-step
+> invariant is intended to eliminate.
+
+**Verified.** `claim_then` is `self._claim(...)` followed by `try: follow_through() except Exception:
+self._rollback(...)`. `_claim` renames **first** — deliberately, since the rename *is* the mutual
+exclusion — then validates. A failure during that validation raises from `_claim`, which is **outside**
+the try, so no rollback runs.
+
+⚠️ **The distinction the code cannot currently draw** is between two things that both surface as an
+exception out of `_claim`:
+
+| | Burn is | Because |
+| --- | --- | --- |
+| a **deliberate refusal** — wrong digest, expired, wrong session, corrupt | **accepted, by design** | *"any claim consumes the proposal, including a refused one"* — a one-off cost, and the agent proposes again |
+| an **environmental read failure** — ACL, sharing lock | **a loop** | the same filesystem state burns *every* new proposal, forever |
+
+⚠️ **Same shape as C2-1 and D-1: the boundary is one statement off.** `_claim` does two things — an
+irreversible rename and a fallible read — and the invariant's protection starts after both.
+
+---
+
+## ⛔ STOP — the owner's stop rule fires again. No fix round is dispatched.
+
+The rule carried forward: **a finding in the console/claim machinery after the deletion comes to the
+owner as a design question, not a fix round.**
+
+⚠️ **And the owner's own note on what would make this different applies:** after the deletion that
+machinery is **a spawn, a claim and a rollback** — small enough to read in one sitting, which was the
+point. **This finding is inside `claim_then`/`_claim`/`_rollback` and nothing else.**
+
+### Round counts (post-reset)
+
+| Reviewer | Rounds |
+| --- | --- |
+| Codex | **1** |
+| Claude `/code-review` | 0 — owed one scoped delta via `--resume` |
+| PR bot | 0 |
