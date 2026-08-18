@@ -111,6 +111,25 @@ class ProposalNotFound(ProposalError):
     """
 
 
+class ProposalUnreadable(ProposalError):
+    """The proposal is still here and still approvable; this host could not read it.
+
+    ⚠️ **Deliberately NOT a ``ProposalNotFound``, and that is the half of E-1
+    that closes the finding.** Reading the file before renaming it stops the
+    burn; it does not stop the *loop*, because ``ProposalNotFound``'s whole
+    message vocabulary tells the agent to propose again -- and a fresh proposal
+    lands in the same directory, under the same ACL or the same lock, and reads
+    the same way. Nothing is consumed by this refusal: the proposal is still at
+    ``.json``, and the same id becomes approvable the moment the permission or
+    the lock is fixed.
+
+    ⚠️ **A type rather than a corrected message**, because ``docs/slice2-mcp.md``
+    enumerates refusals by type and both callers catch ``ProposalError``
+    broadly, so the type is the only thing anything downstream can discriminate
+    on later. *Not found* is also simply false about a file that was found.
+    """
+
+
 class ProposalExpired(ProposalError):
     """It was minted too long ago to still stand for a decision."""
 
@@ -574,8 +593,15 @@ class Store:
         try:
             with open(self.path_of(proposal_id, was), encoding="utf-8") as handle:
                 record = json.load(handle)
-        except OSError as failure:
+        except FileNotFoundError as failure:
             raise ProposalNotFound(f"{proposal_id}: {failure.strerror or failure}") from failure
+        except OSError as failure:
+            raise ProposalUnreadable(
+                f"{proposal_id}: the proposal is still here and still approvable, but this "
+                f"host could not read it: {failure.strerror or failure}. Nothing was "
+                "consumed. Fix the permission or the lock and approve the same id again -- a "
+                "new one would land in the same directory and read the same way."
+            ) from failure
         except json.JSONDecodeError as failure:
             self._refuse(
                 proposal_id,

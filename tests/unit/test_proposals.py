@@ -171,6 +171,39 @@ def test_an_unreadable_proposal_is_not_burnt(
     assert Path(made.path_of(proposal.id)).is_file(), "the proposal must survive a host's failure"
 
 
+def test_a_proposal_that_could_not_be_read_is_not_reported_as_not_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⭐ **Reading first stops the burn. It does not stop the LOOP.**
+
+    ``ProposalNotFound``'s whole vocabulary tells the agent to propose again,
+    and a fresh proposal lands in the same directory under the same ACL and
+    reads the same way -- so the wrong type turns an environmental failure into
+    an instruction to repeat it forever. *Not found* is also simply false about
+    a file that was found and could not be read.
+
+    The remedy this one names is the opposite: fix the host, approve **the same
+    id**. Asserted as a frozen sentence, in the idiom ``APPROVE_DESCRIPTION``'s
+    own test uses, because the message is the entire interface an agent has.
+    """
+    made, proposal = minted(tmp_path)
+    deny_reading(monkeypatch, proposal.id)
+
+    with pytest.raises(proposals.ProposalUnreadable) as refusal:
+        made._claim(proposal.id, proposal.approval_digest)
+
+    assert not isinstance(refusal.value, proposals.ProposalNotFound), (
+        "a subclass would let every ProposalNotFound handler swallow it again"
+    )
+    message = str(refusal.value)
+    assert proposal.id in message
+    assert "approve the same id again" in message, "the remedy names THIS id"
+    assert "nothing was consumed" in message.lower()
+    assert "propose" not in message.lower(), (
+        "propose-again is the one instruction that turns this failure into a loop"
+    )
+
+
 # ---------------------------------------------------------------------------
 # The six ways of naming it wrongly
 # ---------------------------------------------------------------------------
@@ -324,12 +357,20 @@ def test_the_two_approval_refusals_are_not_the_same_event(
 
 
 def test_every_refusal_says_something_different(tmp_path: Path) -> None:
-    """Eight refusals, eight messages. A caller that gets the same sentence for
-    two causes has been told nothing it can act on."""
+    """Seven ways of naming a stored proposal wrongly, seven distinct types.
+
+    ⚠️ **This asserts the TYPES are distinct, and its own name overstates it.**
+    ``str(cls("x"))`` is ``"x"`` for every one of them, so the set below is a
+    set of class names; what the sentences say is asserted by the tests that
+    raise them for real. Left as it is and said plainly rather than quietly
+    widened, because a caller discriminates on the type -- both callers catch
+    ``ProposalError`` broadly -- and that is what this is worth.
+    """
     messages = {
         cls.__name__: str(cls("x"))
         for cls in (
             proposals.ProposalNotFound,
+            proposals.ProposalUnreadable,
             proposals.ProposalExpired,
             proposals.ProposalFromAnotherSession,
             proposals.ApprovalRulesChanged,
@@ -337,7 +378,7 @@ def test_every_refusal_says_something_different(tmp_path: Path) -> None:
             proposals.ProposalCorrupt,
         )
     }
-    assert len(set(messages)) == 6
+    assert len(set(messages)) == 7
 
 
 # ---------------------------------------------------------------------------
