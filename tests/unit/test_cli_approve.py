@@ -15,8 +15,11 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+
+import pytest
 
 from gramps_live_api import cli, config, invocation
 from gramps_live_api.core import apply, proposals, schema
@@ -400,6 +403,39 @@ def test_check_reports_an_export_older_than_the_copy_as_stale(tmp_path: Path) ->
     assert not line.ok
     assert "export" in line.detail.lower()
     assert "again" in line.detail, "the remedy is named"
+
+
+def test_an_unreadable_copy_fails_the_export_check_rather_than_passing_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C1-2, and ``_export_check``'s own docstring is what it breaks.
+
+    An ACL can permit access to known files while denying the directory listing,
+    and then ``os.scandir`` -- or an entry's ``stat`` -- raises. Freshness is
+    then unknown, and the docstring says which way unknown has to be wrong:
+    *toward re-export, never toward the flag you are reading is current.*
+    """
+    copy = blessed(tmp_path / "tree")
+    export = tmp_path / "tree.gramps"
+    export.write_text("<database/>", encoding="utf-8")
+    listing = os.scandir
+    denied = os.path.realpath(copy.tree_dir)
+
+    def refuse(path: object = ".") -> object:
+        if os.path.realpath(str(path)) == denied:
+            raise PermissionError(13, "the directory may not be listed")
+        return listing(str(path))
+
+    monkeypatch.setattr(os, "scandir", refuse)
+
+    checks = cli.inspect(
+        None, equipped(tmp_path, **{config.ENV_COPY: copy.tree_dir, config.ENV_EXPORT: str(export)})
+    )
+    line = next(check for check in checks if check.label == "export")
+
+    assert not line.ok, "freshness that could not be read may not report as current"
+    assert "could not be established" in line.detail
+    assert "older than the copy" not in line.detail, "unreadable and stale are not one state"
 
 
 def test_our_own_directories_inside_the_copy_do_not_make_the_export_stale(

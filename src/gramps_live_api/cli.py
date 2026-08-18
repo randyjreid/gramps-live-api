@@ -244,6 +244,13 @@ def _export_check(settings: config.Settings, copy: str, environ: Mapping[str, st
     Gramps merely opened -- the lock file is touched either way. That direction
     is deliberate: this answer has to be wrong toward *re-export*, never toward
     *the flag you are reading is current*.
+
+    ⚠️ **So freshness that cannot be READ fails too**, and it says so in
+    different words from a genuinely stale export. An ACL can permit access to
+    known files while denying the listing; the comparison then has no left-hand
+    side, and reporting *ready* over it is the sentence above being false in the
+    forbidden direction. Two states, two messages, because the remedies differ:
+    one is *export again*, the other is *this cannot be checked at all*.
     """
     if settings.export_path is None:
         return Check(
@@ -257,7 +264,18 @@ def _export_check(settings: config.Settings, copy: str, environ: Mapping[str, st
     if not os.path.isfile(export):
         return Check("export", False, f"{export} is not a file")
     taken = os.path.getmtime(export)
-    changed = _copy_touched(copy)
+    try:
+        changed = _copy_touched(copy)
+    except OSError as failure:
+        return Check(
+            "export",
+            False,
+            f"whether {export} still speaks for the copy could not be established: "
+            f"{copy} could not be read -- {failure.strerror or failure}. The privacy "
+            "flag the export carries may already be stale and nothing here can tell, "
+            "so this fails rather than call an export current that it did not check. "
+            "Make the copy's own files readable",
+        )
     if changed is not None and changed > taken:
         return Check(
             "export",
@@ -270,18 +288,20 @@ def _export_check(settings: config.Settings, copy: str, environ: Mapping[str, st
 
 
 def _copy_touched(copy: str) -> float | None:
-    """When the copy's own files were last written, or ``None`` if none can be read.
+    """When the copy's own files were last written, or ``None`` if it holds none.
 
     Non-recursive on purpose. See ``_export_check``.
+
+    ⚠️ **A copy that cannot be READ raises rather than answering ``None``**, and
+    the two were the same answer until C1-2. *Nothing in it was written* and *it
+    could not be listed* are different facts with opposite consequences: the
+    first is evidence the export is still current, the second is the absence of
+    any evidence at all, and collapsing them let ``check`` print **ready** over
+    a freshness comparison it had never made.
     """
-    try:
-        stamps = [
-            entry.stat().st_mtime
-            for entry in os.scandir(copy)
-            if entry.is_file(follow_symlinks=False)
-        ]
-    except OSError:
-        return None
+    stamps = [
+        entry.stat().st_mtime for entry in os.scandir(copy) if entry.is_file(follow_symlinks=False)
+    ]
     return max(stamps) if stamps else None
 
 
