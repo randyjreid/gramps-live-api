@@ -19,6 +19,7 @@ import tracemalloc
 from pathlib import Path
 
 from gramps_live_api.core import people
+from gramps_live_api.core._specified_containers import SPECIFIED_ATTRIBUTES
 from tests.fixtures import synthetic
 
 
@@ -138,6 +139,136 @@ def test_a_person_with_no_birth_event_at_all_has_no_birth(tmp_path: Path) -> Non
     person = only(tmp_path, one_person())
     assert person.birth_year is None
     assert person.birth_display == ""
+
+
+# ---------------------------------------------------------------------------
+# The qualifiers the record puts ON a date shape
+#
+# ``birth_display`` is the lossless half of the pair, so a qualifier dropped
+# from it is the record asserting one thing and the label saying another. The
+# set is not written here: it is the schema's, minus what this reader already
+# reads as the date, and the binding test at the end of this block is what makes
+# that true rather than claimed.
+# ---------------------------------------------------------------------------
+
+
+def test_an_estimated_date_does_not_read_as_an_exact_one(tmp_path: Path) -> None:
+    """The finding. Two different records must not produce one label.
+
+    The value is carried as the record spelled it, capital and all: normalising
+    it would be the reader deciding what ``Estimated`` means, which is the date
+    model #21 is for.
+    """
+    estimated = only(tmp_path, with_a_birth(synthetic.gramps_dateval("1856", quality="Estimated")))
+    exact = only(tmp_path, with_a_birth(synthetic.gramps_dateval("1856")))
+    assert estimated.birth_display == "1856 [quality=Estimated]"
+    assert exact.birth_display == "1856"
+    assert estimated.birth_year == exact.birth_year == 1856, "the sortable half does not move"
+
+
+def test_a_date_the_record_calls_approximate_does_not_read_as_a_point(tmp_path: Path) -> None:
+    """``type`` is the other half of the same defect: ``before 1856`` is not
+    ``1856``, and only ``dateval`` declares the attribute."""
+    person = only(tmp_path, with_a_birth(synthetic.gramps_dateval("1856", type="before")))
+    assert person.birth_display == "1856 [type=before]"
+    assert person.birth_year == 1856
+
+
+def test_the_qualifiers_read_in_the_schemas_order_not_the_documents(tmp_path: Path) -> None:
+    """⚠️ **The order is the SCHEMA's.** Attribute order in a document is not
+    significant in XML and ``iterparse`` hands it back as written, so a label
+    built in document order would give two spellings of one date two labels --
+    the "definition supplied by the surroundings" failure this reader's own
+    local-name matching exists to avoid. Written here scrambled on purpose.
+    """
+    person = only(
+        tmp_path,
+        with_a_birth(
+            synthetic.gramps_dateval(
+                "1712",
+                newyear="Mar25",
+                quality="calculated",
+                dualdated="1",
+                cformat="Julian",
+                type="about",
+            )
+        ),
+    )
+    assert person.birth_display == (
+        "1712 [type=about, quality=calculated, cformat=Julian, dualdated=1, newyear=Mar25]"
+    )
+    assert person.birth_year == 1712
+
+
+def test_a_range_and_a_span_carry_their_qualifiers_too(tmp_path: Path) -> None:
+    """The identical defect in the adjacent branch: ``_spanning`` dropped these
+    for exactly the reason ``_date`` dropped ``quality``."""
+    ranged = only(
+        tmp_path, with_a_birth(synthetic.gramps_daterange("1850", "1860", quality="estimated"))
+    )
+    spanned = only(
+        tmp_path, with_a_birth(synthetic.gramps_datespan("1850", "1860", cformat="Julian"))
+    )
+    assert ranged.birth_display == "between 1850 and 1860 [quality=estimated]"
+    assert spanned.birth_display == "from 1850 to 1860 [cformat=Julian]"
+    assert ranged.birth_year == spanned.birth_year == 1850
+
+
+def test_a_one_ended_range_keeps_its_qualifiers(tmp_path: Path) -> None:
+    """The branch where ``_spanning`` returns the start alone is a third place
+    the suffix has to reach, and it is the one a shape-by-shape fix misses."""
+    person = only(
+        tmp_path, with_a_birth(synthetic.gramps_daterange("1850", "", quality="estimated"))
+    )
+    assert person.birth_display == "1850 [quality=estimated]"
+
+
+def test_a_daterange_has_no_type_because_the_schema_declares_none(tmp_path: Path) -> None:
+    """⚠️ **Not every attribute present is a qualifier.** ``type`` is declared on
+    ``dateval`` and on nothing else here, so a hand-written one on a range is not
+    part of the record's date and is not promoted into the label by symmetry.
+    """
+    person = only(tmp_path, with_a_birth(synthetic.gramps_daterange("1850", "1860", type="before")))
+    assert person.birth_display == "between 1850 and 1860"
+
+
+def test_a_datestr_carries_no_qualifiers_because_the_schema_declares_none(tmp_path: Path) -> None:
+    """``datestr`` is declared ``val CDATA #REQUIRED`` and nothing else, so the
+    branch that was already lossless stays byte-for-byte what it was."""
+    person = only(
+        tmp_path,
+        with_a_birth(synthetic.gramps_datestr("in the year of the flood", quality="estimated")),
+    )
+    assert person.birth_display == "in the year of the flood"
+
+
+def test_a_qualifier_on_a_valueless_date_is_still_not_dropped(tmp_path: Path) -> None:
+    """A date element with no value is not *nothing recorded*, and the empty
+    label is reserved for the record that carries no date element at all."""
+    valueless = only(tmp_path, with_a_birth(synthetic.gramps_dateval("", quality="estimated")))
+    absent = only(tmp_path, with_a_birth(""))
+    assert valueless.birth_year is None and absent.birth_year is None
+    assert valueless.birth_display == "[quality=estimated]"
+    assert absent.birth_display == "", "nothing recorded still renders as nothing"
+
+
+def test_the_qualifier_set_is_the_schemas_minus_what_is_read_as_the_date() -> None:
+    """⚠️ **This is what makes the two tables in ``people`` derived rather than
+    remembered.** They are composed constants bound by test to the frozen,
+    digest-pinned table -- which is what "derived" means here, per the note in
+    ``pii_guard``: *nothing is maintained by hand without a test that would
+    fail*, not *imported at runtime*.
+
+    The equality is a concatenation, so it is exhaustive in both directions: a
+    qualifier a later schema adds is missing from the left, and one invented
+    here is missing from the right.
+    """
+    for shape, values in people._DATE_VALUE_ATTRIBUTES.items():
+        declared = tuple(name for element, name, _ in SPECIFIED_ATTRIBUTES if element == shape)
+        assert declared, f"{shape} is not an element the frozen table declares"
+        assert values + people._DATE_QUALIFIERS[shape] == declared, shape
+    assert people._DATE_QUALIFIERS["datestr"] == (), "the schema declares datestr only its value"
+    assert people._DATE_QUALIFIERS["dateval"], "and it declares dateval five qualifiers"
 
 
 # ---------------------------------------------------------------------------

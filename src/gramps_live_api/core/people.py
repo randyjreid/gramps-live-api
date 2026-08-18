@@ -18,7 +18,9 @@ meets the fact before a refusal does. See ``docs/slice2-mcp.md``.
 ⚠️ **This is NOT a date model, and it must not become one by accident.** #21 is
 out of scope. ``birth_year`` is an integer for sorting and recognising; the raw
 shape survives in ``birth_display`` so a range reads as a range instead of being
-flattened into a point value the record never asserted.
+flattened into a point value the record never asserted -- **and so does what the
+record says about that shape**, which is the same property one level down: an
+estimated year is not an exact one either. See ``_qualified``.
 
 **Matching is on LOCAL NAME, never on the namespace URI.** The URI carries the
 schema version, so matching it would make this reader's answer depend on which
@@ -67,6 +69,50 @@ parent closes, so an element with one of them still open above it has to survive
 until it does.
 """
 
+_DATE_VALUE_ATTRIBUTES: dict[str, tuple[str, ...]] = {
+    "dateval": ("val",),
+    "daterange": ("start", "stop"),
+    "datespan": ("start", "stop"),
+    "datestr": ("val",),
+}
+"""What each date shape carries the date ITSELF in, per shape.
+
+The complement ``_DATE_QUALIFIERS`` is defined against, and the half that makes
+the binding test exhaustive: value attributes plus qualifiers is *every*
+attribute the schema declares for the shape, so neither table can drift without
+that equality failing.
+"""
+
+_DATE_QUALIFIERS: dict[str, tuple[str, ...]] = {
+    "dateval": ("type", "quality", "cformat", "dualdated", "newyear"),
+    "daterange": ("quality", "cformat", "dualdated", "newyear"),
+    "datespan": ("quality", "cformat", "dualdated", "newyear"),
+    "datestr": (),
+}
+"""What each date shape says ABOUT its date, in the schema's declaration order.
+
+Read out of ``share/gramps/grampsxml.dtd`` in the installed Gramps 6.0.8, whose
+``<!ATTLIST dateval>`` declares ``val`` plus ``type (before|after|about)``,
+``quality (estimated|calculated)``, ``cformat``, ``dualdated (0|1)`` and
+``newyear``; ``daterange`` and ``datespan`` declare the same four beside
+``start`` and ``stop`` **but no ``type``**; and ``<!ATTLIST datestr val CDATA
+#REQUIRED>`` declares nothing else at all, so that branch was never lossy.
+
+⚠️ **Composed here and BOUND BY TEST to the frozen table**, which is what
+derived means in this repository -- see the note in ``pii_guard`` on why that is
+not an import. A qualifier a later schema adds fails
+``test_the_qualifier_set_is_the_schemas_minus_what_is_read_as_the_date`` on the
+re-derivation rather than being silently dropped from a label that claims to be
+lossless.
+
+⚠️ **The ORDER is the schema's, and that is the whole reason there is a table
+here rather than a walk over whatever attributes the element carries.**
+Attribute order is not significant in XML and ``iterparse`` returns it as
+written, so a label built from the document's order would give one date two
+labels depending on how the exporter spelled it -- the definition-from-the-
+surroundings failure this module's local-name matching already refuses once.
+"""
+
 PRIMARY_ROLE = "Primary"
 """The ``role`` on an ``<eventref>`` that makes the event the person's own.
 
@@ -109,6 +155,14 @@ class Person:
     name: str
     birth_year: int | None
     birth_display: str
+    """The record's own date, and what the record said about it. May be empty.
+
+    The lossless half of the pair: the shape the export used, plus every
+    qualifier the schema declares for that shape, as ``1856 [quality=Estimated]``
+    -- see ``_qualified``. ``birth_year`` beside it is the approximation, and
+    empty here means no date element at all rather than none this reader liked.
+    """
+
     private: bool
     other_birth_events: int = 0
     """How many further birth events **of their own** they carry beyond the one shown.
@@ -345,31 +399,80 @@ def _date(event: ET.Element) -> tuple[int | None, str]:
     carries what the record said, so a range stays a range. Turning any of these
     into one comparable value is #21, which is out of scope, and a label that
     quietly did it would be the date model arriving by accident.
+
+    ⚠️ **What the record says ABOUT the date is part of what it said.** An
+    ``<dateval val="1856" quality="Estimated"/>`` labelled ``1856`` presents an
+    estimate as a fact -- in the one listing whose job is telling people apart
+    -- so every qualifier the shape declares is appended by ``_qualified``.
+    ``birth_year`` is untouched by any of it: the sortable half was always an
+    approximation and this is the half that is not.
     """
     for child in event:
         name = local_name(child.tag)
         if name == "dateval":
             value = child.get("val", "")
-            return _year(value), value
+            return _year(value), _qualified(child, value)
         if name == "daterange":
             return _spanning(child, "between {start} and {stop}")
         if name == "datespan":
             return _spanning(child, "from {start} to {stop}")
         if name == "datestr":
             value = child.get("val", "")
-            return _year(value), value
+            return _year(value), _qualified(child, value)
     return None, ""
 
 
 def _spanning(element: ET.Element, wording: str) -> tuple[int | None, str]:
-    """A two-ended date, labelled as one. The START is what gives the year."""
+    """A two-ended date, labelled as one. The START is what gives the year.
+
+    All three exits go through ``_qualified``, including the one-ended and the
+    valueless ones. Fixing only the branch a finding names is how the adjacent
+    branch keeps the same defect.
+    """
     start = element.get("start", "")
     stop = element.get("stop", "")
     if not start and not stop:
-        return None, ""
+        return None, _qualified(element, "")
     if not stop:
-        return _year(start), start
-    return _year(start), wording.format(start=start, stop=stop)
+        return _year(start), _qualified(element, start)
+    return _year(start), _qualified(element, wording.format(start=start, stop=stop))
+
+
+def _qualified(element: ET.Element, label: str) -> str:
+    """``label`` with every qualifier the record put on ``element``, verbatim.
+
+    **Read as ``1856 [quality=Estimated]``, and deliberately not as prose.** The
+    label is for somebody skimming a short list to recognise a person before
+    attaching a note to them, so the only hard requirement is that ``1856`` and
+    an estimated ``1856`` are not one string. Beyond that the bracket form is
+    chosen over Gramps' own wording for two reasons:
+
+    - **It cannot be mistaken for a rendered date.** ``about 1856`` reads as
+      this module having understood the date; ``1856 [type=about]`` reads as it
+      quoting the record, which is all it did. That difference is exactly the
+      accident ``_date``'s warning is about.
+    - **It needs no vocabulary.** ``quality`` and ``type`` have enumerated
+      English values, but ``cformat``, ``dualdated`` and ``newyear`` do not, and
+      a prose scheme would need this module to translate each of them -- and to
+      invent a word order the record never stated. Naming the field says what
+      the record said and nothing more.
+
+    ⚠️ **An unrecognised attribute is NOT appended, and an empty label still
+    takes the suffix.** The first keeps a hand-written ``type`` on a range out
+    of the label, because the schema declares none there; the second keeps a
+    date element that carries a qualifier and no value distinguishable from the
+    record that carries no date element at all, which is the distinction the
+    empty label exists to make.
+    """
+    stated = [
+        f"{name}={value}"
+        for name in _DATE_QUALIFIERS.get(local_name(element.tag), ())
+        if (value := element.get(name)) is not None
+    ]
+    if not stated:
+        return label
+    suffix = "[" + ", ".join(stated) + "]"
+    return f"{label} {suffix}" if label else suffix
 
 
 def _year(value: str) -> int | None:

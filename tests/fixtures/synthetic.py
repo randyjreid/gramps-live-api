@@ -1208,25 +1208,45 @@ def gramps_namespace(version: str = GRAMPS_XML_VERSION) -> str:
     return "http:" + "//gramps-project" + ".org/xml/" + version + _SLASH
 
 
-def gramps_dateval(val: str, *, quality: str = "") -> str:
-    """``<dateval val="..."/>`` -- one point in time, the commonest shape."""
-    attributes = f'val="{val}"' + (f' quality="{quality}"' if quality else "")
-    return _element("dateval", attributes=attributes, empty=True)
+def _stated(**attributes: str) -> str:
+    """``name="value"`` for each attribute, in the order given, empty ones dropped.
+
+    Dropping the empty ones is what lets a date builder's caller ask for an
+    element that carries the attribute *absent* rather than present and empty --
+    two different documents, which is the distinction ``_private`` and ``_own``
+    are both built on.
+    """
+    return " ".join(f'{name}="{value}"' for name, value in attributes.items() if value)
 
 
-def gramps_daterange(start: str, stop: str) -> str:
+def gramps_dateval(val: str, **qualifiers: str) -> str:
+    """``<dateval val="..."/>`` -- one point in time, the commonest shape.
+
+    ⚠️ **Qualifiers are named by the caller and written VERBATIM, including ones
+    the schema does not declare for this shape.** A builder that only accepted
+    the declared ones could not show that the reader's qualifier set is derived
+    from the schema rather than being "every attribute that happens to be here".
+    """
+    return _element("dateval", attributes=_stated(val=val, **qualifiers), empty=True)
+
+
+def gramps_daterange(start: str, stop: str, **qualifiers: str) -> str:
     """``<daterange start="..." stop="..."/>`` -- somewhere between two dates."""
-    return _element("daterange", attributes=f'start="{start}" stop="{stop}"', empty=True)
+    return _element(
+        "daterange", attributes=_stated(start=start, stop=stop, **qualifiers), empty=True
+    )
 
 
-def gramps_datespan(start: str, stop: str) -> str:
+def gramps_datespan(start: str, stop: str, **qualifiers: str) -> str:
     """``<datespan start="..." stop="..."/>`` -- an interval, not a point."""
-    return _element("datespan", attributes=f'start="{start}" stop="{stop}"', empty=True)
+    return _element(
+        "datespan", attributes=_stated(start=start, stop=stop, **qualifiers), empty=True
+    )
 
 
-def gramps_datestr(val: str) -> str:
+def gramps_datestr(val: str, **qualifiers: str) -> str:
     """``<datestr val="..."/>`` -- free text nobody could parse into a date."""
-    return _element("datestr", attributes=f'val="{val}"', empty=True)
+    return _element("datestr", attributes=_stated(val=val, **qualifiers), empty=True)
 
 
 def gramps_event(

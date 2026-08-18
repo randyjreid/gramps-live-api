@@ -341,7 +341,9 @@ which is the only version binding that stays true.
   at most one write attempt.* Not *duplicates are impossible*. The CLI `apply op.json` path keeps
   #69's residual untouched.
 - ⛔ Any operation type beyond `add_note`. No date model (#21) — `birth_year` is a label for
-  recognising a person, and `birth_display` carries the record's own shape so a range stays a range.
+  recognising a person, and `birth_display` carries the record's own shape so a range stays a range
+  and an estimated year reads as `1856 [quality=Estimated]` rather than as `1856`. The qualifier set
+  is the schema's, per shape, bound by test to the frozen DTD table — not a rendering of a date.
   No identity operations (#22). No HTTP endpoint. No unattended or auto-approving path.
 
 ---
