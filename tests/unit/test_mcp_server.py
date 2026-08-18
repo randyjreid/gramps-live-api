@@ -7,8 +7,9 @@ digest and opens a console the agent cannot write to. Everything below is one of
 those two properties or a refusal that keeps one of them true.
 
 Covered to the process boundary. The spawner is injected, so what these tests
-prove is that the console is reached, told the right proposal, and believed
-about the outcome -- never that a note reached a tree. The demo proves that.
+prove is that the console is reached and told the right proposal -- never that a
+note reached a tree, and no longer what the window decided, because **nothing in
+this server can find that out**. The demo proves both.
 
 ⚠️ **These tests need the ``mcp`` extra, and the skip below is the whole risk of
 making it optional.** A skipped test reads exactly like a passing one -- this
@@ -90,52 +91,21 @@ def export_document() -> str:
 class Spawner:
     """A console that never opens. Records what it would have been asked to run.
 
-    ``handle`` is what the real spawner hands back -- the process, so a caller
-    can ask whether it is still alive. ``None`` is *we cannot tell*, which is
-    what every test written before that mattered gets and what keeps their
-    behaviour unchanged.
+    ⚠️ **It hands nothing back, and neither does the real one.** The server
+    starts the window and holds nothing that could act on it -- no handle, no
+    ``poll``, no way to ask what it decided. ``then`` is how a test says *and
+    this is what happened in that window*, which is the only thing that ever
+    happens there.
     """
 
-    def __init__(self, then: object = None, *, handle: object = None) -> None:
+    def __init__(self, then: object = None) -> None:
         self.calls: list[Sequence[str]] = []
         self._then = then
-        self._handle = handle
 
-    def __call__(self, argv: Sequence[str]) -> object:
+    def __call__(self, argv: Sequence[str]) -> None:
         self.calls.append(list(argv))
         if callable(self._then):
             self._then(argv)
-        return self._handle
-
-
-class Exited:
-    """A console process that has ended. ``poll`` is ``subprocess.Popen``'s."""
-
-    def __init__(self, code: int = 1) -> None:
-        self._code = code
-
-    def poll(self) -> int | None:
-        return self._code
-
-
-class Running:
-    """A console process that is still up, which is what a slow reader looks like."""
-
-    def poll(self) -> int | None:
-        return None
-
-
-class Clock:
-    """A monotonic clock a test moves by hand, and a sleep that moves it."""
-
-    def __init__(self) -> None:
-        self.now = 0.0
-
-    def __call__(self) -> float:
-        return self.now
-
-    def sleep(self, seconds: float) -> None:
-        self.now += seconds
 
 
 def equipment(tmp_path: Path, **extra: str) -> tuple[str, Mapping[str, str]]:
@@ -152,7 +122,6 @@ def tools(
     tmp_path: Path,
     *,
     spawner: Spawner | None = None,
-    timeout: float = 45.0,
     platform: str = "win32",
 ) -> mcp_server.Tools:
     """⚠️ **``platform`` defaults to the one this project's write path targets.**
@@ -164,18 +133,12 @@ def tools(
     override already exists for, one layer down.
     """
     _, environ = equipment(tmp_path)
-    clock = Clock()
-    made = mcp_server.Tools(
+    return mcp_server.Tools(
         environ,
         session="sess0001",
         spawner=spawner or Spawner(),
-        clock=clock,
-        sleep=clock.sleep,
-        approval_timeout=timeout,
         platform=platform,
     )
-    made.clock = clock  # type: ignore[attr-defined]
-    return made
 
 
 # ---------------------------------------------------------------------------
@@ -382,23 +345,63 @@ def test_naming_one_proposal_with_another_digest_is_refused(tmp_path: Path) -> N
         made.approve(str(first["proposal_id"]), str(second["approval_digest"]))
 
 
-def test_approve_opens_the_console_and_believes_only_its_report(tmp_path: Path) -> None:
+def test_approve_opens_the_console_and_returns_without_an_outcome(tmp_path: Path) -> None:
     """Criterion 7. The server performs no write of any kind: it spawns, and it
-    reads what the console filed."""
+    returns -- and what it returns says nothing about what the owner decided,
+    because it does not know and there is nothing left that could tell it."""
     spawner = Spawner()
     made = tools(tmp_path, spawner=spawner)
     proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
     proposal_id = str(proposed["proposal_id"])
 
-    def answer(_: Sequence[str]) -> None:
-        made._store().write_report(proposal_id, {"outcome": "declined"})
-
-    spawner._then = answer
-    outcome = made.approve(proposal_id, str(proposed["approval_digest"]))
+    reply = made.approve(proposal_id, str(proposed["approval_digest"]))
 
     assert spawner.calls, "the console was never opened, so nobody was asked"
     assert proposal_id in spawner.calls[0]
-    assert outcome["outcome"] == "declined"
+    assert reply["console"] == "opened"
+    assert "outcome" not in reply
+
+
+def test_approves_reply_is_exactly_three_keys(tmp_path: Path) -> None:
+    """⚠️ **A red line rather than a comment**, and the same idiom as
+    ``TOOL_NAMES``: re-adding an outcome word to this reply is a failing test,
+    not a silent regression that a reader has to notice.
+
+    The layer that carried an outcome to the agent drew a finding in four
+    consecutive review rounds and was deleted rather than hardened. Nothing in
+    the wire replaces it -- the owner watched the window, and he is the channel.
+    """
+    made = tools(tmp_path)
+    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
+
+    reply = made.approve(str(proposed["proposal_id"]), str(proposed["approval_digest"]))
+
+    assert set(reply) == {"proposal_id", "console", "next"}
+
+
+def test_the_description_promises_no_outcome_and_does_not_widen_the_refusal(
+    tmp_path: Path,
+) -> None:
+    """⚠️ **In a server the description is the ONLY documentation the caller
+    sees**, so what it promises is the interface.
+
+    Two halves, and the second is the one a fix would get wrong. It must say
+    this call cannot see the decision -- otherwise an agent reads a returning
+    call as a completed write. And it must **not** say a refusal means nothing
+    was consumed: ``ApprovalMismatch``, ``ProposalExpired``, ``ProposalCorrupt``,
+    ``ApprovalRulesChanged`` and ``ProposalFromAnotherSession`` all consume by
+    design, and the rollback added beside them tempts exactly that sentence.
+    """
+    said = mcp_server.APPROVE_DESCRIPTION
+
+    assert "cannot see what he decides" in said
+    assert "ask him what it said" in said
+    assert "nothing was consumed" not in said, (
+        "five refusals consume the proposal by design, so that sentence is false -- "
+        "and a fix may not widen the claim it fixes"
+    )
+    for word in ("still_open", "unknown", "unverified"):
+        assert word not in said, f"{word!r} is a word from the layer that was deleted"
 
 
 def test_a_second_approve_is_refused_whatever_the_console_answered(tmp_path: Path) -> None:
@@ -413,137 +416,44 @@ def test_a_second_approve_is_refused_whatever_the_console_answered(tmp_path: Pat
 
 
 # ---------------------------------------------------------------------------
-# ⭐ The timeout -- the sharp one
+# ⭐ What the agent is NOT told, and cannot ask
 # ---------------------------------------------------------------------------
 
 
-def test_a_timeout_leaves_no_proposal_that_a_later_call_could_write(tmp_path: Path) -> None:
-    """⚠️ **The ruling's hard requirement: a timeout must NEVER leave a proposal
-    in a state where a later call writes it.**
+def test_approve_returns_before_the_console_has_been_answered(tmp_path: Path) -> None:
+    """⚠️ **The whole shape of the deletion, asserted as a fact about time.**
 
-    ``approve`` blocks on a human at a console, and a client may give up while
-    the owner is still reading. What that must not do is leave anything a retry
-    can act on. It does not, and the reason is structural rather than careful:
-    the proposal was consumed at the claim, before the console was even opened.
+    There is no polling, no timeout and no window in which a client may give up
+    while the owner reads: the call returns as soon as the window is open. What
+    used to make that dangerous -- an agent left with an undefined answer -- is
+    gone with the answer itself, and what stays is the ordering that made the
+    old timeout safe anyway: the proposal is consumed at the claim, so a retry
+    meets ``ProposalNotFound`` whatever the owner does next.
     """
-    made = tools(tmp_path, timeout=45.0)
+    answered: list[str] = []
+    made = tools(tmp_path, spawner=Spawner(lambda _: answered.append("the owner is still reading")))
     proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
     proposal_id, digest = str(proposed["proposal_id"]), str(proposed["approval_digest"])
 
-    outcome = made.approve(proposal_id, digest)
+    reply = made.approve(proposal_id, digest)
 
-    assert outcome["outcome"] == "still_open"
-    assert made.clock.now >= 45.0, "it waited"  # type: ignore[attr-defined]
+    assert reply["console"] == "opened"
+    assert "next" in reply, "the agent is told what to do instead of being told an outcome"
     with pytest.raises(proposals.ProposalNotFound):
         made.approve(proposal_id, digest)
 
 
-def test_a_timeout_tells_the_agent_not_to_retry_and_where_to_look(tmp_path: Path) -> None:
-    """The acceptable answer the amendment names: the write may still proceed
-    and is reported as an outcome to relay, never as one to retry. What is not
-    acceptable is that the window be undefined, so it is spelled out."""
-    made = tools(tmp_path, timeout=1.0)
-    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
-    outcome = made.approve(str(proposed["proposal_id"]), str(proposed["approval_digest"]))
+def test_there_is_no_second_tool_that_could_report_the_outcome(tmp_path: Path) -> None:
+    """Criterion 1 read as a deletion: three tools, and none of them asks.
 
-    message = str(outcome["error"])
-    assert "not retry" in message.lower()
-    assert proposals.PROPOSAL_DIRECTORY in message, "where the answer will appear"
-    assert "has not reported back" in message, (
-        "the message says what is actually known: the console has not reported. It is "
-        "now known to be ALIVE as well -- a dead one takes the branch above and never "
-        "reaches this message -- but reaching an answer and having reached one are "
-        "still different facts, and this one is the second"
-    )
-
-
-def test_a_console_that_died_before_answering_is_not_still_open_forever(tmp_path: Path) -> None:
-    """L7, and ``still_open`` was the only answer this could ever give.
-
-    Console death **before** the owner answers files no report -- the window is
-    closed, the machine is shut down, the process is killed -- and nothing in
-    the console can file one, because nothing in it runs. So the server waited
-    out its whole timeout, said ``still_open``, and ``outcome_of`` said
-    ``still_open`` for as long as anybody asked. **The state never resolved.**
-
-    ⚠️ **What discriminates is process liveness, and only that.** A window still
-    open with a slow reader in front of it and a window that is gone look
-    identical from the report directory, which is exactly why the message could
-    only ever say *has not reported back*. The server spawned the process; it
-    can ask. It could not before, because ``new_console`` threw the handle away.
-
-    ``unknown`` rather than ``failed``: killed before the answer nothing was
-    written, killed after ``y`` a note may be in the tree, and this cannot tell
-    which -- which is precisely what ``APPROVE_DESCRIPTION`` defines the word to
-    mean.
+    ``outcome_of`` existed as unexposed machinery with a residual recorded
+    against it. Its subject -- the report file -- is gone, so the residual is
+    closed by having nothing left to expose.
     """
-    made = tools(tmp_path, spawner=Spawner(handle=Exited()), timeout=45.0)
-    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
-
-    outcome = made.approve(str(proposed["proposal_id"]), str(proposed["approval_digest"]))
-
-    assert outcome["outcome"] == "unknown"
-    assert made.clock.now < 45.0, (  # type: ignore[attr-defined]
-        "it waited out a timeout for a console that had already ended"
-    )
-    assert "exited" in str(outcome["error"]), "the message says what is actually known"
-    assert proposals.PROPOSAL_DIRECTORY in str(outcome["error"]), "where to look"
-
-
-def test_a_console_that_files_its_report_and_then_exits_is_believed(tmp_path: Path) -> None:
-    """The race the liveness check must not lose, and it is the ordinary case.
-
-    Every console that answers exits immediately afterwards. Reading the report
-    *before* observing the exit is not enough on its own -- the process can end
-    between the two -- so the exit branch re-reads before it concludes anything.
-    Getting this wrong would report ``unknown`` over every successful approval.
-    """
-    spawner = Spawner(handle=Exited(code=0))
-    made = tools(tmp_path, spawner=spawner, timeout=45.0)
-    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
-    proposal_id = str(proposed["proposal_id"])
-
-    def answer_then_die(_: Sequence[str]) -> None:
-        made._store().write_report(proposal_id, {"outcome": "declined"})
-
-    spawner._then = answer_then_die
-    outcome = made.approve(proposal_id, str(proposed["approval_digest"]))
-
-    assert outcome["outcome"] == "declined"
-
-
-def test_a_console_still_running_is_still_reported_as_still_open(tmp_path: Path) -> None:
-    """The direction that must NOT move: a slow reader is not a dead console.
-
-    ``still_open`` is the correct answer while the window is up, and the whole
-    of ``docs/slice2-mcp.md``'s timeout table rests on it -- the owner typing
-    ``y`` after the call returned still writes the note.
-    """
-    made = tools(tmp_path, spawner=Spawner(handle=Running()), timeout=1.0)
-    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
-
-    outcome = made.approve(str(proposed["proposal_id"]), str(proposed["approval_digest"]))
-
-    assert outcome["outcome"] == "still_open"
-    assert "not retry" in str(outcome["error"]).lower()
-
-
-def test_a_console_that_answers_late_still_writes_and_the_report_says_so(
-    tmp_path: Path,
-) -> None:
-    """The other half of the same window, and it is the half that must not be
-    a surprise: the owner typing ``y`` after the tool call already returned is a
-    real sequence, and the write proceeds. Nothing about that is a retry."""
-    made = tools(tmp_path, timeout=1.0)
-    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
-    proposal_id = str(proposed["proposal_id"])
-    timed_out = made.approve(proposal_id, str(proposed["approval_digest"]))
-    assert timed_out["outcome"] == "still_open"
-
-    # The owner, some seconds later, types y in the window that is still open.
-    made._store().write_report(proposal_id, {"outcome": "written", "note_gramps_id": "N0021"})
-
-    assert made.outcome_of(proposal_id)["outcome"] == "written"
+    made = tools(tmp_path)
+    assert not hasattr(made, "outcome_of")
+    exposed = asyncio.run(mcp_server.build_server(made).list_tools())
+    assert {tool.name for tool in exposed} == mcp_server.TOOL_NAMES
 
 
 # ---------------------------------------------------------------------------
@@ -594,16 +504,10 @@ def test_a_host_that_cannot_open_a_console_does_not_burn_the_proposal(tmp_path: 
     assert not Path(store.path_of(proposal_id, ".pending.json")).exists(), "orphaned"
     assert Path(store.path_of(proposal_id)).is_file(), "the proposal must survive the refusal"
 
-    clock = Clock()
-    answers = mcp_server.Tools(
-        environ,
-        session="sess0001",
-        spawner=Spawner(lambda _: store.write_report(proposal_id, {"outcome": "declined"})),
-        clock=clock,
-        sleep=clock.sleep,
-        platform="win32",
-    )
-    assert answers.approve(proposal_id, digest)["outcome"] == "declined"
+    opens = Spawner()
+    answers = mcp_server.Tools(environ, session="sess0001", spawner=opens, platform="win32")
+    assert answers.approve(proposal_id, digest)["console"] == "opened"
+    assert opens.calls, "the surviving proposal must reach a console that can be opened"
 
 
 def test_a_platform_that_cannot_separate_the_console_is_refused() -> None:
@@ -625,7 +529,7 @@ def test_a_platform_that_cannot_separate_the_console_is_refused() -> None:
 
 def test_the_whole_path_from_propose_to_a_written_note(tmp_path: Path) -> None:
     """Propose, approve, a real console process running in-process, a runner at
-    the Gramps boundary -- and the note's identifier back in the transcript.
+    the Gramps boundary -- and the note's identifier **at the window**.
 
     ⚠️ **This is criterion 8 read as the owner ruled it**: unit-tested through
     the MCP path with an injected runner up to the process boundary, and
@@ -633,26 +537,33 @@ def test_the_whole_path_from_propose_to_a_written_note(tmp_path: Path) -> None:
     record or the read-back hold inside Gramps. CI has no Gramps, no ``gi`` and
     no tree, and a criterion reading as *CI-proven* is the false claim
     ``docs/using.md`` exists to avoid.
+
+    ⚠️ **What moved is where the Gramps ID is asserted, and only that.** It used
+    to come back in the tool's reply; it is now printed at the console the owner
+    is standing in front of, and the reply says nothing about it. The route from
+    that window to the transcript is the owner typing what he read.
     """
     copy, environ = equipment(tmp_path)
     runner = Recorder(*written_and_read_back())
+    window = io.StringIO()
 
     def console(argv: Sequence[str]) -> None:
         cli.main(
             ("approve", argv[-1]),
             environ=environ,
             stdin=io.StringIO("y\n\n"),
-            stdout=io.StringIO(),
+            stdout=window,
             stderr=io.StringIO(),
             runner=runner,
         )
 
     made = mcp_server.Tools(environ, session="sess0001", spawner=Spawner(console), platform="win32")
     proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "Ashenmoor deed, volume two.")
-    outcome = made.approve(str(proposed["proposal_id"]), str(proposed["approval_digest"]))
+    reply = made.approve(str(proposed["proposal_id"]), str(proposed["approval_digest"]))
 
-    assert outcome["outcome"] == "written"
-    assert outcome["note_gramps_id"] == "N0021"
+    assert set(reply) == {"proposal_id", "console", "next"}
+    assert "N0021" not in str(reply), "the agent is not told what was written"
+    assert "note N0021 written" in window.getvalue(), "the owner is"
     assert len(runner.runs) == 2, "the write, and the read-back in a fresh process"
     argv, environment = runner.runs[0]
     assert "-u" not in argv and "--force-unlock" not in argv, "Gramps keeps its lock"
@@ -660,17 +571,23 @@ def test_the_whole_path_from_propose_to_a_written_note(tmp_path: Path) -> None:
     assert Path(copy, apply.SENTINEL_NAME).is_file(), "the token was over a blessed copy"
 
 
-def test_the_environment_cap_is_inherited_and_relayed_rather_than_hidden(
+def test_the_environment_cap_is_inherited_and_reaches_the_owner_verbatim(
     tmp_path: Path,
 ) -> None:
     """#66 is OUT, so the MCP path inherits the Windows environment-block cap.
 
     It fails closed -- Gramps does not launch and nothing is written -- and the
-    tool must return an error an agent can relay, which means the underlying
-    message travels rather than a paraphrase of it.
+    underlying message must travel rather than a paraphrase of it.
+
+    ⚠️ **It reaches the OWNER, not the agent, and that is the trade this
+    deletion makes.** The cap is crossed after the window is open, so the tool
+    call has already returned; the refusal is on the screen he is looking at.
+    An agent that has not been told cannot relay it, which is why the reply's
+    ``next`` tells it to ask.
     """
     _, environ = equipment(tmp_path)
     refusal = "OSError: [WinError 206] The filename or extension is too long"
+    window = io.StringIO()
 
     def console(argv: Sequence[str]) -> None:
         cli.main(
@@ -678,16 +595,17 @@ def test_the_environment_cap_is_inherited_and_relayed_rather_than_hidden(
             environ=environ,
             stdin=io.StringIO("y\n\n"),
             stdout=io.StringIO(),
-            stderr=io.StringIO(),
+            stderr=window,
             runner=Recorder(marker(ok=False, error=refusal)),
         )
 
     made = mcp_server.Tools(environ, session="sess0001", spawner=Spawner(console), platform="win32")
     proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a very long note")
-    outcome = made.approve(str(proposed["proposal_id"]), str(proposed["approval_digest"]))
+    reply = made.approve(str(proposed["proposal_id"]), str(proposed["approval_digest"]))
 
-    assert outcome["outcome"] == "failed"
-    assert outcome["error"] == refusal
+    assert refusal in window.getvalue(), "the underlying message travels, not a paraphrase"
+    assert refusal not in str(reply), "the agent was not told, and cannot be"
+    assert "ask him" in str(reply["next"]).lower()
 
 
 # ---------------------------------------------------------------------------

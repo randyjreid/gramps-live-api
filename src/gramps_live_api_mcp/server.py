@@ -13,6 +13,14 @@
    off the disk, prints it in full, and reads a real console stdin. The agent
    owns the transcript; it does not own that window.
 
+⭐ **And it may not LEARN what the window decided.** ``approve`` starts the
+console and returns; there is no outcome in the reply, no second tool to ask,
+and no file to read. The only route from that window to the transcript is the
+owner typing what he saw. The layer that used to carry it drew a finding in four
+consecutive review rounds -- polling, timeouts, ``still_open``, ``unknown``, a
+cross-process report -- and was deleted rather than hardened, because it existed
+to tell an agent something a human was watching happen.
+
 Binding and approval are different questions and both are needed. Binding --
 *is the thing written the thing that was approved?* -- is answered by the
 operation never travelling through the agent. Approval -- *did a human say yes?*
@@ -28,8 +36,8 @@ reading the window is not protected by any of it.** See ``docs/slice2-mcp.md``.
 ⚠️ **The adapter stays thin, deliberately.** The reading is
 ``gramps_live_api.core.people``, the store is ``core.proposals``, the write is
 ``cli``'s console, and the rails are ``core.apply``'s. What is here is the shape
-of three tools, and everything below is unit-tested with the console and the
-clock injected -- on a runner that has never seen Gramps or an MCP client.
+of three tools, and everything below is unit-tested with the console injected --
+on a runner that has never seen Gramps or an MCP client.
 """
 
 from __future__ import annotations
@@ -37,7 +45,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-import time
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Literal, Protocol
 
@@ -50,19 +57,6 @@ TOOL_NAMES = frozenset({"list_people", "propose_note", "approve"})
 """Exactly three, and criterion 1 asserts the server's own answer equals this."""
 
 SERVER_NAME = "gramps-live-api"
-
-APPROVAL_TIMEOUT_SECONDS = 45.0
-"""How long ``approve`` waits for the console before saying it is still open.
-
-⚠️ **Set below what a typical MCP client allows a tool call, and that is a
-guess about client behaviour rather than a measurement.** The number is not what
-makes this safe. What makes it safe is that the proposal is consumed at the
-claim, before the console opens -- so whether our answer or the client's arrives
-first, **no later call can write it**. This only decides whether the agent
-receives a defined answer or an undefined one.
-"""
-
-_POLL_SECONDS = 0.25
 
 CREATE_NEW_CONSOLE = 0x00000010
 """``subprocess.CREATE_NEW_CONSOLE``, spelled out rather than imported.
@@ -157,47 +151,44 @@ this server, which is what makes the thing written the thing that was approved.
 
 Then call approve. **A console window opens on the owner's own machine and he \
 types y there.** Tell him that plainly: agreement in this conversation is not \
-the approval, and this server cannot type in that window.\
+the approval, and this server cannot type in that window -- and this server will \
+not learn what he typed, so you must ask him.\
 """
 
 APPROVE_DESCRIPTION = """\
-Send one proposal to the owner for approval. Pass the proposal id and the \
+Open the approval console for one proposal. Pass the proposal id and the \
 approval digest exactly as propose_note returned them.
 
-**This opens a console window on the owner's machine.** He reads the whole note \
-there and types y or n. Nothing this conversation says is the approval.
+**This opens a console window on the owner's machine and returns immediately.** \
+He reads the whole note there and types y or n. Nothing this conversation says \
+is the approval.
 
-The reply carries an outcome word:
+**This call cannot see what he decides, and neither can you.** It returns as \
+soon as the window is open. There is nothing in the reply that says what \
+happened and no way to ask for one.
 
-  written     -- the note is in the tree; relay its Gramps ID
-  declined    -- he said no; nothing was written
-  failed      -- it was refused; relay the message verbatim, it names the remedy
-  unverified  -- it WAS written and the read-back did not confirm it -- it
-                 disagreed, or it could not run at all; tell him to look
-  unknown     -- nothing said what happened, so it may or may not have
-                 committed: the Gramps run printed no result, or the console
-                 window went away before answering. The message says which
-  still_open  -- the window is still open and he has not answered yet
+So: tell him plainly that a console window has opened, ask him to approve \
+there, and ask him what it said. Relay his words. **Do not say the note was \
+written, declined or refused unless he has told you so** -- you have not been \
+told and you cannot find out. If he has not said, say you do not know.
 
-**Never retry approve.** One proposal is consumed by one approve whatever the \
-answer, so a second call is refused -- and on still_open the window is live and \
-the write may yet happen. To write a second note, propose again, which asks him \
-a second time.\
+**Never call approve again for this id.** One proposal is consumed by one \
+approve whatever he answers. To write a second note, call propose_note again -- \
+which asks him a second time, and is the only way a second note can happen.
+
+A refusal from this call means **nothing was written**. Some refusals also \
+consume the proposal and say so. All of them name the remedy -- relay the \
+message verbatim.\
 """
+"""⚠️ **The last paragraph is deliberately not the stronger sentence.**
 
-
-class Console(Protocol):
-    """The one question the server asks a console it started: are you still there?
-
-    ⚠️ **``poll`` and nothing else, which keeps the spawner injectable.** The
-    real one is ``subprocess.Popen``; a test's is a two-line class. What is
-    deliberately absent is anything that could *act* on the process -- this
-    server spawns the window and reads what the window filed, and a handle it
-    could terminate or write to would be a second route to the approval the
-    whole design says it must not have.
-    """
-
-    def poll(self) -> int | None: ...
+*A refusal means nothing was consumed* is what the rollback in
+``Store.claim_then`` tempts you to write here, and it is **false** for
+``ApprovalMismatch``, ``ProposalExpired``, ``ProposalCorrupt``,
+``ApprovalRulesChanged`` and ``ProposalFromAnotherSession``, every one of which
+consumes the proposal by design. A fix may not widen the claim it fixes, and a
+test asserts that sentence is absent.
+"""
 
 
 def require_console(platform: str = sys.platform) -> None:
@@ -230,12 +221,15 @@ def new_console(
     *,
     platform: str = sys.platform,
     popen: Callable[..., Any] = subprocess.Popen,
-) -> Console | None:
+) -> None:
     """Start ``argv`` in a console window this process cannot type into.
 
-    Returns the process, so a caller can ask whether it is still alive. It used
-    to be discarded, and discarding it is what made ``still_open`` unfalsifiable
-    -- see ``Tools._awaited``.
+    ⭐ **It returns nothing, and that is a strengthening rather than an
+    omission.** The handle it used to hand back existed so the server could ask
+    whether the console was still alive, which was one stage of the outcome
+    layer that is now deleted. Without it this server holds **no object at all**
+    that refers to that window: it can start it and nothing else, which is the
+    module docstring's second property with one fewer exception to it.
 
     ⚠️ **The refusal is checked here TOO, not only in ``Tools.approve``.** The
     two are not redundant: this one is the guarantee that no caller anywhere
@@ -248,8 +242,7 @@ def new_console(
     nothing about, and the whole matrix runs on Linux.
     """
     require_console(platform)
-    started: Console = popen(list(argv), creationflags=CREATE_NEW_CONSOLE, close_fds=True)
-    return started
+    popen(list(argv), creationflags=CREATE_NEW_CONSOLE, close_fds=True)
 
 
 def console_command(proposal_id: str) -> list[str]:
@@ -258,7 +251,7 @@ def console_command(proposal_id: str) -> list[str]:
 
 
 class Tools:
-    """The three tools, with the console, the clock and the session injected.
+    """The three tools, with the console and the session injected.
 
     Everything the MCP layer above calls is a plain method here, so the whole
     surface is exercised without a client, a transport or an event loop.
@@ -269,19 +262,13 @@ class Tools:
         environ: Mapping[str, str],
         *,
         session: str | None = None,
-        spawner: Callable[[Sequence[str]], Console | None] = new_console,
-        clock: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep,
-        approval_timeout: float = APPROVAL_TIMEOUT_SECONDS,
+        spawner: Callable[[Sequence[str]], None] = new_console,
         ttl_seconds: float = proposals.DEFAULT_TTL_SECONDS,
         platform: str = sys.platform,
     ) -> None:
         self._environ = environ
         self.session = proposals.new_session() if session is None else session
         self._spawn = spawner
-        self._clock = clock
-        self._sleep = sleep
-        self._timeout = approval_timeout
         self._ttl = ttl_seconds
         self._platform = platform
         """⚠️ **Data rather than a second injected callable**, deliberately.
@@ -377,13 +364,13 @@ class Tools:
         }
 
     def approve(self, proposal_id: str, approval_digest: str) -> dict[str, object]:
-        """Claim the proposal, open the console, and report what it decided.
+        """Claim the proposal and open the console. **Then return, knowing nothing.**
 
         ⚠️ **The claim happens before the console opens**, so by the time
-        anything can time out, crash or be retried the proposal is already
-        consumed. That is what makes the ruling's hard requirement structural
-        rather than careful: *a timeout must never leave a proposal in a state
-        where a later call writes it.* It cannot, because there is no proposal.
+        anything can crash or be retried the proposal is already consumed. That
+        is #69's bounded claim held structurally rather than carefully: one
+        approved proposal produces at most one write attempt, because a second
+        ``approve`` meets ``ProposalNotFound``.
 
         ⚠️ **But the PLATFORM is asked first, and that is L2.** The claim is an
         irreversible rename and the question *can a console be opened here?*
@@ -393,107 +380,26 @@ class Tools:
         ordering above buys a proposal that cannot be written twice; this one
         buys a proposal that is not destroyed before anybody could write it
         once, and they do not trade against each other.
+
+        ⭐ **What comes back names no outcome, because there is none to name.**
+        The window is open and the owner is reading it; nothing in this process
+        will ever learn what he types. Three keys, frozen by test.
         """
         require_console(self._platform)
         store = self._store()
         store.claim(proposal_id, approval_digest)
-        console = self._spawn(console_command(proposal_id))
-        return self._awaited(store, proposal_id, console)
-
-    def outcome_of(self, proposal_id: str) -> dict[str, object]:
-        """What the console has filed for ``proposal_id``, whenever it filed it.
-
-        The other half of a timeout: the window stayed open, the owner answered
-        late, and the outcome exists even though the call that opened it has
-        long returned. **Reading it is not retrying** -- it starts nothing and
-        can write nothing.
-
-        ⚠️ **Deliberately NOT exposed as a tool, and that leaves a residual.**
-        Criterion 1 fixes the surface at exactly three tools, so after a timeout
-        an agent has no way to learn the outcome and has to ask the owner what
-        the window said. Recorded in ``docs/slice2-mcp.md`` rather than fixed by
-        quietly adding a fourth tool.
-        """
-        report = self._store().read_report(proposal_id)
-        if report is None:
-            return {"outcome": "still_open", "proposal_id": proposal_id}
-        return {**report, "proposal_id": proposal_id}
+        self._spawn(console_command(proposal_id))
+        return {
+            "proposal_id": proposal_id,
+            "console": "opened",
+            "next": (
+                "A console window has opened on the owner's machine. Tell him so, ask "
+                "him to approve there, and ask him what it said -- this call cannot see "
+                "it and neither can you. Do not call approve again for this id."
+            ),
+        }
 
     # -- the machinery ------------------------------------------------------
-
-    def _awaited(
-        self, store: proposals.Store, proposal_id: str, console: Console | None = None
-    ) -> dict[str, object]:
-        """Wait for the console's report, its death, or the timeout -- in that order.
-
-        ⚠️ **The death branch is L7, and without it ``still_open`` never
-        resolved.** A console that dies before the owner answers files nothing
-        and can file nothing: the window is closed, the machine is shut down,
-        the process is killed, and no code in it runs. So this waited out its
-        whole timeout and said ``still_open``, and ``outcome_of`` said
-        ``still_open`` for as long as anybody asked.
-
-        **Liveness is the only thing that discriminates.** A window with a slow
-        reader in front of it and a window that is gone look identical from the
-        report directory -- which is why the timeout's message could honestly
-        say no more than *has not reported back*. This server started the
-        process, so it can ask; it could not before, because the handle was
-        thrown away at the spawn.
-
-        ⚠️ **The report is re-read AFTER the exit is observed, and that ordering
-        is not a nicety.** Every console that answers exits immediately
-        afterwards, so the process can end between the read at the top of this
-        loop and the poll below. Concluding from the poll alone would report a
-        death over every successful approval.
-
-        ``console`` is ``None`` when the spawner did not hand one back, and then
-        this behaves exactly as it did before: liveness is *unknown*, which is
-        not *dead*.
-        """
-        deadline = self._clock() + self._timeout
-        while True:
-            report = store.read_report(proposal_id)
-            if report is not None:
-                return {**report, "proposal_id": proposal_id}
-            if console is not None and console.poll() is not None:
-                filed = store.read_report(proposal_id)
-                if filed is not None:
-                    return {**filed, "proposal_id": proposal_id}
-                return {
-                    # ⚠️ **``unknown``, not ``failed``.** Killed before the
-                    # answer, nothing was written; killed after a ``y``, a note
-                    # may be in the tree. Nothing here can tell which, and that
-                    # is exactly what APPROVE_DESCRIPTION defines the word to
-                    # mean. ``failed`` would tell the agent it was refused.
-                    "outcome": "unknown",
-                    "proposal_id": proposal_id,
-                    "error": (
-                        "The console exited without filing a report, so it did not "
-                        "reach an answer -- the window was closed, or the process was "
-                        "ended some other way. If it went before the owner typed "
-                        "anything, nothing was written; if it went after he typed y, a "
-                        "note may be in the tree. **Do not retry**: this proposal is "
-                        "consumed and no later call can write it. Ask him to look at "
-                        "the person in Gramps. Anything the console did file would be "
-                        f"at {store.report_path(proposal_id)}, under "
-                        f"{proposals.PROPOSAL_DIRECTORY} inside the copy."
-                    ),
-                }
-            if self._clock() >= deadline:
-                return {
-                    "outcome": "still_open",
-                    "proposal_id": proposal_id,
-                    "error": (
-                        "The console was opened and has not reported back -- most likely "
-                        "the owner is still reading it. Do not retry: this proposal is "
-                        "already consumed, so no later call can write it. If the window "
-                        "is still open and he types y there, the note WILL be written. "
-                        "Tell him to look at the window. Any outcome appears at "
-                        f"{store.report_path(proposal_id)}, under "
-                        f"{proposals.PROPOSAL_DIRECTORY} inside the copy."
-                    ),
-                }
-            self._sleep(_POLL_SECONDS)
 
     def _export(self) -> str:
         export = config.load(self._environ).export_path
