@@ -78,3 +78,71 @@ Recorded so a later round does not re-derive them: **#66** (environment-block ca
 fourth tool** (surface decision, with a use-derived reopening condition); **the stale-`priv`
 fail-open** (recorded in `docs/slice2-mcp.md`); **the MCP SDK** (owner-affirmed at a measured 27–30
 transitive packages, behind an optional extra).
+
+---
+
+## Fix round 1 — dispositions, and a correction to this ledger
+
+| Finding | Disposition | Commit |
+| --- | --- | --- |
+| C1-1 | **FIXED** | `8779e8d` |
+| C1-2 | **FIXED** | `9b0c175` |
+| C1-3 | **FIXED** | `e6038ef` |
+
+Each carries a test that was red before the change and green after. Gates re-run by the conductor on
+the fixed head: `ruff` clean · `ruff format` 78 files · `mypy src` 18 files · **1363 passed, 6
+skipped** (+7, exactly the tests added) · guard 0 findings over tracked content and over the range.
+
+### ⚠️ CORRECTION — C1-1's entry above overstated the defect, and the overstatement was mine
+
+C1-1's disposition text called the defect *"the exact input that makes an agent propose again — the
+duplicate path slice 2 claims to close."* **That is wrong**, and the fixer disputed it rather than
+implementing against it.
+
+**A false `failed` cannot produce a second write.** Verified in the code: `store.consume(...,
+approved=True)` runs *before* `_write_and_verify`, so a retried `approve` gets `ProposalNotFound`. A
+second note requires a fresh `propose_note`, a new console, and **a second human `y`** — which is the
+designed behaviour, not a defect.
+
+**What the defect actually breaks**, and what makes it P1 without the stronger claim: **the owner's
+knowledge of what is in the tree**, and the recoverability of a write whose handles were reported
+nowhere.
+
+The commit message for `8779e8d` repeats this ledger's original wording. It is not being rewritten —
+**this entry is the correction of record.** ⚠️ A conductor's framing of a finding gets none of the
+scrutiny the finding itself gets, and it reached a prescription and a commit before anyone tested it.
+
+### A worse variant the finding did not name — found by the fix's own test
+
+`NoResultMarker` raised by the **read-back** was not in the set `_approve` caught, so it escaped past
+the reporting entirely: the note committed, the console exited, **no report was filed at all**, and
+the server then waited out its full timeout and reported `still_open` about a run that had ended.
+Same boundary as C1-1, strictly worse outcome. Fixed in `8779e8d`.
+
+### Open questions, answered from sources rather than from memory
+
+- **Absent `role` means Primary.** Read from Gramps 6.0.8 as installed: `grampsxml.dtd` declares
+  `role CDATA #IMPLIED`; `importxml.py` only sets a role when the attribute is present; `EventRef`
+  defaults to `EventRoleType()`, whose `_DEFAULT` is `PRIMARY`. No fail-closed reading was needed.
+  ⚠️ **And the same reading forced a distinction the finding called unanswerable:**
+  `set_from_xml_str("")` falls through to `_CUSTOM`, so **`role=""` is a custom role, not Primary** —
+  a different document from one with no attribute. The parser no longer collapses them.
+- **The outcome token reuses `unverified`** rather than minting `committed_unverified`. `unverified`
+  is only ever set after the marker said `ok`, so it already means *committed and not confirmed*, and
+  the agent's next action is identical either way. `unknown` (#69's vocabulary) was rejected as
+  understating what the operator can act on: here we know it committed.
+
+### Residuals recorded, not fixed
+
+- The post-commit handler enumerates **four** exceptions rather than catching `Exception`. *"No
+  post-commit failure is misreported"* is unbounded; the bounded claim is those four.
+- `store.write_report(...)` in `_approve` sits outside the try, so a failure writing the report files
+  nothing. Pre-existing, and **no report can record its own failure to be written.**
+
+### Round counts after this round
+
+| Reviewer | Rounds |
+| --- | --- |
+| Codex | **1** (round 2 = scoped delta on this fix, next) |
+| Claude `/code-review` | 0 |
+| PR bot | 0 |
