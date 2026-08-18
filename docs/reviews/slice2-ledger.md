@@ -735,3 +735,72 @@ still that the matrix has not run.**
 | Codex | 1 | to dispositioned — a delta on this fix |
 | Claude `/code-review` | 0 | **one scoped delta via `--resume`**, not a fresh pass |
 | PR bot | 0 | after push |
+
+---
+
+## Codex round 2 (post-reset) — 2 findings, verified, ⛔ PARKED UNFIXED by the owner's standing rule
+
+E-1's ordering defect is confirmed fixed and claim-rename failures abort correctly. **Both new
+findings are in `core/proposals.py` — the claim machinery — so the standing rule applies:**
+
+> *"a finding in the claim machinery AFTER this fix comes to me as 'is this design worth its surface'
+> — park it, do not fix it, and write it up. Three boundary corrections is the pattern; a fourth is
+> the answer."*
+
+**Neither is fixed. Both are dispositioned as PARKED with the rationale below, and neither blocks the
+push — the owner decides.**
+
+### F-1 — [P2] `ProposalUnreadable`'s remedy is impossible for a pending claim
+
+> When the file becomes unreadable after `_claim` has renamed it but before the spawned CLI calls
+> `claimed()`, `_parsed(..., was=_PENDING)` reaches this branch. The proposal is already consumed at
+> `.pending.json`, yet the exception says it is still approvable, that nothing was consumed, and to
+> approve the same id again; **that retry can only hit `ProposalNotFound`.**
+
+**Verified.** The message is unconditional — it never consults `was`. It is **correct for the at-rest
+read and false for the pending read**, and the same sentence serves both.
+
+⚠️ **This is the shape the ledger has recorded four times: one message, two states, true for one.**
+It is L6 exactly — *"the post-commit message says the true thing for the path it is on"* — arriving in
+a different function.
+
+### F-2 — [P2] Invalid UTF-8 escapes the burn path — **and it is a regression the E-1 fix introduced**
+
+> `json.load` raises `UnicodeDecodeError`, which is neither `OSError` nor `JSONDecodeError` and
+> therefore misses this refusal… the raw exception leaves the corrupt file at `.json` and every retry
+> repeats it, instead of choosing the required BURN rename and raising `ProposalCorrupt`.
+
+**Verified empirically**, not by reading: `UnicodeDecodeError.__mro__` is
+`UnicodeError → ValueError → Exception` — **neither `OSError` nor `JSONDecodeError`** — and
+`json.load` over `b"\xff"` raises exactly it.
+
+⚠️ **Before E-1, `_take` renamed first, so a corrupt file was burnt on the way past. Reading first
+removed that accident**, and the ruling's *"content invalid → rename to BURN"* is therefore
+**incomplete in the code**: one class of invalid content is not caught, so it is neither burnt nor
+refused.
+
+### Why these are parked rather than fixed — the argument the owner asked for
+
+**Both are one-line-ish fixes.** F-1 makes the message consult `was`; F-2 adds `UnicodeDecodeError` to
+the corrupt branch. **That is exactly why the rule exists**: every finding in this machinery has been
+a small, obviously-correct, locally-justified change, and there have now been **nine of them across
+six rounds**. The rule was set *before* this round precisely so the smallness of the next fix could not
+be the argument for making it.
+
+⚠️ **What is genuinely new, and is the owner's question:** F-2 shows the fix that removed one accident
+**also removed a protection nobody had named** — burn-on-corrupt was riding on rename-first ordering,
+undocumented, and the reordering dropped it. *That* is a fact about the design's surface rather than
+about a missing `except` clause.
+
+**Severity, stated plainly so the parking is honest:** neither writes anything, neither loses a
+proposal to a burn, and neither can produce an unapproved write. F-1 costs an operator a confusing
+sentence in a rare state; F-2 costs an agent a repeating refusal on a file that is already corrupt.
+**Both leave the tree untouched.**
+
+### Round counts
+
+| Reviewer | Rounds | State |
+| --- | --- | --- |
+| Codex | **2** | E-1 fixed; F-1 and F-2 **parked**, dispositioned, not blocking |
+| Claude `/code-review` | 0 | **owed: one scoped delta via `--resume`** — next |
+| PR bot | 0 | after push |
