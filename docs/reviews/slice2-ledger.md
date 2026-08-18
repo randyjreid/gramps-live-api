@@ -178,3 +178,72 @@ is worse than no comment**, because the next reader stops checking.
 gained in response to C1-1, so diminishing-returns test (a) fires — but on **code** test (a) is not a
 stop condition, and this is a **correction** (the artifact asserts something untrue), not a
 refinement. Test (b) is silent.
+
+---
+
+## Fix round 2 — disposition
+
+| Finding | Disposition | Commit |
+| --- | --- | --- |
+| C2-1 | **FIXED** | `f862435` |
+
+Gates re-run by the conductor: `ruff` clean · `ruff format` 78 files · `mypy src` 18 files ·
+**1367 passed, 6 skipped** (+4, exactly the tests added) · guard 0 over tracked content, 0 over the
+range.
+
+**The chosen shape was neither option offered.** Everything past the marker became **one call**
+(`_after_commit`) invoked inside the single `try`, on the reasoning that a block's boundary is *which
+statements happen to sit inside it* — a fact about where somebody stopped typing, and precisely what
+failed once already. A statement appended to the end of the post-commit body is now inside the handler
+**by construction**. Option 2 was rejected on a mechanical ground: the report is a local of a function
+that *raised*, so it never reaches `_approve`'s handler without new machinery to carry it.
+
+**A third failure the finding did not name**, found by the fix's own tests: **C1-1's handler printed
+its explanation to the console that is the reason it ran.** An exception raised inside an `except`
+propagates like the original, so the machinery that exists to prevent `failed` produced it. ⚠️
+**Widening the `try` around the two statements C2-1 named would not have touched this one** — which is
+the argument for the call boundary, made by the defect rather than by preference.
+
+**The docstring is now true and says what changed**, and its claim is checkable by reading the
+statements below it rather than asserting that nothing can fail.
+
+### Recorded, not fixed — and NOT yet verified by the conductor
+
+⚠️ **Filed as a claim awaiting reproduction, not as an issue.** The fixer reports that **closing the
+console window on Windows terminates the process rather than making `write` raise**, so no report is
+filed either way — *a different and pre-existing hole* from C2-1. It also narrows C2-1's own
+reachability: the demonstrable route to an `OSError` on write is redirected or piped stdio
+(`approve > log.txt` on a full disk, a broken pipe, a session that goes away), not the console window.
+**Unreproduced findings do not become issues** — this needs verification before it is filed.
+
+`_say` suppresses `OSError` only, so a **closed** stream's `ValueError` still escapes to `main`. The
+four-exception enumeration is unchanged and neither recorded residual is resolved or widened.
+
+---
+
+## Sequencing — Codex is DISPOSITIONED; reviewer 2 starts now
+
+Every finding Codex has raised is fixed and no blocking finding is outstanding. **Codex round 3 is
+NOT run now**, deliberately: the merge invariant is satisfied on **the code that merges** — the final
+head — not after every individual fix batch. Fix round 2 will be covered by **one scoped Codex delta
+on the final head**, after Claude is dispositioned. Interleaving would cost a full extra pass per fix
+batch and buy nothing that terminal delta does not.
+
+⚠️ **Batching the terminal re-validation is fine; SKIPPING it is not.** A Codex pass three fix batches
+stale is worth nothing, exactly as a bot review on a stale SHA is worth nothing.
+
+### Round counts
+
+| Reviewer | Rounds | State |
+| --- | --- | --- |
+| Codex | **2** | dispositioned — owes one scoped delta on the final head |
+| Claude `/code-review` | **0 → starting** | |
+| PR bot | 0 | |
+
+### ⚠️ Machinery to watch — two consecutive rounds, one component
+
+`_write_and_verify`'s post-marker split has now drawn a finding in **two consecutive rounds**: C1-1
+created it, C2-1 found the gap in it. On code, diminishing-returns test (a) is not a stop condition —
+but it does ask *is this machinery worth its surface?* **If a third consecutive round finds a defect
+in the same split, the question stops being "harden it" and becomes "delete or redesign it", and that
+goes to the owner rather than into another fix round.**
