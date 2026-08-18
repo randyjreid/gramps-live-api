@@ -300,6 +300,70 @@ def test_a_gzipped_export_reads_the_same_as_a_plain_one(tmp_path: Path) -> None:
     assert compressed == plain
 
 
+def half_an_export(tmp_path: Path, name: str) -> str:
+    """A gzip stream that stops in the middle, the way a copy interrupted does."""
+    whole = gzip.compress(one_person().encode("utf-8"))
+    path = tmp_path / name
+    path.write_bytes(whole[: len(whole) // 2])
+    return str(path)
+
+
+def test_a_truncated_export_is_refused_as_unreadable_not_as_a_traceback(
+    tmp_path: Path,
+) -> None:
+    """L1. **The agent relays whatever it gets**, so this reaches a person.
+
+    A gzip stream that ends early raises ``EOFError``, which is neither
+    ``ET.ParseError`` nor ``OSError`` -- so it went past both handlers and the
+    caller received a raw internal exception in place of the designed *retake
+    the export* message. The type is the whole point: ``ExportUnreadable`` is
+    what says what to do about it.
+    """
+    try:
+        people.read_export(half_an_export(tmp_path, "truncated.gramps"))
+    except people.ExportUnreadable as refusal:
+        assert "export" in str(refusal).lower(), "the remedy is named, not just the condition"
+    else:  # pragma: no cover - the assertion is the failure
+        raise AssertionError("a truncated export must be refused, not parsed")
+
+
+def test_a_corrupt_export_is_refused_as_unreadable_too(tmp_path: Path) -> None:
+    """The other half of L1: damage inside the compressed stream raises
+    ``zlib.error``, which is not an ``OSError`` either.
+
+    ⚠️ **A CRC failure was already covered and this is not it.** ``gzip`` raises
+    ``BadGzipFile`` for that, and ``BadGzipFile`` IS an ``OSError`` -- so the
+    checksum case reached the designed message all along while the two below did
+    not. Asserting all three is what keeps them from being read as one state.
+    """
+    whole = bytearray(gzip.compress(one_person().encode("utf-8")))
+    for index in range(40, 60):
+        whole[index] ^= 0xFF
+    path = tmp_path / "corrupt.gramps"
+    path.write_bytes(bytes(whole))
+
+    try:
+        people.read_export(str(path))
+    except people.ExportUnreadable as refusal:
+        assert str(refusal).strip()
+    else:  # pragma: no cover - the assertion is the failure
+        raise AssertionError("a corrupt export must be refused, not parsed")
+
+
+def test_a_failed_checksum_was_already_refused_and_still_is(tmp_path: Path) -> None:
+    """The control for the test above: ``BadGzipFile`` subclasses ``OSError``."""
+    whole = gzip.compress(one_person().encode("utf-8"))
+    path = tmp_path / "bad-crc.gramps"
+    path.write_bytes(whole[:-8] + bytes(8))
+
+    try:
+        people.read_export(str(path))
+    except people.ExportUnreadable as refusal:
+        assert "CRC" in str(refusal)
+    else:  # pragma: no cover - the assertion is the failure
+        raise AssertionError("a failed checksum must be refused, not parsed")
+
+
 # ---------------------------------------------------------------------------
 # priv="1" -- ruling 1
 # ---------------------------------------------------------------------------

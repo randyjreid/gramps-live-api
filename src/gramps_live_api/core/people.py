@@ -32,6 +32,7 @@ import gzip
 import io
 import re
 import xml.etree.ElementTree as ET
+import zlib
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 
@@ -189,6 +190,23 @@ def read_export(path: str) -> tuple[Person, ...]:
                     _birth(element, births)
     except ET.ParseError as failure:
         raise ExportUnreadable(f"{path}: this is not readable as XML -- {failure}") from failure
+    except (EOFError, zlib.error) as failure:
+        # ⚠️ **Neither of these is an ``OSError``, and that is the whole of the
+        # defect.** A gzip stream that ends early raises ``EOFError``; damage
+        # inside the compressed data raises ``zlib.error``. Both escaped the two
+        # handlers around them, so the caller got a raw internal exception where
+        # the designed refusal should have been -- and this one travels: the MCP
+        # tools relay what they are given, so a decompressor's message about bit
+        # lengths reaches a person as noise with no remedy in it.
+        #
+        # A failed CHECKSUM is not in this pair on purpose: ``gzip`` raises
+        # ``BadGzipFile`` for that and ``BadGzipFile`` subclasses ``OSError``,
+        # so it was already caught below. Three ways for a file to be damaged,
+        # one message, and the tests name all three so they stay one state.
+        raise ExportUnreadable(
+            f"{path}: this export is truncated or corrupt and cannot be read -- {failure}. "
+            "Export the tree again"
+        ) from failure
     except OSError as failure:
         raise ExportUnreadable(f"{path}: {failure.strerror or failure}") from failure
     return tuple(_resolved(raw, births) for raw in people)
