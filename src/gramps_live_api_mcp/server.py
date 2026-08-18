@@ -310,12 +310,13 @@ class Tools:
                 )
             )
 
-        proposal = self._store().mint(operation)
+        store = self._store()
+        proposal = store.mint(operation)
         return {
             "proposal_id": proposal.id,
             "sentence": proposal.full_display,
             "approval_digest": proposal.approval_digest,
-            "expires_utc": (proposal.created_utc + self._store().ttl).isoformat(),
+            "expires_utc": (proposal.created_utc + store.ttl).isoformat(),
             "next": (
                 "Show the owner this sentence and call approve with the id and the digest. "
                 "A console window will open on his machine and he types y THERE. His "
@@ -344,6 +345,12 @@ class Tools:
         late, and the outcome exists even though the call that opened it has
         long returned. **Reading it is not retrying** -- it starts nothing and
         can write nothing.
+
+        ⚠️ **Deliberately NOT exposed as a tool, and that leaves a residual.**
+        Criterion 1 fixes the surface at exactly three tools, so after a timeout
+        an agent has no way to learn the outcome and has to ask the owner what
+        the window said. Recorded in ``docs/slice2-mcp.md`` rather than fixed by
+        quietly adding a fourth tool.
         """
         report = self._store().read_report(proposal_id)
         if report is None:
@@ -363,11 +370,12 @@ class Tools:
                     "outcome": "still_open",
                     "proposal_id": proposal_id,
                     "error": (
-                        "The console window is still open and the owner has not answered "
-                        "yet. Do not retry: this proposal is already consumed, so no later "
-                        "call can write it -- but the window is live, and if he types y "
-                        "the note will be written. Tell him to look at the window. The "
-                        f"outcome will appear at {store.report_path(proposal_id)}, under "
+                        "The console was opened and has not reported back -- most likely "
+                        "the owner is still reading it. Do not retry: this proposal is "
+                        "already consumed, so no later call can write it. If the window "
+                        "is still open and he types y there, the note WILL be written. "
+                        "Tell him to look at the window. Any outcome appears at "
+                        f"{store.report_path(proposal_id)}, under "
                         f"{proposals.PROPOSAL_DIRECTORY} inside the copy."
                     ),
                 }

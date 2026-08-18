@@ -378,9 +378,12 @@ def test_a_timeout_tells_the_agent_not_to_retry_and_where_to_look(tmp_path: Path
     outcome = made.approve(str(proposed["proposal_id"]), str(proposed["approval_digest"]))
 
     message = str(outcome["error"])
-    assert "still open" in message
     assert "not retry" in message.lower()
     assert proposals.PROPOSAL_DIRECTORY in message, "where the answer will appear"
+    assert "has not reported back" in message, (
+        "the message must not claim the window is still open -- what is actually known "
+        "is that the console has not reported, and a console that died looks the same"
+    )
 
 
 def test_a_console_that_answers_late_still_writes_and_the_report_says_so(

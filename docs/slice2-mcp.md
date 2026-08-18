@@ -184,6 +184,15 @@ relay rather than one to retry. A second note needs a second `propose_note`, a s
 ⚠️ **45 seconds is a guess about client behaviour, not a measurement**, and it is not what makes any
 of this safe. It only decides whether the agent receives a defined answer or an undefined one.
 
+**Two residuals of that window, recorded rather than fixed:**
+
+- **After a timeout the agent cannot learn the outcome.** Criterion 1 fixes the surface at exactly
+  three tools, so there is no *read the outcome* call — the machinery exists (`Tools.outcome_of`) and
+  is not exposed. **You read the window.** Adding a fourth tool to close this is a decision about the
+  surface, not a bug fix, so it was not made here.
+- **`still_open` cannot tell *he is still reading* from *the console died*.** The message says what is
+  actually known — the console has not reported back — rather than claiming the window is open.
+
 ---
 
 ## The eight refusals
@@ -315,6 +324,11 @@ and paste an `initialize` / `notifications/initialized` / `tools/list` exchange 
 
 ⚠️ **Step 3's `yes` is a courtesy. Step 4's `y` is the approval.** Step 6 is the only step that is
 evidence.
+
+⚠️ **Step 5 only reaches the transcript if you answer within about 45 seconds.** Take longer and the
+agent is told `still_open` and told not to retry; the window is still live, your `y` still writes the
+note, and step 6 still finds it. Nothing goes wrong — you just read the outcome in the window rather
+than in the chat.
 
 **Break it once on purpose**, which is worth more than the happy path: change `_PREVIEW_TEXT_LIMIT`
 in `core/schema.py`, then approve a proposal minted before the change. The refusal must say plainly
