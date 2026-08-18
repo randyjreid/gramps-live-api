@@ -38,14 +38,21 @@ The agent can only name a stored proposal — and name it wrongly.
 
 ### 2. The console is the approval
 
-`approve` claims the proposal — an atomic rename, so two concurrent approves cannot both proceed —
-and opens a **new console window** running `python -m gramps_live_api approve <id>`. That process:
+`approve` answers every question this host can be asked in advance — can a separate console be
+opened, is a copy configured and blessed, is there a Gramps runtime to launch — and **only then**
+claims the proposal, an atomic rename, so two concurrent approves cannot both proceed. Then it opens
+a **new console window** running `python -m gramps_live_api approve <id>`. That process:
 
 - reads the operation from the claimed file, not from anything the agent sent;
 - prints the note **in full**, nothing elided, through the existing render guard;
 - prints `write this into <copy>? [y/N]` and reads a real console stdin;
 - on `y`, runs the **unchanged slice 1 write and read-back**;
-- files its outcome where the server reads it, and stays open until you press Enter.
+- prints what happened, and stays open until you press Enter.
+
+> ⭐ **CLAIMING IS THE LAST IRREVERSIBLE STEP.** The spawn happens *inside* the claim — `approve`
+> hands it to `Store.claim_then` as the follow-through — and **a claim that cannot be followed
+> through is rolled back**. That is a call boundary rather than a rule about which statements sit
+> between two lines, because a rule of that shape is a fact about where somebody stopped typing.
 
 ⚠️ **Your `yes` in the chat is a courtesy. The `y` in the window is the approval.** If the two
 disagree — if the window shows something other than what the transcript claimed — **the window is
@@ -161,55 +168,65 @@ residual: **the doctor tells you, and nothing stops you.**
 
 ---
 
-## ⭐ The MCP client timeout, and what happens in the window
+## ⭐ What the agent can and cannot know
 
-`approve` blocks on a human at a console. A client may time out while you are still reading. The
-ruling's hard requirement is that **a timeout must never leave a proposal in a state where a later
-call writes it.**
+**It cannot learn the outcome. At all.** Not written, not declined, not failed, not unverified.
+`approve` opens the window and returns; there is no token in the reply, no second tool to ask, and no
+file to read. **The only route from that window to the transcript is you typing what you saw.**
 
-It cannot, and the reason is structural rather than careful: **the proposal is consumed at the claim,
-before the console is even opened.** By the time anything can time out, crash or be retried, there is
-no proposal left. A retried `approve` gets `ProposalNotFound`.
+The reply is exactly three keys, and a test freezes the set:
 
-**But the console window is still open, and you typing `y` after the tool call already returned is a
-real sequence.** Here is exactly what happens, because the one unacceptable answer was that it be
-undefined:
+```json
+{"proposal_id": "…", "console": "opened", "next": "…tell him a window has opened, and ask him what it said"}
+```
 
-| Moment | What happens |
+| The agent learns | The agent does not learn |
 | --- | --- |
-| the server waits, up to 45 seconds | polling for the console's report **and for the console itself** |
-| our timeout fires first | `approve` returns **`still_open`** — the window is live, the write may yet happen, **do not retry**, and the message names where the answer will appear |
-| the window goes away before you answer | `approve` returns **`unknown`** at once, rather than waiting out the timeout and calling it `still_open` for ever. The server started that process, so it can tell the difference between *he is reading* and *it is gone* |
-| the client times out first | the agent sees a transport error; the state is identical, because the proposal was consumed before any of this |
-| you type `y` at any later point | **the write proceeds.** The console writes the note, reads it back, and files its report |
-| you type `n` at any later point | nothing is written; the report says `declined` |
+| everything that happens **before the window opens** — every refusal in `core.proposals`, the platform refusal, the config, runtime and blessing refusals, a spawn failure | **anything that happens after it** — the note's Gramps ID, a decline, a refusal from inside Gramps, a read-back that disagreed |
 
-**The write proceeding after a timeout is the acceptable answer**, and it is reported as an outcome to
-relay rather than one to retry. A second note needs a second `propose_note`, a second console, and
-**you saying yes a second time** — which is the correct place for a duplicate to become possible
-(issue #69).
+> ⚠️ **An agent that asserts an outcome is asserting something it was not told.** Ask it what
+> happened and the correct answer is *I do not know — what did the window say?* If it says the note
+> was written and you did not tell it so, that is the thing to notice.
 
-⚠️ **45 seconds is a guess about client behaviour, not a measurement**, and it is not what makes any
-of this safe. It only decides whether the agent receives a defined answer or an undefined one.
+### Why this is the shape it is
 
-**Two residuals of that window, recorded rather than fixed:**
+The machinery that used to carry the outcome — polling, a 45-second timeout, `still_open`, `unknown`,
+outcome words, a cross-process report file — **drew a review finding in four consecutive rounds**, and
+each fix closed one stage of the two-process crossing while the next round found the adjacent stage.
+Of the seven findings, five were that layer. **The ruling was to delete it rather than harden it: it
+existed to tell an agent something a human was watching happen.**
 
-- **After a timeout the agent cannot learn the outcome.** Criterion 1 fixes the surface at exactly
-  three tools, so there is no *read the outcome* call — the machinery exists (`Tools.outcome_of`) and
-  is not exposed. **You read the window.** Adding a fourth tool to close this is a decision about the
-  surface, not a bug fix, so it was not made here.
-- ⭐ **`still_open` used to be unable to tell *he is still reading* from *the console died*, and now
-  it can.** The two look identical from the report directory, which is why the message could once say
-  no more than *the console has not reported back*. What discriminates them is the process, and the
-  server started it — so `approve` now polls the console's liveness beside its report, and a console
-  that exits without filing one returns `unknown` immediately instead of `still_open` for ever.
-  `still_open` accordingly means what it says: the window is up and he has not answered.
+**What stops an agent inventing an outcome?** Nothing in the wire, and this says so rather than
+implying otherwise. What changes is the shape of the risk: there is no outcome word in the channel for
+a fabricated one to borrow authority from, **you have just watched the window** and hold the ground
+truth immediately, and the tool's own description instructs the agent to ask and relay verbatim.
+It is the same residual as item 1 above — the agent can misrepresent things in its transcript — and
+the same answer: **the window is right.** What was traded away is machinery that produced a *wrong*
+outcome five different ways; what was traded in is a human who was already looking at the answer.
 
-  **What is still not covered**, recorded rather than implied: a console the server did **not** start
-  — nothing spawns one today, and a spawner that hands back no handle falls back to the old timeout
-  behaviour. And `unknown` is honest rather than precise: killed before the answer nothing was
-  written, killed after a `y` a note may be in the tree, and nothing here can tell which. **Only you,
-  looking at the person in Gramps, can.**
+### The residuals of the deletion, recorded rather than discovered later
+
+- ⚠️ **A real loss, accepted.** A console whose stream breaks while printing now tells **nobody**
+  anything — the report used to catch part of that. The human is the only reader, and a broken
+  console has no reader. What survives is the **exit code**, the handles printed before it, and the
+  undo and result records inside the copy.
+- **A process death between the claim and the rollback** orphans one `.pending.json`. One proposal,
+  not a loop: propose again and the fresh id works. Nothing sweeps stale pending files and `check`
+  does not report them — pre-existing, and more visible now that nothing polls.
+- **The rollback rename can itself fail**, and then the proposal is burnt. The `OSError` is
+  suppressed so that the *original* failure — the one that says why no console opened — is what
+  reaches you, rather than being replaced by a rename error.
+- **`BaseException` is deliberately not caught.** A `KeyboardInterrupt` landing after `CreateProcess`
+  succeeded but before `Popen` returns would roll back a proposal whose console is **live** — two
+  consoles for one proposal, which breaks the bounded claim below. Losing one proposal to an
+  interrupt is strictly the better failure.
+- **A gap between the server's pre-claim checks and the console's own.** The copy could stop being
+  blessed in between. Transient, and the console refuses.
+
+⭐ **The bounded claim is unchanged by all of this: one approved proposal produces at most one write
+attempt.** `consume` runs before Gramps is launched, and the rollback cannot become a second route to
+a claim — it runs only when the spawn *raised*, when no console exists, and a rolled-back proposal has
+been shown to nobody and consumed by nothing.
 
 ---
 
@@ -265,17 +282,17 @@ which is the only version binding that stays true.
 
 - ⛔ **#66** (the 32,767-character Windows environment block). The operation still rides in
   `GRAMPS_LIVE_API_OP`, so **the MCP path inherits the cap**. It fails closed — Gramps does not
-  launch, nothing is written — and the tool returns the underlying error for the agent to relay as
-  *your note is too long on this machine*. Asserted by test.
+  launch, nothing is written — and the underlying error reaches **you, at the console**, verbatim
+  rather than paraphrased. Asserted by test. ⚠️ The cap is crossed after the window has opened, so
+  the tool call has already returned and the agent is not told; that is the trade above.
 - ⛔ **#59** (the plugin junction is not idempotent) — reachable; slice 2's setup still runs that step.
 - ⛔ **#60** (`python` is the Store shim) — reachable, and **sidestepped rather than fixed** by
   registering an absolute interpreter path below.
-- ⛔ **#62** (a lock refusal names the condition, not the remedy) — reachable, **and worse**, because
-  the message now reaches an agent that will paraphrase it. Not fixed; `approve` relays the
-  underlying message **verbatim**, asserted by test.
+- ⛔ **#62** (a lock refusal names the condition, not the remedy) — reachable. Not fixed; the console
+  relays the underlying message **verbatim** rather than paraphrasing it, asserted by test.
 - ⛔ **#63** (`op.json` not ignored) — not reachable. The MCP path has no `op.json`.
-- ⛔ **#72** (the verify run discards the plugin's error) — **filed, not fixed, and now reachable.**
-  It makes exactly the failure an agent will report wrongly.
+- ⛔ **#72** (the verify run discards the plugin's error) — **filed, not fixed, and reachable.** It
+  makes exactly the failure that is hardest to read correctly off the window.
 - ⛔ **#69** is closed *for the MCP path only*, as the bounded claim: *one approved proposal produces
   at most one write attempt.* Not *duplicates are impossible*. The CLI `apply op.json` path keeps
   #69's residual untouched.
@@ -453,20 +470,30 @@ and paste an `initialize` / `notifications/initialized` / `tools/list` exchange 
 | --- | --- | --- |
 | 1 | `Find <a surname> in my tree.` | the agent calls `list_people`; the transcript shows a name, a birth year and a Gramps ID |
 | 2 | `Add a research note to her: "…"` | the agent calls `propose_note` and shows you the returned sentence |
-| 3 | `yes` | the agent calls `approve` — **a console window opens** |
-| 4 | **`y`** *(in the window)* | the full sentence, `write this into <copy>? [y/N]`, then `note N00nn written` and `read back from a fresh process: '…'` |
-| 5 | Enter | the window closes; the tool returns the note's Gramps ID to the transcript |
-| 6 | — | **you open the copy in Gramps and find the note on that person** |
+| 3 | `yes` | the agent calls `approve` — **a console window opens**, and the transcript says *a console window has opened on your machine; approve there and tell me what it says.* **The agent states no outcome, because it has none** |
+| 4 | **`y`** *(in the window)* | the note in full, `write this into <copy>? [y/N]`, then `note N00nn written`, both handles, and `read back from a fresh process: '…'` |
+| 5 | Enter *(in the window)* | `press Enter to close this window` — the window closes. **Nothing goes back to the transcript** |
+| 6 | `it said N00nn written` | the agent relays it. **This is the only route the Gramps ID takes to the chat** |
+| 7 | — | **you open the copy in Gramps and find the note on that person** |
 
-⚠️ **Step 3's `yes` is a courtesy. Step 4's `y` is the approval.** Step 6 is the only step that is
-evidence.
+⚠️ **Step 3's `yes` is a courtesy. Step 4's `y` is the approval. Step 7 is the only step that is
+evidence.**
 
-⚠️ **Step 5 only reaches the transcript if you answer within about 45 seconds.** Take longer and the
-agent is told `still_open` and told not to retry; the window is still live, your `y` still writes the
-note, and step 6 still finds it. Nothing goes wrong — you just read the outcome in the window rather
-than in the chat.
+**Break it three times on purpose**, which is worth more than the happy path:
 
-**Break it once on purpose**, which is worth more than the happy path: change `_PREVIEW_TEXT_LIMIT`
-in `core/schema.py`, then approve a proposal minted before the change. The refusal must say plainly
-that the **rules** moved and the operation did not. If it says anything about the operation instead,
-the version binding is not doing its job.
+- **Decline.** Propose again and type **`n`**. The window says *nothing was written*. Then ask the
+  agent what happened — **it must say it does not know.** An agent that asserts a decline is
+  asserting something it was not told.
+- **The rules moved.** Change `_PREVIEW_TEXT_LIMIT` in `core/schema.py`, then approve a proposal
+  minted before the change. The refusal must name the **rules**, not the operation — and it reaches
+  the agent, because it happens before the window. If it says anything about the operation instead,
+  the version binding is not doing its job.
+- ⭐ **The invariant.** Point `gramps_runtime` at a path that does not exist and call `approve`. It
+  must be **refused in the transcript with no window opening**, and **the same proposal id must still
+  be approvable** once the config is fixed. That is L2 and D-1's whole class, demonstrated rather
+  than argued: a deterministic host precondition answered *after* the irreversible rename consumed a
+  proposal every time, forever.
+
+⚠️ **The demo cannot exercise a real spawn failure.** The runtime step above is the closest honest
+proxy for it; a genuine `CreateProcess` failure is not reproducible on demand. The rollback keys on
+*the follow-through raised*, not on which failure it was, which is what makes the proxy meaningful.
