@@ -547,6 +547,89 @@ def test_a_spawn_that_fails_leaves_the_proposal_approvable(tmp_path: Path) -> No
     assert opens.calls, "the same id must still be approvable once the host is fixed"
 
 
+# ---------------------------------------------------------------------------
+# ⭐ Every precondition the invariant names, answered BEFORE the claim
+# ---------------------------------------------------------------------------
+
+
+def unclaimed(tmp_path: Path, environ: Mapping[str, str]) -> tuple[str, str, proposals.Store]:
+    """One minted proposal, and the store it sits in. Nothing is claimed yet."""
+    made = mcp_server.Tools(environ, session="sess0001", spawner=Spawner(), platform="win32")
+    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
+    return str(proposed["proposal_id"]), str(proposed["approval_digest"]), made._store()
+
+
+def test_a_copy_that_stopped_being_blessed_is_refused_before_the_claim(tmp_path: Path) -> None:
+    """The authorisation half of the invariant. It already held; this is its test.
+
+    ``_store`` runs ``apply.authorise`` -- the same constructor the write path
+    uses -- and it runs before the claim, so a copy whose sentinel has gone
+    since the proposal was minted refuses without burning it.
+    """
+    copy, environ = equipment(tmp_path)
+    proposal_id, digest, store = unclaimed(tmp_path, environ)
+    Path(copy, apply.SENTINEL_NAME).unlink()
+
+    spawner = Spawner()
+    made = mcp_server.Tools(environ, session="sess0001", spawner=spawner, platform="win32")
+    with pytest.raises(apply.UnblessedTree):
+        made.approve(proposal_id, digest)
+
+    assert spawner.calls == [], "no window may open over a copy that is not blessed"
+    assert Path(store.path_of(proposal_id)).is_file(), "the proposal must survive the refusal"
+
+
+def test_a_host_with_no_gramps_runtime_is_refused_before_the_claim(tmp_path: Path) -> None:
+    """⭐ **The one addition this change makes, and the invariant names it.**
+
+    ``_approve`` asks for a runtime as its second act, in the console -- which
+    is *after* the window has opened, and by then the proposal is claimed. So a
+    host with no Gramps consumed a proposal on every ``approve``, showed the
+    owner a window that refused, and advised proposing again into the same
+    place. That is L2 and D-1's burn loop arriving through the one precondition
+    the invariant names that nothing asked before the claim.
+
+    ⚠️ **The console keeps its own discovery**, for ``require_console``'s
+    reason: one guarantee is *the proposal is not burnt reaching the check*, the
+    other is *no caller anywhere launches without one*.
+    """
+    _, environ = equipment(tmp_path, **{config.ENV_RUNTIME: "", "ProgramFiles": ""})
+    proposal_id, digest, store = unclaimed(tmp_path, environ)
+
+    spawner = Spawner()
+    made = mcp_server.Tools(environ, session="sess0001", spawner=spawner, platform="win32")
+    with pytest.raises(config.ConfigError) as refusal:
+        made.approve(proposal_id, digest)
+
+    assert config.RUNTIME_NAME in str(refusal.value), "the refusal names what is missing"
+    assert spawner.calls == [], "no window may open on a host that cannot run Gramps"
+    assert Path(store.path_of(proposal_id)).is_file(), "the proposal must survive the refusal"
+
+
+def test_a_configured_runtime_that_is_not_there_is_refused_before_the_claim(
+    tmp_path: Path,
+) -> None:
+    """The same precondition reached by the way the owner will actually reach it.
+
+    A configured ``gramps_runtime`` naming a path that no longer exists -- an
+    uninstall, a version bump, a typo -- satisfies *a runtime was named* and
+    fails at the launch. ``check``'s own runtime line has always asked
+    ``os.path.isfile``; this asks the same question in the same words, before
+    the irreversible step rather than after it.
+    """
+    _, environ = equipment(tmp_path, **{config.ENV_RUNTIME: str(tmp_path / "gone" / "grampsd.exe")})
+    proposal_id, digest, store = unclaimed(tmp_path, environ)
+
+    spawner = Spawner()
+    made = mcp_server.Tools(environ, session="sess0001", spawner=spawner, platform="win32")
+    with pytest.raises(config.ConfigError) as refusal:
+        made.approve(proposal_id, digest)
+
+    assert "gone" in str(refusal.value), "the refusal names the path that is not there"
+    assert spawner.calls == [], "no window may open when the runtime it needs is absent"
+    assert Path(store.path_of(proposal_id)).is_file(), "the proposal must survive the refusal"
+
+
 def test_a_platform_that_cannot_separate_the_console_is_refused() -> None:
     """⚠️ **Fail closed rather than run the console in our own window.**
 

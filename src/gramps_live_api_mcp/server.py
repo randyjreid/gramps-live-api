@@ -394,6 +394,7 @@ class Tools:
         """
         require_console(self._platform)
         store = self._store()
+        self._runtime()
         store.claim_then(
             proposal_id,
             approval_digest,
@@ -420,6 +421,43 @@ class Tools:
                 "run `python -m gramps_live_api check`"
             )
         return export
+
+    def _runtime(self) -> str:
+        """The Gramps this host would launch. **Asked before the claim.**
+
+        ⭐ **The one thing this change adds, and the invariant is what asks for
+        it.** ``_approve`` asks the same question in the console, which is after
+        the window has opened and therefore after the claim -- so on a host with
+        no Gramps every ``approve`` consumed a proposal, showed a window that
+        refused, and advised proposing again into the same place. A
+        deterministic host precondition answered after the irreversible step is
+        L2 and D-1's burn loop, whatever the precondition happens to be.
+
+        ⚠️ **``os.path.isfile`` as well as *a runtime was named*, and that is
+        ``check``'s own predicate rather than an invented one.** A configured
+        ``gramps_runtime`` pointing at a path that an uninstall took away
+        satisfies the first question and fails at the launch, which is the same
+        loop -- and it is how the owner will actually meet this. The console
+        does not ask the second question, so this is strictly the stricter of
+        the two: it can refuse where the console would have opened and failed,
+        never the reverse.
+        """
+        settings = config.load(self._environ)
+        runtime = settings.runtime or config.discover_runtime(self._environ)
+        if runtime is None:
+            raise config.ConfigError(
+                f"no {config.RUNTIME_NAME} found; set gramps_runtime in "
+                f"{config.user_config_path(self._environ)} or {config.ENV_RUNTIME}, and run "
+                "`python -m gramps_live_api check`. Nothing was consumed -- the same "
+                "proposal can be approved once this host can launch Gramps."
+            )
+        if not os.path.isfile(runtime):
+            raise config.ConfigError(
+                f"{runtime}: gramps_runtime names a path that is not there, so no window "
+                "is opened. Run `python -m gramps_live_api check`. Nothing was consumed -- "
+                "the same proposal can be approved once the path is right."
+            )
+        return runtime
 
     def _store(self) -> proposals.Store:
         """The store inside the blessed copy. **The blessing is the permission.**
