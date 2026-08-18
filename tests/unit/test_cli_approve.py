@@ -66,6 +66,31 @@ def written_and_read_back() -> tuple[invocation.Completed, invocation.Completed]
     )
 
 
+class Unavailable(io.StringIO):
+    """A console stream that stops working partway through, the way one does.
+
+    ⚠️ **``OSError`` on write is the enumerated failure, not an invented one.**
+    A console the server spawned can go away while its process is still running
+    -- the window is closed, the pipe behind it breaks -- and ``write`` then
+    raises ``OSError``, which is one of the four exceptions the post-commit
+    handler already names. So this is the bounded claim being tested where it
+    says it holds, not a new claim about arbitrary exceptions.
+
+    Failing on a **substring** is what lets a test say *which* statement broke
+    the console, which is the whole of C2-1: the same exception is a different
+    defect depending on whether the read-back had already run.
+    """
+
+    def __init__(self, failing_on: str) -> None:
+        super().__init__()
+        self._failing_on = failing_on
+
+    def write(self, s: str) -> int:
+        if self._failing_on in s:
+            raise OSError(9, "the console stream is no longer available")
+        return super().write(s)
+
+
 def prepared(tmp_path: Path, operation: schema.Operation = OPERATION) -> tuple[str, str, str]:
     """A blessed copy holding one claimed proposal. Returns copy, store dir, id."""
     copy = blessed(tmp_path / "tree")
@@ -84,8 +109,11 @@ def approve(
     answer: str = "y",
     runner: Recorder | None = None,
     extra: Mapping[str, str] | None = None,
+    out: io.StringIO | None = None,
+    err: io.StringIO | None = None,
 ) -> tuple[int, str, str]:
-    out, err = io.StringIO(), io.StringIO()
+    out = io.StringIO() if out is None else out
+    err = io.StringIO() if err is None else err
     environ = equipped(tmp_path, **{config.ENV_COPY: copy, **(extra or {})})
     code = cli.main(
         ("approve", proposal_id),
@@ -331,6 +359,111 @@ def test_a_read_back_that_disagrees_is_not_reported_as_written(tmp_path: Path) -
 
     assert code != 0
     assert report_of(directory, proposal_id)["outcome"] == "unverified"
+
+
+def test_a_console_that_fails_after_the_read_back_is_not_reported_as_a_refusal(
+    tmp_path: Path,
+) -> None:
+    """C2-1, and it is inside C1-1's repair rather than beside it.
+
+    Both markers said ok and the read-back agreed, so the note is in the tree
+    and confirmed. Then the success line cannot print. That statement sat
+    *after* the post-commit ``try`` ended, so the ``OSError`` reached
+    ``_approve``'s pre-commit handler and filed ``failed`` -- the word
+    ``APPROVE_DESCRIPTION`` defines as *it was refused* -- without the handles,
+    for the most successful run this program has.
+
+    ⚠️ **A console that broke is not an outcome.** The outcome describes what
+    is in the tree, and printing is how the operator is told about it; a report
+    that downgraded itself because the telling failed would assert something
+    untrue in the other direction.
+    """
+    copy, directory, proposal_id = prepared(tmp_path)
+    out = Unavailable(failing_on="read back from a fresh process")
+
+    code, _, err = approve(
+        proposal_id, tmp_path, copy, runner=Recorder(*written_and_read_back()), out=out
+    )
+
+    assert code == 0, err
+    report = report_of(directory, proposal_id)
+    assert report["outcome"] == "written", "a committed and verified note may not read as refused"
+    assert report["note_gramps_id"] == "N0021", "the identifiers an undo by hand needs survive"
+
+
+def test_a_disagreement_that_cannot_be_printed_is_still_reported_as_unverified(
+    tmp_path: Path,
+) -> None:
+    """C2-1's other statement, and the finding named it: *printing a
+    disagreement has the same routing.*
+
+    The read-back ran and disagreed, which is ``unverified``. The console then
+    fails while saying so, and the exception took the report from *the note is
+    in the tree and does not match* to *the write was refused*.
+    """
+    copy, directory, proposal_id = prepared(tmp_path)
+    wrote, _ = written_and_read_back()
+    disagrees = marker(ok=True, text_matches=False, attached=True, text="something else")
+    err = Unavailable(failing_on="the read-back disagrees")
+
+    code, _, _ = approve(proposal_id, tmp_path, copy, runner=Recorder(wrote, disagrees), err=err)
+
+    assert code != 0
+    report = report_of(directory, proposal_id)
+    assert report["outcome"] == "unverified", "a committed note may not be reported as refused"
+    assert report["note_handle"] == "f00d1e5f00d1e5", "the handles survive the failed printing"
+    assert "read-back disagrees" in str(report["error"]), "the report says what actually happened"
+
+
+def test_a_post_commit_failure_reports_even_when_its_own_message_cannot_print(
+    tmp_path: Path,
+) -> None:
+    """⚠️ **The repair's own diagnostic is a post-commit statement too.**
+
+    C1-1's handler catches the read-back's ``OSError`` and prints an
+    explanation. If the console is *why* we are here, that print raises inside
+    the ``except`` block, and an exception raised there propagates exactly like
+    the original -- so the handler that exists to prevent ``failed`` produces
+    it. Widening the ``try`` around the statements the finding named would not
+    have touched this, because it is not one of them.
+    """
+    copy, directory, proposal_id = prepared(tmp_path)
+    wrote, _ = written_and_read_back()
+    runner = Recorder(wrote, OSError(7, "the environment block is too small"))
+    err = Unavailable(failing_on="THE NOTE WAS WRITTEN")
+
+    code, _, _ = approve(proposal_id, tmp_path, copy, runner=runner, err=err)
+
+    assert code != 0
+    report = report_of(directory, proposal_id)
+    assert report["outcome"] == "unverified", "a committed note may not be reported as refused"
+    assert report["note_gramps_id"] == "N0021", "the identifiers an undo by hand needs survive"
+    assert apply.UNDO_DIRECTORY in str(report["error"]), "the operator is still told where to look"
+
+
+def test_a_console_that_fails_before_the_read_back_reports_unverified_not_written(
+    tmp_path: Path,
+) -> None:
+    """The direction that must NOT move, and it is why printing is not uniformly
+    best-effort.
+
+    Here the handles line is what cannot print, so the read-back never launches.
+    ``unverified`` is then literally true -- the note is in the tree and nothing
+    read it back -- and the handler's own words say exactly that. Swallowing
+    this one to keep the outcome ``written`` would claim a read-back that never
+    happened, which is C2-1 pointing the other way.
+    """
+    copy, directory, proposal_id = prepared(tmp_path)
+    runner = Recorder(*written_and_read_back())
+    out = Unavailable(failing_on="note handle")
+
+    code, _, _ = approve(proposal_id, tmp_path, copy, runner=runner, out=out)
+
+    assert code != 0
+    assert len(runner.runs) == 1, "the read-back did not run, which is what unverified means"
+    report = report_of(directory, proposal_id)
+    assert report["outcome"] == "unverified"
+    assert report["note_gramps_id"] == "N0021"
 
 
 def test_a_proposal_nobody_claimed_is_refused_by_name(tmp_path: Path) -> None:
