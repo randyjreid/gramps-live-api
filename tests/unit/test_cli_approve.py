@@ -334,6 +334,30 @@ def test_a_read_back_that_prints_no_marker_still_files_a_report(tmp_path: Path) 
     assert report["note_handle"] == "f00d1e5f00d1e5"
 
 
+def test_the_consumed_proposal_is_still_the_reason_no_second_note_can_arrive(
+    tmp_path: Path,
+) -> None:
+    """L6's control, and it is the half that must NOT move.
+
+    The shared post-commit message is being made path-specific rather than
+    softened: on ``apply`` there is no proposal and a re-run can write a second
+    note, and on this path the strong claim is simply true -- the proposal was
+    consumed before Gramps was launched and a retried ``approve`` meets
+    ``ProposalNotFound``. A fix that weakened this sentence to one true of both
+    callers would have papered over exactly the seam the finding is about.
+    """
+    copy, directory, proposal_id = prepared(tmp_path)
+    wrote, _ = written_and_read_back()
+    silent = invocation.Completed(stdout="Gramps says nothing\n", stderr="", returncode=0)
+
+    approve(proposal_id, tmp_path, copy, runner=Recorder(wrote, silent))
+
+    error = str(report_of(directory, proposal_id)["error"])
+    assert "proposal is consumed" in error
+    assert "second note" in error
+    assert "SECOND note on the person" not in error, "that is the other caller's sentence"
+
+
 def test_a_write_that_never_launched_is_still_reported_as_a_refusal(tmp_path: Path) -> None:
     """The other side of C1-1's distinction, and it must not move.
 

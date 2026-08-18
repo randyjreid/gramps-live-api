@@ -440,9 +440,48 @@ def _apply(
         return 1
 
     code, _ = _write_and_verify(
-        operation, runtime, copy, environ, sentence=sentence, out=out, err=err, runner=runner
+        operation,
+        runtime,
+        copy,
+        environ,
+        sentence=sentence,
+        second_note=A_RE_RUN_OF_APPLY_CAN_WRITE_A_SECOND_NOTE,
+        out=out,
+        err=err,
+        runner=runner,
     )
     return code
+
+
+NO_SECOND_NOTE_FROM_A_PROPOSAL = (
+    "The note must not be proposed again: the proposal is consumed and will not be "
+    "retried, so no second note can arrive this way. Writing another one needs a fresh "
+    "proposal, a fresh console and a second human yes."
+)
+"""What is true about a duplicate on the ``approve`` path.
+
+``store.consume`` runs before Gramps is launched, so a retried ``approve`` meets
+``ProposalNotFound``. This is the sentence the whole of #69's disposition for the
+MCP route buys, and it is true only here.
+"""
+
+A_RE_RUN_OF_APPLY_CAN_WRITE_A_SECOND_NOTE = (
+    "Nothing here was consumed. This command re-reads the operation file every time it "
+    "runs, so running it again on the same file CAN put a SECOND note on the person. "
+    "Look at the person in Gramps before you re-run."
+)
+"""What is true about a duplicate on the ``apply`` path, which is a different thing.
+
+⚠️ **#69's residual, open and unchanged**, and it is closed for the MCP route
+only. There is no proposal on this path to be consumed and nothing binds one run
+to the next, so the strong sentence above is simply false here.
+
+⚠️ **Path-specific rather than softened, which is the owner's ruling on L6.** A
+sentence vague enough to be true for both callers would read as reassurance on
+the path where a duplicate is possible, and would hide the seam instead of
+showing it. The seam is that ``_write_and_verify`` serves two callers whose
+guarantees differ -- **issue #73**, which is a design question and not this.
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -465,6 +504,7 @@ def _write_and_verify(
     environ: Mapping[str, str],
     *,
     sentence: str,
+    second_note: str,
     out: TextIO,
     err: TextIO,
     runner: invocation.Runner,
@@ -497,6 +537,19 @@ def _write_and_verify(
     call's boundary is the callee. A statement appended to the end of the
     post-commit body next year is inside the handler by construction, which is
     the only sense in which *structurally* was ever true.
+
+    ⚠️ **``second_note`` is a PARAMETER because the two callers' guarantees
+    differ, and that is L6.** Both messages below tell the operator what a
+    re-run does, and the answer is not the same one twice: ``approve`` consumed
+    its proposal before Gramps was launched and ``apply`` consumed nothing. The
+    sentence used to be written once, in ``approve``'s words, and printed down
+    both paths -- so on ``apply`` it told the owner a duplicate was impossible
+    where a duplicate is exactly what a re-run produces.
+
+    ⚠️ **This is not the two callers being split**, which is issue #73 and is
+    deliberately not answered here. It is one function saying the true thing for
+    whichever of them called it, so the seam SHOWS rather than being papered
+    over by a sentence weak enough to be true of both.
     """
     payload = json.dumps(schema.to_dict(operation))
     digest = apply.approval_digest(operation)
@@ -514,15 +567,14 @@ def _write_and_verify(
     except invocation.NoResultMarker as failure:
         # ⚠️ **#69's vocabulary.** A run that printed no marker may or may not
         # have committed, and the exit code says nothing here by construction.
-        # The honest report is that it is unknown and that retrying is not the
-        # answer -- the proposal is already consumed, so a retry cannot write a
-        # second note, and what settles it is the undo record on disk.
+        # The honest report is that it is unknown, that what a re-run would do
+        # is the caller's own answer, and that what settles it is the undo
+        # record on disk.
         print(failure, file=err)
         return 1, {
             "outcome": "unknown",
             "error": (
-                f"{failure}\nThe write may have committed. The proposal is consumed and "
-                "will not be retried, so no second note can arrive this way -- look in "
+                f"{failure}\nThe write may have committed. {second_note}\nLook in "
                 f"{os.path.join(copy.tree_dir, apply.UNDO_DIRECTORY)} for what happened."
             ),
         }
@@ -562,10 +614,9 @@ def _write_and_verify(
             f"{failure}\n"
             "THE NOTE WAS WRITTEN AND THE READ-BACK DID NOT RUN. The write reported "
             "success before this failure, so the note is in the tree and nothing here "
-            "has read it back -- this is not a refusal and the note must not be "
-            "proposed again. The proposal is consumed, so no second note can arrive "
-            f"this way. Look in {os.path.join(copy.tree_dir, apply.UNDO_DIRECTORY)}, and "
-            "in the tree itself, for what happened."
+            f"has read it back -- this is not a refusal. {second_note}\n"
+            f"Look in {os.path.join(copy.tree_dir, apply.UNDO_DIRECTORY)}, and in the "
+            "tree itself, for what happened."
         )
         # ⚠️ **The report is finished BEFORE the telling is attempted**, and the
         # telling is best-effort, because a console that broke is how this
@@ -749,7 +800,15 @@ def _approve(
     store.consume(proposal_id, approved=True)
     try:
         code, report = _write_and_verify(
-            operation, runtime, copy, environ, sentence=sentence, out=out, err=err, runner=runner
+            operation,
+            runtime,
+            copy,
+            environ,
+            sentence=sentence,
+            second_note=NO_SECOND_NOTE_FROM_A_PROPOSAL,
+            out=out,
+            err=err,
+            runner=runner,
         )
     except (apply.ApplyError, schema.SchemaError, OSError) as failure:
         # ⚠️ **A report is filed even here, and that is not tidiness.** The

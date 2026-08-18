@@ -407,6 +407,43 @@ def test_a_read_back_that_disagrees_fails_the_run(tmp_path: Path) -> None:
     assert err.strip()
 
 
+def test_apply_does_not_claim_a_consumed_proposal_it_never_had(tmp_path: Path) -> None:
+    """L6, and the owner ruling is that it is fixed PATH-SPECIFIC.
+
+    ``_write_and_verify`` serves two callers whose guarantees differ. On
+    ``approve`` the proposal really is consumed before Gramps is launched, so
+    *no second note can arrive this way* is true. On ``apply`` there is no
+    proposal at all: this command re-reads ``op.json`` every run, and running it
+    again on the same file can put a second note on the person. The shared
+    post-commit message asserted the approve guarantee down both paths.
+
+    ⚠️ **Not softened into a sentence vague enough to be true for both.** A
+    message that said nothing either way would leave the seam papered over, and
+    the seam is the point: the message says the true thing for the path it is
+    on, which on this path is that a re-run CAN write a second note. That is
+    #69's residual on the CLI path, open and unchanged -- and the design
+    question of whether one function should serve both callers is issue #73,
+    which is not this.
+    """
+    _, environ = blessed_environment(tmp_path)
+    runner = Recorder(
+        marker(ok=True, note_gramps_id="N0021", note_handle="f00d", person_handle="a1b2"),
+        invocation.Completed(stdout="Gramps says nothing\n", stderr="", returncode=0),
+    )
+
+    code, _, err = run(
+        "apply", operation_file(tmp_path, schema.to_dict(OPERATION)), environ=environ, runner=runner
+    )
+
+    assert code != 0
+    assert "THE NOTE WAS WRITTEN" in err, "the post-commit handler is what ran"
+    assert "proposal" not in err.lower(), (
+        "the apply path has no proposal, and a message telling the owner one was "
+        f"consumed tells him a duplicate is impossible when it is not; got {err!r}"
+    )
+    assert "SECOND note" in err, "what is true on this path is said, not merely not-said"
+
+
 def test_apply_refuses_before_the_prompt_when_the_copy_is_not_blessed(tmp_path: Path) -> None:
     # The advisory check, which exists so the owner meets a clear message at his
     # own terminal rather than a refusal from inside a Gramps subprocess.
