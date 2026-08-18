@@ -146,3 +146,35 @@ Same boundary as C1-1, strictly worse outcome. Fixed in `8779e8d`.
 | Codex | **1** (round 2 = scoped delta on this fix, next) |
 | Claude `/code-review` | 0 |
 | PR bot | 0 |
+
+---
+
+## Codex round 2 — 1 finding, verified, BLOCKING
+
+Scoped delta on fix round 1. **The three round-1 findings were not re-found**, and nothing on the
+already-ruled list was re-argued — the ledger did its job.
+
+### C2-1 — [P2] Post-verify I/O becomes a refusal — `src/gramps_live_api/cli.py`
+
+> When both apply and verification markers succeed but the final `out.write` raises `OSError`—for
+> example, because the console stream becomes unavailable—this post-commit `try` has already ended.
+> The exception reaches `_approve`'s outer handler, which files `outcome: failed` without the handles
+> even though the note was committed and verified; printing a disagreement has the same routing. Keep
+> these remaining post-marker operations from falling into the pre-commit failure handler.
+
+**Disposition: FIX NOW.** Confirmed by reading: the `try` closes after the verify `_one_run`, and the
+`print` calls after it — including the disagreement path — are outside it.
+
+⚠️ **This is inside the batch's own bounded claim, not outside it.** The recorded residual says the
+handler covers **four** enumerated exceptions; `OSError` is one of them. So this is not the unbounded
+part failing — it is the bounded part not holding where it says it does.
+
+⚠️ **And it falsifies a docstring.** `_write_and_verify` states that C1-1 is answered *"structurally
+rather than by care, by putting everything past the marker inside one"* handler. Not everything past
+the marker is inside it. **A comment asserting a structural guarantee the structure does not provide
+is worse than no comment**, because the next reader stops checking.
+
+**Self-generated surface, and that does not stop the loop here.** This is machinery the artifact
+gained in response to C1-1, so diminishing-returns test (a) fires — but on **code** test (a) is not a
+stop condition, and this is a **correction** (the artifact asserts something untrue), not a
+refinement. Test (b) is silent.
