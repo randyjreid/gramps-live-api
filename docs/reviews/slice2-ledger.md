@@ -804,3 +804,62 @@ sentence in a rare state; F-2 costs an agent a repeating refusal on a file that 
 | Codex | **2** | E-1 fixed; F-1 and F-2 **parked**, dispositioned, not blocking |
 | Claude `/code-review` | 0 | **owed: one scoped delta via `--resume`** — next |
 | PR bot | 0 | after push |
+
+---
+
+## Claude `/code-review` scoped delta — ⭐ ZERO new blocking findings
+
+Run through `--resume` on the warm session, as the owner scoped it. **$8.03 against $42.36 for the
+cold full-breadth pass** — the contract's own economics, measured on this branch.
+
+**The five priorities were verified against the code, not assumed:**
+
+1. **Nothing reaches a write without a human `y`.** A crafted `proposal_id` dies at `_claim`'s regex
+   **before the spawn**, because the spawn is the claim's callee. Every handler in `_approve` routes
+   to `_closed`, never to a write.
+2. **Displayed vs written** — the same in-memory object is displayed and written; nothing re-reads
+   between them. The fingerprint check precedes the session check, as stated.
+3. **#69's bounded claim survives the worst race the reviewer could construct:** `Popen` raising
+   *after* child creation, rollback restoring `.json`, a retry spawning a second console — **two live
+   consoles, both answered `y`, and the second `consume` gets `FileNotFoundError` and dies before the
+   write.**
+4. **Ruling 1 / `priv`** — `people.py` is untouched in this delta.
+5. **The property test has no hole in the property.** One more member of the documented tail found
+   (`_ID.fullmatch`, unpatchable, pure computation, pre-rename only). One coverage note: faults are
+   never injected *inside* the burn rename, but `_refuse` is structurally rename-then-raise, so
+   nothing fallible follows it either.
+
+**F-1 and F-2 were checked and neither is worse than recorded.**
+
+### N-1 — [prose] `_approve`'s docstring asserts a guarantee the structure does not provide — ⛔ PARKED
+
+> *"every region below ends at `_closed` rather than letting an exception reach `main`"* — false for
+> six statements: the setup region (`config.load`, the two `ConfigError` raises, `apply.authorise`) and
+> both `consume` calls, all of which reach `main`, which prints and returns 1 **with no `_closed`**, so
+> the window vanishes with the refusal on it.
+
+**The behaviour is already dispositioned** — D-2's console half, recorded in `docs/slice2-mcp.md`.
+**What is new is the sentence claiming the opposite**, and this ledger's own C2-1 disposition sets the
+standard: *"a comment asserting a structural guarantee the structure does not provide is worse than no
+comment, because the next reader stops checking."*
+
+**PARKED, and two rules agree on it:**
+
+1. ⛔ The owner's standing rule parks findings in this machinery.
+2. ⛔ **The conductor's documentation carve-out does NOT reach it.** *"The boundary is the file, not
+   the size."* A docstring inside `cli.py` is **source**, and source is never the conductor's. The
+   reviewer suggested the carve-out covers it; **it does not**, and taking that offer would have been
+   the carve-out widening itself.
+
+**It changes no behaviour and cannot produce a wrong write.** It is one sentence, and it is wrong.
+
+### Round counts — every seat dispositioned
+
+| Reviewer | Rounds | State |
+| --- | --- | --- |
+| Codex | 2 | dispositioned — F-1, F-2 parked |
+| Claude `/code-review` | **1** (scoped delta) | dispositioned — N-1 parked |
+| PR bot | 0 | **next: push** |
+
+**No blocking finding is outstanding on this head. Every finding any reviewer has raised is fixed,
+filed or parked with recorded rationale.** The local gates are satisfied; the push follows.
