@@ -166,8 +166,16 @@ jobs:
 
       # --junit-xml is what the next step reads. `-rs` stays: it is how a human
       # sees the same thing the next step enforces.
+      #
+      # ⚠️ **Written to RUNNER_TEMP, outside the checkout, deliberately.** This
+      # repository's whole Phase 0 is about what its working tree contains, and
+      # a report dropped in the root would be one more untracked artefact for
+      # somebody to have to reason about -- against the hygiene tests, against
+      # the guard's tracked-content scan, against `.gitignore`'s ordering rules.
+      # None of it is load-bearing here and all of it is avoidable: the file has
+      # no reason to be in the checkout, so it is not put there.
       - name: Tests
-        run: pytest -rs --junit-xml=junit.xml
+        run: pytest -rs --junit-xml="$RUNNER_TEMP/junit.xml"
 
       # ⚠️ **THE FAIL-OPEN THIS LEG EXISTS TO CLOSE.** Making the SDK optional
       # means the MCP tests skip when it is absent, and "skip when absent"
@@ -197,6 +205,7 @@ jobs:
       - name: Refuse a run whose MCP tests did not run
         run: |
           python - <<'PY'
+          import os
           import sys
           import xml.etree.ElementTree as ET
 
@@ -223,7 +232,12 @@ jobs:
                   or (case.get("name") or "") == MODULE
               )
 
-          root = ET.parse("junit.xml").getroot()
+          # The path the step above wrote, read from the environment rather
+          # than repeated as a literal -- two spellings of one path is how they
+          # drift, and a missing file here would fail with a stack trace saying
+          # nothing about the property. `os.environ[...]` raises if the runner
+          # ever stops providing it, which is the right direction.
+          root = ET.parse(os.path.join(os.environ["RUNNER_TEMP"], "junit.xml")).getroot()
           cases = [c for c in root.iter("testcase") if belongs(c)]
           skipped = [c for c in cases if c.find("skipped") is not None]
           errored = [c for c in cases if c.find("error") is not None]
