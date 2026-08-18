@@ -309,9 +309,6 @@ wheels = [
 name = "gramps-live-api"
 version = "0.0.0"
 source = { editable = "." }
-dependencies = [
-    { name = "mcp" },
-]
 
 [package.optional-dependencies]
 dev = [
@@ -319,15 +316,18 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
+mcp = [
+    { name = "mcp" },
+]
 
 [package.metadata]
 requires-dist = [
-    { name = "mcp", specifier = ">=2.0.0" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["mcp", "dev"]
 
 [[package]]
 name = "h11"

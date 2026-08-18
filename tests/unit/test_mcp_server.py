@@ -9,24 +9,55 @@ those two properties or a refusal that keeps one of them true.
 Covered to the process boundary. The spawner is injected, so what these tests
 prove is that the console is reached, told the right proposal, and believed
 about the outcome -- never that a note reached a tree. The demo proves that.
+
+⚠️ **These tests need the ``mcp`` extra, and the skip below is the whole risk of
+making it optional.** A skipped test reads exactly like a passing one -- this
+repository has already paid for that once (#31) -- so "skip when the extra is
+absent" becomes "never run anywhere" the moment the CI leg that installs the
+extra is misconfigured, and nothing says so. **CI closes that itself**: the MCP
+leg asserts from the JUnit report that this module contributed tests and that
+none of them skipped, and fails the job otherwise. See `.github/workflows/ci.yml`.
+That assertion is the only reason the skip below is acceptable.
 """
 
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import io
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import pytest
 
-from gramps_live_api import cli, config, invocation
-from gramps_live_api.core import apply, people, proposals, schema
-from gramps_live_api_mcp import server as mcp_server
-from tests.fixtures import synthetic
-from tests.fixtures.trees import blessed
-from tests.unit.test_cli import equipped, marker
-from tests.unit.test_cli_approve import Recorder, written_and_read_back
+# ⚠️ **`find_spec`, not `pytest.importorskip`, and the difference is which
+# failures are allowed to become a skip.** `importorskip` would swallow ANY
+# ImportError raised while importing `gramps_live_api_mcp.server` -- a typo in
+# our own module included -- and report the whole file as skipped. This asks one
+# question, `is the optional extra installed?`, and skips only on that answer.
+# Every other import error below still fails collection, loudly.
+#
+# The message claims the seam-twin exemption in the words the hygiene test
+# requires, and the claim is the honest one: without the extra there is no
+# importable `gramps_live_api_mcp.server` at all, so the SUBJECT is absent
+# rather than the observation. A platform skip leaves a property uncovered and
+# owes a twin; this one leaves a module non-existent, and a twin would be a
+# test of nothing.
+if importlib.util.find_spec("mcp") is None:  # pragma: no cover - the extra is installed in dev
+    pytest.skip(
+        "the MCP server is an optional extra and it is not installed, so there is "
+        "nothing to cover here -- gramps_live_api_mcp.server cannot be imported at "
+        "all. CI's mcp leg installs '.[mcp]' and asserts these tests actually ran.",
+        allow_module_level=True,
+    )
+
+from gramps_live_api import cli, config, invocation  # noqa: E402
+from gramps_live_api.core import apply, people, proposals, schema  # noqa: E402
+from gramps_live_api_mcp import server as mcp_server  # noqa: E402
+from tests.fixtures import synthetic  # noqa: E402
+from tests.fixtures.trees import blessed  # noqa: E402
+from tests.unit.test_cli import equipped, marker  # noqa: E402
+from tests.unit.test_cli_approve import Recorder, written_and_read_back  # noqa: E402
 
 PUBLIC = ("p0001", "I0044", "Elowen", "Ashenmoor")
 PRIVATE = ("p0002", "I0055", "Quorvane", "Weissvane")

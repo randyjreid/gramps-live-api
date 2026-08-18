@@ -18,11 +18,22 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Topic :: Sociology :: Genealogy",
 ]
-dependencies = [
-    "mcp>=2.0.0",
-]
+# EMPTY, and it is an invariant rather than a coincidence. The core -- the
+# schema, the write path, the CLI console and `pii_guard` -- runs on the
+# standard library alone, and CI proves it: the core leg installs `.[dev]` and
+# then refuses to continue if `mcp` is importable or if this distribution
+# declares a single unconditional requirement.
+#
+# The MCP server is an OPTIONAL EXTRA below, not the core.
+dependencies = []
 
 [project.optional-dependencies]
+# The official MCP SDK, and the only runtime dependency this project has of any
+# kind. `docs/slice2-mcp.md` records what it costs -- measured, not estimated --
+# and why the answer is still the SDK rather than a JSON-RPC loop of our own.
+mcp = [
+  "mcp>=2.0.0",
+]
 dev = [
   "mypy>=1.11",
   "pytest>=8.0",
