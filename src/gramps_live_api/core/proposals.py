@@ -264,8 +264,56 @@ class Store:
 
     # -- claiming -----------------------------------------------------------
 
-    def claim(self, proposal_id: str, approval_digest: str) -> Proposal:
+    def claim_then(
+        self,
+        proposal_id: str,
+        approval_digest: str,
+        follow_through: Callable[[], object],
+    ) -> Proposal:
+        """Claim, then do the one thing the claim exists for. Roll back if it fails.
+
+        ⭐ **CLAIMING IS THE LAST IRREVERSIBLE STEP**, and this is the only
+        public way to reach it. Everything a host can be asked about -- the
+        platform, the configuration, the runtime, the authorisation -- is
+        answered by the caller before this; what cannot be asked in advance is
+        whether the spawn succeeds, so it happens **inside** the claim and a
+        claim that cannot be followed through is put back.
+
+        ⚠️ **A CALL, not a region, and that is C2-1's lesson applied to a
+        different hazard.** *Nothing may sit between the claim and the
+        follow-through* is a claim about which statements somebody wrote
+        between two lines -- a fact about where they stopped typing, which
+        failed once already in ``cli._write_and_verify``. Here ``between`` is
+        not a region a reader has to remember, because the follow-through is
+        the callee. A statement appended below next year is outside the claim
+        by construction.
+
+        ⚠️ **``Exception``, not ``BaseException``, and that is a recorded
+        trade.** A ``KeyboardInterrupt`` arriving after ``CreateProcess``
+        succeeded but before ``Popen`` returns would roll back a proposal whose
+        console is **live**, and two consoles for one proposal breaks #69's
+        bounded claim. Losing one proposal to an interrupt is strictly the
+        better failure.
+
+        ⚠️ **The rollback cannot become a second route to a claim.** It runs
+        only when the follow-through *raised* -- when no console exists -- and a
+        rolled-back proposal has been shown to nobody and consumed by nothing.
+        """
+        proposal = self._claim(proposal_id, approval_digest)
+        try:
+            follow_through()
+        except Exception:
+            self._rollback(proposal_id)
+            raise
+        return proposal
+
+    def _claim(self, proposal_id: str, approval_digest: str) -> Proposal:
         """Take the proposal out of reach of any other caller, then check it.
+
+        ⚠️ **Private, so that ``claim_then`` is the only entry.** A public claim
+        is a claim somebody can make without its follow-through, which is the
+        state L2 and D-1 both left behind: a proposal renamed out of reach with
+        no console anywhere and nothing that will ever act on it.
 
         ⚠️ **The rename happens FIRST, and that ordering is the mutual
         exclusion.** Two concurrent approves cannot both proceed, because
@@ -406,6 +454,25 @@ class Store:
         return payload if isinstance(payload, dict) else None
 
     # -- the disk -----------------------------------------------------------
+
+    def _rollback(self, proposal_id: str) -> None:
+        """Put a claimed proposal back where an approve can find it again.
+
+        ⚠️ **Private, and it must stay private.** A public *un-claim* would be a
+        second way to reach an approvable proposal, which is the property
+        ``_claim``'s rename exists to hold. This one is reachable only from
+        ``claim_then``'s handler, where the follow-through has already raised.
+
+        ⚠️ **``OSError`` is suppressed so that the ORIGINAL failure survives.**
+        This runs inside an ``except`` that is about to re-raise, and a rename
+        failing in here would replace *the console could not be started* -- the
+        thing the owner and the agent both need -- with *a file could not be
+        renamed*. The cost is R2: the rollback can fail silently, the proposal
+        is then burnt, and the remedy is the one the refusal already names,
+        propose again.
+        """
+        with suppress(OSError):
+            self._move(proposal_id, _PENDING, ".json")
 
     def _take(self, proposal_id: str) -> str:
         try:

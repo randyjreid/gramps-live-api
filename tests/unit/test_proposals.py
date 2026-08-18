@@ -84,25 +84,25 @@ def test_two_proposals_do_not_share_an_id(tmp_path: Path) -> None:
 def test_a_claim_takes_the_proposal_out_of_reach_of_a_second_claim(tmp_path: Path) -> None:
     """#69's whole disposition: a retried ``approve`` cannot write a second note."""
     made, proposal = minted(tmp_path)
-    made.claim(proposal.id, proposal.approval_digest)
+    made._claim(proposal.id, proposal.approval_digest)
     with pytest.raises(proposals.ProposalNotFound):
-        made.claim(proposal.id, proposal.approval_digest)
+        made._claim(proposal.id, proposal.approval_digest)
 
 
 def test_a_proposal_consumed_after_yes_cannot_be_claimed_again(tmp_path: Path) -> None:
     made, proposal = minted(tmp_path)
-    made.claim(proposal.id, proposal.approval_digest)
+    made._claim(proposal.id, proposal.approval_digest)
     made.consume(proposal.id, approved=True)
     with pytest.raises(proposals.ProposalNotFound):
-        made.claim(proposal.id, proposal.approval_digest)
+        made._claim(proposal.id, proposal.approval_digest)
 
 
 def test_a_proposal_consumed_after_no_cannot_be_claimed_again(tmp_path: Path) -> None:
     made, proposal = minted(tmp_path)
-    made.claim(proposal.id, proposal.approval_digest)
+    made._claim(proposal.id, proposal.approval_digest)
     made.consume(proposal.id, approved=False)
     with pytest.raises(proposals.ProposalNotFound):
-        made.claim(proposal.id, proposal.approval_digest)
+        made._claim(proposal.id, proposal.approval_digest)
 
 
 def test_a_refused_claim_still_consumes_the_proposal(tmp_path: Path) -> None:
@@ -111,9 +111,9 @@ def test_a_refused_claim_still_consumes_the_proposal(tmp_path: Path) -> None:
     that a wrong digest burns the proposal, which is the fail-closed side."""
     made, proposal = minted(tmp_path)
     with pytest.raises(proposals.ApprovalMismatch):
-        made.claim(proposal.id, apply.approval_digest(OTHER))
+        made._claim(proposal.id, apply.approval_digest(OTHER))
     with pytest.raises(proposals.ProposalNotFound):
-        made.claim(proposal.id, proposal.approval_digest)
+        made._claim(proposal.id, proposal.approval_digest)
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ def test_a_refused_claim_still_consumes_the_proposal(tmp_path: Path) -> None:
 def test_an_id_that_was_never_minted_is_not_found(tmp_path: Path) -> None:
     made = store(tmp_path)
     with pytest.raises(proposals.ProposalNotFound):
-        made.claim("0" * 16, "whatever")
+        made._claim("0" * 16, "whatever")
 
 
 def test_an_id_shaped_like_a_path_names_no_proposal(tmp_path: Path) -> None:
@@ -139,7 +139,7 @@ def test_an_id_shaped_like_a_path_names_no_proposal(tmp_path: Path) -> None:
     outside.write_text("{}", encoding="utf-8")
     for candidate in ("../elsewhere", "..\\elsewhere", "a" * 16 + "/x", "", "NOTHEX0123456789"):
         with pytest.raises(proposals.ProposalNotFound):
-            made.claim(candidate, "whatever")
+            made._claim(candidate, "whatever")
     assert outside.read_text(encoding="utf-8") == "{}", "nothing outside the store was touched"
 
 
@@ -147,7 +147,7 @@ def test_a_proposal_older_than_the_ttl_is_expired(tmp_path: Path) -> None:
     made, proposal = minted(tmp_path, ttl=900.0)
     made.clock.advance(901)  # type: ignore[attr-defined]
     with pytest.raises(proposals.ProposalExpired) as refusal:
-        made.claim(proposal.id, proposal.approval_digest)
+        made._claim(proposal.id, proposal.approval_digest)
     assert "expired" in str(refusal.value)
 
 
@@ -155,7 +155,7 @@ def test_a_proposal_from_another_server_run_is_refused(tmp_path: Path) -> None:
     made, proposal = minted(tmp_path, session="sess0001")
     later = proposals.Store(made.directory, session="sess0002")
     with pytest.raises(proposals.ProposalFromAnotherSession):
-        later.claim(proposal.id, proposal.approval_digest)
+        later._claim(proposal.id, proposal.approval_digest)
 
 
 def test_an_edited_operation_is_corrupt(tmp_path: Path) -> None:
@@ -165,14 +165,14 @@ def test_an_edited_operation_is_corrupt(tmp_path: Path) -> None:
     record["operation"]["text"] = "something the owner never read"
     path.write_text(json.dumps(record), encoding="utf-8")
     with pytest.raises(proposals.ProposalCorrupt):
-        made.claim(proposal.id, proposal.approval_digest)
+        made._claim(proposal.id, proposal.approval_digest)
 
 
 def test_a_file_that_is_not_readable_json_is_corrupt(tmp_path: Path) -> None:
     made, proposal = minted(tmp_path)
     Path(made.path_of(proposal.id)).write_text("not json at all", encoding="utf-8")
     with pytest.raises(proposals.ProposalCorrupt):
-        made.claim(proposal.id, proposal.approval_digest)
+        made._claim(proposal.id, proposal.approval_digest)
 
 
 def test_a_naive_created_utc_is_corrupt_rather_than_a_stranded_file(tmp_path: Path) -> None:
@@ -196,7 +196,7 @@ def test_a_naive_created_utc_is_corrupt_rather_than_a_stranded_file(tmp_path: Pa
     path.write_text(json.dumps(record), encoding="utf-8")
 
     with pytest.raises(proposals.ProposalCorrupt) as refusal:
-        made.claim(proposal.id, proposal.approval_digest)
+        made._claim(proposal.id, proposal.approval_digest)
 
     assert "offset" in str(refusal.value), "the message names what is wrong with the value"
     assert not Path(made.path_of(proposal.id, ".pending.json")).exists(), "stranded"
@@ -210,7 +210,7 @@ def test_naming_one_proposal_with_another_digest_is_refused(tmp_path: Path) -> N
     first = made.mint(OPERATION)
     second = made.mint(OTHER)
     with pytest.raises(proposals.ApprovalMismatch):
-        made.claim(first.id, second.approval_digest)
+        made._claim(first.id, second.approval_digest)
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +224,7 @@ def test_changed_rendering_rules_are_reported_as_changed_rules(
     made, proposal = minted(tmp_path)
     monkeypatch.setattr(schema, "_PREVIEW_TEXT_LIMIT", 20)
     with pytest.raises(proposals.ApprovalRulesChanged) as refusal:
-        made.claim(proposal.id, proposal.approval_digest)
+        made._claim(proposal.id, proposal.approval_digest)
     message = str(refusal.value)
     assert proposal.rules_fingerprint in message and proposals.rules_fingerprint() in message
     assert "the operation is unchanged" in message
@@ -246,7 +246,7 @@ def test_changed_rules_are_reported_even_though_the_session_changed_too(
     monkeypatch.setattr(schema, "_PREVIEW_TEXT_LIMIT", 20)
     restarted = proposals.Store(made.directory, session="sess0002")
     with pytest.raises(proposals.ApprovalRulesChanged):
-        restarted.claim(proposal.id, proposal.approval_digest)
+        restarted._claim(proposal.id, proposal.approval_digest)
 
 
 def test_the_two_approval_refusals_are_not_the_same_event(
@@ -256,12 +256,12 @@ def test_the_two_approval_refusals_are_not_the_same_event(
     made = store(tmp_path)
     mismatched = made.mint(OPERATION)
     with pytest.raises(proposals.ApprovalMismatch) as one:
-        made.claim(mismatched.id, apply.approval_digest(OTHER))
+        made._claim(mismatched.id, apply.approval_digest(OTHER))
 
     stale = made.mint(OPERATION)
     monkeypatch.setattr(schema, "_PREVIEW_TEXT_LIMIT", 20)
     with pytest.raises(proposals.ApprovalRulesChanged) as two:
-        made.claim(stale.id, stale.approval_digest)
+        made._claim(stale.id, stale.approval_digest)
 
     assert type(one.value) is not type(two.value)
     assert str(one.value) != str(two.value)
@@ -329,6 +329,82 @@ def test_the_probe_operation_is_well_formed_and_is_elided() -> None:
     """
     assert schema.validate(proposals.PROBE).well_formed
     assert schema.preview(proposals.PROBE) != schema.full_display(proposals.PROBE)
+
+
+# ---------------------------------------------------------------------------
+# ⭐ Claiming is the LAST irreversible step
+# ---------------------------------------------------------------------------
+
+
+def test_a_follow_through_that_raises_puts_the_proposal_back(tmp_path: Path) -> None:
+    """⭐ **The invariant, and it closes L2 and D-1 as a class rather than as
+    two instances.**
+
+    Both findings were the same predicate wearing two faces. L2: *this host
+    cannot spawn consoles*. D-1: *the spawn itself failed -- WinError 8*. Each
+    left the proposal renamed to ``.pending.json`` with no console anywhere and
+    nothing left that would ever act on it, so the agent proposed again and
+    reached the same place: propose, approve, burn, forever.
+
+    ⚠️ **The rollback keys on *the follow-through raised*, never on which
+    failure it was**, which is why it covers the next instance nobody has met
+    yet. And it cannot become a second route to a claim: it runs only when the
+    follow-through raised, and a rolled-back proposal has been shown to nobody
+    and consumed by nothing.
+    """
+    made, proposal = minted(tmp_path)
+
+    def cannot_spawn() -> None:
+        raise OSError(8, "not enough storage is available to process this command")
+
+    with pytest.raises(OSError):
+        made.claim_then(proposal.id, proposal.approval_digest, cannot_spawn)
+
+    assert not Path(made.path_of(proposal.id, ".pending.json")).exists(), "orphaned"
+    assert Path(made.path_of(proposal.id)).is_file(), "the proposal must survive"
+    reclaimed = made.claim_then(proposal.id, proposal.approval_digest, lambda: None)
+    assert reclaimed.id == proposal.id, "the same id is approvable once the host is fixed"
+
+
+def test_a_follow_through_that_returns_leaves_the_claim_standing(tmp_path: Path) -> None:
+    """The direction that must NOT move, and it is #69's bounded claim.
+
+    A console that opened is a console that may write, so the claim stands and a
+    second ``claim_then`` of the same id meets ``ProposalNotFound``. A rollback
+    here would put an approvable proposal back while its window was live -- two
+    consoles for one proposal, which is exactly what ``consume`` before Gramps
+    exists to prevent.
+    """
+    made, proposal = minted(tmp_path)
+    opened: list[str] = []
+
+    claimed = made.claim_then(
+        proposal.id, proposal.approval_digest, lambda: opened.append("a window")
+    )
+
+    assert opened == ["a window"], "the follow-through is the point of the call"
+    assert claimed.operation == OPERATION
+    assert Path(made.path_of(proposal.id, ".pending.json")).is_file(), "still claimed"
+    with pytest.raises(proposals.ProposalNotFound):
+        made.claim_then(proposal.id, proposal.approval_digest, lambda: None)
+
+
+def test_a_refused_claim_never_reaches_the_follow_through(tmp_path: Path) -> None:
+    """No window opens for a proposal the store refuses.
+
+    The claim is attempted first and the refusal is raised from inside it, so
+    the callee never runs -- and an agent that names a proposal wrongly cannot
+    put a window in front of the owner by doing so.
+    """
+    made, proposal = minted(tmp_path)
+    opened: list[str] = []
+
+    with pytest.raises(proposals.ApprovalMismatch):
+        made.claim_then(
+            proposal.id, apply.approval_digest(OTHER), lambda: opened.append("a window")
+        )
+
+    assert opened == [], "a refusal opened a console"
 
 
 # ---------------------------------------------------------------------------

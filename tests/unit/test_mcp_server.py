@@ -510,6 +510,43 @@ def test_a_host_that_cannot_open_a_console_does_not_burn_the_proposal(tmp_path: 
     assert opens.calls, "the surviving proposal must reach a console that can be opened"
 
 
+def test_a_spawn_that_fails_leaves_the_proposal_approvable(tmp_path: Path) -> None:
+    """D-1, and it is L2's defect one stage further along.
+
+    ``require_console`` only validates the platform. On a host that passes it,
+    ``Popen`` can still raise -- WinError 8, *not enough storage is available to
+    process this command* -- and that ran **after** the claim had renamed the
+    proposal to ``.pending.json``. No console opened, the exception escaped, and
+    retrying got ``ProposalNotFound``: the same propose-approve-burn loop L2
+    closed for the other cause.
+
+    ⚠️ **Asserted BY CLASS rather than by that instance.** The rollback keys on
+    the follow-through raising, not on which failure it was, so what this test
+    fixes is the predicate -- the next launch failure nobody has met is covered
+    by the same line.
+    """
+    _, environ = equipment(tmp_path)
+
+    def cannot_launch(_: Sequence[str]) -> None:
+        raise OSError(8, "not enough storage is available to process this command")
+
+    made = mcp_server.Tools(environ, session="sess0001", spawner=cannot_launch, platform="win32")
+    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
+    proposal_id, digest = str(proposed["proposal_id"]), str(proposed["approval_digest"])
+    store = made._store()
+
+    with pytest.raises(OSError):
+        made.approve(proposal_id, digest)
+
+    assert not Path(store.path_of(proposal_id, ".pending.json")).exists(), "orphaned"
+    assert Path(store.path_of(proposal_id)).is_file(), "the proposal must survive the failure"
+
+    opens = Spawner()
+    working = mcp_server.Tools(environ, session="sess0001", spawner=opens, platform="win32")
+    assert working.approve(proposal_id, digest)["console"] == "opened"
+    assert opens.calls, "the same id must still be approvable once the host is fixed"
+
+
 def test_a_platform_that_cannot_separate_the_console_is_refused() -> None:
     """⚠️ **Fail closed rather than run the console in our own window.**
 

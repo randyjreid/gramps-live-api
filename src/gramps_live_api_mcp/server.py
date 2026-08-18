@@ -381,14 +381,24 @@ class Tools:
         buys a proposal that is not destroyed before anybody could write it
         once, and they do not trade against each other.
 
+        ⭐ **And the spawn is the CALLEE of the claim, which is D-1.** L2 closed
+        *this host cannot spawn consoles* and left *the spawn itself failed*,
+        which produces the identical burn loop -- so the question that cannot be
+        asked in advance is answered inside ``claim_then``, and a claim that
+        cannot be followed through is rolled back. That closes the class rather
+        than the two instances.
+
         ⭐ **What comes back names no outcome, because there is none to name.**
         The window is open and the owner is reading it; nothing in this process
         will ever learn what he types. Three keys, frozen by test.
         """
         require_console(self._platform)
         store = self._store()
-        store.claim(proposal_id, approval_digest)
-        self._spawn(console_command(proposal_id))
+        store.claim_then(
+            proposal_id,
+            approval_digest,
+            lambda: self._spawn(console_command(proposal_id)),
+        )
         return {
             "proposal_id": proposal_id,
             "console": "opened",

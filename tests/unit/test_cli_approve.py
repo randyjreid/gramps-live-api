@@ -97,7 +97,7 @@ def prepared(tmp_path: Path, operation: schema.Operation = OPERATION) -> tuple[s
     directory = proposals.store_directory(copy.tree_dir)
     store = proposals.Store(directory, session="sess0001")
     proposal = store.mint(operation)
-    store.claim(proposal.id, proposal.approval_digest)
+    store._claim(proposal.id, proposal.approval_digest)
     return copy.tree_dir, directory, proposal.id
 
 
