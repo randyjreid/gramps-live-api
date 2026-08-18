@@ -498,15 +498,15 @@ def test_a_console_that_files_its_report_and_then_exits_is_believed(tmp_path: Pa
     between the two -- so the exit branch re-reads before it concludes anything.
     Getting this wrong would report ``unknown`` over every successful approval.
     """
-    exited = Exited(code=0)
-    made = tools(tmp_path, timeout=45.0)
+    spawner = Spawner(handle=Exited(code=0))
+    made = tools(tmp_path, spawner=spawner, timeout=45.0)
     proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
     proposal_id = str(proposed["proposal_id"])
 
     def answer_then_die(_: Sequence[str]) -> None:
         made._store().write_report(proposal_id, {"outcome": "declined"})
 
-    made._spawn = Spawner(answer_then_die, handle=exited)  # type: ignore[attr-defined]
+    spawner._then = answer_then_die
     outcome = made.approve(proposal_id, str(proposed["approval_digest"]))
 
     assert outcome["outcome"] == "declined"
