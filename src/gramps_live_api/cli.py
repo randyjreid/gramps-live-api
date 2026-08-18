@@ -409,6 +409,16 @@ def _write_and_verify(
     relay them. ``outcome`` is the word the agent reads, and it is deliberately
     not a boolean: *written*, *failed*, *unverified* and *unknown* are four
     different things to do next.
+
+    ⚠️ **The APPLY RUN'S RESULT MARKER is the line this function is divided by,
+    and that division is C1-1.** Two Gramps runs happen here. A failure before
+    the marker is ``failed``, which ``APPROVE_DESCRIPTION`` tells the agent means
+    the write was refused. A failure after it is ``unverified``: the note is in
+    the tree and nothing has read it back. Reporting the second as the first is
+    the input that makes an agent propose the same note again -- the duplicate
+    path this slice exists to close -- so the two are separated structurally
+    rather than by care, by putting everything past the marker inside one
+    ``try`` whose handler cannot say *failed*.
     """
     payload = json.dumps(schema.to_dict(operation))
     digest = apply.approval_digest(operation)
@@ -446,7 +456,11 @@ def _write_and_verify(
         print(message, file=err)
         return 1, {"outcome": "failed", "error": message}
 
-    code = 0
+    # The marker said the write committed. Everything below this line is
+    # therefore POST-COMMIT, which is why it is all inside one try: see the
+    # docstring. The report is built first so the handles reach the operator
+    # down every path out of here, including the failing ones -- they are what
+    # an undo by hand needs and the only place they exist.
     report: dict[str, object] = {
         "outcome": "written",
         "note_gramps_id": written.get("note_gramps_id"),
@@ -455,35 +469,58 @@ def _write_and_verify(
         "record": written.get("record"),
         "record_error": written.get("record_error"),
     }
-    print(f"note {written.get('note_gramps_id')} written", file=out)
-    print(f"  note handle   {written.get('note_handle')}", file=out)
-    print(f"  person handle {written.get('person_handle')}", file=out)
-    if written.get("record_error"):
-        # The commit stands. Rolling it back would be a second write nobody
-        # approved, and the handles above are the part that cannot be
-        # reconstructed -- which is why they are printed before this.
-        print(
-            f"THE WRITE SUCCEEDED AND ITS RESULT RECORD DID NOT: {written['record_error']}\n"
-            "The note is in the tree. Write the handles above down: they are what "
-            "an undo by hand needs, and nothing on disk now records them.",
-            file=err,
-        )
-        code = 1
+    try:
+        code = 0
+        print(f"note {written.get('note_gramps_id')} written", file=out)
+        print(f"  note handle   {written.get('note_handle')}", file=out)
+        print(f"  person handle {written.get('person_handle')}", file=out)
+        if written.get("record_error"):
+            # The commit stands. Rolling it back would be a second write nobody
+            # approved, and the handles above are the part that cannot be
+            # reconstructed -- which is why they are printed before this.
+            print(
+                f"THE WRITE SUCCEEDED AND ITS RESULT RECORD DID NOT: {written['record_error']}\n"
+                "The note is in the tree. Write the handles above down: they are what "
+                "an undo by hand needs, and nothing on disk now records them.",
+                file=err,
+            )
+            code = 1
 
-    seen = _one_run(
-        runner,
-        runtime,
-        copy,
-        environ,
-        mode=invocation.MODE_VERIFY,
-        operation=payload,
-        approved_preview=sentence,
-        approved_digest=digest,
-        handles={
-            "note_handle": str(written.get("note_handle")),
-            "person_handle": str(written.get("person_handle")),
-        },
-    )
+        seen = _one_run(
+            runner,
+            runtime,
+            copy,
+            environ,
+            mode=invocation.MODE_VERIFY,
+            operation=payload,
+            approved_preview=sentence,
+            approved_digest=digest,
+            handles={
+                "note_handle": str(written.get("note_handle")),
+                "person_handle": str(written.get("person_handle")),
+            },
+        )
+    except (invocation.NoResultMarker, apply.ApplyError, schema.SchemaError, OSError) as failure:
+        # ⚠️ **Enumerated, not ``Exception``.** *No post-commit failure is
+        # misreported* is a claim over an unbounded space; what is claimed here
+        # is the bounded one -- these four, which are the set the callers of
+        # this function already catch and turn into ``failed``. Anything else
+        # still escapes to ``main``, and files no report, which is a residual
+        # rather than a fix.
+        unverified = (
+            f"{failure}\n"
+            "THE NOTE WAS WRITTEN AND THE READ-BACK DID NOT RUN. The write reported "
+            "success before this failure, so the note is in the tree and nothing here "
+            "has read it back -- this is not a refusal and the note must not be "
+            "proposed again. The proposal is consumed, so no second note can arrive "
+            f"this way. Look in {os.path.join(copy.tree_dir, apply.UNDO_DIRECTORY)}, and "
+            "in the tree itself, for what happened."
+        )
+        print(unverified, file=err)
+        report["outcome"] = "unverified"
+        report["error"] = unverified
+        return 1, report
+
     if not (seen.get("ok") and seen.get("text_matches") and seen.get("attached")):
         disagreement = (
             "the read-back disagrees with what was written: "

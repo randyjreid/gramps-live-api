@@ -172,7 +172,8 @@ The reply carries an outcome word:
   written     -- the note is in the tree; relay its Gramps ID
   declined    -- he said no; nothing was written
   failed      -- it was refused; relay the message verbatim, it names the remedy
-  unverified  -- it was written and the read-back disagreed; tell him to look
+  unverified  -- it WAS written and the read-back did not confirm it -- it
+                 disagreed, or it could not run at all; tell him to look
   unknown     -- the run said nothing, so it may or may not have committed
   still_open  -- he has not answered yet
 

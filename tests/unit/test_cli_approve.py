@@ -25,9 +25,15 @@ from tests.unit.test_cli import OPERATION, equipped, marker
 
 
 class Recorder:
-    """A runner that starts no process, remembers, and can look around first."""
+    """A runner that starts no process, remembers, and can look around first.
 
-    def __init__(self, *replies: invocation.Completed, watching: object = None) -> None:
+    A reply may be an **exception**, which this raises instead of returning.
+    That is how a run that never launches is expressed: ``subprocess`` raises
+    rather than handing back a completed process, and which of the two runs it
+    happens on is exactly what C1-1 is about.
+    """
+
+    def __init__(self, *replies: invocation.Completed | Exception, watching: object = None) -> None:
         self._replies = list(replies)
         self._watching = watching
         self.runs: list[tuple[Sequence[str], Mapping[str, str]]] = []
@@ -37,7 +43,10 @@ class Recorder:
         if self._watching is not None:
             self.seen.append(sorted(path.name for path in Path(str(self._watching)).iterdir()))
         self.runs.append((argv, environ))
-        return self._replies.pop(0)
+        reply = self._replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
 
 
 def written_and_read_back() -> tuple[invocation.Completed, invocation.Completed]:
@@ -246,6 +255,68 @@ def test_a_refusal_from_inside_gramps_reaches_the_report_verbatim(tmp_path: Path
     report = report_of(directory, proposal_id)
     assert report["outcome"] == "failed"
     assert report["error"] == refusal
+
+
+def test_a_read_back_that_cannot_launch_is_not_reported_as_a_refusal(tmp_path: Path) -> None:
+    """C1-1, and the exact input that makes an agent propose again.
+
+    The apply run committed; the read-back could not start. On Windows that is
+    reachable because ``_one_run`` adds ``ENV_HANDLES`` to the verification
+    environment, so it can cross the block limit the apply run sat under -- but
+    the cause does not matter and the cap is #66, filed and out of scope. What
+    matters is that ``failed`` is what ``APPROVE_DESCRIPTION`` calls a refusal,
+    and a committed note reported as refused is the duplicate-write path slice 2
+    claims to have closed.
+    """
+    copy, directory, proposal_id = prepared(tmp_path)
+    wrote, _ = written_and_read_back()
+    runner = Recorder(wrote, OSError(7, "the environment block is too small"))
+
+    code, _, err = approve(proposal_id, tmp_path, copy, runner=runner)
+
+    assert code != 0
+    report = report_of(directory, proposal_id)
+    assert report["outcome"] == "unverified", "a committed note may not be reported as refused"
+    assert report["note_gramps_id"] == "N0021", "the identifiers an undo by hand needs survive"
+    assert apply.UNDO_DIRECTORY in str(report["error"]), "the operator is told where to look"
+    assert "environment block" in err, "the underlying failure is relayed, not paraphrased"
+
+
+def test_a_read_back_that_prints_no_marker_still_files_a_report(tmp_path: Path) -> None:
+    """The same boundary, reached by the other post-commit failure.
+
+    ``NoResultMarker`` from the read-back is not in the set ``_approve``
+    catches, so it escaped past the report entirely: the note was committed, the
+    console printed a traceback-free message and exited, and **no report was
+    filed at all** -- leaving the server to wait out its whole timeout and tell
+    the agent *still_open* about a run that had ended.
+    """
+    copy, directory, proposal_id = prepared(tmp_path)
+    wrote, _ = written_and_read_back()
+    silent = invocation.Completed(stdout="Gramps says nothing\n", stderr="", returncode=0)
+
+    code, _, _ = approve(proposal_id, tmp_path, copy, runner=Recorder(wrote, silent))
+
+    assert code != 0
+    report = report_of(directory, proposal_id)
+    assert report.get("outcome") == "unverified", "a post-commit failure files a report"
+    assert report["note_handle"] == "f00d1e5f00d1e5"
+
+
+def test_a_write_that_never_launched_is_still_reported_as_a_refusal(tmp_path: Path) -> None:
+    """The other side of C1-1's distinction, and it must not move.
+
+    Nothing committed here, so ``failed`` is the true word and the agent may act
+    on it. A fix that reported every launch failure as *committed but
+    unverified* would have widened the claim it was asked to narrow.
+    """
+    copy, directory, proposal_id = prepared(tmp_path)
+    runner = Recorder(OSError(7, "the environment block is too small"))
+
+    code, _, _ = approve(proposal_id, tmp_path, copy, runner=runner)
+
+    assert code != 0
+    assert report_of(directory, proposal_id)["outcome"] == "failed"
 
 
 def test_a_read_back_that_disagrees_is_not_reported_as_written(tmp_path: Path) -> None:
