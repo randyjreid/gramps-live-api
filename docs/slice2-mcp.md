@@ -177,8 +177,9 @@ undefined:
 
 | Moment | What happens |
 | --- | --- |
-| the server waits, up to 45 seconds | polling for the console's report |
+| the server waits, up to 45 seconds | polling for the console's report **and for the console itself** |
 | our timeout fires first | `approve` returns **`still_open`** — the window is live, the write may yet happen, **do not retry**, and the message names where the answer will appear |
+| the window goes away before you answer | `approve` returns **`unknown`** at once, rather than waiting out the timeout and calling it `still_open` for ever. The server started that process, so it can tell the difference between *he is reading* and *it is gone* |
 | the client times out first | the agent sees a transport error; the state is identical, because the proposal was consumed before any of this |
 | you type `y` at any later point | **the write proceeds.** The console writes the note, reads it back, and files its report |
 | you type `n` at any later point | nothing is written; the report says `declined` |
@@ -197,8 +198,18 @@ of this safe. It only decides whether the agent receives a defined answer or an 
   three tools, so there is no *read the outcome* call — the machinery exists (`Tools.outcome_of`) and
   is not exposed. **You read the window.** Adding a fourth tool to close this is a decision about the
   surface, not a bug fix, so it was not made here.
-- **`still_open` cannot tell *he is still reading* from *the console died*.** The message says what is
-  actually known — the console has not reported back — rather than claiming the window is open.
+- ⭐ **`still_open` used to be unable to tell *he is still reading* from *the console died*, and now
+  it can.** The two look identical from the report directory, which is why the message could once say
+  no more than *the console has not reported back*. What discriminates them is the process, and the
+  server started it — so `approve` now polls the console's liveness beside its report, and a console
+  that exits without filing one returns `unknown` immediately instead of `still_open` for ever.
+  `still_open` accordingly means what it says: the window is up and he has not answered.
+
+  **What is still not covered**, recorded rather than implied: a console the server did **not** start
+  — nothing spawns one today, and a spawner that hands back no handle falls back to the old timeout
+  behaviour. And `unknown` is honest rather than precise: killed before the answer nothing was
+  written, killed after a `y` a note may be in the tree, and nothing here can tell which. **Only you,
+  looking at the person in Gramps, can.**
 
 ---
 

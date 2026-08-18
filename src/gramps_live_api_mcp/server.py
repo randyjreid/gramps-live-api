@@ -174,14 +174,30 @@ The reply carries an outcome word:
   failed      -- it was refused; relay the message verbatim, it names the remedy
   unverified  -- it WAS written and the read-back did not confirm it -- it
                  disagreed, or it could not run at all; tell him to look
-  unknown     -- the run said nothing, so it may or may not have committed
-  still_open  -- he has not answered yet
+  unknown     -- nothing said what happened, so it may or may not have
+                 committed: the Gramps run printed no result, or the console
+                 window went away before answering. The message says which
+  still_open  -- the window is still open and he has not answered yet
 
 **Never retry approve.** One proposal is consumed by one approve whatever the \
 answer, so a second call is refused -- and on still_open the window is live and \
 the write may yet happen. To write a second note, propose again, which asks him \
 a second time.\
 """
+
+
+class Console(Protocol):
+    """The one question the server asks a console it started: are you still there?
+
+    ⚠️ **``poll`` and nothing else, which keeps the spawner injectable.** The
+    real one is ``subprocess.Popen``; a test's is a two-line class. What is
+    deliberately absent is anything that could *act* on the process -- this
+    server spawns the window and reads what the window filed, and a handle it
+    could terminate or write to would be a second route to the approval the
+    whole design says it must not have.
+    """
+
+    def poll(self) -> int | None: ...
 
 
 def require_console(platform: str = sys.platform) -> None:
@@ -214,8 +230,12 @@ def new_console(
     *,
     platform: str = sys.platform,
     popen: Callable[..., Any] = subprocess.Popen,
-) -> None:
+) -> Console | None:
     """Start ``argv`` in a console window this process cannot type into.
+
+    Returns the process, so a caller can ask whether it is still alive. It used
+    to be discarded, and discarding it is what made ``still_open`` unfalsifiable
+    -- see ``Tools._awaited``.
 
     ⚠️ **The refusal is checked here TOO, not only in ``Tools.approve``.** The
     two are not redundant: this one is the guarantee that no caller anywhere
@@ -228,7 +248,8 @@ def new_console(
     nothing about, and the whole matrix runs on Linux.
     """
     require_console(platform)
-    popen(list(argv), creationflags=CREATE_NEW_CONSOLE, close_fds=True)
+    started: Console = popen(list(argv), creationflags=CREATE_NEW_CONSOLE, close_fds=True)
+    return started
 
 
 def console_command(proposal_id: str) -> list[str]:
@@ -248,7 +269,7 @@ class Tools:
         environ: Mapping[str, str],
         *,
         session: str | None = None,
-        spawner: Callable[[Sequence[str]], None] = new_console,
+        spawner: Callable[[Sequence[str]], Console | None] = new_console,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         approval_timeout: float = APPROVAL_TIMEOUT_SECONDS,
@@ -376,8 +397,8 @@ class Tools:
         require_console(self._platform)
         store = self._store()
         store.claim(proposal_id, approval_digest)
-        self._spawn(console_command(proposal_id))
-        return self._awaited(store, proposal_id)
+        console = self._spawn(console_command(proposal_id))
+        return self._awaited(store, proposal_id, console)
 
     def outcome_of(self, proposal_id: str) -> dict[str, object]:
         """What the console has filed for ``proposal_id``, whenever it filed it.
@@ -400,12 +421,64 @@ class Tools:
 
     # -- the machinery ------------------------------------------------------
 
-    def _awaited(self, store: proposals.Store, proposal_id: str) -> dict[str, object]:
+    def _awaited(
+        self, store: proposals.Store, proposal_id: str, console: Console | None = None
+    ) -> dict[str, object]:
+        """Wait for the console's report, its death, or the timeout -- in that order.
+
+        ⚠️ **The death branch is L7, and without it ``still_open`` never
+        resolved.** A console that dies before the owner answers files nothing
+        and can file nothing: the window is closed, the machine is shut down,
+        the process is killed, and no code in it runs. So this waited out its
+        whole timeout and said ``still_open``, and ``outcome_of`` said
+        ``still_open`` for as long as anybody asked.
+
+        **Liveness is the only thing that discriminates.** A window with a slow
+        reader in front of it and a window that is gone look identical from the
+        report directory -- which is why the timeout's message could honestly
+        say no more than *has not reported back*. This server started the
+        process, so it can ask; it could not before, because the handle was
+        thrown away at the spawn.
+
+        ⚠️ **The report is re-read AFTER the exit is observed, and that ordering
+        is not a nicety.** Every console that answers exits immediately
+        afterwards, so the process can end between the read at the top of this
+        loop and the poll below. Concluding from the poll alone would report a
+        death over every successful approval.
+
+        ``console`` is ``None`` when the spawner did not hand one back, and then
+        this behaves exactly as it did before: liveness is *unknown*, which is
+        not *dead*.
+        """
         deadline = self._clock() + self._timeout
         while True:
             report = store.read_report(proposal_id)
             if report is not None:
                 return {**report, "proposal_id": proposal_id}
+            if console is not None and console.poll() is not None:
+                filed = store.read_report(proposal_id)
+                if filed is not None:
+                    return {**filed, "proposal_id": proposal_id}
+                return {
+                    # ⚠️ **``unknown``, not ``failed``.** Killed before the
+                    # answer, nothing was written; killed after a ``y``, a note
+                    # may be in the tree. Nothing here can tell which, and that
+                    # is exactly what APPROVE_DESCRIPTION defines the word to
+                    # mean. ``failed`` would tell the agent it was refused.
+                    "outcome": "unknown",
+                    "proposal_id": proposal_id,
+                    "error": (
+                        "The console exited without filing a report, so it did not "
+                        "reach an answer -- the window was closed, or the process was "
+                        "ended some other way. If it went before the owner typed "
+                        "anything, nothing was written; if it went after he typed y, a "
+                        "note may be in the tree. **Do not retry**: this proposal is "
+                        "consumed and no later call can write it. Ask him to look at "
+                        "the person in Gramps. Anything the console did file would be "
+                        f"at {store.report_path(proposal_id)}, under "
+                        f"{proposals.PROPOSAL_DIRECTORY} inside the copy."
+                    ),
+                }
             if self._clock() >= deadline:
                 return {
                     "outcome": "still_open",

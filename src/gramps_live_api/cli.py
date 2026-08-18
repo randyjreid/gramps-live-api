@@ -769,6 +769,15 @@ def _approve(
     or be retried, and none of it can produce a second note: a retried
     ``approve`` meets ``ProposalNotFound``. A second note needs a second
     proposal, a second console and **a second human yes**.
+
+    ⚠️ **Every region of this function files a report, and the PRE-ANSWER one
+    did not -- that is L7.** The recorded failures are all post-answer: C1-1,
+    C2-1 and the handlers they built. Between the console starting and the owner
+    answering there was nothing -- a corrupt store, a copy that stopped being
+    blessed, a console whose stream broke while printing the prompt, all raised
+    past this function into ``main``, which prints and exits 1 and files
+    nothing. **The server is blocked reading for a report**, so it waited out its
+    whole timeout and reported ``still_open`` about a console that had ended.
     """
     settings = config.load(environ)
     if settings.copy_path is None:
@@ -782,16 +791,26 @@ def _approve(
 
     copy = apply.authorise(settings.copy_path)
     store = proposals.Store(proposals.store_directory(copy.tree_dir), session="")
-    proposal = store.claimed(proposal_id)
-    operation = proposal.operation
+    try:
+        proposal = store.claimed(proposal_id)
+        operation = proposal.operation
+        sentence = schema.preview(operation)
+        entire = schema.full_display(operation)
+        print(entire, file=out)
+        print(f"write this into {copy.tree_dir}? [y/N] ", end="", file=out)
+        out.flush()
+        answered = stdin.readline()
+    except (proposals.ProposalError, schema.SchemaError, apply.ApplyError, OSError) as failure:
+        # ⚠️ **``failed`` is the true word here, and the region is what makes it
+        # true.** Nothing past this point has run, so nothing has been written
+        # -- which is exactly what ``APPROVE_DESCRIPTION`` tells the agent the
+        # word means. It is the post-commit region where ``failed`` would be the
+        # lie, and that region is below and unchanged.
+        _filed(store, proposal_id, {"outcome": "failed", "error": str(failure)})
+        _say(str(failure), err)
+        return _closed(stdin, out, 1)
 
-    sentence = schema.preview(operation)
-    entire = schema.full_display(operation)
-    print(entire, file=out)
-    print(f"write this into {copy.tree_dir}? [y/N] ", end="", file=out)
-    out.flush()
-
-    if stdin.readline().strip().lower() not in {"y", "yes"}:
+    if answered.strip().lower() not in {"y", "yes"}:
         store.consume(proposal_id, approved=False)
         store.write_report(proposal_id, {"outcome": "declined"})
         print("nothing was written", file=out)
@@ -821,6 +840,24 @@ def _approve(
 
     store.write_report(proposal_id, report)
     return _closed(stdin, out, code)
+
+
+def _filed(store: proposals.Store, proposal_id: str, payload: dict[str, object]) -> None:
+    """File a report, best-effort. **A failure to file may not replace what failed.**
+
+    ⚠️ **The suppression is the point, and it is ``_say``'s argument one layer
+    out.** This is called from a handler that already holds a failure worth
+    telling somebody about; a report write that raised in there would propagate
+    exactly like the original and lose it. The residual is the one already
+    recorded and unchanged: **no report can record its own failure to be
+    written.**
+
+    ``ProposalError`` as well as ``OSError`` because ``Store`` wraps the second
+    in the first, and because an id that is not the shape the store mints has no
+    path to write to at all -- which is a refusal, not a reason to lose it.
+    """
+    with contextlib.suppress(proposals.ProposalError, OSError):
+        store.write_report(proposal_id, payload)
 
 
 def _closed(stdin: TextIO, out: TextIO, code: int) -> int:

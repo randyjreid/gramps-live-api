@@ -490,6 +490,43 @@ def test_a_console_that_fails_before_the_read_back_reports_unverified_not_writte
     assert report["note_gramps_id"] == "N0021"
 
 
+def test_a_failure_before_the_answer_still_files_a_report(tmp_path: Path) -> None:
+    """L7's fixable half: the PRE-ANSWER region filed nothing at all.
+
+    Every failure recorded so far is post-answer -- C1-1, C2-1 and the handlers
+    they built. Everything between the console starting and the owner answering
+    was outside all of it: a corrupt store, a copy that stopped being blessed, a
+    console whose stream broke while printing the prompt. Those raised past
+    ``_approve`` into ``main``, which prints and exits 1 **without filing a
+    report** -- and the server is blocked reading for one, so it waited out its
+    whole timeout and told the agent ``still_open`` about a console that had
+    already gone.
+
+    The window is held open too. A console that exits the instant it refuses
+    takes the refusal off the screen with it, and the owner is the only reader
+    this window has.
+    """
+    copy, directory, proposal_id = prepared(tmp_path)
+    path = Path(directory) / f"{proposal_id}.pending.json"
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record["operation"]["text"] = "something the owner never read"
+    path.write_text(json.dumps(record), encoding="utf-8")
+    runner = Recorder()
+
+    code, out, err = approve(proposal_id, tmp_path, copy, runner=runner)
+
+    assert code != 0
+    assert runner.runs == [], "nothing may be written when the store is corrupt"
+    report = report_of(directory, proposal_id)
+    assert report.get("outcome") == "failed", (
+        "a pre-answer failure that files no report leaves the server waiting out its "
+        "whole timeout for an answer that already exists"
+    )
+    assert "digest covers" in str(report["error"]), "the refusal travels verbatim"
+    assert "press Enter" in out, "the window holds, or the owner never reads the refusal"
+    assert err.strip()
+
+
 def test_a_proposal_nobody_claimed_is_refused_by_name(tmp_path: Path) -> None:
     copy = blessed(tmp_path / "tree").tree_dir
 

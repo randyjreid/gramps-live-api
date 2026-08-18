@@ -88,16 +88,41 @@ def export_document() -> str:
 
 
 class Spawner:
-    """A console that never opens. Records what it would have been asked to run."""
+    """A console that never opens. Records what it would have been asked to run.
 
-    def __init__(self, then: object = None) -> None:
+    ``handle`` is what the real spawner hands back -- the process, so a caller
+    can ask whether it is still alive. ``None`` is *we cannot tell*, which is
+    what every test written before that mattered gets and what keeps their
+    behaviour unchanged.
+    """
+
+    def __init__(self, then: object = None, *, handle: object = None) -> None:
         self.calls: list[Sequence[str]] = []
         self._then = then
+        self._handle = handle
 
-    def __call__(self, argv: Sequence[str]) -> None:
+    def __call__(self, argv: Sequence[str]) -> object:
         self.calls.append(list(argv))
         if callable(self._then):
             self._then(argv)
+        return self._handle
+
+
+class Exited:
+    """A console process that has ended. ``poll`` is ``subprocess.Popen``'s."""
+
+    def __init__(self, code: int = 1) -> None:
+        self._code = code
+
+    def poll(self) -> int | None:
+        return self._code
+
+
+class Running:
+    """A console process that is still up, which is what a slow reader looks like."""
+
+    def poll(self) -> int | None:
+        return None
 
 
 class Clock:
@@ -425,9 +450,82 @@ def test_a_timeout_tells_the_agent_not_to_retry_and_where_to_look(tmp_path: Path
     assert "not retry" in message.lower()
     assert proposals.PROPOSAL_DIRECTORY in message, "where the answer will appear"
     assert "has not reported back" in message, (
-        "the message must not claim the window is still open -- what is actually known "
-        "is that the console has not reported, and a console that died looks the same"
+        "the message says what is actually known: the console has not reported. It is "
+        "now known to be ALIVE as well -- a dead one takes the branch above and never "
+        "reaches this message -- but reaching an answer and having reached one are "
+        "still different facts, and this one is the second"
     )
+
+
+def test_a_console_that_died_before_answering_is_not_still_open_forever(tmp_path: Path) -> None:
+    """L7, and ``still_open`` was the only answer this could ever give.
+
+    Console death **before** the owner answers files no report -- the window is
+    closed, the machine is shut down, the process is killed -- and nothing in
+    the console can file one, because nothing in it runs. So the server waited
+    out its whole timeout, said ``still_open``, and ``outcome_of`` said
+    ``still_open`` for as long as anybody asked. **The state never resolved.**
+
+    ⚠️ **What discriminates is process liveness, and only that.** A window still
+    open with a slow reader in front of it and a window that is gone look
+    identical from the report directory, which is exactly why the message could
+    only ever say *has not reported back*. The server spawned the process; it
+    can ask. It could not before, because ``new_console`` threw the handle away.
+
+    ``unknown`` rather than ``failed``: killed before the answer nothing was
+    written, killed after ``y`` a note may be in the tree, and this cannot tell
+    which -- which is precisely what ``APPROVE_DESCRIPTION`` defines the word to
+    mean.
+    """
+    made = tools(tmp_path, spawner=Spawner(handle=Exited()), timeout=45.0)
+    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
+
+    outcome = made.approve(str(proposed["proposal_id"]), str(proposed["approval_digest"]))
+
+    assert outcome["outcome"] == "unknown"
+    assert made.clock.now < 45.0, (  # type: ignore[attr-defined]
+        "it waited out a timeout for a console that had already ended"
+    )
+    assert "exited" in str(outcome["error"]), "the message says what is actually known"
+    assert proposals.PROPOSAL_DIRECTORY in str(outcome["error"]), "where to look"
+
+
+def test_a_console_that_files_its_report_and_then_exits_is_believed(tmp_path: Path) -> None:
+    """The race the liveness check must not lose, and it is the ordinary case.
+
+    Every console that answers exits immediately afterwards. Reading the report
+    *before* observing the exit is not enough on its own -- the process can end
+    between the two -- so the exit branch re-reads before it concludes anything.
+    Getting this wrong would report ``unknown`` over every successful approval.
+    """
+    exited = Exited(code=0)
+    made = tools(tmp_path, timeout=45.0)
+    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
+    proposal_id = str(proposed["proposal_id"])
+
+    def answer_then_die(_: Sequence[str]) -> None:
+        made._store().write_report(proposal_id, {"outcome": "declined"})
+
+    made._spawn = Spawner(answer_then_die, handle=exited)  # type: ignore[attr-defined]
+    outcome = made.approve(proposal_id, str(proposed["approval_digest"]))
+
+    assert outcome["outcome"] == "declined"
+
+
+def test_a_console_still_running_is_still_reported_as_still_open(tmp_path: Path) -> None:
+    """The direction that must NOT move: a slow reader is not a dead console.
+
+    ``still_open`` is the correct answer while the window is up, and the whole
+    of ``docs/slice2-mcp.md``'s timeout table rests on it -- the owner typing
+    ``y`` after the call returned still writes the note.
+    """
+    made = tools(tmp_path, spawner=Spawner(handle=Running()), timeout=1.0)
+    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
+
+    outcome = made.approve(str(proposed["proposal_id"]), str(proposed["approval_digest"]))
+
+    assert outcome["outcome"] == "still_open"
+    assert "not retry" in str(outcome["error"]).lower()
 
 
 def test_a_console_that_answers_late_still_writes_and_the_report_says_so(
