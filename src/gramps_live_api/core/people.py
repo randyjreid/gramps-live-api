@@ -57,6 +57,15 @@ case ``birth_display`` exists to keep distinguishable from *nothing recorded*.
 BIRTH = "Birth"
 """The ``<type>`` text of a birth event, per the Gramps XML schema."""
 
+_CARRIES_DATA = frozenset({"person", "event"})
+"""The two elements this reader reads. Everything else is bulk it walks past.
+
+⚠️ **It is what ``_elements`` must not free early**, not merely what
+``read_export`` dispatches on. The children of these two are read when the
+parent closes, so an element with one of them still open above it has to survive
+until it does.
+"""
+
 PRIMARY_ROLE = "Primary"
 """The ``role`` on an ``<eventref>`` that makes the event the person's own.
 
@@ -178,9 +187,6 @@ def read_export(path: str) -> tuple[Person, ...]:
                     people.append(_person(element))
                 elif name == "event":
                     _birth(element, births)
-                else:
-                    continue
-                element.clear()
     except ET.ParseError as failure:
         raise ExportUnreadable(f"{path}: this is not readable as XML -- {failure}") from failure
     except OSError as failure:
@@ -238,9 +244,57 @@ def _opened(path: str) -> io.BufferedIOBase:
 
 
 def _elements(stream: io.BufferedIOBase) -> Iterator[ET.Element]:
-    """Every element, as it closes. Streaming, because a real tree is megabytes."""
-    for _, element in ET.iterparse(stream, events=("end",)):
+    """Every element, as it closes, **and freed once the caller has read it**.
+
+    Streaming, because a real tree is megabytes -- and the freeing is what makes
+    that word true rather than aspirational. Two separate things have to happen
+    and only one of them is ``clear``:
+
+    - **``element.clear()`` empties an element of its children**, and it used to
+      run for ``person`` and ``event`` alone. Every other element fell through
+      an ``else: continue``, so a real export's ``<notes>``, ``<families>``,
+      ``<citations>`` and ``<sources>`` -- which this reader looks at none of --
+      were built and kept for the length of the file.
+    - **``iterparse`` leaves a finished element in its parent's child list.**
+      Clearing it empties the shell and does not unlink it, so ``<people>`` goes
+      on accumulating one emptied ``<person>`` per person in the tree. Removing
+      it from its parent is what actually drops it.
+
+    ⚠️ **The freeing happens AFTER the ``yield``, which is the whole reason this
+    is a generator.** Control returns here only when the caller asks for the next
+    element, so by then it has finished with this one. Doing it before would hand
+    back an emptied element.
+
+    ⚠️ **An element inside a ``person`` or an ``event`` is NOT freed at its own
+    end.** Those close first -- ``<first>`` before ``<name>`` before ``<person>``
+    -- and ``_person`` reads them when the person closes, so freeing them on the
+    way past would hand the caller an empty husk. ``open_data`` counts how many
+    of the two are still open; while it is non-zero this yields and frees
+    nothing, and the ancestor's own ``clear`` takes the whole subtree at once.
+
+    The removal is O(1) in practice rather than a scan: each child is unlinked
+    as it closes, so a parent never holds more than the one.
+    """
+    ancestors: list[ET.Element] = []
+    open_data = 0
+    for event, element in ET.iterparse(stream, events=("start", "end")):
+        carries_data = local_name(element.tag) in _CARRIES_DATA
+        if event == "start":
+            ancestors.append(element)
+            open_data += carries_data
+            continue
+        ancestors.pop()
+        open_data -= carries_data
         yield element
+        if open_data:
+            continue
+        element.clear()
+        if ancestors:
+            # ⚠️ ``Element.remove`` compares by IDENTITY, per its own
+            # documentation -- so this unlinks this element and not a sibling
+            # that happens to carry the same tag and the same (now empty)
+            # contents. Emptying it first would otherwise make them all alike.
+            ancestors[-1].remove(element)
 
 
 def _person(element: ET.Element) -> _Raw:

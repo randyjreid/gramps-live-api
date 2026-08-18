@@ -15,6 +15,7 @@ wrote down, or from a caller that never listed at all.
 from __future__ import annotations
 
 import gzip
+import tracemalloc
 from pathlib import Path
 
 from gramps_live_api.core import people
@@ -379,6 +380,86 @@ def test_an_empty_search_term_is_refused(tmp_path: Path) -> None:
         assert "search term" in str(refusal)
     else:  # pragma: no cover - the assertion is the failure
         raise AssertionError("an empty term must be refused, not answered with everybody")
+
+
+# ---------------------------------------------------------------------------
+# ⭐ The streaming claim, MEASURED rather than asserted
+# ---------------------------------------------------------------------------
+
+
+def bulky(tmp_path: Path, *, notes: int, name: str) -> Path:
+    """An export whose bulk is the collection ``read_export`` walks past.
+
+    Twenty people either way, so the *result* is a fixed size and everything the
+    measurement below sees moving is what the parse held on to rather than what
+    it returned. Built at runtime, never committed: a real tree is megabytes,
+    and a megabyte fixture in the repository would be one.
+    """
+    padding = "Ashenmoor deed, volume two, page one hundred and forty-one. " * 4
+    path = tmp_path / name
+    path.write_text(
+        synthetic.gramps_export_document(
+            people=cast(20),
+            events="".join(
+                synthetic.gramps_event(
+                    handle=f"e{index:04d}",
+                    event_type="Birth",
+                    date=synthetic.gramps_dateval("1856-03-04"),
+                )
+                for index in range(20)
+            ),
+            notes="".join(
+                synthetic.gramps_export_note(handle=f"n{index:06d}", text=padding)
+                for index in range(notes)
+            ),
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def peak_bytes(path: str) -> int:
+    """What ``read_export`` had allocated at its high-water mark."""
+    tracemalloc.start()
+    try:
+        read = people.read_export(path)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert len(read) == 20, "a parse that read nobody would measure nothing"
+    return peak
+
+
+def test_the_parse_streams_rather_than_holding_the_whole_export(tmp_path: Path) -> None:
+    """⚠️ **``read_export``'s docstring says *one streaming pass with iterparse,
+    because a real tree is megabytes*, and the owner's tree IS that case.**
+
+    Two things had to be true for that sentence and neither was. ``element.clear()``
+    ran only for ``person`` and ``event`` -- every other element took the
+    ``else: continue`` and was never cleared, so a real export's ``<notes>``,
+    ``<families>``, ``<citations>`` and ``<sources>`` accumulated whole. And
+    clearing alone would not have been enough anyway: ``iterparse`` leaves each
+    finished element in its parent's child list, so the emptied shells stay
+    reachable from the root for the length of the file.
+
+    **Measured, not argued.** The same twenty people are read out of two
+    documents differing only in bulk the reader never looks at. A parse that
+    streams shows a high-water mark that barely moves; a parse that accumulates
+    shows one that tracks the file. The threshold is a quarter of the growth --
+    far above the noise of a flat parse and far below the measured behaviour of
+    an accumulating one, which grew by about two and a half times the bytes.
+    """
+    small = bulky(tmp_path, notes=200, name="small.gramps")
+    large = bulky(tmp_path, notes=4000, name="large.gramps")
+    people.read_export(str(small))  # warm whatever a first parse allocates once
+
+    grew = large.stat().st_size - small.stat().st_size
+    held = peak_bytes(str(large)) - peak_bytes(str(small))
+
+    assert held < grew / 4, (
+        f"the file grew {grew} bytes and the parse's high-water mark grew {held} -- "
+        "which is a parse holding the export, not streaming it"
+    )
 
 
 # ---------------------------------------------------------------------------

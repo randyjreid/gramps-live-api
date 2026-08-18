@@ -1290,23 +1290,45 @@ def gramps_person(
     )
 
 
+def gramps_export_note(*, handle: str, text: str, note_type: str = "Research") -> str:
+    """One ``<note>``, the way an export writes one.
+
+    ⚠️ **Here for the collection this reader does NOT read**, which is the point
+    of it. ``read_export`` looks at ``<person>`` and ``<event>``; a real tree's
+    ``<notes>``, ``<families>``, ``<citations>`` and ``<sources>`` are bulk it
+    walks past. A fixture made only of the two it wants cannot show whether the
+    walking past frees anything, so the measurement needs the bulk.
+    """
+    return _element(
+        "note",
+        attributes=f'handle="_{handle}" type="{note_type}"',
+        body=_element("text", body=text),
+    )
+
+
 def gramps_export_document(
-    *, people: str = "", events: str = "", version: str = GRAMPS_XML_VERSION
+    *, people: str = "", events: str = "", notes: str = "", version: str = GRAMPS_XML_VERSION
 ) -> str:
-    """A whole export: prolog, namespace, header, then the two collections.
+    """A whole export: prolog, namespace, header, then the collections.
 
     ⚠️ **``<events>`` is written AFTER ``<people>``**, which is the opposite of
     what a real export does, and deliberately: a reader that resolves an event
     reference as it meets it works on Gramps' ordering and fails on this one.
     Order-independence is the property, so the fixture is the hostile order.
+
+    ``notes`` is written only when a caller passes one, so the element is absent
+    from every document that does not ask for it rather than present and empty.
     """
     header = _element(
         "header",
         body=_element("created", attributes='date="2026-08-17" version="6.0.8"', empty=True)
         + _element("researcher"),
     )
+    collections = _element("people", body=people) + _element("events", body=events)
+    if notes:
+        collections += _element("notes", body=notes)
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + _element(
         "database",
         attributes=f'xmlns="{gramps_namespace(version)}"',
-        body=header + _element("people", body=people) + _element("events", body=events),
+        body=header + collections,
     )
