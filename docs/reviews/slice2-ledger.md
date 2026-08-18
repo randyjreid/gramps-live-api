@@ -863,3 +863,51 @@ comment, because the next reader stops checking."*
 
 **No blocking finding is outstanding on this head. Every finding any reviewer has raised is fixed,
 filed or parked with recorded rationale.** The local gates are satisfied; the push follows.
+
+---
+
+## PR bot — 4 rounds on #74, then a conductor-owned diagnostic stop
+
+| Round | Finding | Disposition |
+| --- | --- | --- |
+| 1 | date qualifiers dropped — an estimated 1856 read as exact | **FIXED** `50895c4` |
+| 2 | the label's serialization is not injective | **FILED #75** |
+| 3 | surname prefix dropped — *van Ashenmoor* unfindable | **FIXED** `6b6d238`, and it surfaced four more |
+| 4 | a duplicate `eventref` counted twice | **FILED #76** |
+
+All four threads answered and resolved. **0 unresolved.**
+
+⚠️ **Round 3's fix is the shape that closes.** Told not to patch the named attribute, it derived the
+whole name partition from the DTD — `first`, `call`, `surname*`, `suffix`, `title`, `nick`,
+`familynick`, `@prefix`, `@connector` **in**; `group`, the date shape, `noteref`/`citationref`,
+`@alt`/`@type`/`@priv`/`@sort`/`@display`/`@prim`/`@derivation` **out, each with a reason** — and
+landed a **bounded** claim: *every part of the recorded name a person would type when looking for
+someone is searchable*, never *"the name is complete"*.
+
+**And it bound its source honestly:** the installed DTD hashes to `f212866f…` because it is CRLF;
+**LF-normalised it is exactly `SOURCE_DIGESTS`' `98a4763424fe…`**, and re-deriving reproduces all three
+frozen tables. It also recorded what the frozen table **cannot** answer — `SPECIFIED_ELEMENTS` stores
+a content model as a *category*, so `<name>`'s children came from the DTD text — in the test's own
+docstring.
+
+### ⛔ Stopped at four, on the diagnostic rather than the count
+
+**The backstop permits five.** The stop is the **conductor-owned** one: the severity gradient is
+evidence about the approach. **Round 3 broke the tool's purpose; round 4 makes a hint over-report by
+one.** `people.py` reads a DTD-defined format with many optional parts, and *"the reader handles every
+declared part correctly"* is close to a claim over a space a reviewer can keep sampling — true every
+time, never closing.
+
+**The bounded answer is recorded in #76** and is a scheduling decision for the owner, with four rounds
+of use-derived evidence behind it. It belongs after the demo, not in front of it.
+
+### Final state — every seat dispositioned, nothing blocking
+
+| Reviewer | Rounds | State |
+| --- | --- | --- |
+| Codex | 4 | dispositioned |
+| Claude `/code-review` | 2 | dispositioned |
+| PR bot | 4 | dispositioned; loop stopped on the diagnostic |
+
+**Dispositioned-not-fixed: F-1, F-2, N-1 (parked by owner rule), #75, #76 (filed). None can reach the
+write path.** CI's full matrix green on `6b6d238`. **Decision screen posted; the merge is the owner's.**
