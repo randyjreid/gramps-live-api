@@ -8,19 +8,37 @@ ever committed**. Everything else is ordinary judgement.
 ```sh
 python -m venv .venv
 . .venv/bin/activate          # Windows: .venv\Scripts\activate
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,mcp]"
 ```
+
+⚠️ **`mcp` is an optional extra and `dev` is not enough to run the whole suite.** The core has
+`dependencies = []` and keeps it — the schema, the write path, the CLI console and `pii_guard` need
+nothing but the standard library — so the MCP SDK sits behind an extra. Install `".[dev]"` alone and
+`tests/unit/test_mcp_server.py` **skips at module level, by name**; `mypy src` fails on the import it
+cannot resolve. Install `".[dev,mcp]"` and everything runs. `docs/slice2-mcp.md` records what the extra
+costs and why it is an extra.
 
 ## The gates
 
-All four must pass before anything merges. CI runs them on Python 3.10, 3.11 and 3.12.
+All four must pass before anything merges. CI runs them on Python 3.10, 3.11 and 3.12, in **two legs**
+over the same tree: a **core** leg that installs `.[dev]` and then refuses to continue unless `mcp` is
+absent and the distribution declares no unconditional requirement, and an **mcp** leg that installs
+`.[dev,mcp]` and then refuses to continue unless the MCP tests actually **ran**. Locally, with
+`".[dev,mcp]"` installed, all four is the whole of it:
 
 ```sh
 ruff check .
 ruff format --check .
 mypy src
-pytest
+pytest -rs
 ```
+
+⚠️ **`-rs` is not decoration.** It names every skipped test and its reason. A skip is this suite's
+fail-closed answer to a platform it cannot observe, and a skip nobody can see reads exactly like a
+pass — which is how the history assertion went unrun on every CI run without anyone noticing (#31).
+The core leg's `Types` step runs `mypy src/gramps_live_api` rather than `mypy src`, because the MCP
+server cannot be type-checked where its SDK is not installed; it is checked on the mcp leg instead, and
+the workflow says why in full.
 
 A fifth job runs the PII guard. Run it yourself before you push:
 

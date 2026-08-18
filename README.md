@@ -56,9 +56,18 @@ It is bounded by the tree's own `priv="1"` flag — a private person is neither 
 a target — and by a required search term and a result cap. The residual is stated plainly in
 `docs/slice2-mcp.md`: **the names and note text of non-private people enter a model's context.**
 
-There is still no HTTP server and no endpoint of any kind. The MCP server speaks **stdio only** — the
-official SDK is this project's first runtime dependency, and it installs an HTTP stack this project
-uses none of.
+There is still no HTTP server and no endpoint of any kind. The MCP server speaks **stdio only**.
+
+**The official SDK is an optional extra, not a project dependency.** The core keeps
+`dependencies = []` and runs on the standard library alone; installing the `mcp` extra brings the SDK
+and — measured, on this machine — **29 packages behind it**, including an HTTP stack this project uses
+none of. CI runs the core tests dependency-free and the MCP tests with the extra installed, and each
+leg proves its own half rather than being trusted about it. What it costs, why the SDK anyway, and why
+a telemetry package in that list does not mean this project phones home: `docs/slice2-mcp.md`.
+
+```sh
+python -m pip install -e ".[mcp]"     # only if you want the MCP server
+```
 
 ## Roadmap
 

@@ -267,9 +267,127 @@ which is the only version binding that stays true.
 
 ---
 
+## ⭐ The SDK is an OPTIONAL EXTRA, and here is what it costs
+
+**Ruling, 2026-08-16: the MCP server is not the core.** The core keeps `dependencies = []` — the
+schema, the write path, the CLI console and `pii_guard` run on the standard library alone — and the
+official SDK moves behind an extra named `mcp`. Somebody who wants slice 1's console installs nothing.
+Somebody who wants an agent in front of it installs the extra, knowingly.
+
+**CI enforces both halves rather than believing them**, because a dependency that arrived some other
+way would leave a green board saying nothing:
+
+| Leg | Installs | Proves |
+| --- | --- | --- |
+| **core** | `.[dev]` | `mcp` is **not importable**, and this distribution declares **no unconditional requirement**. Then lint, format, `mypy src/gramps_live_api`, `pytest -rs`. |
+| **mcp** | `.[dev,mcp]` | `mypy src` — the whole tree against the real SDK — and then, from the JUnit report, that `tests/unit/test_mcp_server.py` **contributed test cases and none of them skipped**. |
+| **pii-guard** | **nothing at all** | unchanged, and deliberately so: installing would write build artefacts into the checkout it exists to scan. |
+
+⚠️ **The MCP leg's last step is the one that matters, and it is not a formality.** Making the SDK
+optional means those tests skip when it is absent — and *skip when absent* silently becomes *never run
+anywhere* the moment that leg stops installing the extra. **A skipped test reads exactly like a passing
+one**, and this repository has already paid for that once (#31). So the assertion is on the
+machine-readable report and it fails the job. It carries **no expected count**, on purpose: a number
+here would be a count of a file rather than of a property, and it would go stale the next time somebody
+adds a test.
+
+### The dependency record, measured
+
+Measured **2026-08-17** by resolving `mcp>=2.0.0` into an empty environment, `mcp 2.0.0`, `uv 0.11.12`.
+**Re-derive it rather than trusting this table** — it is a property of one resolution on one day:
+
+```powershell
+uv venv --python 3.12 .venv
+uv pip install --python .venv\Scripts\python.exe "mcp>=2.0.0"
+uv pip list --python .venv\Scripts\python.exe
+```
+
+| Platform · interpreter | Distributions installed | Besides `mcp` itself |
+| --- | --- | --- |
+| Windows · 3.10 | 31 | **30** |
+| Windows · 3.12 | 30 | **29** |
+| Linux · 3.10 | 29 | **28** |
+| Linux · 3.12 | 28 | **27** |
+
+**29 is the figure the ruling was re-affirmed at** — this machine, Windows on 3.12 — and the honest
+statement is that it is between 27 and 30 depending on where you install it. It is **not** "three",
+which is what an earlier note said.
+
+What arrives, grouped by what it is for:
+
+- **A whole HTTP and ASGI stack this project uses none of** — `starlette`, `uvicorn`, `httpx2`,
+  `httpcore2`, `h11`, `sse-starlette`, `python-multipart`, `click`. The server speaks **stdio only**;
+  `serve()` names the transport and a test asserts the word. The stack is installed and not reached.
+- **Validation** — `pydantic`, `pydantic-core`, `annotated-types`, `typing-inspection`, `jsonschema`,
+  `jsonschema-specifications`, `referencing`, `rpds-py`, `attrs`, `mcp-types`.
+- **Cryptography and auth** — `cryptography`, `pyjwt`, `cffi`, `pycparser`, `truststore`. For OAuth
+  flows on transports this project does not use.
+- **Plumbing** — `anyio`, `idna`, `typing-extensions`, plus `colorama` and `pywin32` on Windows and
+  `exceptiongroup` on 3.10.
+- **`opentelemetry-api`** — see below, because a privacy project shipping a telemetry package owes an
+  explanation rather than a shrug.
+
+### ⚠️ `opentelemetry-api`: an API surface that is a no-op without an exporter
+
+`mcp` imports it in three modules (`mcp/server/_otel.py`, `mcp/shared/_otel.py`,
+`mcp/shared/jsonrpc_dispatcher.py`) to open spans around the JSON-RPC dispatch. **The claim below was
+verified against the installed package on 2026-08-17, not taken on trust:**
+
+- **The spans go nowhere.** With only the API installed, `opentelemetry.trace.get_tracer_provider()`
+  returns a `ProxyTracerProvider`, `get_tracer(...)` returns a `ProxyTracer`, and a started span is a
+  `NonRecordingSpan` whose `is_recording()` is `False`.
+- **There is no exporter, and none can be selected.** The environment advertises exactly one
+  `opentelemetry_tracer_provider` entry point — `opentelemetry.trace:NoOpTracerProvider`, registered by
+  the API itself — and **zero** `opentelemetry_traces_exporter` entry points. `OTEL_PYTHON_TRACER_PROVIDER`
+  makes the API load a provider *by entry-point name*, so on this install the only thing it can select
+  is the no-op one.
+- **There is nothing in it that can open a socket.** The distribution ships 30 Python modules. Parsed
+  with `ast` rather than read by eye: the one occurrence of `import requests` is inside a module
+  **docstring example** and is not an import at all, and the three `urllib` imports are
+  `quote_plus` / `unquote_plus` / `unquote` — percent-encoding for W3C baggage header *values*.
+
+**So this project does not phone home, and installing the extra does not make it start.** Emitting
+telemetry anywhere would need `opentelemetry-sdk` **and** an exporter package; neither is a dependency
+of `mcp`, neither is installed, and the core installs nothing at all. Bounded honestly: this is a
+measurement of `opentelemetry-api 1.44.0` as pulled by `mcp 2.0.0`. It is not a promise about a version
+nobody has resolved yet — re-derive it with the command above when the SDK moves.
+
+### Why the SDK at all, stated narrowly
+
+⚠️ **The earlier argument for using the SDK was OVERSTATED, and it is recorded here so that it is not
+repeated as written.** It cited this project's *"freeze the definition from the published source"* rule.
+**That rule governs checks whose meaning comes from the runtime** — `unicodedata.category` returning a
+different answer on a different interpreter, `\s` meaning 26 characters where XML's `S` means 4 — where
+the same code gives different verdicts on different machines and every test passes on the one that wrote
+them. **Hand-rolling a protocol is not that.** A JSON-RPC loop written here would be wrong in ways our
+own tests could catch, identically on every interpreter. Citing that rule here misapplies it.
+
+**The real case is narrower and still sufficient:**
+
+> **MCP is evolving, the SDK is its reference implementation, and slice 2's value is the product
+> working — not this project owning a JSON-RPC loop.**
+
+That is the whole argument, and it is enough. What it does **not** claim is that a hand-rolled client
+would be untestable or unknowable; it claims that writing one is not what this slice is for. The
+29-package cost is the price of that, paid knowingly, and the extra is where it is paid — so the cost
+lands on the person who asked for an agent and on nobody else.
+
+---
+
 ## Setting it up, once, beyond slice 1's three pieces
 
 > **Every command here is PowerShell, run from the root of this checkout.**
+
+### 0. Install the extra — the server does not run without it
+
+```powershell
+python -m pip install -e ".[mcp]"
+```
+
+⚠️ **The `mcp` extra is required to run the server**, and it is the only place this project has a
+runtime dependency of any kind. Without it, `python -m gramps_live_api_mcp` raises
+`ModuleNotFoundError: No module named 'mcp'` and `tests/unit/test_mcp_server.py` skips by name. Slice
+1's console — `check`, `apply`, `approve` — needs none of it. Contributors want `".[dev,mcp]"`.
 
 ### 1. Export your tree, and tell the tool where it is
 
