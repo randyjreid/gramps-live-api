@@ -252,14 +252,31 @@ def _export_check(settings: config.Settings, copy: str, environ: Mapping[str, st
     side, and reporting *ready* over it is the sentence above being false in the
     forbidden direction. Two states, two messages, because the remedies differ:
     one is *export again*, the other is *this cannot be checked at all*.
+
+    ⚠️ **An export that is NOT CONFIGURED is a different state from all three of
+    those, and it does not fail the doctor.** Slice 1's ``preview``, ``apply``
+    and ``check`` read no export; only slice 2's tools do. ``docs/using.md``
+    shows a config file holding one key -- ``copy_path`` -- and a report ending
+    *ready*, which is the setup the owner actually performed, so failing it
+    regresses a demo that passed in order to report a feature nobody has set up.
+    What the line does instead is name the two tools that cannot run, because a
+    passing report that stayed silent about it would be the other half of the
+    same defect.
+
+    **Absence and staleness are not one state, and only one of them is a
+    privacy question.** There is no fail-open here to protect against: with no
+    export configured there is nothing for ``list_people`` to read a stale
+    ``priv`` flag out of. ``docs/slice2-mcp.md``'s ruling -- that a stale export
+    fails the doctor rather than warning inside a passing report -- is about a
+    snapshot that is lying, and it is unchanged below.
     """
     if settings.export_path is None:
         return Check(
             "export",
-            False,
-            "no export is configured -- set export_path in "
-            f"{config.user_config_path(environ)} or {config.ENV_EXPORT}. "
-            "list_people and propose_note cannot run without it",
+            True,
+            "not configured, and nothing in slice 1 needs one -- list_people and "
+            "propose_note are what cannot run. Set export_path in "
+            f"{config.user_config_path(environ)} or {config.ENV_EXPORT} to use them",
         )
     export = os.path.realpath(settings.export_path)
     if not os.path.isfile(export):

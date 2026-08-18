@@ -127,6 +127,13 @@ not reversible: text that has reached a model's context has reached it.**
 
 **Decision: yes, and it FAILS the doctor rather than warning inside a passing report.**
 
+> ⚠️ **That is about a STALE export, not an absent one, and the two are different states.** An export
+> that is *not configured* is reported and does **not** fail the doctor: slice 1's `preview`, `apply`
+> and `check` read no export, `docs/using.md` shows exactly that setup ending `ready`, and there is no
+> fail-open to protect against — with no export there is nothing for `list_people` to read a stale
+> `priv` flag out of. The line names the two tools that cannot run instead. Everything below is about
+> the snapshot that exists and is lying.
+
 The plan raised this as *"worth a `check` line comparing export and copy mtimes"* for a usability
 reason — a handle from an old export meets a confusing refusal. Ruling 1 changes what the comparison
 is *for*, and that is why it was built rather than deferred:

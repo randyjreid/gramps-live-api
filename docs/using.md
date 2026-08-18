@@ -124,9 +124,17 @@ You should see the runtime, the plugin, your copy, and each of the two files the
   ok   name.txt: is a Gramps family tree directory
   ok   .gramps-live-api-copy: is blessed for writing by hand
   ok   lock: not locked
+  ok   export: not configured, and nothing in slice 1 needs one -- list_people and
+       propose_note are what cannot run. Set export_path in ... to use them
 
 ready
 ```
+
+> **The `export` line is slice 2's, and an unconfigured export does not fail this report.** Nothing on
+> this page reads an export: `preview`, `apply` and `check` do not. It is `list_people` and
+> `propose_note` — the MCP tools in `docs/slice2-mcp.md` — that need one, so the line names them
+> rather than refusing. Once you *have* configured an export, a **stale** one does fail, and that is a
+> privacy check rather than a nag; see that document.
 
 **Now point it at your real tree** and watch it refuse — its directory is the *other* row in step 1's
 table, the one whose `name.txt` holds your live tree's name:

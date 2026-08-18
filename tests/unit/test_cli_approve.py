@@ -24,7 +24,7 @@ import pytest
 from gramps_live_api import cli, config, invocation
 from gramps_live_api.core import apply, proposals, schema
 from tests.fixtures.trees import blessed
-from tests.unit.test_cli import OPERATION, equipped, marker
+from tests.unit.test_cli import OPERATION, equipped, marker, run
 
 
 class Recorder:
@@ -503,6 +503,7 @@ def test_check_reports_the_export(tmp_path: Path) -> None:
 
 
 def test_check_says_when_no_export_is_configured(tmp_path: Path) -> None:
+    """It is reported, and it does NOT fail the doctor. See the test below."""
     copy = blessed(tmp_path / "tree")
 
     checks = cli.inspect(
@@ -510,8 +511,33 @@ def test_check_says_when_no_export_is_configured(tmp_path: Path) -> None:
     )
     line = next(check for check in checks if check.label == "export")
 
-    assert not line.ok
+    assert line.ok
     assert "export_path" in line.detail, "the remedy is named, not just the condition"
+    assert "list_people" in line.detail, "what is unavailable is named, not just the setting"
+
+
+def test_a_copy_path_only_install_is_ready_the_way_docs_using_shows_it(tmp_path: Path) -> None:
+    """L5, and it is a REGRESSION AGAINST A DEMO THAT PASSED, not merely a defect.
+
+    ``docs/using.md``'s own sample report ends ``ready`` over a setup whose
+    config file holds one key, ``copy_path`` -- which is the setup the owner
+    performed on demo day. Slice 1's three commands need no export; only slice
+    2's tools read one. So *not configured* is reported and is not a failure,
+    and the sentence that says which tools cannot run is what carries the fact.
+
+    ⚠️ **A CONFIGURED export that is stale or unreadable still fails**, and the
+    two tests below are the pair. Absence is a feature nobody has set up;
+    staleness is a privacy oracle that is lying, which is ``docs/slice2-mcp.md``'s
+    recorded ruling and does not move.
+    """
+    copy = blessed(tmp_path / "tree")
+    environ = equipped(tmp_path, **{config.ENV_COPY: copy.tree_dir, config.ENV_EXPORT: ""})
+
+    code, out, _ = run("check", environ=environ)
+
+    assert code == 0, f"a copy-path-only install is what docs/using.md shows ending ready; {out}"
+    assert out.strip().endswith("ready")
+    assert "not ready" not in out
 
 
 def test_check_reports_an_export_older_than_the_copy_as_stale(tmp_path: Path) -> None:
