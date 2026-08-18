@@ -4,9 +4,20 @@ on:
   push:
   pull_request:
 
+# Two legs over the same tree, and the split is the point.
+#
+#   core  installs the dev tools and NOTHING ELSE, and proves it. `mcp` is not
+#         importable there, so the core -- schema, write path, CLI console,
+#         pii_guard -- is measured on the standard library alone.
+#   mcp   installs the optional extra, and proves the MCP tests actually RAN.
+#
+# ⚠️ Each leg exists to close the other's fail-open. A core leg that quietly
+# gained a dependency would still be green; a suite that skips its MCP tests
+# everywhere would also still be green. Neither is caught by reading a log, so
+# neither is left to one.
 jobs:
-  gates:
-    name: gates (python ${{ matrix.python-version }})
+  core:
+    name: core (python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -34,10 +45,49 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # `.[dev]` and no extra: the dev tools, and not one runtime package.
       - name: Install
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
+
+      # ⚠️ **The leg's own claim, checked rather than believed.** "It installs
+      # `.[dev]`, so it must be dependency-free" is an inference from the
+      # command, not an observation of the environment -- and a dependency that
+      # arrived some other way (a dev tool growing one, a transitive pull, a
+      # requirement quietly added back to `dependencies`) would leave this leg
+      # green while it measured nothing.
+      #
+      # Two questions, because neither implies the other:
+      #
+      #   the ENVIRONMENT  is `mcp` importable here? It must not be, or the MCP
+      #                    tests would run on the leg that exists to prove they
+      #                    do not have to.
+      #   the METADATA     does this distribution declare any UNCONDITIONAL
+      #                    requirement? `dependencies = []` is the invariant, and
+      #                    a requirement whose marker does not name an extra is
+      #                    one -- whatever else the marker says.
+      - name: Refuse a core leg that is not dependency-free
+        run: |
+          python - <<'PY'
+          import importlib.util
+          import sys
+          from importlib.metadata import requires
+
+          if importlib.util.find_spec("mcp") is not None:
+              sys.exit("::error::'mcp' is importable on the dependency-free leg; it measures nothing")
+
+          # A Requires-Dist line belongs to an extra iff its marker mentions
+          # `extra ==`. Anything else -- bare, or conditioned on a platform, a
+          # python version, anything at all -- is installed by `pip install .`
+          # and so is a runtime dependency of the core.
+          declared = requires("gramps-live-api") or []
+          runtime = [r for r in declared if "extra ==" not in r]
+          if runtime:
+              sys.exit(f"::error::core declares runtime dependencies: {runtime}")
+
+          print(f"dependency-free: 'mcp' absent, {len(declared)} requirement(s), all behind extras")
+          PY
 
       - name: Lint
         run: ruff check .
@@ -45,15 +95,165 @@ jobs:
       - name: Format
         run: ruff format --check .
 
-      - name: Types
-        run: mypy src
+      # ⚠️ **The core package only, and NOT because the MCP server is exempt.**
+      # `mypy src` here reaches `gramps_live_api_mcp/server.py`, whose import of
+      # `mcp` cannot be resolved on this leg. Measured, on an environment built
+      # exactly like this one:
+      #
+      #   `mypy src`                       2 errors -- import-not-found, and
+      #                                    no-any-return at `_configured`
+      #   + ignore_missing_imports=mcp.*   1 error  -- the no-any-return survives
+      #
+      # That second error is the point. `_configured()` returns
+      # `build_server(...)`, an `MCPServer`, where the declared return type is
+      # the one-transport `Servable` protocol -- and that assignment is the type
+      # checker confirming this server has exactly one transport. With the SDK
+      # reduced to `Any` the check is not performed; `warn_return_any` says so
+      # rather than passing quietly, which is correct and is not a fix. Silencing
+      # it would need a `# type: ignore[no-any-return]` that `warn_unused_ignores`
+      # then rejects on the leg where the SDK IS installed. There is no config
+      # that satisfies both legs, because the two legs are asking different
+      # questions.
+      #
+      # So the MCP server is type-checked where the types exist -- the `mcp` leg
+      # below runs `mypy src`, the whole tree, against the real SDK. Nothing is
+      # excluded from type checking; the module is checked once, in the only
+      # place where the check means what its docstring says it means.
+      - name: Types (core)
+        run: mypy src/gramps_live_api
 
       # -rs names every skipped test and its reason in the report. A skip is
       # this suite's fail-closed answer to a platform it cannot observe, so a
       # skip nobody can see reads exactly like a pass -- which is how the
       # history assertion went unrun on every CI run without anyone noticing.
+      #
+      # `tests/unit/test_mcp_server.py` skips at module level here, by design and
+      # by name. That it does NOT skip on the leg below is asserted there, not
+      # read off this log.
       - name: Tests
         run: pytest -rs
+
+  # The optional extra, installed. Same tree, same suite -- the difference is
+  # one package, and everything this leg is for lives on the other side of it.
+  mcp:
+    name: mcp (python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The same reason as the core leg: the suite's history assertion
+          # refuses to run over a truncated history and skips instead, and a
+          # skip is invisible in a bare summary. Issue #31.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,mcp]"
+
+      # The whole tree, against the real SDK. See the core leg's Types step for
+      # why the MCP server is checked here and only here.
+      - name: Types
+        run: mypy src
+
+      # --junit-xml is what the next step reads. `-rs` stays: it is how a human
+      # sees the same thing the next step enforces.
+      #
+      # ⚠️ **Written to RUNNER_TEMP, outside the checkout, deliberately.** This
+      # repository's whole Phase 0 is about what its working tree contains, and
+      # a report dropped in the root would be one more untracked artefact for
+      # somebody to have to reason about -- against the hygiene tests, against
+      # the guard's tracked-content scan, against `.gitignore`'s ordering rules.
+      # None of it is load-bearing here and all of it is avoidable: the file has
+      # no reason to be in the checkout, so it is not put there.
+      - name: Tests
+        run: pytest -rs --junit-xml="$RUNNER_TEMP/junit.xml"
+
+      # ⚠️ **THE FAIL-OPEN THIS LEG EXISTS TO CLOSE.** Making the SDK optional
+      # means the MCP tests skip when it is absent, and "skip when absent"
+      # silently becomes "never run anywhere" the moment this leg stops
+      # installing the extra -- a wrong package name, a renamed extra, a
+      # resolution failure that pip reports and the job survives. **A skipped
+      # test reads exactly like a passing one**, and this repository has already
+      # paid for that once (#31).
+      #
+      # So the assertion is on the machine-readable report, not on the log, and
+      # it fails the job:
+      #
+      #   the module contributed test cases    -- zero means it was skipped at
+      #                                           module level, not collected,
+      #                                           renamed, or moved
+      #   none of them skipped                 -- scoped to this module, because
+      #                                           other tests skip here for real
+      #                                           reasons (no Gramps, no symlink
+      #                                           privilege) and always will
+      #   none of them errored                 -- a collection error is not a skip
+      #
+      # ⚠️ **Deliberately no expected COUNT.** A number here would be a count of
+      # a file rather than of a property: it goes stale the next time somebody
+      # adds a test, and a stale number that once matched reads as considered.
+      # The property is "these ran", and "more than none, none skipped" is that
+      # property exactly.
+      - name: Refuse a run whose MCP tests did not run
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          import xml.etree.ElementTree as ET
+
+          MODULE = "tests.unit.test_mcp_server"
+
+          # A test case is this module's under EITHER shape, and both are
+          # reached. A real test carries classname="tests.unit.test_mcp_server";
+          # a module-level skip carries an EMPTY classname and the module in
+          # `name`, so matching on classname alone would report the skip as
+          # "contributed nothing" -- true, but naming the symptom rather than the
+          # cause. Measured against a report from an environment without the
+          # extra, which is how that shape was found rather than assumed.
+          #
+          # ⚠️ **The dot in the second test is load-bearing.** A bare
+          # `startswith(MODULE)` also matches `..._renamed_elsewhere`, so this
+          # whole step would go on passing while the module it names had been
+          # renamed away -- a negative control caught exactly that. Equality, or
+          # a class inside this module and nothing else.
+          def belongs(case: ET.Element) -> bool:
+              classname = case.get("classname") or ""
+              return (
+                  classname == MODULE
+                  or classname.startswith(f"{MODULE}.")
+                  or (case.get("name") or "") == MODULE
+              )
+
+          # The path the step above wrote, read from the environment rather
+          # than repeated as a literal -- two spellings of one path is how they
+          # drift, and a missing file here would fail with a stack trace saying
+          # nothing about the property. `os.environ[...]` raises if the runner
+          # ever stops providing it, which is the right direction.
+          root = ET.parse(os.path.join(os.environ["RUNNER_TEMP"], "junit.xml")).getroot()
+          cases = [c for c in root.iter("testcase") if belongs(c)]
+          skipped = [c for c in cases if c.find("skipped") is not None]
+          errored = [c for c in cases if c.find("error") is not None]
+
+          def name(case: ET.Element) -> str:
+              return f"{case.get('classname')}::{case.get('name')}"
+
+          if not cases:
+              sys.exit(f"::error::{MODULE} contributed no test cases; the MCP tests did not run")
+          if skipped:
+              sys.exit(f"::error::MCP tests skipped on the leg that installs the extra: {[name(c) for c in skipped]}")
+          if errored:
+              sys.exit(f"::error::MCP tests errored rather than ran: {[name(c) for c in errored]}")
+
+          print(f"{len(cases)} MCP test cases ran; none skipped, none errored")
+          PY
 
   pii-guard:
     name: pii-guard

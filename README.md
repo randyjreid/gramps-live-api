@@ -45,7 +45,29 @@ Two things follow, and both are load-bearing:
   name, in the log. **Green CI is not evidence slice 1 works** — opening the copy and finding the
   note is.
 
-There is still no HTTP server, no MCP client and no endpoint of any kind.
+**Slice 2 puts an agent in front of that sentence, and a console in front of the agent.** Three MCP
+tools — `list_people`, `propose_note`, `approve` — replace the manual handle hunt slice 1's own
+author declined to perform on demo day (#64). The operation never travels through the agent, and
+`approve` opens a **console window the agent cannot type in**: your yes in the chat is a courtesy,
+and the `y` in that window is the approval. See `docs/slice2-mcp.md`.
+
+⚠️ **Personal data now reaches a model by design, and that is a ruling rather than a side effect.**
+It is bounded by the tree's own `priv="1"` flag — a private person is neither listed nor accepted as
+a target — and by a required search term and a result cap. The residual is stated plainly in
+`docs/slice2-mcp.md`: **the names and note text of non-private people enter a model's context.**
+
+There is still no HTTP server and no endpoint of any kind. The MCP server speaks **stdio only**.
+
+**The official SDK is an optional extra, not a project dependency.** The core keeps
+`dependencies = []` and runs on the standard library alone; installing the `mcp` extra brings the SDK
+and — measured, on this machine — **29 packages behind it**, including an HTTP stack this project uses
+none of. CI runs the core tests dependency-free and the MCP tests with the extra installed, and each
+leg proves its own half rather than being trusted about it. What it costs, why the SDK anyway, and why
+a telemetry package in that list does not mean this project phones home: `docs/slice2-mcp.md`.
+
+```sh
+python -m pip install -e ".[mcp]"     # only if you want the MCP server
+```
 
 ## Roadmap
 
