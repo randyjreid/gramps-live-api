@@ -298,3 +298,76 @@ at all — is the owner's**, and is not being answered by a fix round.
 | Codex | 2 | dispositioned — owes one scoped delta on the final head |
 | Claude `/code-review` | **1** | 8 blocking, fix round 3 dispatched |
 | PR bot | 0 | |
+
+---
+
+## Fix round 3 — all eight FIXED
+
+Head `7c354fd`. The round hit a session limit after committing all eight and before verifying; a
+continuation verified each commit's diff, decided the one uncommitted change, and ran the gates.
+
+| Finding | Commit | Finding | Commit |
+| --- | --- | --- | --- |
+| L5 | `814dea5` | L4 | `815c7c3` |
+| L8 | `72088cd` | L6 | `723635c` |
+| L1 | `6f3e817` | L7 | `91d79c7` |
+| L2 | `3208fcd` | test hygiene | `7c354fd` |
+| L3 | `3ba4324` | | |
+
+Conductor-run gates: `ruff` clean · `ruff format` 78 files · `mypy src` 18 files · **1382 passed,
+6 skipped** · guard 0 over tracked content and 0 over the range (27 commits, 68 entries). **The count
+reconciles exactly**: 1367 + 15 test functions added = 1382.
+
+### Three answers worth keeping
+
+**L5 — a missing export is `ready`, and the report NAMES the two tools that cannot run.** Slice 1's
+three commands read no export; only slice 2's tools do. Failing the doctor over an unconfigured
+feature regressed a demo that passed. ⚠️ **The naming is what stops it being a softening** — a passing
+report silent about it would be the other half of the same defect. Code and `docs/using.md` verified
+string-against-string.
+
+**L8 — measured, and the finding named only half the fix.** Peak allocation during `read_export`,
+varying only the bulk walked past:
+
+| file bytes | peak before | peak after |
+| --- | --- | --- |
+| 645,531 | 1,688,843 | 128,243 |
+| 2,565,531 | 6,499,410 | 128,279 |
+
+Before: ~2.5× the file, growing with it. After: **flat**. `element.clear()` empties an element but
+`iterparse` leaves the husk in its parent's child list — **unlinking is what actually drops it**, so
+clearing alone would not have moved the second column.
+
+**L6 — path-specific, two named constants, not one softened sentence.** The `apply` path now says a
+re-run **CAN put a second note on the person**. `_write_and_verify`'s two callers were **not** split —
+verified, three call sites, one function. #73 untouched.
+
+### Disputes — recorded, none disputed back
+
+1. `72088cd`'s own gate line says *"+2, exactly the tests added"* where that commit adds **one**; the
+   `+2` was cumulative. Nothing rests on it, and the round's aggregate reconciles — flagged as the
+   small end of the stale-count hazard: a number that once matched, attached to the wrong subject.
+2. ⚠️ **L4 created a second "cannot be established" state that PASSES** — `copy_path` absent returns
+   `ok=True`. **One word away from the shape C1-2 forbade.** The distinction argued is real
+   (C1-2 is *unknowable because the I/O failed*; this is *unaskable because there is no right-hand
+   side*), but it lives **only in a code comment** while C1-2's ruling lives in the docs.
+   **Open thread — file or fix.**
+3. **L8's fix is broader than the finding and only one axis has evidence.** It also changed the
+   `iterparse` event set from `("end",)` to `("start","end")`. Memory is measured and flat;
+   **nothing measured time**, and no regression is claimed — because an uncontrolled two-number
+   comparison is not a measurement.
+4. **L7 left the decline region filing nothing.** Its consequence is downgraded from permanent
+   `still_open` to an immediate `unknown`; what is lost is precision, not safety. Same shape as the
+   recorded residual *no report can record its own failure to be written*.
+5. `Spawner._then` is now written from outside the class by two tests; a public `then` would be
+   right, and was left alone as churn outside the eight.
+6. `docs/using.md`'s sample wraps the export line across two lines where the code prints one. Words
+   match; transcript convention, not a false claim.
+
+### Round counts
+
+| Reviewer | Rounds | State |
+| --- | --- | --- |
+| Codex | 2 | **owed: one scoped delta on the final head — dispatched now** |
+| Claude `/code-review` | 1 | dispositioned |
+| PR bot | 0 | after push |
