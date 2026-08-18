@@ -522,3 +522,88 @@ point. **This finding is inside `claim_then`/`_claim`/`_rollback` and nothing el
 | Codex | **1** |
 | Claude `/code-review` | 0 — owed one scoped delta via `--resume` |
 | PR bot | 0 |
+
+---
+
+## Owner rulings, 2026-08-18 (evening) — the record corrected
+
+### 1. Line count — the ruling HOLDS, and the measured figures replace the plan's
+
+⚠️ **The plan's headline `−185 source lines` was wrong. Recorded here so the record does not carry a
+wrong number.** Measured with `ast` over the three changed source files, independently by the build
+and by the conductor, agreeing exactly:
+
+| | code | docstring | comment | blank | total |
+| --- | --- | --- | --- | --- | --- |
+| before `74faa4e` | 1038 | 677 | 136 | 213 | 2064 |
+| after `8a01dc4` | 996 | 727 | 143 | 204 | 2070 |
+| **delta** | **−42** | **+50** | **+7** | −9 | **+6** |
+
+The plan counted deleted *line ranges* — `_awaited` at "424–496" is 73 lines, most of it its own
+docstring — while the additions are likewise mostly prose. Wrong by ~4.4× on the code axis, inverted
+on the raw one.
+
+**Owner's ruling:** *"My condition was about surface a reviewer keeps finding defects in, and that
+surface is code."* **−42 executable lines, and the whole outcome-reporting layer is gone — poll,
+timeout, report file, outcome vocabulary.** ⭐ **Docstrings growing while code shrinks is the right
+direction, not a violation.**
+
+### 2. `ResourceWarning` — the build's deviation is an APPROVED DEVIATION
+
+⚠️ **Recorded with its numbers so nobody "restores" the plan's instruction later.** The approved plan's
+verification step 5 said: if the `ResourceWarning` from the discarded `Popen` fires, hold the handle on
+the `Tools` instance. **It fires. The build refused, and measured both arms in one session with one
+variable changed:**
+
+| | open handles |
+| --- | --- |
+| at rest | 162 |
+| after 40 **discarded** spawns | 164 (**+2**) |
+| after 40 more **held** spawns | 244 (**+80**) |
+
+Holding trades a warning that is ignored under default filters and is stderr-only — so it cannot
+corrupt the stdio transport — for **two leaked handles per approval for the life of the server**, and
+it re-weakens the property the deletion just strengthened: **the server holds no object referring to
+that window.**
+
+**Owner's ruling: the deviation STANDS.** *"A controlled measurement beating a plan instruction written
+from expectation is the rule working exactly as intended."* ⛔ **Do not reinstate the handle from the
+plan text.**
+
+### 3. E-1 — FIX, and NOT by moving the boundary a fourth time
+
+**Owner's ruling, and the reasoning is the deletion's own evidence:** the finding lives in three
+functions readable in one sitting, where four rounds ago it was scattered across six places.
+
+⛔ **But not by moving the boundary again.** *"Three consecutive designs have put it one statement off;
+a fourth boundary is the wrong shape of answer."*
+
+⭐ **REMOVE THE "BETWEEN".** Read the proposal file **first** — a read failure is environmental and
+**must burn nothing** — then decide deliberately:
+
+| Content | Action |
+| --- | --- |
+| **invalid** (digest, expiry, session, corrupt) | rename to **BURN**, then refuse |
+| **valid** | rename to **CLAIM**, then follow through |
+
+**The rename becomes the thing you choose once you know.**
+
+⚠️ **Burn-on-refusal is PRESERVED as a chosen act, not a side effect of ordering.** The owner is
+explicit: *"I am not dropping that property."*
+
+**The test asserts the PROPERTY, not the instance: nothing fallible occurs after the irreversible
+rename.**
+
+### Stopping rule for the rounds that follow — recorded before they run
+
+⛔ **A finding in the claim machinery AFTER this fix is PARKED, not fixed**, and written up for the
+owner as *"is this design worth its surface"*. **Three boundary corrections is the pattern; a fourth
+is the answer.**
+
+### Round counts
+
+| Reviewer | Rounds | Owed |
+| --- | --- | --- |
+| Codex | 1 | to dispositioned |
+| Claude `/code-review` | 0 | **one scoped delta via `--resume`**, not a fresh pass |
+| PR bot | 0 | after push |
