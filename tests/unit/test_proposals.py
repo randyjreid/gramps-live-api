@@ -9,6 +9,8 @@ caller that cannot tell two refusals apart cannot act on either.
 from __future__ import annotations
 
 import builtins
+import contextlib
+import inspect
 import json
 import os
 from datetime import timedelta
@@ -582,6 +584,315 @@ def test_a_refused_claim_never_reaches_the_follow_through(tmp_path: Path) -> Non
         )
 
     assert opened == [], "a refusal opened a console"
+
+
+# ---------------------------------------------------------------------------
+# ⭐ The property: nothing fallible happens AFTER the irreversible rename
+# ---------------------------------------------------------------------------
+#
+# ⚠️ These three assert the PROPERTY rather than today's three call sites. A
+# statement added after the claim rename next year does not have to be thought
+# of for them to go red: `Trace` derives what a claim can reach out to from the
+# module's OWN imports, so a new call after the rename joins the log by itself.
+
+
+class Injected(Exception):
+    """Not a ``ProposalError`` and not an ``OSError``, so nothing catches it.
+
+    A fault the store has no handler for is the harshest form of the question:
+    *if this step failed in a way nobody anticipated, where would the proposal
+    be left?* Anything the store does catch would let a handler answer for it.
+    """
+
+
+class Trace:
+    """Every fallible call a claim makes, recorded and optionally made to fail.
+
+    ⚠️ **The universe is DERIVED, not listed.** It is every plain function in
+    every module ``proposals`` itself imports, plus ``builtins.open`` -- so a
+    statement added to the store that reaches the filesystem, the parser, the
+    schema or the digest is covered without anybody remembering to add it here.
+    What it does not cover is ``datetime.fromisoformat`` (a method on a C type,
+    which cannot be patched) and ``os.path``'s pure string work; both are only
+    reachable before the rename, and the *nothing after* assertion below is
+    what actually bounds the tail.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.renamed_to: list[str] = []
+        self.fail_at: int | None = None
+
+    def arm(self, patching: pytest.MonkeyPatch) -> None:
+        for module, name in self._universe():
+            self._wrap(patching, module, name)
+
+    @staticmethod
+    def _universe() -> list[tuple[Any, str]]:
+        found: list[tuple[Any, str]] = [(builtins, "open")]
+        for _, module in inspect.getmembers(proposals, inspect.ismodule):
+            for name, value in vars(module).items():
+                if not name.startswith("_") and (
+                    inspect.isfunction(value) or inspect.isbuiltin(value)
+                ):
+                    found.append((module, name))
+        return found
+
+    def _wrap(self, patching: pytest.MonkeyPatch, module: Any, name: str) -> None:
+        real = getattr(module, name)
+        label = f"{module.__name__}.{name}"
+
+        def recorded(*args: Any, **kwargs: Any) -> Any:
+            self.calls.append(label)
+            if label == "os.rename" and len(args) > 1:
+                self.renamed_to.append(str(args[1]))
+            if len(self.calls) == self.fail_at:
+                raise Injected(f"{label}, call {self.fail_at}")
+            return real(*args, **kwargs)
+
+        patching.setattr(module, name, recorded)
+
+
+def traced(made: proposals.Store, proposal_id: str, digest: str, fail_at: int | None) -> Trace:
+    """Run one claim with every fallible call recorded, failing the ``fail_at``-th."""
+    watching = Trace()
+    watching.fail_at = fail_at
+    with pytest.MonkeyPatch.context() as patching:
+        watching.arm(patching)
+        with contextlib.suppress(Exception):
+            made._claim(proposal_id, digest)
+    return watching
+
+
+@pytest.mark.parametrize(
+    ("spoil", "renames_to"),
+    [
+        (None, proposals._PENDING),
+        ("digest", ".refused.json"),
+    ],
+    ids=["valid content is renamed to CLAIM", "invalid content is renamed to BURN"],
+)
+def test_a_claim_renames_once_and_reaches_nothing_afterwards(
+    tmp_path: Path, spoil: str | None, renames_to: str
+) -> None:
+    """⭐ **The property, stated over the calls a claim actually makes.**
+
+    Two halves, and the second is the one that survives a future edit. *Exactly
+    one rename* is the owner's shape written down mechanically -- the rename is
+    the thing you choose once you know, so a claim that renamed twice would be
+    choosing twice. *Nothing after it* is the invariant: the log ends at the
+    rename, so there is no fallible step left for a failure to arrive in.
+
+    **How it goes red if the property breaks.** Any statement appended to
+    ``_claim`` after the rename that touches the filesystem, the parser, the
+    schema or a digest appends to this same log -- because the log is derived
+    from the module's imports and not from a list of today's call sites -- and
+    the tail assertion names it.
+    """
+    made, proposal = minted(tmp_path)
+    digest = apply.approval_digest(OTHER) if spoil else proposal.approval_digest
+
+    watching = traced(made, proposal.id, digest, fail_at=None)
+
+    assert watching.renamed_to == [made.path_of(proposal.id, renames_to)], "exactly one, and there"
+    after = watching.calls[watching.calls.index("os.rename") + 1 :]
+    assert after == [], f"the claim reaches {after} after the rename it can no longer undo"
+
+
+def test_a_claim_that_cannot_decide_renames_nothing_at_all(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other half of *choose the rename once you know*: not knowing chooses
+    neither. An environmental failure is not a decision about the content, so
+    it may not burn and it may not claim."""
+    made, proposal = minted(tmp_path)
+    deny_reading(monkeypatch, proposal.id)
+
+    watching = traced(made, proposal.id, proposal.approval_digest, fail_at=None)
+
+    assert watching.renamed_to == [], "a host's failure moved the owner's proposal"
+
+
+def test_no_fallible_step_of_a_claim_can_strand_the_proposal(tmp_path: Path) -> None:
+    """⭐ **Fault injection at EVERY step, which is the property under test.**
+
+    A first pass records every fallible call one whole claim makes; the run
+    then repeats once per call, failing that call with an exception the store
+    has no handler for, and asserts the same thing each time: **a claim that
+    raised left the proposal at ``.json`` or at ``.refused.json``, never at
+    ``.pending.json``.** Stranded there it is consumed, invisible to a retry
+    and waited on by nothing -- which is E-1, and L2 and D-1 before it.
+
+    **How it goes red if the property breaks.** A fallible statement added
+    after the rename becomes one more index in this sweep, and failing it
+    strands the proposal, because by then the rename cannot be taken back.
+    There is nothing to remember to update: the sweep is as long as the claim
+    is.
+    """
+    made, proposal = minted(tmp_path)
+    reference = traced(made, proposal.id, proposal.approval_digest, fail_at=None)
+    assert reference.renamed_to, "the reference run must be a claim that succeeded"
+
+    for step in range(1, len(reference.calls) + 1):
+        made, proposal = minted(tmp_path / f"step{step}")
+        watching = traced(made, proposal.id, proposal.approval_digest, fail_at=step)
+        if len(watching.calls) < step:
+            continue  # the run was shorter than the reference; nothing was injected
+        where = watching.calls[step - 1]
+        assert not Path(made.path_of(proposal.id, proposals._PENDING)).exists(), (
+            f"failing {where} (step {step} of {len(reference.calls)}) stranded the proposal"
+        )
+        assert Path(made.path_of(proposal.id)).is_file(), (
+            f"failing {where} (step {step}) consumed a proposal it never decided about"
+        )
+
+
+def _edit(made: proposals.Store, proposal_id: str, field: str, value: object) -> None:
+    path = Path(made.path_of(proposal_id))
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record[field] = value
+    path.write_text(json.dumps(record), encoding="utf-8")
+
+
+def _read_denied(made: Any, proposal: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    deny_reading(monkeypatch, proposal.id)
+    return proposal.approval_digest, lambda: None
+
+
+def _not_json(made: Any, proposal: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    Path(made.path_of(proposal.id)).write_text("not json at all", encoding="utf-8")
+    return proposal.approval_digest, lambda: None
+
+
+def _not_an_object(made: Any, proposal: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    Path(made.path_of(proposal.id)).write_text("[]", encoding="utf-8")
+    return proposal.approval_digest, lambda: None
+
+
+def _rules_moved(made: Any, proposal: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    monkeypatch.setattr(schema, "_PREVIEW_TEXT_LIMIT", 20)
+    return proposal.approval_digest, lambda: None
+
+
+def _another_session(made: Any, proposal: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    _edit(made, proposal.id, "session", "sess9999")
+    return proposal.approval_digest, lambda: None
+
+
+def _edited_operation(made: Any, proposal: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    path = Path(made.path_of(proposal.id))
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record["operation"]["text"] = "something the owner never read"
+    path.write_text(json.dumps(record), encoding="utf-8")
+    return proposal.approval_digest, lambda: None
+
+
+def _unreadable_time(made: Any, proposal: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    _edit(made, proposal.id, "created_utc", "the day before yesterday")
+    return proposal.approval_digest, lambda: None
+
+
+def _naive_time(made: Any, proposal: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    _edit(made, proposal.id, "created_utc", "2026-08-17T12:34:56")
+    return proposal.approval_digest, lambda: None
+
+
+def _expired(made: Any, proposal: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    made.clock.advance(901)
+    return proposal.approval_digest, lambda: None
+
+
+def _wrong_digest(made: Any, proposal: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    return apply.approval_digest(OTHER), lambda: None
+
+
+def _claim_rename_fails(made: Any, proposal: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    fail_the_claim_rename(monkeypatch, PermissionError(32, "the file is in use"))
+    return proposal.approval_digest, lambda: None
+
+
+def _follow_through_raises(made: Any, proposal: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    def cannot_spawn() -> None:
+        raise OSError(8, "not enough storage is available to process this command")
+
+    return proposal.approval_digest, cannot_spawn
+
+
+def _nothing_fails(made: Any, proposal: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    return proposal.approval_digest, lambda: None
+
+
+@pytest.mark.parametrize(
+    ("arrange", "ends_at"),
+    [
+        (_read_denied, ".json"),
+        (_not_json, ".refused.json"),
+        (_not_an_object, ".refused.json"),
+        (_rules_moved, ".refused.json"),
+        (_another_session, ".refused.json"),
+        (_edited_operation, ".refused.json"),
+        (_unreadable_time, ".refused.json"),
+        (_naive_time, ".refused.json"),
+        (_expired, ".refused.json"),
+        (_wrong_digest, ".refused.json"),
+        (_claim_rename_fails, ".json"),
+        (_follow_through_raises, ".json"),
+        (_nothing_fails, ".pending.json"),
+    ],
+    ids=[
+        "environmental: the file cannot be read",
+        "content: not JSON",
+        "content: the record is not an object",
+        "content: the fingerprint moved",
+        "content: another session minted it",
+        "content: the operation was edited",
+        "content: the time cannot be read",
+        "content: the time carries no offset",
+        "content: it expired",
+        "content: the digest names another proposal",
+        "environmental: the claim rename failed",
+        "environmental: the follow-through raised",
+        "control: nothing failed",
+    ],
+)
+def test_a_claim_leaves_the_proposal_in_exactly_one_of_two_places(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, arrange: Any, ends_at: str
+) -> None:
+    """⭐ **Every reachable exit of ``claim_then``, and the on-disk state of each.**
+
+    > **A decision about the CONTENT burns the proposal, so it ends at
+    > ``.refused.json``. Anything ENVIRONMENTAL decides nothing, so it ends
+    > where it started, at ``.json``, approvable by the same id the moment the
+    > host is fixed. It is never left at ``.pending.json``.**
+
+    ``.pending.json`` means *claimed, and something is going to act on it*. A
+    proposal stranded there is consumed, invisible to a retry, and waited on by
+    nothing -- so every row asserts the two absences as well as the presence,
+    which is what makes the row an assertion about the state rather than about
+    one file.
+
+    The first row is E-1 itself. The last is the control: without it the whole
+    table is satisfiable by a store that refuses everything.
+    """
+    made, proposal = minted(tmp_path)
+    digest, follow_through = arrange(made, proposal, monkeypatch)
+    ran: list[str] = []
+
+    def watched() -> object:
+        ran.append("the follow-through")
+        return follow_through()
+
+    if ends_at == proposals._PENDING:
+        made.claim_then(proposal.id, digest, watched)
+        assert ran == ["the follow-through"], "the control row must exercise a real claim"
+    else:
+        with pytest.raises((proposals.ProposalError, OSError)):
+            made.claim_then(proposal.id, digest, watched)
+
+    for suffix in (".json", ".refused.json", proposals._PENDING):
+        assert Path(made.path_of(proposal.id, suffix)).exists() == (suffix == ends_at), (
+            f"expected the proposal at {ends_at}, and {suffix} disagrees"
+        )
 
 
 # ---------------------------------------------------------------------------
