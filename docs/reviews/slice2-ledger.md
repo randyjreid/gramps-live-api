@@ -607,3 +607,131 @@ is the answer.**
 | Codex | 1 | to dispositioned |
 | Claude `/code-review` | 0 | **one scoped delta via `--resume`**, not a fresh pass |
 | PR bot | 0 | after push |
+
+---
+
+## E-1 fix round — build report, 2026-08-18
+
+Head `34441aa` → `5919331`. Five commits, LIGHT tier, plan `.claude/plans/e1.md` (conductor
+self-approved, with the open decision taken and the rename-abort amendment in).
+
+### E-1 — **FIXED**
+
+| | commit | what it does |
+| --- | --- | --- |
+| 1 | `3666b1b` | `_claim` reads at rest and performs **exactly one** rename as its **last statement** |
+| 2 | `a7559af` | `ProposalUnreadable`, the half that closes the loop rather than the burn |
+| 3 | `b866fec` | the loser of the claim rename is told it lost; one message regression from commit 1 repaired |
+| 4 | `9d48a38` | the property tests |
+| 5 | `5919331` | `docs/slice2-mcp.md` — the ordering, the ninth refusal, three residuals |
+
+**The regression proof the round owed.** Measured red on `34441aa`, green on `5919331`:
+
+> `assert not Path(made.path_of(proposal.id, ".pending.json")).exists(), "stranded"`
+> → `AssertionError: stranded`
+
+and, from the fault-injection sweep, which was told nothing about E-1 and found it anyway:
+
+> `AssertionError: failing builtins.open (step 10 of 50) stranded the proposal`
+
+### The property test asserts the property, and here is how it fails if the property breaks
+
+`Trace` derives what a claim can reach out to **from the module's own imports** — every plain function
+in `hashlib`, `json`, `os`, `re`, `secrets`, `core.apply` and `core.schema`, plus `builtins.open`. On
+this head that is **54 recorded calls**. Three assertions ride on it:
+
+1. **exactly one rename**, to `.pending.json` when the content is valid and `.refused.json` when it is
+   not — the owner's *the rename is the thing you choose once you know*, written mechanically;
+2. **the call log after that rename is empty** — the invariant stated directly, so there is no
+   fallible step left for a failure to arrive in;
+3. **fault injection at all 54 steps** with an exception the store has no handler for, asserting each
+   time that the proposal is at `.json` and never at `.pending.json`.
+
+**A statement added after the rename next year joins that log by itself**, because the log is derived
+from the imports rather than from a list of today's call sites — and (2) names it, and (3) strands on
+it. Nothing has to be remembered.
+
+⚠️ **What it does not cover, said rather than implied:** `datetime.fromisoformat` (a method on a C
+type, unpatchable) and `os.path`'s pure string work. Both are reachable only *before* the rename, and
+assertion (2) is what actually bounds the tail.
+
+The behavioural table is separate and complementary — **13 rows**, every reachable exit of
+`claim_then`, asserting one suffix present and the other two **absent**. Exactly **one** row was red on
+`34441aa` (the environmental read), so the table is not over-fitted to the fix; the control row is what
+stops the whole table being satisfiable by a store that refuses everything.
+
+### Residuals recorded, all three in `docs/slice2-mcp.md`
+
+1. **Windows `ERROR_SHARING_VIOLATION` on the claim rename** — new to reading first, because `open`
+   omits `FILE_SHARE_DELETE`. Transient, self-clearing, safe direction. Traded knowingly.
+2. **"Any claim consumes the proposal" is best-effort in one transient case** — the suppressed burn
+   rename. Only `ApprovalMismatch` can be affected, being the only refusal that depends on caller
+   input.
+3. ⚠️ **The loop is closed at the READ, not at the rename.** A Windows ACL denying DELETE while
+   permitting create would fail the *claim rename*; every approve gets `ProposalNotFound`, whose
+   *propose again* loops — nothing burnt, nothing written, so the cost is an agent retrying rather
+   than the owner losing proposals. POSIX cannot produce that ACL. **Not fixed**: the plan and the
+   ruling both fix `_take`'s type as `ProposalNotFound`, and a third refusal type here would be the
+   fix widening its own claim. It is inside the claim machinery, where the standing rule parks the
+   next finding as a design question.
+
+### Disputes and flags from the build
+
+- ⚠️ **Commit 1 introduced a message regression and commit 3 repaired it, inside this round.** Moving
+  the rename to the end also moved *where a consumed proposal is noticed*, from `_take` to the read,
+  and `_parsed`'s `FileNotFoundError` branch answered with a bare `strerror` — losing the one refusal
+  sentence `docs/slice2-mcp.md` quotes and #69's disposition rests on. Caught by writing the test
+  before the message change, not by review.
+- **`test_every_refusal_says_something_different` does not assert what its name says.** `str(cls("x"))`
+  is `"x"` for all of them, so it asserts the class *names* are distinct. Its count moved 6 → 7 with
+  the new type and its docstring was corrected to say what it actually checks. **Not repaired** —
+  repairing it means rebuilding it around the real sentences, which is a different test and outside
+  this round's scope.
+- **No dispute with the plan or the ruling.** The shape, the amendment and the new type all held up
+  under build.
+
+### Measured line delta — `ast`, code vs docstring vs comment
+
+| | code | docstring | comment | blank | total |
+| --- | --- | --- | --- | --- | --- |
+| `core/proposals.py` before | 275 | 208 | 5 | 95 | 583 |
+| `core/proposals.py` after | 299 | 288 | 5 | 109 | 701 |
+| **delta** | **+24** | +80 | 0 | +14 | +118 |
+| `tests/unit/test_proposals.py` before | 219 | 79 | 24 | 105 | 427 |
+| `tests/unit/test_proposals.py` after | 470 | 200 | 36 | 209 | 915 |
+| **delta** | **+251** | +121 | +12 | +104 | +488 |
+
+⚠️ **The plan estimated ~+8 executable lines for the source; the measurement is +24.** The estimate
+covered `ProposalUnreadable` alone; the rest is the `was` keyword threaded through four helpers and the
+`_parsed` split, which the plan described but did not count. **Ruling 1's subject is *surface a
+reviewer keeps finding defects in*, and this removes a defect rather than adding surface** — but the
+number is stated as measured rather than as predicted.
+
+### Gates, as run, from the conductor's own shell on `5919331`
+
+| Gate | Result |
+| --- | --- |
+| `ruff check .` | All checks passed! |
+| `ruff format --check .` | 78 files already formatted |
+| `mypy src` | Success: no issues found in 18 source files |
+| `pytest -rs` | **1409 passed, 6 skipped** (baseline 1387 + **22** added; the six skips unchanged) |
+| `pii_guard .` | 0 findings over tracked content (83 entries) |
+| `pii_guard --range origin/main..HEAD .` | 0 findings (43 commits, 95 entries scanned) |
+
+The 22 added tests: 1 E-1 regression · 1 unreadable-is-not-not-found · 1 retry-sentence · 2
+claim-rename losers · 2 renames-once · 1 renames-nothing · 1 fault-injection sweep · 13 table rows.
+
+⚠️ **One interpreter, and CI runs three.** Every number above is 3.12.13 on Windows, from the project
+`.venv`, which was left as it was found — no `uv run --python` was issued anywhere. The property test
+uses `monkeypatch` and `inspect` rather than `sys.settrace` **deliberately**: a trace-based version
+would have made the assertion depend on line-event attribution, which moves between 3.10, 3.11 and
+3.12, and that is exactly the *check whose definition comes from where it runs* hazard. **The claim is
+still that the matrix has not run.**
+
+### Round counts — unchanged by a build
+
+| Reviewer | Rounds | Owed |
+| --- | --- | --- |
+| Codex | 1 | to dispositioned — a delta on this fix |
+| Claude `/code-review` | 0 | **one scoped delta via `--resume`**, not a fresh pass |
+| PR bot | 0 | after push |
