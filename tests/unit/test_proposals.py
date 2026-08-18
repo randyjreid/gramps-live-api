@@ -408,12 +408,20 @@ def test_a_refused_claim_never_reaches_the_follow_through(tmp_path: Path) -> Non
 
 
 # ---------------------------------------------------------------------------
-# The report the console leaves and the server reads
+# There is no report, and the store offers no way to write one
 # ---------------------------------------------------------------------------
 
 
-def test_a_report_written_by_the_console_is_read_by_the_server(tmp_path: Path) -> None:
-    made, proposal = minted(tmp_path)
-    assert made.read_report(proposal.id) is None, "nothing has happened yet"
-    made.write_report(proposal.id, {"outcome": "declined"})
-    assert made.read_report(proposal.id) == {"outcome": "declined"}
+def test_the_store_has_no_way_to_file_an_outcome(tmp_path: Path) -> None:
+    """⭐ **A red line rather than a comment**, and the same idiom as
+    ``approve``'s frozen reply keys.
+
+    The cross-process report was the layer's subject and every stage of it drew
+    a finding: C1-1 the word it filed, C2-1 the region it filed from, L7 the
+    region that filed nothing, D-2 the absence the server read as ``unknown``.
+    Re-adding a writer here is a failing test, not a quiet return of the
+    machinery that produced a wrong outcome five different ways.
+    """
+    made, _ = minted(tmp_path)
+    for gone in ("write_report", "read_report", "report_path"):
+        assert not hasattr(made, gone), f"{gone} is the deleted layer coming back"

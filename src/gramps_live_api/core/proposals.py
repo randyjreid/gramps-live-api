@@ -73,7 +73,13 @@ _PENDING = ".pending.json"
 _APPROVED = ".approved.json"
 _DECLINED = ".declined.json"
 _REFUSED = ".refused.json"
-_REPORT = ".report.json"
+"""The four states a proposal can be in, and there is no fifth.
+
+⚠️ **``.report.json`` was the fifth and it is deleted.** It was not a state of
+the proposal at all -- it was a message from the console to the server about
+one, and every stage of carrying it drew a review finding. Nothing crosses that
+boundary now: the console tells the owner, and the owner tells the agent.
+"""
 
 
 PROBE = schema.AddNote(
@@ -434,24 +440,6 @@ class Store:
         duplicate to become possible.
         """
         return self._move(proposal_id, _PENDING, _APPROVED if approved else _DECLINED)
-
-    # -- the report the console leaves ---------------------------------------
-
-    def report_path(self, proposal_id: str) -> str:
-        return self.path_of(proposal_id, _REPORT)
-
-    def write_report(self, proposal_id: str, payload: Mapping[str, object]) -> str:
-        """What happened, for the server to relay and for the owner to find later."""
-        return self._durably(self.report_path(proposal_id), dict(payload))
-
-    def read_report(self, proposal_id: str) -> dict[str, object] | None:
-        """The console's report, or ``None`` while it has not written one yet."""
-        try:
-            with open(self.report_path(proposal_id), encoding="utf-8") as handle:
-                payload = json.load(handle)
-        except (OSError, json.JSONDecodeError):
-            return None
-        return payload if isinstance(payload, dict) else None
 
     # -- the disk -----------------------------------------------------------
 
