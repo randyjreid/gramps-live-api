@@ -247,3 +247,54 @@ created it, C2-1 found the gap in it. On code, diminishing-returns test (a) is n
 but it does ask *is this machinery worth its surface?* **If a third consecutive round finds a defect
 in the same split, the question stops being "harden it" and becomes "delete or redesign it", and that
 goes to the owner rather than into another fix round.**
+
+---
+
+## Claude `/code-review` round 1 — 7 confirmed correctness defects, 13 further findings
+
+Official skill, high effort, $42.36. Eight finder agents → 30 raw → 24 deduped → four adversarial
+verifiers. **It read this ledger** and correctly refuted five items as already-dispositioned,
+including the post-commit `UnicodeEncodeError` route (C2-1's accepted residual) — which is the ledger
+doing exactly what it exists for.
+
+Conductor **verified findings 1, 2, 4, 5, 6 and the streaming defect directly against the code**
+before dispositioning.
+
+| # | Finding | Where | Disposition |
+| --- | --- | --- | --- |
+| L1 | truncated/corrupt gzip raises `EOFError`/`zlib.error`, neither caught, so the agent gets a raw internal exception instead of the designed "retake the export" message | `people.py` | **FIX** |
+| L2 | `approve` claims the proposal **before** the console-spawn check, so on a host that cannot spawn, every proposal is consumed and orphaned — an infinite propose/approve/burn loop | `server.py` | **FIX** |
+| L3 | a naive `created_utc` crashes `claim()` with `TypeError` after `_take`'s rename, stranding the file | `proposals.py` | **FIX** |
+| L4 | the doctor's freshness check runs against the **command-line tree**, not the copy — the parameter is named `copy` and receives `resolved` | `cli.py` | **FIX** |
+| L5 | `check` now fails a setup **this branch's own `docs/using.md` shows ending "ready"** — a copy-path-only install exits 1 | `cli.py` | **FIX** |
+| L6 | the post-commit message promises *"the proposal is consumed, so no second note can arrive this way"* — **false on the `apply` path**, which has no proposal and can write a second note on re-run | `cli.py` | **FIX** |
+| L7 | pre-answer console death leaves `still_open` forever; the pre-answer trigger region is unrecorded | `cli.py` | **FIX** |
+| L8 | `read_export`'s `else: continue` skips `element.clear()`, so the parse the docstring calls *"one streaming pass … because a real tree is megabytes"* holds the file in memory | `people.py` | **FIX — it falsifies a stated property** |
+
+**Cleanups → FILED, not fixed** (none is a demonstrable defect): full export re-parsed and config
+re-loaded on every MCP tool call; the approve-outcome vocabulary hand-spelled with no frozenset
+assertion while the same file asserts its others; `Store._durably` duplicating `apply._durably`; the
+timeout guess having no config knob; `_approve`/`_apply` duplication; a dead `cap` parameter; fixture
+shell duplication; two CI economies.
+
+### ⚠️ The stop rule fires — taken to the owner, not decided here
+
+L6 sits in machinery **C1-1 created**, which C2-1 already found a gap in. That is **three consecutive
+rounds touching the post-marker path**, and this ledger recorded in advance that a third goes to the
+owner as *delete-or-redesign* rather than into another fix round.
+
+**Being precise about what the rule caught**, because a misread trigger is worth as little as a missed
+one: C2-1 was a defect in the **split's structure**; L6 is a **false claim in a message**. They share a
+root cause the review named independently — **`_write_and_verify` serves two callers, `_approve` and
+`_apply`, whose guarantees differ**, and a message true for one is false for the other.
+
+L6's *message* is fixed in this round. **The design question — should one function serve both callers
+at all — is the owner's**, and is not being answered by a fix round.
+
+### Round counts
+
+| Reviewer | Rounds | State |
+| --- | --- | --- |
+| Codex | 2 | dispositioned — owes one scoped delta on the final head |
+| Claude `/code-review` | **1** | 8 blocking, fix round 3 dispatched |
+| PR bot | 0 | |
