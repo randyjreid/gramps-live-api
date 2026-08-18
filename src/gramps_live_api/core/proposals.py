@@ -294,6 +294,13 @@ class Store:
         the callee. A statement appended below next year is outside the claim
         by construction.
 
+        ⭐ **And the other ``between`` is gone too, which is E-1.** ``_claim``
+        used to rename first and validate afterwards, so a failure in that
+        validation raised from **outside** this ``try`` and no rollback ran.
+        The claim rename is now ``_claim``'s **last statement**, so the
+        follow-through is once again the only fallible thing after it -- which
+        is what makes the rollback below sufficient rather than partial.
+
         ⚠️ **``Exception``, not ``BaseException``, and that is a recorded
         trade.** A ``KeyboardInterrupt`` arriving after ``CreateProcess``
         succeeded but before ``Popen`` returns would roll back a proposal whose
@@ -314,17 +321,48 @@ class Store:
         return proposal
 
     def _claim(self, proposal_id: str, approval_digest: str) -> Proposal:
-        """Take the proposal out of reach of any other caller, then check it.
+        """Read the proposal, decide about it, and only then rename it.
 
         ⚠️ **Private, so that ``claim_then`` is the only entry.** A public claim
         is a claim somebody can make without its follow-through, which is the
         state L2 and D-1 both left behind: a proposal renamed out of reach with
         no console anywhere and nothing that will ever act on it.
 
-        ⚠️ **The rename happens FIRST, and that ordering is the mutual
-        exclusion.** Two concurrent approves cannot both proceed, because
-        exactly one of them gets the rename; checking first and renaming after
-        would leave a window between the two in which both are still valid.
+        ⭐ **THE RENAME IS THE THING YOU CHOOSE ONCE YOU KNOW**, and it is this
+        function's last statement. Exactly one ``os.rename`` happens per call --
+        to ``.refused.json`` when the content is invalid, to ``.pending.json``
+        when it is valid -- and everything that can fail, the read and the parse
+        and the six checks, happens **before** it, where a failure costs nothing
+        because nothing has moved. That is E-1: an environmental read failure
+        used to arrive after the rename, burning a proposal a retry could not
+        reach, and the next proposal met the same filesystem and burnt too.
+
+        ⚠️ **The rename is the mutual exclusion, and being valid never was.**
+        The reasoning this replaces said the rename had to come first or two
+        callers would both still be valid -- which conflates *being valid* with
+        *being permitted*. Validity is a property of the file; the exclusion
+        token is the rename, because ``os.rename`` consumes its source
+        atomically and so cannot succeed twice for one source, whatever else
+        happened before it. Two readers may both read and both validate.
+        Exactly one rename lands.
+
+        **What the loser sees**, from the mechanism rather than from a check:
+
+        - **POSIX** -- the source has already moved, so ``rename`` sets
+          ``ENOENT`` and Python raises ``FileNotFoundError``. Renaming a file
+          another process holds open is legal here, so there is no second route.
+        - **Windows** -- ``ERROR_FILE_NOT_FOUND`` (2) gives the same
+          ``FileNotFoundError`` in that case, **and there is one more, new to
+          this ordering**: while the other caller still holds the file open for
+          its read, the rename can fail with ``ERROR_SHARING_VIOLATION`` (32)
+          and raise ``PermissionError``, because Python's ``open`` asks for
+          ``FILE_SHARE_READ|FILE_SHARE_WRITE`` and **not**
+          ``FILE_SHARE_DELETE``. It is transient and clears on retry.
+
+        **Any ``OSError`` out of that rename means the claim was not obtained**,
+        which is why ``_take`` raises rather than suppressing it the way the
+        tidying renames do. Both failures are in the safe direction: nothing was
+        renamed, so nothing was burnt.
 
         The price is stated rather than hidden: **any claim consumes the
         proposal, including a refused one.** A wrong digest burns it and the
@@ -332,7 +370,19 @@ class Store:
         cannot cost him an unapproved write. That is the direction this rail
         fails in everywhere else.
 
-        The order of the checks after the claim is itself load-bearing:
+        ⚠️ **One narrowing that ordering costs, recorded rather than defended
+        against.** The burn rename is suppressed like every other tidying
+        rename, so a burn that fails leaves the proposal at ``.json`` instead of
+        ``.refused.json`` -- where the old ordering left it consumed and
+        unreachable at ``.pending.json``. Strictly better, because a refusal is
+        a decision about the *content* and so repeats identically on every
+        retry; but ``ApprovalMismatch`` depends on caller input rather than on
+        content, so a wrong-digest caller whose burn rename transiently fails no
+        longer burns a proposal that a correct approve can still claim. *Any
+        claim consumes the proposal* is therefore best-effort in that one
+        transient case.
+
+        The order of the checks before the claim is itself load-bearing:
 
         1. the file must parse at all -- otherwise nothing below can be read;
         2. **the rules fingerprint, before anything else that could disagree**;
@@ -353,8 +403,7 @@ class Store:
         legible one: under changed rules ``from_dict`` may not be able to read
         the stored operation at all, so step 4 could raise rather than refuse.
         """
-        pending = self._take(proposal_id)
-        record = self._parsed(proposal_id, pending)
+        record = self._parsed(proposal_id, was=".json")
 
         stored_fingerprint = str(record.get("rules_fingerprint", ""))
         current = rules_fingerprint()
@@ -368,6 +417,7 @@ class Store:
                     f"this server renders under rules {current} by tool version "
                     f"{__version__!r}. Propose it again and read the new sentence."
                 ),
+                was=".json",
             )
 
         if record.get("session") != self.session:
@@ -377,11 +427,12 @@ class Store:
                     f"{proposal_id}: this proposal was minted by a different run of the "
                     "server, so nothing here can vouch for what was shown. Propose it again."
                 ),
+                was=".json",
             )
 
         stored_digest = str(record.get("approval_digest", ""))
-        operation = self._operation(proposal_id, record, stored_digest)
-        created = self._created(proposal_id, record)
+        operation = self._operation(proposal_id, record, stored_digest, was=".json")
+        created = self._created(proposal_id, record, was=".json")
         if self._now() - created > self.ttl:
             self._refuse(
                 proposal_id,
@@ -389,6 +440,7 @@ class Store:
                     f"{proposal_id}: this proposal has expired -- it was minted at "
                     f"{created.isoformat()} and stands for {self.ttl}. Propose it again."
                 ),
+                was=".json",
             )
 
         if approval_digest != stored_digest:
@@ -399,9 +451,10 @@ class Store:
                     "the proposal being approved and the proposal being named are not the "
                     "same thing. Nothing was written."
                 ),
+                was=".json",
             )
 
-        return Proposal(
+        claimed = Proposal(
             id=proposal_id,
             session=self.session,
             created_utc=created,
@@ -410,6 +463,8 @@ class Store:
             full_display=str(record.get("full_display", "")),
             rules_fingerprint=stored_fingerprint,
         )
+        self._take(proposal_id)
+        return claimed
 
     def claimed(self, proposal_id: str) -> Proposal:
         """The claimed proposal, read by the console that will display it.
@@ -418,13 +473,13 @@ class Store:
         argument**, which is the point of the whole store: what the console
         prints comes off the disk, not off anything the agent sent.
         """
-        record = self._parsed(proposal_id, self.path_of(proposal_id, _PENDING))
+        record = self._parsed(proposal_id, was=_PENDING)
         stored_digest = str(record.get("approval_digest", ""))
         return Proposal(
             id=proposal_id,
             session=str(record.get("session", "")),
-            created_utc=self._created(proposal_id, record),
-            operation=self._operation(proposal_id, record, stored_digest),
+            created_utc=self._created(proposal_id, record, was=_PENDING),
+            operation=self._operation(proposal_id, record, stored_digest, was=_PENDING),
             approval_digest=stored_digest,
             full_display=str(record.get("full_display", "")),
             rules_fingerprint=str(record.get("rules_fingerprint", "")),
@@ -462,9 +517,23 @@ class Store:
         with suppress(OSError):
             self._move(proposal_id, _PENDING, ".json")
 
-    def _take(self, proposal_id: str) -> str:
+    def _take(self, proposal_id: str) -> None:
+        """The claim rename -- the irreversible step, and ``_claim``'s last statement.
+
+        ⚠️ **Any ``OSError`` here means the claim was NOT obtained**, so this
+        raises where ``_refuse`` and ``_rollback`` suppress. Those two are
+        tidying a decision that has already been made; this one *is* the
+        decision, and a suppressed failure would let a caller that renamed
+        nothing go on to act as though it held the proposal -- which is mutual
+        exclusion lost silently, the worst way to lose it.
+
+        One rule covers both spellings of losing without having to tell them
+        apart: ``FileNotFoundError`` when another caller's rename already moved
+        the source, and on Windows ``PermissionError`` while another caller
+        still holds it open for its read. See ``_claim`` for the mechanism.
+        """
         try:
-            return self._move(proposal_id, ".json", _PENDING)
+            self._move(proposal_id, ".json", _PENDING)
         except OSError as failure:
             raise ProposalNotFound(
                 f"{proposal_id}: no proposal is awaiting approval under that name. "
@@ -477,22 +546,33 @@ class Store:
         os.rename(source, destination)
         return destination
 
-    def _refuse(self, proposal_id: str, failure: ProposalError) -> NoReturn:
-        """Retire the claimed proposal and raise.
+    def _refuse(self, proposal_id: str, failure: ProposalError, *, was: str) -> NoReturn:
+        """Burn the proposal and raise. ``was`` is the state it is being burnt from.
 
         ⚠️ **``NoReturn`` is load-bearing rather than documentation.** Every
         caller below goes on to read a value one of these checks may already
         have refused, and a helper the type checker believes can fall through
         turns each of those into a possibly-unbound name -- which is the same
         claim as *this refusal might not have refused*.
+
+        ⚠️ **``was`` is a parameter because the same six checks now run from two
+        states**, and a hardcoded source is a rename that silently does nothing:
+        ``_claim`` refuses a proposal still at ``.json``, while ``claimed``
+        refuses one already at ``.pending.json``.
         """
         with suppress(OSError):  # the refusal is what matters, not the tidying
-            self._move(proposal_id, _PENDING, _REFUSED)
+            self._move(proposal_id, was, _REFUSED)
         raise failure
 
-    def _parsed(self, proposal_id: str, path: str) -> Mapping[str, object]:
+    def _parsed(self, proposal_id: str, *, was: str) -> Mapping[str, object]:
+        """The stored record, read from the state ``was`` names.
+
+        It derives the path itself rather than taking one, because a caller
+        passing a path *and* a ``was`` can pass two that disagree -- and then a
+        refusal renames a file the record never came from.
+        """
         try:
-            with open(path, encoding="utf-8") as handle:
+            with open(self.path_of(proposal_id, was), encoding="utf-8") as handle:
                 record = json.load(handle)
         except OSError as failure:
             raise ProposalNotFound(f"{proposal_id}: {failure.strerror or failure}") from failure
@@ -500,15 +580,18 @@ class Store:
             self._refuse(
                 proposal_id,
                 ProposalCorrupt(f"{proposal_id}: the stored proposal is not readable: {failure}"),
+                was=was,
             )
         if not isinstance(record, dict):
             self._refuse(
-                proposal_id, ProposalCorrupt(f"{proposal_id}: the stored proposal is not an object")
+                proposal_id,
+                ProposalCorrupt(f"{proposal_id}: the stored proposal is not an object"),
+                was=was,
             )
         return record
 
     def _operation(
-        self, proposal_id: str, record: Mapping[str, object], stored_digest: str
+        self, proposal_id: str, record: Mapping[str, object], stored_digest: str, *, was: str
     ) -> schema.Operation:
         """The stored operation, and proof that it is the one the digest covers."""
         payload = record.get("operation")
@@ -520,6 +603,7 @@ class Store:
             self._refuse(
                 proposal_id,
                 ProposalCorrupt(f"{proposal_id}: the stored operation cannot be read: {failure}"),
+                was=was,
             )
         if apply.approval_digest(operation) != stored_digest:
             self._refuse(
@@ -528,21 +612,23 @@ class Store:
                     f"{proposal_id}: the stored operation is not the operation this proposal's "
                     "own digest covers, so the file has been edited since it was written."
                 ),
+                was=was,
             )
         return operation
 
-    def _created(self, proposal_id: str, record: Mapping[str, object]) -> datetime:
+    def _created(self, proposal_id: str, record: Mapping[str, object], *, was: str) -> datetime:
         """When it was minted -- **and it must be comparable with ``now``**.
 
         ⚠️ **A NAIVE time parses and then poisons the caller, which is L3.**
         ``created_utc`` is not covered by the digest -- the digest covers the
         operation -- so it survives in a file every other check passes. A value
         with no UTC offset reads fine here and makes ``self._now() - created``
-        raise ``TypeError``, which is not a ``ProposalError``: it escapes past
-        every refusal, **after** ``_take`` has already renamed the file, so the
-        proposal sits at ``.pending.json`` with nothing left that will act on
-        it. Refusing it here puts it at ``.refused.json`` with the other corrupt
-        states, which is where the record can say what happened.
+        raise ``TypeError``, which is not a ``ProposalError``: it would escape
+        past every refusal, and under the ordering E-1 replaced it did so
+        **after** the rename, leaving the proposal at ``.pending.json`` with
+        nothing left that would act on it. Refusing it here puts it at
+        ``.refused.json`` with the other corrupt states, which is where the
+        record can say what happened.
 
         ``mint`` writes ``apply.utc_now()``, which is aware, so no proposal this
         store produced reaches the second refusal below.
@@ -553,6 +639,7 @@ class Store:
             self._refuse(
                 proposal_id,
                 ProposalCorrupt(f"{proposal_id}: the stored proposal carries no readable time"),
+                was=was,
             )
         if created.utcoffset() is None:
             self._refuse(
@@ -561,6 +648,7 @@ class Store:
                     f"{proposal_id}: the stored proposal's time {created.isoformat()!r} carries "
                     "no UTC offset, so nothing here can say how old it is. Propose it again."
                 ),
+                was=was,
             )
         return created
 

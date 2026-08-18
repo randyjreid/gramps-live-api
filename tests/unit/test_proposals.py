@@ -8,9 +8,11 @@ caller that cannot tell two refusals apart cannot act on either.
 
 from __future__ import annotations
 
+import builtins
 import json
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -57,6 +59,25 @@ def store(tmp_path: Path, *, session: str = "sess0001", ttl: float = 900.0) -> p
 def minted(tmp_path: Path, **kwargs: object) -> tuple[proposals.Store, proposals.Proposal]:
     made = store(tmp_path, **kwargs)  # type: ignore[arg-type]
     return made, made.mint(OPERATION)
+
+
+def deny_reading(monkeypatch: pytest.MonkeyPatch, proposal_id: str) -> None:
+    """E-1's environment: create, write and rename are permitted, READ is not.
+
+    Modelled at ``open`` rather than by setting an ACL, because the two hosts
+    this runs on spell that denial differently and neither spelling is the
+    point. The denial follows the id through every suffix, because an ACL
+    belongs to the file and a rename does not shed it -- which is what makes
+    this able to tell a store that reads before renaming from one that does not.
+    """
+    real = builtins.open
+
+    def guarded(file: Any, *args: Any, **kwargs: Any) -> Any:
+        if proposal_id in str(file):
+            raise PermissionError(13, "access is denied")
+        return real(file, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", guarded)
 
 
 # ---------------------------------------------------------------------------
@@ -106,14 +127,48 @@ def test_a_proposal_consumed_after_no_cannot_be_claimed_again(tmp_path: Path) ->
 
 
 def test_a_refused_claim_still_consumes_the_proposal(tmp_path: Path) -> None:
-    """⚠️ The claim happens BEFORE any check, so the rename is what excludes a
-    second caller rather than a check nobody holds a lock over. The price is
-    that a wrong digest burns the proposal, which is the fail-closed side."""
+    """⚠️ Burning a refused proposal is a CHOSEN ACT, not a side effect of
+    ordering, and E-1's fix does not drop it. ``_claim`` reads first and then
+    renames the proposal to ``.refused.json`` rather than to ``.pending.json``,
+    so a wrong digest still consumes it -- which is the fail-closed side, and
+    the direction this rail fails in everywhere else."""
     made, proposal = minted(tmp_path)
     with pytest.raises(proposals.ApprovalMismatch):
         made._claim(proposal.id, apply.approval_digest(OTHER))
     with pytest.raises(proposals.ProposalNotFound):
         made._claim(proposal.id, proposal.approval_digest)
+
+
+# ---------------------------------------------------------------------------
+# ⭐ Read first -- the rename is the thing you choose once you know
+# ---------------------------------------------------------------------------
+
+
+def test_an_unreadable_proposal_is_not_burnt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⭐ **E-1, and the harm it names is the LOOP rather than the one lost note.**
+
+    A directory that permits create, write and rename and denies reading the
+    files in it -- an ACL, or a Windows sharing lock -- used to meet the store
+    one statement too late: ``_take`` renamed the proposal to ``.pending.json``
+    and *then* the read failed, from outside ``claim_then``'s ``try``, so no
+    rollback ran and no console opened. The agent, told to propose again,
+    minted a fresh proposal into the same directory, which read the same way.
+    **Propose, approve, burn, forever.**
+
+    A read failure is environmental and must burn nothing, so the read happens
+    first and the rename is chosen once the content is known.
+    """
+    made, proposal = minted(tmp_path)
+    deny_reading(monkeypatch, proposal.id)
+
+    with pytest.raises(proposals.ProposalError):
+        made._claim(proposal.id, proposal.approval_digest)
+
+    assert not Path(made.path_of(proposal.id, ".pending.json")).exists(), "stranded"
+    assert not Path(made.path_of(proposal.id, ".refused.json")).exists(), "burnt"
+    assert Path(made.path_of(proposal.id)).is_file(), "the proposal must survive a host's failure"
 
 
 # ---------------------------------------------------------------------------
@@ -182,9 +237,10 @@ def test_a_naive_created_utc_is_corrupt_rather_than_a_stranded_file(tmp_path: Pa
     operation -- so it is editable in a file ``ProposalCorrupt`` otherwise
     passes. A time with no UTC offset parses, and then ``self._now() - created``
     raises ``TypeError``: *can't subtract offset-naive and offset-aware
-    datetimes*. That happens **after** ``_take``'s rename, so the proposal is
-    already at ``.pending.json``, the exception is not a ``ProposalError``, and
-    the file sits there with nothing left that will ever act on it.
+    datetimes* -- which is not a ``ProposalError`` and so escapes every refusal.
+    Under the ordering E-1 replaced it escaped **after** ``_take``'s rename, so
+    the proposal sat at ``.pending.json`` with nothing left that would ever act
+    on it; it now runs before any rename, so the stranding is gone twice over.
 
     Refused the way every other corrupt-store state is refused, which puts it at
     ``.refused.json`` where the record says what happened to it.
