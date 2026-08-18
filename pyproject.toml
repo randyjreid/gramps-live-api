@@ -18,7 +18,9 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Topic :: Sociology :: Genealogy",
 ]
-dependencies = []
+dependencies = [
+    "mcp>=2.0.0",
+]
 
 [project.optional-dependencies]
 dev = [
