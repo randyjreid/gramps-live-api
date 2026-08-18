@@ -419,3 +419,55 @@ finds the adjacent stage.** L2 closed *cannot spawn here* and left *the spawn fa
 *pre-answer* and left *before pre-answer*. Both fixes were correct as far as they went.
 
 **Taken to the owner as the design question, per the rule set before fix round 3 ran.**
+
+---
+
+## ⭐ OWNER RULING, 2026-08-18 — DELETE the outcome-reporting layer, do not harden it
+
+**The count that decided it:** of the seven findings in this machinery, **five are the
+outcome-reporting layer** — C1-1, C2-1, L6, L7, D-2 — and only **two are claim ordering** — L2, D-1.
+The contract's own rule is that machinery drawing findings in two consecutive rounds is a **deletion
+candidate**, and this project has taken that path correctly every time it arose.
+
+**The layer exists to tell the agent something the human is watching happen.**
+
+**So:** `approve` spawns the console and **returns immediately** — *"a console window has opened;
+approve there and tell me what it says."*
+
+**Gone:** polling · timeouts · `still_open` · `unknown` · outcome tokens · the cross-process reporting
+whose every stage a reviewer has found.
+
+**Then the invariant on the remainder, which is now small:**
+
+> ⭐ **CLAIMING IS THE LAST IRREVERSIBLE STEP.** Platform, config, runtime, authorisation and spawn
+> all happen **before** the claim, and a claim that cannot be followed through is **rolled back.**
+
+That closes D-1 and L2's whole class rather than their instances.
+
+**Handled as a DESIGN CHANGE: plan-gated, plan to the owner.** ⚠️ **Expect a NET DELETION. If the plan
+comes back adding code, that is the signal to stop and talk.**
+
+### Round counters RESET — the owner's call, recorded
+
+> *"the artifact being reviewed is materially different afterwards."*
+
+Per the backstop's own terms, a reset requires a reason bigger than the loop's own output — **a
+property redefined, a component deleted, a module rewritten.** This is a component deleted, and the
+call is the owner's, made when it happened, and recorded here.
+
+| Reviewer | Rounds before | Rounds after |
+| --- | --- | --- |
+| Codex | 2 + terminal delta | **0** |
+| Claude `/code-review` | 1 | **0** |
+| PR bot | 0 | 0 |
+
+⚠️ **Everything already dispositioned STAYS dispositioned.** The reset is of the count, not of the
+record — re-finding C1-1, C1-2, C1-3, C2-1 or L1–L8 is still a re-find.
+
+### `outcome_of`'s deferral now carries a real trigger
+
+> *if relaying the window's result to Claude annoys me in use, the reporting layer comes back
+> **designed** rather than accreted.*
+
+**That is a use-derived trigger, recorded before the fact**, which is the shape this project requires
+before hardening work is scheduled.
