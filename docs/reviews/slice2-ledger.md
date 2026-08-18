@@ -371,3 +371,51 @@ verified, three call sites, one function. #73 untouched.
 | Codex | 2 | **owed: one scoped delta on the final head — dispatched now** |
 | Claude `/code-review` | 1 | dispositioned |
 | PR bot | 0 | after push |
+
+---
+
+## Codex terminal delta — 2 findings, both verified, BLOCKING
+
+**Round 1's, round 2's and reviewer 2's findings were not re-found**, and nothing on the ruled list
+was re-argued.
+
+### D-1 — [P1] A real launch failure still burns the proposal — `src/gramps_live_api_mcp/server.py`
+
+> `require_console` only validates the platform; if the subsequent spawner raises, such as `Popen`
+> returning WinError 8, this runs after `store.claim` has renamed the proposal to `.pending.json`. No
+> console opens, the exception escapes, and retrying gets `ProposalNotFound`, so the proposal-burn
+> loop remains for real launch failures.
+
+**Verified.** The order is `require_console(platform)` → `store.claim(...)` → `self._spawn(...)`.
+⚠️ **L2 fixed the "this host cannot spawn consoles" case and left the "the spawn failed" case**, which
+produces the identical burn loop.
+
+### D-2 — [P2] Setup failures file nothing, and the server calls that `unknown` — `src/gramps_live_api/cli.py`
+
+> those checks execute before this new `try`; `_approve` exits through `main` without `_filed` or
+> `_closed`. The server then polls an exited process with no report and returns `unknown`, saying the
+> note may have committed even though the prompt and write path were never reached, while the proposal
+> remains consumed.
+
+**Verified.** `config.load`, `discover_runtime` and `apply.authorise` all run **above** the pre-answer
+`try`. ⚠️ **`unknown` means *a note may be in the tree*. Here nothing was written and the prompt was
+never shown** — the report is not merely absent, it is wrong in the direction that matters.
+
+---
+
+## ⛔ STOP — the owner's pre-set rule fires. Fix round 4 is NOT dispatched.
+
+**This machinery has now drawn findings in four consecutive rounds:**
+
+| Round | In this machinery |
+| --- | --- |
+| Codex 1 | C1-1 — post-marker reporting |
+| Codex 2 | C2-1 — the split's structural gap |
+| Claude 1 | L2, L6, L7 — console ordering, path-specific message, pre-answer region |
+| Codex delta | **D-1, D-2 — console launch, and setup before the region** |
+
+⚠️ **The shape repeats: each fix closes one stage of the two-process crossing, and the next round
+finds the adjacent stage.** L2 closed *cannot spawn here* and left *the spawn failed*. L7 closed
+*pre-answer* and left *before pre-answer*. Both fixes were correct as far as they went.
+
+**Taken to the owner as the design question, per the rule set before fix round 3 ran.**
