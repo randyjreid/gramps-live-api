@@ -119,6 +119,25 @@ text goes there too. It is bounded by a required search term — there is no way
 and by a result cap, and by the privacy flag above. **It is not bounded by anything else, and it is
 not reversible: text that has reached a model's context has reached it.**
 
+⚠️ **A name is WIDER than it was, and that widens this residual with it.** `list_people` used to put
+`<first>` and `<surname>` into that context; it now puts every part of the recorded primary name that
+a person would type when looking for someone — the surname's `prefix` and `connector`, plus `call`,
+`suffix`, `title`, `nick` and `familynick`. **The reason is that the narrower string made #64's own
+requirement false:** a person recorded as `<surname prefix="van">Ashenmoor</surname>` displayed as
+`Ashenmoor`, and `list_people("van Ashenmoor")` returned nothing, so somebody could not be found by
+their own recorded name — and a prefix is ordinary in genealogy, not an edge case. The claim is
+stated **bounded** in `core.people._name`, over the closed set the schema declares: *every part of
+the recorded name a person would type when looking for someone is searchable* — never *the name is
+complete*, which has no fixed point. **Nothing new ABOUT a person reaches a model**: every part was
+already in the export beside the two that were read, and the search term, the cap and the privacy
+flag bound it exactly as before. What is new is that more of one person's name arrives at once.
+
+⚠️ **`<group>` is the one part excluded on judgement rather than on kind, and it is recorded as a
+residual.** It is Gramps' *group-as* override — which heading a person files under in a list — so
+`Name.get_group_name` returns it **instead of** the primary surname and no Gramps name renderer emits
+it. A record whose `group` differs from every surname it carries is therefore not findable by that
+text. Where it is unset Gramps falls back to the surname, which is read.
+
 ### Three things ruling 1 does NOT cover, recorded rather than implied
 
 - **Gramps' `priv` flag on a `<name>`, an `<event>` or a `<note>`.** Only the flag on the *person* is

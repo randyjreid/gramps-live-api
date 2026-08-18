@@ -19,7 +19,7 @@ import tracemalloc
 from pathlib import Path
 
 from gramps_live_api.core import people
-from gramps_live_api.core._specified_containers import SPECIFIED_ATTRIBUTES
+from gramps_live_api.core._specified_containers import SPECIFIED_ATTRIBUTES, SPECIFIED_ELEMENTS
 from tests.fixtures import synthetic
 
 
@@ -95,6 +95,255 @@ def test_a_person_with_no_primary_name_is_still_listed(tmp_path: Path) -> None:
     person = only(tmp_path, document)
     assert person.name == ""
     assert person.gramps_id == "I0044"
+
+
+# ---------------------------------------------------------------------------
+# What a NAME COMPRISES -- the parts the schema declares
+#
+# ⚠️ **The bounded claim ``_name`` is written against: every part of the
+# recorded name that a person would type when looking for someone is in the
+# string ``search`` matches against.** NOT *the name is complete*, which is
+# universally quantified over an unbounded space and would never close. The set
+# is closed by the schema -- the content model of ``<name>`` and the attributes
+# the frozen table declares on ``name`` and ``surname`` -- and every declared
+# part is either name text or excluded with a reason. The binding test at the
+# end of this block is what keeps that partition the schema's rather than this
+# project's memory of it.
+#
+# Every value below is invented, per the rule at the top of ``synthetic``.
+# ---------------------------------------------------------------------------
+
+
+NAME_TEXT = {
+    "first": "Elowen",
+    "call": "Ellamere",
+    "suffix": "Thrice",
+    "title": "Vexhold",
+    "nick": "Quillfast",
+    "familynick": "Marrowkin",
+}
+"""One distinct invented value per declared child this reader calls name text.
+
+``surname`` is absent on purpose: it is repeatable and carries the two
+attributes that are also name text, so the tests below build it with
+``gramps_surname`` rather than from this mapping.
+"""
+
+NOT_NAME_TEXT = {
+    "group": "Grouphold",
+    "name_type": "Married Name",
+    "sort": "9911",
+    "display": "9922",
+    "derivation": "Patronymic",
+    "date": "1899",
+    "noteref": "_n404",
+    "citationref": "_c404",
+}
+"""One distinct invented value per declared part this reader does NOT read as name.
+
+⚠️ **The enumerated flags are not here and cannot be**: ``alt``, ``priv`` and
+``prim`` are declared ``(0|1)``, so *their value is not text a search could
+match* and asserting their absence from the name would assert that the name
+does not contain ``"1"``. They are tested by behaviour instead -- ``alt`` above,
+``priv`` in its own block, ``prim`` in ``test_a_surname_the_record_does_not_call
+_primary_is_still_part_of_the_name``.
+"""
+
+
+def every_part(**overrides: str) -> str:
+    """One ``<name>`` carrying every part the schema declares, at once.
+
+    The whole-record case, and the one a part-by-part fix passes while still
+    dropping something: it is what makes the two partition tests exhaustive
+    rather than a list of the parts somebody thought to write a test for.
+    """
+    fields: dict[str, object] = {
+        **NAME_TEXT,
+        "surnames": synthetic.gramps_surname(
+            "Ashenmoor", prefix="van", connector="", derivation=NOT_NAME_TEXT["derivation"]
+        ),
+        "group": NOT_NAME_TEXT["group"],
+        "name_type": NOT_NAME_TEXT["name_type"],
+        "sort": NOT_NAME_TEXT["sort"],
+        "display": NOT_NAME_TEXT["display"],
+        "trailing": (
+            synthetic.gramps_dateval(NOT_NAME_TEXT["date"])
+            + f'<noteref hlink="{NOT_NAME_TEXT["noteref"]}"/>'
+            + f'<citationref hlink="{NOT_NAME_TEXT["citationref"]}"/>'
+        ),
+    }
+    fields.update(overrides)
+    return synthetic.gramps_name(**fields)  # type: ignore[arg-type]
+
+
+def test_a_surname_prefix_is_part_of_the_name(tmp_path: Path) -> None:
+    """The finding, and it is #64's own requirement being false.
+
+    ``list_people`` exists to be *searchable by name*, and a person whose
+    recorded surname carries a prefix could not be found by their recorded
+    name. Prefixes are ordinary in genealogy, not an edge case.
+
+    Rendered where Gramps renders it: ``SurnameBase.get_surname`` writes the
+    prefix, then the surname, then the connector -- so the prefix is adjacent to
+    the surname and a caller who types the phrase matches it.
+    """
+    document = one_person(
+        names=synthetic.gramps_name(
+            first="Elowen", surnames=synthetic.gramps_surname("Ashenmoor", prefix="van")
+        )
+    )
+    read = people.read_export(export(tmp_path, document))
+
+    assert read[0].name == "Elowen van Ashenmoor"
+    assert people.search(read, "van Ashenmoor").people, "the recorded name finds the person"
+
+
+def test_every_part_the_schema_declares_as_name_text_is_searchable(tmp_path: Path) -> None:
+    """The bounded claim, stated over the closed set the schema gives.
+
+    ⚠️ **Fixing only the attribute a finding names leaves the identical defect
+    in every adjacent part**, which is the pattern this branch has paid for
+    three times. So the assertion is over every declared part at once, and it
+    checks the property the claim is about -- *a person looking for someone can
+    type this and find them* -- rather than the assembled string.
+    """
+    read = people.read_export(export(tmp_path, one_person(names=every_part())))
+
+    for part, value in {**NAME_TEXT, "surname": "Ashenmoor", "prefix": "van"}.items():
+        assert value in read[0].name, f"{part} is part of the recorded name"
+        assert people.search(read, value).people, f"{part} is searchable"
+
+
+def test_the_parts_that_are_not_name_text_stay_out_of_the_name(tmp_path: Path) -> None:
+    """The other half of the partition, and the half that keeps the claim bounded.
+
+    A reader that swept up every child and attribute would put a date, a note
+    handle and a name-format index into the one string whose job is telling
+    people apart -- and ``search("1899")`` would then match on a date living
+    inside a name.
+    """
+    person = only(tmp_path, one_person(names=every_part()))
+
+    for part, value in NOT_NAME_TEXT.items():
+        assert value not in person.name, f"{part} is not name text"
+
+
+def test_a_surname_connector_joins_two_surnames_and_is_part_of_the_name(
+    tmp_path: Path,
+) -> None:
+    """``surname*`` is repeatable and each repeat carries its own attributes.
+
+    The connector is the literal word the record puts *between* two surnames --
+    Gramps' own ``SurnameBase.get_surname`` writes it after the surname it
+    belongs to -- so a caller typing the whole recorded name matches.
+    """
+    document = one_person(
+        names=synthetic.gramps_name(
+            first="Elowen",
+            surnames=synthetic.gramps_surname("Vaelrick", prefix="de", connector="y")
+            + synthetic.gramps_surname("Ashenmoor"),
+        )
+    )
+    read = people.read_export(export(tmp_path, document))
+
+    assert read[0].name == "Elowen de Vaelrick y Ashenmoor"
+    assert people.search(read, "de Vaelrick y Ashenmoor").people
+
+
+def test_a_surname_the_record_does_not_call_primary_is_still_part_of_the_name(
+    tmp_path: Path,
+) -> None:
+    """``prim`` says which of several surnames is the primary one. It does not
+    say which of them names the person -- both do, and dropping the second would
+    make the listing disagree with the record."""
+    document = one_person(
+        names=synthetic.gramps_name(
+            first="Elowen",
+            surnames=synthetic.gramps_surname("Vaelrick", prim="1")
+            + synthetic.gramps_surname("Ashenmoor", prim="0"),
+        )
+    )
+    assert only(tmp_path, document).name == "Elowen Vaelrick Ashenmoor"
+
+
+def test_the_name_parts_read_in_the_schemas_order_not_the_documents(tmp_path: Path) -> None:
+    """⚠️ **The order is the SCHEMA's**, exactly as ``_qualified``'s is.
+
+    ``<!ELEMENT name>`` declares a *sequence*, so a schema-valid document writes
+    its children in one order -- but ``iterparse`` hands back whatever order the
+    document used, and a name assembled from that would give one person two
+    display names depending on how the exporter spelled them. That is the
+    "definition supplied by the surroundings" failure this module's local-name
+    matching already refuses once. Written here reversed on purpose.
+    """
+    schema_order = only(tmp_path, one_person(names=every_part()))
+    reversed_document = only(
+        tmp_path,
+        one_person(names=every_part(order=tuple(reversed(synthetic.GRAMPS_NAME_CHILDREN)))),
+    )
+
+    assert reversed_document.name == schema_order.name
+    assert schema_order.name.startswith("Elowen"), "and the schema's order is the one taken"
+
+
+def test_the_name_part_tables_are_the_schemas_own_and_partition_it() -> None:
+    """⚠️ **What makes ``_name``'s claim bounded rather than a promise.**
+
+    Two bindings, and they are deliberately not the same strength:
+
+    - **The attributes are machine-bound and exhaustive.** Every attribute the
+      frozen, digest-pinned table declares on ``name`` and on ``surname`` is in
+      exactly one of this reader's two tuples, so an attribute a later schema
+      adds fails here rather than being silently dropped from a string that
+      claims to carry the recorded name.
+    - **The child elements are TRANSCRIBED from the content model and only
+      partly bound.** ``SPECIFIED_ELEMENTS`` records each element's content
+      model as a *category* -- ``children`` versus ``pcdata`` -- and not its
+      children, so the frozen table cannot say what ``<name>`` contains. What is
+      checked here is that every child this reader names is an element the
+      schema declares and one that can hold text at all. **Recorded as a
+      residual rather than overclaimed:** exhaustiveness over ``<name>``'s
+      content model rests on the transcription quoted in ``_name``'s docstring.
+    """
+    declared = {
+        element: tuple(name for target, name, _ in SPECIFIED_ATTRIBUTES if target == element)
+        for element in ("name", "surname")
+    }
+    models = dict(SPECIFIED_ELEMENTS)
+
+    assert declared["name"], "name is not an element the frozen table declares"
+    assert set(people._NAME_ATTRIBUTES_THAT_ARE_NOT_NAME_TEXT) == set(declared["name"]), (
+        "nothing the schema declares on <name> is name text, and all of it is accounted for"
+    )
+
+    surname_text = (people._SURNAME_BEFORE, people._SURNAME_AFTER)
+    surname_all = surname_text + people._SURNAME_ATTRIBUTES_THAT_ARE_NOT_NAME_TEXT
+    assert sorted(surname_all) == sorted(declared["surname"]), "the partition covers <surname>"
+    assert len(set(surname_all)) == len(surname_all), "and nothing is in both halves"
+
+    for child in people._NAME_PARTS:
+        assert models.get(child) == "pcdata", f"{child} is a declared element that holds text"
+
+
+def test_a_private_person_stays_private_however_much_of_their_name_is_read(
+    tmp_path: Path,
+) -> None:
+    """Ruling 1 does not move because the name got wider.
+
+    Both enforcement points, on the widened surface: a private person is out of
+    a listing **and** out of its count, and is still reachable through ``find``
+    so the target path can refuse them **by name** rather than report them
+    absent.
+    """
+    read = people.read_export(
+        export(tmp_path, one_person(names=every_part(), private="1")),
+    )
+    found = people.search(read, "van Ashenmoor")
+
+    assert found.people == () and found.matched == 0, "not shown, and not counted either"
+    assert people.search(read, "Quillfast").people == (), "no new part reaches a listing"
+    target = people.find(read, "I0044")
+    assert target is not None and target.private is True
 
 
 # ---------------------------------------------------------------------------

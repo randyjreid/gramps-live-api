@@ -121,6 +121,96 @@ The untranslated string from ``EventRoleType._DATAMAP``, which is what
 matches it exactly too.
 """
 
+_NAME_PARTS: tuple[str, ...] = (
+    "first",
+    "call",
+    "surname",
+    "suffix",
+    "title",
+    "nick",
+    "familynick",
+)
+"""The children of ``<name>`` that NAME somebody, in the schema's own order.
+
+Transcribed from the pinned DTD's content model, quoted whole in ``_name``:
+``<!ELEMENT name (first?, call?, surname*, suffix?, title?, nick?, familynick?,
+group?, (daterange|datespan|dateval|datestr)?, noteref*, citationref*)>``. The
+three declared children this omits are omitted with a reason, not by oversight
+-- see ``_name``.
+
+⚠️ **The ORDER is the schema's, and that is the whole reason there is a table
+here rather than a walk over whatever children the element carries.** The
+content model is a *sequence*, so a schema-valid document writes them in exactly
+this order -- but ``iterparse`` returns them as written, so a name built from the
+document's order would give one person two display names depending on how the
+exporter spelled them. Same rule as ``_DATE_QUALIFIERS``, for the same reason,
+and the same failure this module's local-name matching already refuses once.
+
+⚠️ **Only PARTLY bound by test, unlike the date tables, and that is recorded
+rather than papered over.** ``SPECIFIED_ELEMENTS`` records each element's
+content model as a *category* -- ``children`` versus ``pcdata`` -- and not its
+children, so the frozen table cannot say what ``<name>`` contains. What is
+asserted offline is that every part named here is an element the schema declares
+and one that can hold text; exhaustiveness over the content model rests on the
+transcription above.
+"""
+
+_NAME_ATTRIBUTES_THAT_ARE_NOT_NAME_TEXT: tuple[str, ...] = (
+    "alt",
+    "type",
+    "priv",
+    "sort",
+    "display",
+)
+"""Every attribute the schema declares on ``<name>``. **None of them is name text.**
+
+Written as the whole declared set rather than as a remainder, because the answer
+here is *all of it*: an equality against the frozen table is then the binding,
+and an attribute a later schema adds fails that equality instead of arriving
+unexamined in a string that claims to carry the recorded name.
+
+- ``alt`` and ``priv`` are ``(0|1)`` flags. ``alt`` selects *which* name block
+  this is, which ``_person`` already reads; ``priv`` is a privacy flag whose
+  scope is a ruled decision recorded in ``docs/slice2-mcp.md`` -- only the flag
+  on the **person** is honoured -- and this is not the change that reopens it.
+- ``type`` classifies the name (*Birth Name*, *Married Name*). It is the
+  format's vocabulary for what kind of name this is, not a part of the name.
+- ``sort`` and ``display`` are **not text at all**, which is not obvious from
+  ``CDATA``. ``importxml.start_person_name`` reads each as ``int(attrs[...])``
+  and looks it up in ``name_formats_map``: they are indexes into the export's
+  own ``<name-formats>``, so putting either in a name would put a format number
+  in it.
+"""
+
+_SURNAME_BEFORE = "prefix"
+"""The article a surname carries, written BEFORE it. ``van``, ``de``, ``von``.
+
+Read where Gramps writes it rather than guessed: ``SurnameBase.get_surname``
+renders each surname as prefix, then the surname, then the connector, and
+``importxml.start_surname`` puts this attribute through ``Surname.set_prefix``
+whose own note gives ``de`` and ``van`` as its examples.
+"""
+
+_SURNAME_AFTER = "connector"
+"""The word joining one surname to the NEXT, written after it. Spanish ``y``.
+
+The other half of the same rendering, and the other half of the same defect: it
+is literal text of the recorded name, and ``get_connector``'s own note says it
+*defines how a surname connects to the next surname*.
+"""
+
+_SURNAME_ATTRIBUTES_THAT_ARE_NOT_NAME_TEXT: tuple[str, ...] = ("prim", "derivation")
+"""The rest of what the schema declares on ``<surname>``, and neither names anybody.
+
+- ``prim`` is ``(1|0)``: which of several surnames is the primary one. That is a
+  question about ranking them, not about which of them names the person -- all
+  of them do, and this reader keeps them all.
+- ``derivation`` is how the surname came about (*Inherited*, *Patronymic*,
+  *Occupation*). ``importxml`` puts it through
+  ``surname.origintype.set_from_xml_str``, so it is an enumerated type of the
+  format's own rather than anything the person is called.
+"""
+
 
 class PeopleError(Exception):
     """The export cannot be read, or a question about it cannot be answered."""
@@ -487,14 +577,76 @@ def _year(value: str) -> int | None:
 
 
 def _name(element: ET.Element) -> str:
-    """A primary name, as a person would write it: given names then surname."""
-    parts = []
+    """A primary name, carrying every part of the record that names somebody.
+
+    ⚠️ **The claim, and it is deliberately BOUNDED: every part of the recorded
+    name that a person would type when looking for someone is in this string,
+    so ``search`` can match it.** Not *the name is complete* -- that is a
+    universally quantified claim over an unbounded space and has no fixed point.
+    This one is stated over a closed set the schema supplies, and the set is:
+
+        <!ELEMENT name (first?, call?, surname*, suffix?, title?, nick?,
+                        familynick?, group?,
+                        (daterange|datespan|dateval|datestr)?,
+                        noteref*, citationref*)>
+
+    plus the attributes ``SPECIFIED_ATTRIBUTES`` declares on ``name`` and on
+    ``surname``. Every one of those is either in ``_NAME_PARTS`` and the surname
+    pair, or in a *not name text* tuple beside them, and a test asserts the
+    partition against the frozen table. **The reasoning for each exclusion is at
+    its own constant**; the three excluded children are here, because no
+    constant holds them:
+
+    - ``group`` is the *group-as* override -- which heading a person files under
+      in a list. ``Name.get_group_name`` returns it **instead of** the primary
+      surname, and Gramps' own name renderers never emit it, so it is a
+      directive about arranging people rather than anything the record says the
+      person is called. Where it is unset Gramps falls back to the surname,
+      which this reader already carries. ⚠️ **The one arguable exclusion** --
+      recorded as a residual rather than settled by silence.
+    - ``daterange``/``datespan``/``dateval``/``datestr`` is **when the name was
+      used**. Putting it here would make ``search("1899")`` match a date living
+      inside a name, in the one listing whose job is telling people apart -- and
+      it would be #21's date model arriving by accident.
+    - ``noteref`` and ``citationref`` are pointers to elements elsewhere in the
+      document. They carry no name text of their own, and following them would
+      pull note prose into a name -- a different question, and a different
+      privacy surface.
+
+    ⚠️ **Fixing only the part a finding names leaves the identical defect in
+    every part beside it**, which is why the answer here was derived from the
+    schema rather than from the attribute the finding quoted. Order comes from
+    the schema too, per ``_NAME_PARTS``; document order survives only *within*
+    ``surname*``, where it is the record's own ordering of the person's
+    surnames.
+    """
+    written: dict[str, list[str]] = {part: [] for part in _NAME_PARTS}
     for child in element:
-        if local_name(child.tag) in {"first", "surname"}:
-            text = (child.text or "").strip()
-            if text:
-                parts.append(text)
-    return " ".join(parts)
+        part = local_name(child.tag)
+        if part in written:
+            written[part].extend(_surname(child) if part == "surname" else [_text(child)])
+    return " ".join(piece for part in _NAME_PARTS for piece in written[part] if piece)
+
+
+def _surname(element: ET.Element) -> list[str]:
+    """One ``<surname>`` in the order Gramps renders it: article, name, connector.
+
+    ⚠️ **The order is where the searchability actually lives.** ``van`` beside
+    ``Ashenmoor`` in that order is the phrase somebody types; the same two words
+    apart, or reversed, match nothing a person would look for. Taken from
+    ``SurnameBase.get_surname`` in the installed Gramps rather than invented
+    here, which is the same reading ``_own`` does for an absent ``role``.
+    """
+    return [
+        element.get(_SURNAME_BEFORE, "").strip(),
+        _text(element),
+        element.get(_SURNAME_AFTER, "").strip(),
+    ]
+
+
+def _text(element: ET.Element) -> str:
+    """An element's own character data, stripped. Every part of a name is ``(#PCDATA)``."""
+    return (element.text or "").strip()
 
 
 def _handle(raw: str) -> str:

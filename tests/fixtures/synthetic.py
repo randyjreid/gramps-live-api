@@ -1261,15 +1261,82 @@ def gramps_event(
     )
 
 
+GRAMPS_NAME_CHILDREN = (
+    "first",
+    "call",
+    "surname",
+    "suffix",
+    "title",
+    "nick",
+    "familynick",
+    "group",
+)
+"""The children ``<!ELEMENT name>`` declares that can hold text, in ITS order.
+
+Transcribed from the pinned DTD's content model, which is a sequence -- so this
+is what a schema-valid document writes and in what order. ``gramps_name`` walks
+it, and a caller that passes a different order gets a document spelling the same
+name differently, which is what the reader's own ordering test needs.
+"""
+
+
+def gramps_surname(text: str = "", **attributes: str) -> str:
+    """One ``<surname>``, carrying whichever attributes the caller stated, verbatim.
+
+    ⚠️ **Attributes are named by the caller and none is required**, for the
+    reason ``gramps_dateval`` gives: a builder that accepted only the two the
+    reader treats as name text could not show that the partition is the
+    schema's rather than "whatever we happened to read".
+    """
+    return _element("surname", attributes=_stated(**attributes), body=text)
+
+
 def gramps_name(
-    *, first: str, surname: str, alt: bool = False, name_type: str = "Birth Name"
+    *,
+    first: str = "",
+    surname: str = "",
+    alt: bool = False,
+    name_type: str = "Birth Name",
+    call: str = "",
+    suffix: str = "",
+    title: str = "",
+    nick: str = "",
+    familynick: str = "",
+    group: str = "",
+    surnames: str = "",
+    trailing: str = "",
+    order: tuple[str, ...] = GRAMPS_NAME_CHILDREN,
+    **attributes: str,
 ) -> str:
-    """One ``<name>``. ``alt`` writes the ``alt="1"`` a display name never carries."""
-    attributes = f'type="{name_type}"' + (' alt="1"' if alt else "")
+    """One ``<name>``. ``alt`` writes the ``alt="1"`` a display name never carries.
+
+    Every child the schema declares is a parameter, so a test names the one part
+    it is about instead of reading a fixed shape and hoping its case is in it.
+
+    ``surnames`` takes pre-built ``gramps_surname`` blocks and displaces the
+    plain ``surname`` shortcut, because ``surname*`` is repeatable and each
+    repeat carries its own attributes. ``trailing`` carries whatever the content
+    model allows after the text children -- a date shape, a ``noteref``, a
+    ``citationref`` -- none of which is name text. ``order`` lets a caller spell
+    a document's children in an order the schema did not, which is the only way
+    to show the reader takes its order from the schema instead.
+    """
+    written = {
+        "first": _element("first", body=first) if first else "",
+        "call": _element("call", body=call) if call else "",
+        "surname": surnames or (_element("surname", body=surname) if surname else ""),
+        "suffix": _element("suffix", body=suffix) if suffix else "",
+        "title": _element("title", body=title) if title else "",
+        "nick": _element("nick", body=nick) if nick else "",
+        "familynick": _element("familynick", body=familynick) if familynick else "",
+        "group": _element("group", body=group) if group else "",
+    }
+    stated = f'type="{name_type}"' + (' alt="1"' if alt else "")
+    extra = _stated(**attributes)
     return _element(
         "name",
-        attributes=attributes,
-        body=_element("first", body=first) + _element("surname", body=surname),
+        attributes=stated + (f" {extra}" if extra else ""),
+        body="".join(written[child] for child in order) + trailing,
     )
 
 
