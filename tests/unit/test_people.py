@@ -39,7 +39,7 @@ def one_person(**overrides: object) -> str:
     return synthetic.gramps_export_document(people=synthetic.gramps_person(**fields))  # type: ignore[arg-type]
 
 
-def with_a_birth(date: str, *, role: str = "Primary") -> str:
+def with_a_birth(date: str, *, role: str | None = "Primary") -> str:
     """One person whose one event is a birth carrying ``date``."""
     return synthetic.gramps_export_document(
         people=synthetic.gramps_person(
@@ -183,6 +183,70 @@ def test_a_primary_role_is_preferred_over_another_role(tmp_path: Path) -> None:
     )
     person = only(tmp_path, document)
     assert person.birth_year == 1856, "the Primary role decides, not document order"
+
+
+def two_births(first: tuple[str, str | None], second: tuple[str, str | None]) -> str:
+    """One person referencing two birth events, ``(role, year)`` each."""
+    (first_role, first_year), (second_role, second_year) = first, second
+    return synthetic.gramps_export_document(
+        people=synthetic.gramps_person(
+            handle="p0001",
+            gramps_id="I0044",
+            names=synthetic.gramps_name(first="Elowen", surname="Ashenmoor"),
+            event_handles=(("e0001", first_role), ("e0002", second_role)),
+        ),
+        events=synthetic.gramps_event(
+            handle="e0001", event_type="Birth", date=synthetic.gramps_dateval(str(first_year))
+        )
+        + synthetic.gramps_event(
+            handle="e0002", event_type="Birth", date=synthetic.gramps_dateval(str(second_year))
+        ),
+    )
+
+
+def test_a_birth_a_person_merely_witnessed_is_not_their_own(tmp_path: Path) -> None:
+    """C1-3, and it is a defect in what ``list_people`` is for.
+
+    A witness at a birth carries a perfectly valid ``eventref`` to it. The
+    fallback took any referenced birth when no Primary one existed, so the
+    witness was listed with **the baby's** birth year -- and this listing exists
+    so a person can be identified before a note is attached to them.
+    """
+    person = only(tmp_path, with_a_birth(synthetic.gramps_dateval("1856"), role="Witness"))
+
+    assert person.birth_year is None, "a witness does not acquire the baby's birth year"
+    assert person.birth_display == ""
+    assert person.other_birth_events == 0, "an event they witnessed is not one they carry"
+
+
+def test_a_role_the_export_does_not_state_is_the_person_s_own(tmp_path: Path) -> None:
+    """The open question, answered from Gramps rather than from memory.
+
+    ``grampsxml.dtd`` declares ``role CDATA #IMPLIED``, and ``importxml.py``
+    reads it as ``if "role" in attrs: self.eventref.role.set_from_xml_str(...)``
+    -- so an absent role leaves the ``EventRoleType()`` the ``EventRef`` was
+    constructed with, whose ``_DEFAULT`` is ``PRIMARY``. Absent means Primary in
+    Gramps' own reader, and this one says the same thing.
+    """
+    person = only(tmp_path, two_births(("Witness", 1801), (None, 1856)))
+
+    assert person.birth_year == 1856, "an eventref with no role at all is the person's own"
+    assert person.other_birth_events == 0, "and the witnessed one is not counted as theirs"
+
+
+def test_a_role_stated_as_empty_is_a_custom_role_and_not_their_own(tmp_path: Path) -> None:
+    """The other half of the same reading, and it is not the same case.
+
+    ``set_from_xml_str("")`` finds no match in ``_E2IMAP`` and falls to the else
+    branch, which sets ``_CUSTOM`` with an empty name. So ``role=""`` is a
+    custom role Gramps did not write -- its exporter emits the attribute only
+    ``if role:`` -- and it is not Primary. Reading it as Primary because the
+    string happens to be empty would be this project's own "the definition came
+    from the surroundings" failure, one more time.
+    """
+    person = only(tmp_path, with_a_birth(synthetic.gramps_dateval("1856"), role=""))
+
+    assert person.birth_year is None, "an empty role is a custom role, not an absent one"
 
 
 def test_a_second_birth_event_is_counted_rather_than_hidden(tmp_path: Path) -> None:

@@ -1259,13 +1259,20 @@ def gramps_person(
     gramps_id: str,
     names: str = "",
     private: str = "",
-    event_handles: tuple[tuple[str, str], ...] = (),
+    event_handles: tuple[tuple[str, str | None], ...] = (),
 ) -> str:
     """One ``<person>``, with its name blocks and its event references.
 
     ``private`` is written verbatim as the ``priv`` attribute when non-empty, so
     a test can produce the unstated case, the stated cases, and a value the
     schema does not declare. ``event_handles`` is ``(handle, role)`` pairs.
+
+    ⚠️ **A role of ``None`` writes NO attribute; a role of ``""`` writes
+    ``role=""``.** The DTD declares ``role`` as ``CDATA #IMPLIED`` and Gramps
+    reads the two differently -- absent leaves ``EventRoleType()`` at its
+    default, which is ``Primary``, while an empty string goes through
+    ``set_from_xml_str`` into a *custom* role -- so a fixture that could not
+    write both could not test the difference.
     """
     attributes = f'handle="_{handle}" id="{gramps_id}"'
     if private:
@@ -1273,7 +1280,7 @@ def gramps_person(
     references = "".join(
         _element(
             "eventref",
-            attributes=f'hlink="_{event_handle}"' + (f' role="{role}"' if role else ""),
+            attributes=f'hlink="_{event_handle}"' + (f' role="{role}"' if role is not None else ""),
             empty=True,
         )
         for event_handle, role in event_handles

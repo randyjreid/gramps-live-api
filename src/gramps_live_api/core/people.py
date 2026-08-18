@@ -58,7 +58,12 @@ BIRTH = "Birth"
 """The ``<type>`` text of a birth event, per the Gramps XML schema."""
 
 PRIMARY_ROLE = "Primary"
-"""The ``role`` on an ``<eventref>`` that makes the event the person's own."""
+"""The ``role`` on an ``<eventref>`` that makes the event the person's own.
+
+The untranslated string from ``EventRoleType._DATAMAP``, which is what
+``xml_str`` writes and what ``set_from_xml_str`` matches -- exactly, so this
+matches it exactly too.
+"""
 
 
 class PeopleError(Exception):
@@ -96,11 +101,16 @@ class Person:
     birth_display: str
     private: bool
     other_birth_events: int = 0
-    """How many further birth events this person carries beyond the one shown.
+    """How many further birth events **of their own** they carry beyond the one shown.
 
     Counted rather than hidden: a person with two birth events has a record
     somebody should look at, and a reader that silently picked one would be the
     only thing that knew.
+
+    ⚠️ **It counts what ``_own`` selected, not everything referenced.** A birth
+    somebody merely witnessed is not a birth event they carry, and counting it
+    here would report the record as doubtful on the strength of somebody else's
+    event.
     """
 
 
@@ -126,7 +136,13 @@ class _Raw:
     handle: str = ""
     name: str = ""
     private: bool = False
-    event_refs: list[tuple[str, str]] = field(default_factory=list)
+    event_refs: list[tuple[str, str | None]] = field(default_factory=list)
+    """``(handle, role)``, where ``None`` is a role the document did not state.
+
+    ⚠️ **``None`` and ``""`` are different documents and Gramps reads them
+    differently**, so the absent case is carried as absent rather than
+    flattened into an empty string. See ``_own``.
+    """
 
 
 def local_name(tag: object) -> str:
@@ -238,7 +254,7 @@ def _person(element: ET.Element) -> _Raw:
         if name == "name" and not raw.name and child.get("alt") != "1":
             raw.name = _name(child)
         elif name == "eventref":
-            raw.event_refs.append((_handle(child.get("hlink", "")), child.get("role", "")))
+            raw.event_refs.append((_handle(child.get("hlink", "")), child.get("role")))
     return raw
 
 
@@ -330,11 +346,40 @@ def _private(flag: str | None) -> bool:
     return flag is not None and flag != "0"
 
 
+def _own(role: str | None) -> bool:
+    """Whether an ``eventref`` carrying ``role`` makes the event the person's OWN.
+
+    ⚠️ **A role Gramps names is taken at its word, and only ``Primary`` is the
+    person's own.** A witness at a birth carries a valid ``eventref`` to it, and
+    a fallback that took any referenced birth gave the witness the baby's birth
+    year -- in the one listing whose purpose is telling people apart.
+
+    ⚠️ **An ABSENT role is Primary. That is Gramps' reading, not a guess**, and
+    it was read out of the installed copy rather than remembered:
+
+    - ``share/gramps/grampsxml.dtd`` declares ``role CDATA #IMPLIED``, so the
+      attribute may legitimately be missing;
+    - ``plugins/importer/importxml.py`` does ``if "role" in attrs:
+      self.eventref.role.set_from_xml_str(attrs["role"])``, so an absent role
+      leaves the ``EventRoleType()`` that ``EventRef.__init__`` constructed;
+    - ``gen/lib/grampstype.py`` sets that to ``_DEFAULT``, and
+      ``EventRoleType._DEFAULT`` is ``PRIMARY``.
+
+    ⚠️ **An EMPTY role is not an absent one**, which is why the parser keeps the
+    two apart instead of reading ``get("role", "")``. ``set_from_xml_str("")``
+    finds nothing in ``_E2IMAP`` and falls to the else branch: ``_CUSTOM`` with
+    an empty name. So ``role=""`` is a custom role, not Primary -- and no Gramps
+    export contains one, because ``exportxml.py`` writes the attribute only
+    ``if role:``. Nothing is lost by reading a hand-written ``role=""`` the way
+    Gramps reads it, and reading it as Primary because the string is empty would
+    be a definition taken from the shape of our own parsing.
+    """
+    return role is None or role == PRIMARY_ROLE
+
+
 def _resolved(raw: _Raw, births: dict[str, tuple[int | None, str]]) -> Person:
     """One person with their birth event looked up, after the whole file is read."""
-    referenced = [(handle, role) for handle, role in raw.event_refs if handle in births]
-    primary = [handle for handle, role in referenced if role == PRIMARY_ROLE]
-    chosen = primary or [handle for handle, _ in referenced]
+    chosen = [handle for handle, role in raw.event_refs if handle in births and _own(role)]
     year, display = births[chosen[0]] if chosen else (None, "")
     return Person(
         gramps_id=raw.gramps_id,
@@ -343,5 +388,5 @@ def _resolved(raw: _Raw, births: dict[str, tuple[int | None, str]]) -> Person:
         birth_year=year,
         birth_display=display,
         private=raw.private,
-        other_birth_events=max(len(referenced) - 1, 0),
+        other_birth_events=max(len(chosen) - 1, 0),
     )
