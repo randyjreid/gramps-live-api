@@ -174,11 +174,22 @@ Write the note you want as a file. Call it `op.json` and put it anywhere outside
 `note_type` is `research` or `todo`. `object_type` is `person` — this slice attaches a note to a
 person and refuses the other eight object types by name.
 
-**Where the handle comes from.** Gramps does not show handles anywhere in its interface, and this is
-the sharpest rough edge in slice 1. Open the Gramps XML export you made in step 1 in a text editor
+**Where the handle comes from.** Gramps does not show handles anywhere in its interface, and this was
+the sharpest rough edge in slice 1.
+
+> ⭐ **Slice 2 does this for you.** `list_people` reads the export — decompressing it, which the
+> paragraph below never mentioned — and returns the name, birth year, Gramps ID and handle, already
+> stripped. See `docs/slice2-mcp.md`. **The instructions below are what you do without it**, and
+> they are kept because they still describe what the two identifiers *are*.
+
+Open the Gramps XML export you made in step 1 in a text editor
 and find the line that opens the person you want: it carries both an `id` and a `handle` attribute.
 **Take the handle's value and drop its leading underscore** — Gramps strips underscores from handles
 when it imports, so the value in your copy is the attribute without it.
+
+⚠️ A `.gramps` export is **gzip-compressed XML**, so "open it in a text editor" does not work until
+you decompress it — and a real tree is megabytes holding thousands of people. That, and the fact that
+this document's own author would not do it, is issue #64 and the whole reason slice 2 exists.
 
 Both halves are required, and they are checked against each other: the Gramps ID is what resolves the
 person, and if the handle names a different object the write is refused rather than guessing which
