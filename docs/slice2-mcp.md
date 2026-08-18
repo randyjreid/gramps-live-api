@@ -40,7 +40,8 @@ The agent can only name a stored proposal — and name it wrongly.
 
 `approve` answers every question this host can be asked in advance — can a separate console be
 opened, is a copy configured and blessed, is there a Gramps runtime to launch — and **only then**
-claims the proposal, an atomic rename, so two concurrent approves cannot both proceed. Then it opens
+claims the proposal, an atomic rename, so two concurrent approves cannot both proceed. The claim reads
+the stored file first and renames it last, so a host that cannot read it burns nothing. Then it opens
 a **new console window** running `python -m gramps_live_api approve <id>`. That process:
 
 - reads the operation from the claimed file, not from anything the agent sent;
@@ -223,6 +224,30 @@ outcome five different ways; what was traded in is a human who was already looki
 - **A gap between the server's pre-claim checks and the console's own.** The copy could stop being
   blessed in between. Transient, and the console refuses.
 
+### Three more, recorded when the claim was reordered to read first
+
+- **A Windows sharing violation can lose a claim that nothing else would have lost.** Reading the file
+  before renaming it means a concurrent approve holds it open at the moment the other one renames, and
+  Python's `open` omits `FILE_SHARE_DELETE`, so the rename can fail with `ERROR_SHARING_VIOLATION`.
+  Transient, self-clearing on retry, and in the safe direction — nothing was renamed, so nothing was
+  burnt. It could not happen under the old ordering, because nothing held the file open when the
+  rename ran. **Traded knowingly** for the loop it replaces.
+- ⚠️ **"Any claim consumes the proposal" becomes best-effort in one transient case.** The burn rename
+  is suppressed like every other tidying rename, so a burn that fails now leaves the proposal at
+  `.json` rather than at `.pending.json`. Better in every respect but one: a refusal is a decision
+  about the *content* and so repeats identically on every retry — except `ApprovalMismatch`, the only
+  refusal that depends on caller input, where a wrong-digest caller whose burn transiently fails no
+  longer burns a proposal a correct approve can still claim. Same class as *the rollback rename can
+  itself fail* above, in the other direction.
+- ⚠️ **The loop is closed at the read and not at the rename, and that is a bound rather than a
+  proof.** `ProposalUnreadable` covers a host that cannot *read* the store. A Windows ACL that denies
+  DELETE on the directory while permitting create and write would instead fail the *claim rename*,
+  every approve would get `ProposalNotFound`, and its *propose again* would loop — with nothing burnt
+  and nothing written, so the cost is an agent retrying rather than the owner losing proposals. POSIX
+  cannot produce that ACL, since rename and create need the same directory permission. **Recorded, not
+  defended against**, and it is inside the claim machinery, where the standing rule is that the next
+  finding is parked as a design question rather than fixed.
+
 ⭐ **The bounded claim is unchanged by all of this: one approved proposal produces at most one write
 attempt.** `consume` runs before Gramps is launched, and the rollback cannot become a second route to
 a claim — it runs only when the spawn *raised*, when no console exists, and a rolled-back proposal has
@@ -230,15 +255,16 @@ been shown to nobody and consumed by nothing.
 
 ---
 
-## The eight refusals
+## The nine refusals
 
-Six are about naming a stored proposal wrongly; two are about the target. **Distinct types, distinct
+Seven are about naming a stored proposal wrongly; two are about the target. **Distinct types, distinct
 messages, distinct tests** — and a test asserts *private* and *not found* do not produce the same
 message.
 
 | Refusal | When | What it says |
 | --- | --- | --- |
-| `ProposalNotFound` | the id names nothing awaiting approval — a retry, an id already consumed, or an id that is not the shape the store mints | *no proposal is awaiting approval under that name. One approve consumes one proposal, so a retry lands here — propose again.* |
+| `ProposalNotFound` | the id names nothing awaiting approval — a retry, an id already consumed, or an id that is not the shape the store mints. Also what the loser of a race gets, from its own rename failing: *this proposal was claimed by another approve, so this call did not get it and nothing was written.* | *no proposal is awaiting approval under that name. One approve consumes one proposal, so a retry lands here — propose again.* |
+| `ProposalUnreadable` | the file is there and this host could not read it — an ACL, a sharing lock. **Nothing is consumed**, and it is deliberately not a `ProposalNotFound`: that one's whole vocabulary says *propose again*, and a fresh proposal lands in the same directory and reads the same way, which is the loop rather than a lost note | *the proposal is still here and still approvable, but this host could not read it: `<reason>`. Nothing was consumed. Fix the permission or the lock and approve the same id again — a new one would land in the same directory and read the same way.* |
 | `ProposalCorrupt` | the stored file does not say what its own digest says it says | *the stored operation is not the operation this proposal's own digest covers, so the file has been edited since it was written.* |
 | `ApprovalRulesChanged` | the rules that render and serialise an operation have moved since it was proposed | *the operation is unchanged; the rules that render and serialise it are not.* Names both fingerprints and both tool versions, and says: *propose it again and read the new sentence.* |
 | `ProposalFromAnotherSession` | it was minted by a different run of the server | *nothing here can vouch for what was shown. Propose it again.* |
@@ -247,13 +273,31 @@ message.
 | `TargetIsPrivate` | the person carries `priv="1"` | *this person is marked private in the tree… **This is not 'no such person'** — they exist and are deliberately out of reach.* |
 | `TargetNotInExport` | the export holds no person with that Gramps ID | *…if this person was added to the tree after the export was taken, export it again — until then nothing here can read their privacy flag, and this refuses rather than guess.* |
 
-### Two orderings inside those eight, and both are the design
+### Two orderings inside those nine, and both are the design
 
-**1. The claim happens before any check.** The rename *is* the mutual exclusion; checking first and
-renaming after leaves a window in which two concurrent callers are both still valid. The price is
-stated rather than hidden: **any claim consumes the proposal, a refused one included.** A wrong digest
-burns it and the agent must propose again — which costs you a second reading, and cannot cost you an
-unapproved write.
+**1. The proposal is read first, and the rename is chosen once you know.** Invalid content is renamed
+to `.refused.json` and then refused; valid content is renamed to `.pending.json` and then followed
+through. `_claim` performs **exactly one** rename and it is its **last statement**, so everything that
+can fail — the read, the parse, the six checks — happens where a failure costs nothing, because
+nothing has moved yet.
+
+⚠️ **The rename is the mutual exclusion, and being valid never was.** The earlier reasoning here said
+the rename had to come first or two concurrent callers would both still be valid, which conflates
+*being valid* with *being permitted*. Validity is a property of the file; the exclusion token is the
+rename, because `os.rename` consumes its source atomically and cannot succeed twice for one source
+however much happened before it. Two readers may both read and both validate. **Exactly one rename
+lands**, and the loser learns it from its own rename failing rather than from a check: on POSIX and on
+Windows alike `FileNotFoundError` when the source has already moved, and on Windows also
+`PermissionError` (`ERROR_SHARING_VIOLATION`) while the winner still holds the file open for its read,
+because Python's `open` does not ask for `FILE_SHARE_DELETE`. **Any `OSError` out of that rename means
+the claim was not obtained**, so it aborts and never follows through — suppressing it would let a
+caller that renamed nothing open a console, which is two consoles for one proposal and the bounded
+claim gone with no error anywhere.
+
+Burn-on-refusal is preserved as a **chosen act** rather than as a side effect of the old ordering, and
+the price is stated rather than hidden: **any claim consumes the proposal, a refused one included.** A
+wrong digest burns it and the agent must propose again — which costs you a second reading, and cannot
+cost you an unapproved write.
 
 **2. `ApprovalRulesChanged` is checked before `ProposalFromAnotherSession`.** The plan says the rules
 fingerprint goes before any digest comparison, which is right and is not enough. Changing a rendering
