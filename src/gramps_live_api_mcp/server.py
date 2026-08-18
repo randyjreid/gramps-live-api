@@ -184,6 +184,31 @@ a second time.\
 """
 
 
+def require_console(platform: str = sys.platform) -> None:
+    """Refuse a platform with no separate console. **It reads nothing else.**
+
+    ⚠️ **A separate function because it NEEDS NOTHING FROM THE CLAIM, and that
+    is L2.** ``approve`` used to claim the proposal -- an irreversible rename,
+    deliberately -- and only then reach the check inside ``new_console``. On a
+    host where a console cannot be opened, every proposal was therefore consumed
+    and orphaned as ``.pending.json``, while the refusal advised proposing
+    again; proposing again reached the same place. Propose, approve, burn,
+    forever. A question answerable from a string alone belongs before the
+    irreversible step, not after it.
+
+    The refusal itself is unchanged and is the design: the whole thing rests on
+    a window the agent cannot write to, and running in ours would keep the shape
+    of the mechanism while losing the property it exists for. This project's
+    write path is Windows-only already -- ``config.discover_runtime`` says
+    nothing off it -- so it costs nothing that worked before.
+    """
+    if platform != "win32":
+        raise ConsoleUnavailable(
+            f"{platform}: a separate console window cannot be opened here, and this "
+            "server will not ask for approval in a window it can write to itself"
+        )
+
+
 def new_console(
     argv: Sequence[str],
     *,
@@ -192,22 +217,17 @@ def new_console(
 ) -> None:
     """Start ``argv`` in a console window this process cannot type into.
 
-    ⚠️ **A platform with no separate console is REFUSED rather than run in
-    ours.** The whole design rests on a window the agent cannot write to;
-    without one that premise is false, and running anyway would keep the shape
-    of the mechanism while losing the property it exists for. This project's
-    write path is Windows-only already -- ``config.discover_runtime`` says
-    nothing off it -- so the refusal costs nothing that worked before.
+    ⚠️ **The refusal is checked here TOO, not only in ``Tools.approve``.** The
+    two are not redundant: this one is the guarantee that no caller anywhere
+    spawns an approval window into a shared console, and the earlier one is the
+    guarantee that the proposal is not burnt reaching it. Dropping this one
+    would leave the property resting on a caller remembering to ask first.
 
     ``platform`` and ``popen`` are arguments for ``config.py``'s reason: a
     branch only its own operating system can reach is a branch CI proves
     nothing about, and the whole matrix runs on Linux.
     """
-    if platform != "win32":
-        raise ConsoleUnavailable(
-            f"{platform}: a separate console window cannot be opened here, and this "
-            "server will not ask for approval in a window it can write to itself"
-        )
+    require_console(platform)
     popen(list(argv), creationflags=CREATE_NEW_CONSOLE, close_fds=True)
 
 
@@ -233,6 +253,7 @@ class Tools:
         sleep: Callable[[float], None] = time.sleep,
         approval_timeout: float = APPROVAL_TIMEOUT_SECONDS,
         ttl_seconds: float = proposals.DEFAULT_TTL_SECONDS,
+        platform: str = sys.platform,
     ) -> None:
         self._environ = environ
         self.session = proposals.new_session() if session is None else session
@@ -241,6 +262,15 @@ class Tools:
         self._sleep = sleep
         self._timeout = approval_timeout
         self._ttl = ttl_seconds
+        self._platform = platform
+        """⚠️ **Data rather than a second injected callable**, deliberately.
+
+        ``approve`` has to answer *can a console be opened here?* before it
+        claims anything, and the spawner is already injected for tests -- so a
+        second callable beside it would be a second thing a test could set
+        inconsistently with the first. A string is the same fact ``new_console``
+        already takes, and the real spawner still checks it for itself.
+        """
 
     # -- the tools ----------------------------------------------------------
 
@@ -333,7 +363,17 @@ class Tools:
         consumed. That is what makes the ruling's hard requirement structural
         rather than careful: *a timeout must never leave a proposal in a state
         where a later call writes it.* It cannot, because there is no proposal.
+
+        ⚠️ **But the PLATFORM is asked first, and that is L2.** The claim is an
+        irreversible rename and the question *can a console be opened here?*
+        needs nothing from it. Asked afterwards, a host that cannot spawn one
+        consumed every proposal and orphaned it as ``.pending.json``, while
+        advising the agent to propose again -- into the same refusal. The
+        ordering above buys a proposal that cannot be written twice; this one
+        buys a proposal that is not destroyed before anybody could write it
+        once, and they do not trade against each other.
         """
+        require_console(self._platform)
         store = self._store()
         store.claim(proposal_id, approval_digest)
         self._spawn(console_command(proposal_id))

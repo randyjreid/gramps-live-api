@@ -124,8 +124,20 @@ def equipment(tmp_path: Path, **extra: str) -> tuple[str, Mapping[str, str]]:
 
 
 def tools(
-    tmp_path: Path, *, spawner: Spawner | None = None, timeout: float = 45.0
+    tmp_path: Path,
+    *,
+    spawner: Spawner | None = None,
+    timeout: float = 45.0,
+    platform: str = "win32",
 ) -> mcp_server.Tools:
+    """⚠️ **``platform`` defaults to the one this project's write path targets.**
+
+    ``approve`` refuses a host that cannot open a separate console, and it does
+    so *before* the claim (L2), so a helper defaulting to the runner's own
+    platform would refuse every approve test on the Linux matrix and pass them
+    all on the owner's Windows box. Which is the failure ``equipped``'s runtime
+    override already exists for, one layer down.
+    """
     _, environ = equipment(tmp_path)
     clock = Clock()
     made = mcp_server.Tools(
@@ -135,6 +147,7 @@ def tools(
         clock=clock,
         sleep=clock.sleep,
         approval_timeout=timeout,
+        platform=platform,
     )
     made.clock = clock  # type: ignore[attr-defined]
     return made
@@ -454,6 +467,47 @@ def test_the_console_is_a_new_window_on_the_platform_this_targets() -> None:
     assert started[0]["creationflags"] == mcp_server.CREATE_NEW_CONSOLE
 
 
+def test_a_host_that_cannot_open_a_console_does_not_burn_the_proposal(tmp_path: Path) -> None:
+    """L2, and the defect is a loop rather than a single refusal.
+
+    ``approve`` claimed the proposal -- an irreversible rename, by design --
+    **before** asking whether a console could be opened at all. On a host where
+    it cannot, every proposal was consumed and orphaned as ``.pending.json``,
+    the refusal advised proposing again, and proposing again reached the same
+    place: propose, approve, burn, forever, with a growing pile of orphans
+    inside the owner's copy.
+
+    ⚠️ **The platform check needs nothing from the claim**, which is why the
+    ordering was free to be wrong and is free to be right. The second half of
+    this test is the part that matters: the proposal is still there afterwards,
+    so a host that CAN spawn a console still approves the same one.
+    """
+    _, environ = equipment(tmp_path)
+    spawner = Spawner()
+    refuses = mcp_server.Tools(environ, session="sess0001", spawner=spawner, platform="linux")
+    proposed = refuses.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
+    proposal_id, digest = str(proposed["proposal_id"]), str(proposed["approval_digest"])
+    store = refuses._store()
+
+    with pytest.raises(mcp_server.ConsoleUnavailable):
+        refuses.approve(proposal_id, digest)
+
+    assert spawner.calls == [], "nothing may be spawned on a host that has no console"
+    assert not Path(store.path_of(proposal_id, ".pending.json")).exists(), "orphaned"
+    assert Path(store.path_of(proposal_id)).is_file(), "the proposal must survive the refusal"
+
+    clock = Clock()
+    answers = mcp_server.Tools(
+        environ,
+        session="sess0001",
+        spawner=Spawner(lambda _: store.write_report(proposal_id, {"outcome": "declined"})),
+        clock=clock,
+        sleep=clock.sleep,
+        platform="win32",
+    )
+    assert answers.approve(proposal_id, digest)["outcome"] == "declined"
+
+
 def test_a_platform_that_cannot_separate_the_console_is_refused() -> None:
     """⚠️ **Fail closed rather than run the console in our own window.**
 
@@ -495,7 +549,7 @@ def test_the_whole_path_from_propose_to_a_written_note(tmp_path: Path) -> None:
             runner=runner,
         )
 
-    made = mcp_server.Tools(environ, session="sess0001", spawner=Spawner(console))
+    made = mcp_server.Tools(environ, session="sess0001", spawner=Spawner(console), platform="win32")
     proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "Ashenmoor deed, volume two.")
     outcome = made.approve(str(proposed["proposal_id"]), str(proposed["approval_digest"]))
 
@@ -530,7 +584,7 @@ def test_the_environment_cap_is_inherited_and_relayed_rather_than_hidden(
             runner=Recorder(marker(ok=False, error=refusal)),
         )
 
-    made = mcp_server.Tools(environ, session="sess0001", spawner=Spawner(console))
+    made = mcp_server.Tools(environ, session="sess0001", spawner=Spawner(console), platform="win32")
     proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a very long note")
     outcome = made.approve(str(proposed["proposal_id"]), str(proposed["approval_digest"]))
 
