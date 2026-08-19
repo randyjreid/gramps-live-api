@@ -21,14 +21,14 @@ The route from here to there, and what is a plan rather than a feature, is
 
 ## What works today
 
-Two slices. Each has a page with the exact steps; this is enough to tell whether the click is worth
-it. Setup is Windows PowerShell, and every command is run from a checkout.
+Two slices, each with a page carrying the exact steps. Setup and commands are Windows PowerShell,
+run from a checkout.
 
 **Slice 1 — a note onto a person, from the terminal.** [`docs/using.md`](docs/using.md). You write
 the note as a JSON file; `preview` shows the one sentence that would be written; `apply` shows it
 again and asks; `y` writes it through Gramps' own plugin door inside a `DbTxn`, and a second, fresh
-Gramps process goes and reads it back. Then you open the copy in Gramps and find the note — that,
-and not the exit code, is the verification.
+Gramps process reads it back. Then you open the copy in Gramps and find the note — that, and not the
+exit code, is the verification.
 
 **Slice 2 — the same write, with an agent in front of it.**
 [`docs/slice2-mcp.md`](docs/slice2-mcp.md). Three MCP tools — `list_people`, `propose_note`,
@@ -52,13 +52,8 @@ told the outcome — not written, not declined, not failed.
   approval. Everything that looks restrictive is a named refusal with its widening point recorded.
 - **No HTTP server and no endpoint of any kind.** The MCP server speaks **stdio** only.
 - **The core has `dependencies = []`** and runs on the standard library alone. The official MCP SDK
-  is an optional extra — installing it brings 27–30 packages behind it, measured, including an HTTP
-  stack this project uses none of. What that costs and why the SDK anyway:
-  [`docs/slice2-mcp.md`](docs/slice2-mcp.md).
-
-```sh
-python -m pip install -e ".[mcp]"     # only if you want the MCP server
-```
+  sits behind an optional `mcp` extra, and installing it brings 27–30 packages with it, measured —
+  what that costs, and why the SDK anyway, is in [`docs/slice2-mcp.md`](docs/slice2-mcp.md).
 
 ## Where it is going
 
@@ -93,23 +88,19 @@ mypy src
 pytest -rs
 ```
 
-`-rs` names every skipped test and its reason, and that matters here: a skip is this suite's answer
-to a platform it cannot observe, and an unseen skip reads exactly like a pass. `CONTRIBUTING.md` has
-the fifth gate — the privacy guard — and how to run it over a push.
+`-rs` names every skipped test and its reason, which matters here: an unseen skip reads exactly like
+a pass. `CONTRIBUTING.md` has the fifth gate — the privacy guard — and how to run it over a push.
 
 CI runs those on Python 3.10, 3.11 and 3.12 in two legs over the same tree: a **core** leg that
-installs `.[dev]` and refuses to continue if `mcp` is importable or if this distribution declares a
-single unconditional requirement, and an **mcp** leg that installs the extra and refuses a run whose
-MCP tests did not actually execute. A third job runs the guard.
+refuses to continue if `mcp` is importable or if this distribution declares a single unconditional
+requirement, and an **mcp** leg that installs the extra and refuses a run whose MCP tests did not
+actually execute. A third job runs the guard.
 
 ⚠️ **Green CI is not evidence the write path works.** The runners have no Gramps, no `gi` and no
 tree, so the write, the plugin registration and the read-back cannot be observed there at all — those
-tests skip, by name, in the log. That is the stated cost of going through Gramps' own door rather
-than parsing a file, and it is why every demo above ends with you looking at the tree.
-
-It is also why `src/` imports no `gramps` and no `gi`. The two files that must are a top-level
-`gramps_plugin/`, outside the package and never imported by it — Gramps loads them, we do not.
-`CONTRIBUTING.md` records that as an exception and why it exists.
+tests skip, by name, in the log. It is why every demo above ends with you looking at the tree, and it
+is why `src/` imports no `gramps` and no `gi`: the two files that must are a top-level
+`gramps_plugin/`, outside the package and never imported by it. Gramps loads them; we do not.
 
 ## Privacy
 
@@ -118,15 +109,14 @@ committed here. A guard (`src/gramps_live_api/core/pii_guard.py`) fails the buil
 filesystem paths that identify a person or a machine, and on genealogy data — refusing outright any
 file type it cannot prove safe. Three things about it are deliberate: it scans **what Git contains**
 rather than the working tree, because a push publishes every commit it holds; it **fails closed**,
-because it cannot possibly know every genealogy format that exists; and in CI it **redacts what it
-matched**, because a build log is as public as the repository. It does not scan for credentials —
-`CONTRIBUTING.md` records why, and what would reopen the question. Read it before adding a fixture
-or a new file type.
+because it cannot know every genealogy format that exists; and in CI it **redacts what it matched**,
+because a build log is as public as the repository. It does not scan for credentials.
+`CONTRIBUTING.md` has the reasoning — read it before adding a fixture or a new file type.
 
 Separately, and **by design**: slice 2 puts the names and note text of non-private people into a
 model's context. That is bounded by the tree's own `priv="1"` flag — a private person is neither
-listed nor accepted as a target — by a required search term, and by a result cap. It is not bounded
-by anything else, and text that has reached a model's context has reached it. The residual is stated
+listed nor accepted as a target — by a required search term, and by a result cap. It is bounded by
+nothing else, and text that has reached a model's context has reached it. The residual is stated
 plainly in [`docs/slice2-mcp.md`](docs/slice2-mcp.md).
 
 ## Licence
