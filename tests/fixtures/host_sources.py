@@ -15,6 +15,7 @@ is named.
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -33,17 +34,50 @@ def package_sources() -> list[Path]:
     return sorted(path for path in HOST_PACKAGE.rglob("*.py") if "__pycache__" not in path.parts)
 
 
-def plugin_sources() -> list[Path]:
-    """Every plugin file that reaches into the host package.
+def registered_filename(path: Path) -> str | None:
+    """The ``fname=`` a ``.gpr.py`` registers, or ``None`` if it registers nothing.
 
-    ``.gpr.py`` files are included when they qualify: Gramps ``exec``s them, so
-    they are executable source on the same footing as anything else here.
+    Read from the ``register`` call rather than matched as text, so a filename
+    mentioned in the prose above it is not mistaken for the one being declared.
     """
-    return sorted(
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
+        if not isinstance(node, ast.Call):
+            continue
+        for keyword in node.keywords:
+            if keyword.arg == "fname" and isinstance(keyword.value, ast.Constant):
+                registered = keyword.value.value
+                return registered if isinstance(registered, str) else None
+    return None
+
+
+def plugin_sources() -> list[Path]:
+    """Every plugin file that is part of the host, by a rule rather than a spelling.
+
+    Two ways to qualify, and the second exists because a registration carries no
+    imports of its own:
+
+    - the file reaches into the host package;
+    - the file is a ``.gpr.py`` whose ``fname`` names a file that does.
+
+    ⚠️ **Neither is a naming convention.** ``gramps_plugin/`` also holds the
+    spawned-CLI write path, which is not host code and which R8 retires in a
+    later slice; picking files by what they are called would either sweep that in
+    or miss the next host file. Gramps ``exec``s a ``.gpr.py``, so it is
+    executable source on the same footing as anything else here.
+    """
+    candidates = [
+        path for path in PLUGIN_DIRECTORY.rglob("*.py") if "__pycache__" not in path.parts
+    ]
+    reaching = {path for path in candidates if HOST_IMPORT in path.read_text(encoding="utf-8")}
+    names = {path.name for path in reaching}
+
+    registrations = {
         path
-        for path in PLUGIN_DIRECTORY.rglob("*.py")
-        if "__pycache__" not in path.parts and HOST_IMPORT in path.read_text(encoding="utf-8")
-    )
+        for path in candidates
+        if path.name.endswith(".gpr.py") and registered_filename(path) in names
+    }
+
+    return sorted(reaching | registrations)
 
 
 def host_sources() -> list[Path]:

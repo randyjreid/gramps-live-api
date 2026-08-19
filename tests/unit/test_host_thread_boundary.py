@@ -43,7 +43,7 @@ import pytest
 
 from gramps_live_api.host import accessor
 from gramps_live_api.host.mainthread import WrongThread
-from tests.fixtures.host_sources import ACCESSOR, host_sources
+from tests.fixtures.host_sources import ACCESSOR, host_sources, plugin_sources
 
 # The database reaches this process as an attribute of Gramps' dbstate, and the
 # accessor keeps it in one module-private name. Nothing else may spell either.
@@ -201,6 +201,24 @@ def test_nothing_outside_the_accessor_reaches_the_database() -> None:
     assert trespass == [], (
         "these files reach the database outside the one module that owns the "
         f"boundary: {trespass} -- call an accessor helper instead"
+    )
+
+
+def test_the_plugin_half_is_covered_by_the_rule() -> None:
+    """The Gramps-facing file is where a bypass is easiest, so it must be in the set.
+
+    ``host_sources`` finds plugin files by what they import and by what they
+    register, never by what they are called. If the plugin ever stops qualifying,
+    the rule above quietly narrows to the half of the host that runs inside our
+    own tests -- and nothing says so.
+
+    Its seam twin is
+    tests/unit/test_host_plugin.py::test_both_plugin_files_are_inside_the_host_rules,
+    which names the files; this one asserts the set is not empty at all.
+    """
+    assert plugin_sources(), (
+        "no plugin file qualifies as host code, so the boundary rule covers only "
+        "the half of the host that runs inside our own tests"
     )
 
 
