@@ -64,6 +64,72 @@ from arbitrary sources**, an agent reads it, and injection through a source note
 *read* to *write*. The console makes the human yes unforgeable the way the sentinel makes the live
 tree unwritable.
 
+### ⭐ Why there is a window at all — and why it is load-bearing already
+
+**What the console establishes is mechanical, and all of it is about the text and the keystroke
+rather than about the reader.** The operation is rendered by a **separate process**, out of the
+**claimed file on disk** rather than out of anything the agent passed to `approve`, in full through
+the existing render guard, into a **console this server holds no handle on** — `new_console` returns
+nothing, so no object here refers to that window — and the `y` is read from that console's own
+stdin. **Nothing in the wire carries any of it:** `approve` has no parameter that could supply the
+keystroke and no reply that reports it.
+
+⚠️ **Two things it does NOT establish, and both are on the residual list below rather than being
+news.** It does not establish that anybody **read** what was rendered — item 1 says exactly that,
+and item 3 is an agent proposing repeatedly in the hope of it. And it is a **UI defence, not a
+cryptographic one**, item 2's phrase, because the store sits inside the copy and the agent runs as
+the same user — item 4's one trust domain by construction. What survives both is the bounded claim
+that list closes with, and the verb in it is chosen: *one approved proposal produces at most one
+write attempt, of exactly the operation whose full text was **displayed** at a console the agent
+cannot write to.*
+
+**That much is still the whole reason for the window.** Take it away and *"the human approved"*
+becomes a sentence the **agent** asserts, and from outside there is no difference between the agent
+calling `approve` because you said yes and calling it because something it read told it to.
+
+⚠️ **The paragraph above states that path in the present tense, and the present tense is right.**
+`list_people` reads `name` and `birth_display` **verbatim out of the export** and returns both.
+`name` is every recorded part of somebody's primary name, and `birth_display` carries a `datestr`
+record's `val`, which the DTD declares `CDATA` — arbitrary prose, whatever the person who wrote the
+record typed. An agent reads both before it calls `propose_note`. **So tree text already reaches the
+agent, today, and the *read* to *write* path is open. The console is not guarding nothing.**
+
+⚠️ **It is narrow in WHICH FIELDS it is, and not at all in what they can carry.** Nothing caps
+either string: `_name` joins the parts it read, `_qualified` carries the `val` through, and `search`
+bounds the number of people and requires a term — a count and a filter, neither of them a length.
+Measured against the reader itself: a `<datestr>` whose `val` holds 3,200 characters of prose comes
+back as a 3,200-character `birth_display`, on a person whose *name* is the ordinary 18 characters
+the search term matched. **The field carrying a payload need not be the field that was searched
+for.**
+
+⚠️ **The name widening widened this in the dimension that was ever bounded — how many fields.** The
+surname's `prefix` and `connector`, plus `call`, `suffix`, `title`, `nick` and `familynick`, all
+reach the agent now where `first` and `surname` alone used to — the residual recorded under ruling 1,
+read for what it means here rather than for what it means to privacy.
+
+⚠️ **What the console bounds is narrower than the injection surface, and it is stated as such.** The
+console sanitises nothing and makes injection no less possible: text out of the tree can still steer
+what an agent *proposes*. What that text cannot do is **supply the `y`** — the operation is rendered
+by another process out of the file on disk, and the keystroke comes from a keyboard. What it can
+still do is put a proposal in front of a tired owner, which is item 3, and no window closes that.
+
+⭐ **The trigger is a WIDENING, and a smaller one than a length argument would make it look. It stays
+recognisable when it arrives: any tool that returns note, source or citation text.** It does not
+raise a ceiling, because the measurement above says there is none: *short* is what a name and a date
+label conventionally hold, not a rule about what they may hold, and a record holding otherwise is
+read out verbatim like any other. What changes is which content is **ordinary**. Note, source and
+citation text is the field whose *intended* content is unbounded prose written by whoever wrote the
+record; today's surface wants a doctored record or an import that mangled something. **That is a
+difference in how likely the payload is, not in whether it is possible** — worth planning for on
+that ground, and not on the stronger one.
+
+**So, to whoever builds that slice: the guarantee is already here, and it is the bounded one
+above.** Do not invent a weaker one — an
+approval flag in the reply, an outcome token, a `confirmed` argument the agent supplies — and **do
+not delete this.** It is guarding a live path today, not a hypothetical one, and the tool you are
+about to add widens that path rather than creating it. The reason is written down rather than left
+implicit, because a guard whose reason is unrecorded is a guard somebody later removes.
+
 ### ⚠️ What this does NOT defend against
 
 `approval_digest`'s own docstring says it is *not a security boundary against a hostile front end*,
