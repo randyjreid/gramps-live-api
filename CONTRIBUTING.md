@@ -1480,15 +1480,43 @@ reason recorded. See `docs/phase1-core-schema.spec.md`.
 
 **The second.** The Slice 1 route ruling permits `gramps` — and, through `gramps.gui.plug`, `gi` —
 inside a top-level **`gramps_plugin/`**, and nowhere else. That directory is **outside `src/`,
-outside the package, never imported by it, and excluded from `mypy src`**; Gramps loads it as a CLI
-tool plugin, and nothing here loads it at all.
+outside the package, never imported by it, and excluded from `mypy src`**; Gramps loads what is in
+it, and nothing here loads it at all.
 
 That is not a hole in the rule, it is the rule honoured. **What the rule is for is a core that tests
-without Gramps**, and moving the two files that must import it *outside* the package is what buys
+without Gramps**, and moving the files that must import it *outside* the package is what buys
 that: `core/apply.py` reaches the Gramps object model through a four-method protocol, so the whole
 write — the authorisation, the ordering, the undo record before the transaction — is exercised by
 ordinary unit tests on a runner that has never seen Gramps. Putting the same code under `src/` would
 have cost Gramps stubs for `mypy`, Gramps on CI, or a `# type: ignore` over the interesting part.
+
+⚠️ **R8's host plugin joined that directory, and it is a SECOND plugin rather than a widening of the
+exception.** `gramps_plugin/` now holds two registrations: the CLI apply tool, and the
+`GENERAL`/`load_on_reg` loopback host. The host's own code lives in `src/gramps_live_api/host/`,
+which imports **neither `gramps` nor `gi`** — Gramps' `dbstate` and `GLib.idle_add` both arrive as
+arguments — so the listener, the auth check and the whole main-thread boundary run under ordinary
+unit tests. Only the plugin file crosses.
+
+⭐ **And it crosses more narrowly than the apply tool does: `gramps_plugin/gramps_live_api_host.py`
+imports `gi` INSIDE `load_on_reg` rather than at module level.** That is deliberate and it is worth
+copying. The file therefore imports on a machine with no GTK, so `tests/unit/test_host_plugin.py`
+loads it by path and exercises everything except three lines — the `gi` import, the `GLib.idle_add`
+it hands on, and `dbstate.connect`. What CI cannot cover is then three lines instead of a file.
+
+⚠️ **One rule is enforced across BOTH sides of that boundary and it is the load-bearing one:** no
+file the host consists of, in the package or in the plugin, may reach the Gramps database except
+`src/gramps_live_api/host/accessor.py`. Every public function in that module refuses a non-main
+thread, and the check discovers those functions by reading the module rather than by listing them,
+so a fourth helper is covered by the act of writing it. See
+`tests/unit/test_host_thread_boundary.py`; R8 calls this "the property a future agent will violate
+by accident".
+
+⚠️ **Everything in `gramps_plugin/` must also parse on Python 3.10 while executing on Python
+3.14.** The all-in-one build ships 3.14.4 and this repository's gates run 3.10–3.12, so neither end
+is observable from the other. `tests/unit/test_host_language_floor.py` holds the syntax half with
+`ast.parse(..., feature_version=(3, 10))`; the stdlib half is `mypy` for `src/` and, for this
+directory, nothing but restraint — `mypy src` does not reach here, so use stdlib that predates the
+floor by years and say so in the file.
 
 **The boundary is the directory, and it is one-way.** Anything under `src/` importing `gramps` or
 `gi` is still the violation it always was, and `gramps_plugin/` may not be imported by the package.

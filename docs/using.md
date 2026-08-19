@@ -69,7 +69,13 @@ New-Item -ItemType Junction -Path "$env:APPDATA\gramps\gramps60\plugins\gramps-l
 A **junction** does not require Administrator — only a symbolic link does. If that surprises you, it
 surprised us too; it is measured, not assumed.
 
-Copying the two files works just as well and goes stale; the junction does not.
+Copying the files works just as well and goes stale; the junction does not.
+
+> ⚠️ **That folder now holds a second plugin**, R8's loopback host, which Gramps starts at launch.
+> It is read-only, it binds `127.0.0.1` and it needs a bearer token; `docs/slice-a-demo.md` says
+> what it does and how to see it. Nothing on this page depends on it and it writes to no tree.
+> **A copy rather than a junction breaks it**, because it finds its own source by resolving the
+> link — one more reason to make the junction.
 
 ### 3. Where the copy is
 
