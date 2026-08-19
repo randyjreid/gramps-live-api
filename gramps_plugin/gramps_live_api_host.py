@@ -42,12 +42,20 @@ _RUNNING = {}
 takes the daemon thread with it, so nothing here needs to."""
 
 
-def load_on_reg(dbstate, uistate, plugin):
+def load_on_reg(dbstate, uistate=None, plugin=None, *rest):
     """Gramps' startup hook. Runs on the main thread, before any tree is open.
 
     Never raises. There is nowhere for an exception to go: the caller prints a
     traceback into a console the all-in-one build does not have, and startup
     carries on as though the plugin were fine.
+
+    ⚠️ **The trailing parameters are defaulted and open-ended deliberately.** A
+    signature mismatch raises in GRAMPS' code, before this body -- so the
+    ``try`` below cannot catch it, ``host.log`` never gets a line, and the whole
+    slice fails in the one way nothing here can report. Nothing on this machine
+    can check what Gramps actually passes, so the call is made impossible to get
+    wrong instead of being got right by guessing. ``uistate`` is ``None`` at this
+    point anyway, which the probe measured.
     """
     try:
         _put_the_package_on_the_path()
@@ -60,9 +68,14 @@ def load_on_reg(dbstate, uistate, plugin):
         if started is not None:
             from gramps_live_api.host import service
 
+            # ⚠️ ``*ignored`` for the reason load_on_reg's signature is open:
+            # Gramps' Callback.emit unpacks whatever the emitter passed, and a
+            # handler that disagreed about the count would raise inside the
+            # signal rather than anywhere this can report. The argument is not
+            # wanted in any case -- the accessor reads dbstate live.
             dbstate.connect(
                 "database-changed",
-                lambda database: service.database_changed(started, database),
+                lambda *ignored: service.database_changed(started),
             )
     except Exception:
         traceback.print_exc()

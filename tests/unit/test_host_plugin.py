@@ -149,8 +149,17 @@ def test_the_hook_never_raises_however_badly_it_goes(plugin: ModuleType) -> None
     Nothing that happens in there may escape, because an escaping exception is
     indistinguishable from a plugin that worked -- Gramps carries on either way.
     ``None`` for a dbstate makes every path in the hook fail.
+
+    ⚠️ **Every arity is called, and that is the sharper half.** A signature
+    mismatch raises in GRAMPS' code, before the body's ``try`` -- so it cannot be
+    caught, cannot be logged, and fails in the one way nothing here can report.
+    Nothing on this machine can check what Gramps passes, so the call is made
+    impossible to get wrong instead of being got right by guessing.
     """
+    plugin.load_on_reg(None)
+    plugin.load_on_reg(None, None)
     plugin.load_on_reg(None, None, None)
+    plugin.load_on_reg(None, None, None, "something a later Gramps added")
 
 
 def test_the_registration_declares_the_hook_gramps_looks_for() -> None:
