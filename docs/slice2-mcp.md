@@ -64,7 +64,7 @@ from arbitrary sources**, an agent reads it, and injection through a source note
 *read* to *write*. The console makes the human yes unforgeable the way the sentinel makes the live
 tree unwritable.
 
-### ⭐ Why there is a window at all — and when it starts mattering
+### ⭐ Why there is a window at all — and why it is load-bearing already
 
 **One thing is unforgeable: that a human read this operation and typed `y`.** The text you read is
 rendered by a separate process, into a console the agent cannot write to, out of the file on disk
@@ -73,20 +73,36 @@ stdin. Take the window away and *"the human approved"* becomes a sentence the **
 from outside there is no difference between the agent calling `approve` because you said yes and
 calling it because something it read told it to.
 
-⚠️ **The paragraph above states that path in the present tense, and today it is not open.**
-`list_people` returns names, dates and identifiers; `propose_note`'s text comes from you. **No tool
-in slice 2 hands an agent text that came out of the tree.** So the window is paying a real cost — a
-second window, your attention, a step that cannot be automated — against an injection path this tool
-surface does not yet permit. That is written down rather than left implicit, because a guard whose
-reason is unrecorded is a guard somebody later removes for looking like it protects nothing.
+⚠️ **The paragraph above states that path in the present tense, and the present tense is right.**
+`list_people` reads `name` and `birth_display` **verbatim out of the export** and returns both.
+`name` is every recorded part of somebody's primary name, and `birth_display` carries a `datestr`
+record's `val`, which the DTD declares `CDATA` — arbitrary prose, whatever the person who wrote the
+record typed. An agent reads both before it calls `propose_note`. **So tree text already reaches the
+agent, today, and the *read* to *write* path is open — narrowly. The console is not guarding
+nothing.**
 
-⭐ **The trigger, stated so it is recognisable when it arrives: any tool that returns note, source or
-citation text.** From that moment tree content is agent input, and the *read* to *write* path is
-live — not sooner, and not gradually.
+⚠️ **The name widening widened that path with it.** The surname's `prefix` and `connector`, plus
+`call`, `suffix`, `title`, `nick` and `familynick`, all reach the agent now where `first` and
+`surname` alone used to — the residual recorded under ruling 1, read for what it means here rather
+than for what it means to privacy.
+
+⚠️ **Bounded, though, and the bound is the same one the mechanism paragraph states.** The console
+sanitises nothing and makes injection no less possible: text out of the tree can still steer what an
+agent *proposes*. What it cannot do is make the approval happen — the operation is rendered by
+another process out of the file on disk, and the `y` comes from a keyboard.
+
+⭐ **The trigger is a WIDENING, not an opening, and it is recognisable when it arrives: any tool that
+returns note, source or citation text.** A name and a date label are short, and they are structured
+by being the fields they are. Note, source and citation text is unbounded prose written by whoever
+wrote the record, and nothing about where it sits in the document constrains what it can say. That
+is a difference of degree big enough to plan for — not the moment the path opens, because the path
+is open now.
 
 **So, to whoever builds that slice: the guarantee is already here.** Do not invent a weaker one — an
-approval flag in the reply, an outcome token, a `confirmed` argument the agent supplies — and do not
-delete this because it currently guards nothing. It is here for the tool you are about to add.
+approval flag in the reply, an outcome token, a `confirmed` argument the agent supplies — and **do
+not delete this.** It is guarding a live path today, not a hypothetical one, and the tool you are
+about to add widens that path rather than creating it. The reason is written down rather than left
+implicit, because a guard whose reason is unrecorded is a guard somebody later removes.
 
 ### ⚠️ What this does NOT defend against
 
