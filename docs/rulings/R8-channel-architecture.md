@@ -149,8 +149,8 @@ separate writer survivable. **It no longer needs that job.**
 
 ## Falsifiers
 
-Any one of these falsifies the ruling and it is re-opened. **Four are discharged by measurement; one
-is partially measured and stays open.**
+Any one of these falsifies the ruling and it is re-opened. **Three are discharged by measurement; two
+are partially measured and stay open.**
 
 ### Measured: the AIO probe
 
@@ -242,17 +242,35 @@ the transaction commits.
 ⛔ **F2 stays open.** The mechanism is confirmed; the visible outcome is not, and the ruling does not
 claim it.
 
-#### ⛔ F3 — *a single-person read round trip through the main-thread hop exceeds ~2 s.* **DISCHARGED, with room to spare.**
+#### ⚠️ F3 — *a single-person read round trip through the main-thread hop exceeds ~2 s.* **PARTIALLY measured. NOT discharged.**
 
-Slice A's demo run against the live host, Gramps open on the copy:
+⛔ **What was measured is the hop, and the hop is not the falsifier.** Slice A's demo run against
+the live host, Gramps open on the copy:
 
 - valid token, tree open → `{ok: true, tree: {open: true, name: "RandyReid-Testing", people: 2924}}`
 - **bad token → 401** · **a request carrying an `Origin` header → 403**
 - **25 iterations:** median **2.2 ms**, min **1.5 ms**, p90 **3.4 ms**, **worst 89.9 ms** — the first
   call, cold
 
-**The budget this falsifier names is ~2000 ms. The worst case is ~22× inside it; the median is ~900×
-inside it.**
+**Against a ~2000 ms budget that is ~22× inside on the worst case and ~900× on the median** — for
+**the round trip through the HTTP listener and the `GLib.idle_add` hop**, which is what those 25
+iterations exercised.
+
+⚠️ **NOT measured: a single-person read, which is what F3 names.** The only route this slice has is
+`/health`, and `tree_status()` reads `get_dbname` — a cached string — and `get_number_of_people`, a
+table count. Both are O(1) **by requirement rather than by accident**: `accessor.py` states it, and
+says in the same docstring that *"anything that walks people belongs behind a route this slice does
+not have."* **So no person was read, and the quantity the ~2 s budget was written about — the cost of
+the database work on the GTK main thread — does not appear in these numbers at all.**
+
+⭐ **What the measurement does establish, and it is worth keeping:** the transport is cheap. The
+listener, the thread hop and the scheduling round trip cost single-digit milliseconds. Whatever a
+person read costs, it will be dominated by the read and not by the channel.
+
+**What would settle it:** time a single-person read end to end through the main-thread hop against the
+~2 s budget, under the same live-GUI conditions. **Tracked as
+[#89](https://github.com/randyjreid/gramps-live-api/issues/89), blocked on the first route that reads
+a person** — slice 4 or 5a in `docs/roadmap.md`'s numbering, neither of which is startable today.
 
 ⚠️ **Demo step 2 — "close the tree in Gramps, and ask again" — was NOT performed.** It needs a GUI
 menu action and nobody was present to click it. **Recorded as unperformed, not as passed.** The *code
