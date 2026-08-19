@@ -6,8 +6,8 @@ approving every write. Single-user, on the owner's own machine.
 **What works today:** a note onto a person — from a terminal, or by asking an agent and then typing
 `y` at a console window the agent cannot reach.
 
-⚠️ **Both write into a copy of the tree blessed by hand, and both read a snapshot export. Nothing
-has ever been written to a real family tree.**
+⚠️ **Both write into a copy of the tree blessed by hand, and only the agent path reads a snapshot
+export. Nothing has ever been written to a real family tree.**
 
 **Where it is going** is one sentence, the owner's own:
 
@@ -43,8 +43,8 @@ told the outcome — not written, not declined, not failed.
 - **Both demos end in a copy.** Every write goes into a tree carrying a `.gramps-live-api-copy`
   sentinel file you created by hand. There is no flag and no config key that overrides it, so the
   live tree is unwritable by construction.
-- **Reads are a snapshot, not the database.** `list_people` reads a Gramps XML export you produced
-  by hand. It cannot see its own writes until you export again
+- **The agent's reads are a snapshot, not the database.** `list_people` reads a Gramps XML export
+  you produced by hand. It cannot see its own writes until you export again
   ([#77](https://github.com/randyjreid/gramps-live-api/issues/77)), and a `priv="1"` flag set
   *after* the export was taken would be a privacy fail-open — which is why `check` **fails** rather
   than warns on a stale export.
