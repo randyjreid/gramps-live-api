@@ -257,15 +257,29 @@ def _export_check(settings: config.Settings, environ: Mapping[str, str]) -> Chec
     and the proposal store are subdirectories, so minting a proposal cannot make
     the doctor report its own side effect. What it does over-report is a copy
     Gramps merely opened -- the lock file is touched either way. That direction
-    is deliberate: this answer has to be wrong toward *re-export*, never toward
-    *the flag you are reading is current*.
+    is deliberate: this answer has to be wrong toward *this snapshot may not
+    speak for the copy*, never toward *the flag you are reading is current*.
 
     ⚠️ **So freshness that cannot be READ fails too**, and it says so in
     different words from a genuinely stale export. An ACL can permit access to
     known files while denying the listing; the comparison then has no left-hand
     side, and reporting *ready* over it is the sentence above being false in the
     forbidden direction. Two states, two messages, because the remedies differ:
-    one is *export again*, the other is *this cannot be checked at all*.
+    one is *re-stamp it once Gramps is closed*, the other is *this cannot be
+    checked at all*.
+
+    ⚠️ **And that remedy is NOT "export the tree again", which is #77.** You can
+    only export from inside Gramps, and Gramps writes ``sqlite.db`` and
+    ``meta_data.db`` when it CLOSES -- 46 seconds after the export, measured on
+    the owner's box -- so every export is older than the copy by the time the
+    application has exited, and a second one reproduces the ordering one cycle
+    later. ``Copy-Item`` does not help either: it preserves ``LastWriteTime``, so
+    the copy arrives stale with content identical to the fresh export. What works
+    is re-stamping the export after Gramps has closed, and the message says both
+    what that asserts and what it does not -- the comparison reads two timestamps
+    and never opens the file, so a stamp on a genuinely old export defeats it.
+    **A refusal naming a remedy that cannot work is the refusal lying**, which is
+    a worse failure than the staleness it reports.
 
     ⚠️ **An export that is NOT CONFIGURED is a different state from all three of
     those, and it does not fail the doctor.** Slice 1's ``preview``, ``apply``
@@ -324,12 +338,20 @@ def _export_check(settings: config.Settings, environ: Mapping[str, str]) -> Chec
             "Make the copy's own files readable",
         )
     if changed is not None and changed > taken:
+        quoted = export.replace("'", "''")
         return Check(
             "export",
             False,
             f"{export} is older than the copy, so the privacy flag it carries may be "
             "stale -- a person marked private since it was taken would still be listed. "
-            "Export the tree again",
+            "Exporting again will not clear this: you can only export from inside Gramps, "
+            "and Gramps writes the tree's own files when it CLOSES, after your export, so "
+            "the next one lands stale the same way. What is out of date here is the "
+            "timestamp; the contents may be perfectly current. So close Gramps, and if "
+            "nothing has changed the tree since you took this file, re-stamp it: "
+            f"(Get-Item '{quoted}').LastWriteTime = Get-Date. That claims only that the "
+            "export is at least as new as the tree -- nothing here reads what is inside "
+            "it, so stamping one the tree really has moved past defeats the check",
         )
     return Check("export", True, export)
 
