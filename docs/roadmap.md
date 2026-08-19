@@ -10,6 +10,12 @@
 > choose. Where the analysis could not determine something from the code, this document names the
 > measurement and does not guess it.
 >
+> ⭐ **One of those rulings has since been made: R2, on 2026-08-19 — Gramps stays open.** It is the
+> owner's, it reverses a standing ruling of his own, and it is transcribed below under *R2 is
+> ruled* rather than argued again. It reshaped the order, parked a slice and un-killed two pieces
+> of a dead milestone — every consequence is marked where it lands. **Every other ruling in the
+> table near the end is still owed, and nothing has been built on this one.**
+>
 > ⛔ **There are no dates, no estimates and no effort figures anywhere below, because none exist.**
 
 ---
@@ -52,15 +58,79 @@ So the current product is a demonstration artifact. Slices 3 and 4 below are wha
 
 ---
 
+## R2 is ruled — 2026-08-19: **Gramps stays open**
+
+⭐ **The mechanism: an in-process component inside Gramps, holding its database handle, reachable
+from the MCP server.** That is Option A of R2, and it **reverses** the owner's own standing ruling
+that killed it.
+
+> *"I am not reopening a 2,900-person tree every session. That is not friction, it is a reason not
+> to use the tool. My advisor recommended B on cost; I am overruling on how I actually work."*
+
+⛔ **What stays dead: the HTTP tool surface.** *"What returns is the channel, not the four-endpoint
+API."* The loopback endpoint, its token auth and its four routes are not reopened by this ruling and
+are not reopened anywhere below.
+
+⭐ **What it un-kills:** the **in-process half of Phase 5**, and the **gramplet of Phase 6**.
+
+⚠️ **Nothing here is built.** The channel and the gramplet are **plans**, and the channel does not
+have a plan gate yet. Every slice below still describes work not started.
+
+### Why it is better, not merely necessary
+
+1. **Writes go through Gramps' own `DbTxn`** from inside the process that owns the database, so a
+   note lands in **Gramps' native undo stack** — the owner's own undo, in the application he is
+   already sitting in.
+2. **Approval can happen in a Gramps dialog** rather than a spawned console. ⭐ **That is a stronger
+   trust model, not merely a more convenient one:** the owner approves **inside the application that
+   owns the data**, and the agent still holds no handle on the approval and learns no outcome from
+   it.
+3. **The ~3.4 s spawn per operation disappears** — and that is what **decides the census batch
+   case**, where the spawn is paid per operation and one household is many of them. The measured
+   figure it replaces is `docs/using.md`'s *"about three and a half seconds — two Gramps cold starts,
+   one to write and one to go back and look."*
+
+### The costs, recorded as honestly as the benefits
+
+1. ⚠️ **A listening channel on the owner's own machine needs authentication, and that is a named
+   risk surface. FULL tier, no exceptions** — for the channel's plan gate, and for slice 4, which is
+   the slice that carries it.
+2. **GTK threading against a database the UI is also touching.** The component lives inside a
+   running application that is reading and writing the same handle.
+3. **The tool is dead whenever Gramps is closed.** Availability becomes the owner's Gramps window
+   rather than the machine.
+
+### How the kill got made — the lesson, said plainly
+
+**Phase 5 was killed on the reason *"the MCP server does that job in-process"*, and that reason is
+false.** What ships is out-of-process at every step, itemised in the Phase 5 section below: a
+standalone stdio process, a read of a hand-made export, and another spawned process for the write.
+
+⭐ **What made it plausible was a demo sentence.** Slice 2's demo describes an *experience* — an
+agent proposes, one `y` is given, Gramps is written — and says nothing about process topology, so
+from the outside the component looked replaced. **This document already names that failure in the
+opposite direction**, in slice 4's own text: a reversal of an architecture ruling must be put to the
+owner as one, *"with the door named — not implied by a demo sentence."* **It is the same error
+twice — once to kill, once nearly to resurrect.** A demo sentence is evidence about what the owner
+experiences and no evidence at all about what holds the database handle.
+
+⭐ **And the reversal was made on workflow, not on mechanism.** The owner did not find the cost
+argument wrong — he says so inside the ruling itself while overruling it. **Nothing here records the
+advisor's Option B as miscosted.** The mechanism was priced correctly and outweighed by how the
+owner actually works, and those are different things.
+
+---
+
 ## The order
 
 The analysis's amended order, after ruling on the advisor's. At a glance:
 
-**3** backup → **4** the live tree *(mechanism ruled first)* → **4½** batch ruling and batch spine →
-**5a** thin read surface → **5** sources and citations → **6** events and dates → **7** people and
-relationships → **8** analytics → **9** media → **10** matching → **11** the census demo.
+⛔ **3** backup — **parked by R2** → **4** the live tree *(mechanism now **ruled**: an in-process
+component, Gramps stays open)* → **4½** batch ruling and batch spine → **5a** thin read surface →
+**5** sources and citations → **6** events and dates → **7** people and relationships → **8**
+analytics → **9** media → **10** matching → **11** the census demo.
 
-Three notes on the numbering before the detail:
+Four notes on the numbering before the detail:
 
 - **4½, 5a and 9–11 are not new slices.** 4½ and 5a are the two insertions the analysis's ruling on
   Question A produced. 9, 10 and 11 are the first decomposition's slices 8 (media), 9 (matching) and
@@ -68,13 +138,35 @@ Three notes on the numbering before the detail:
 - **The first decomposition's slice 10, "the live tree, backed up", has dissolved into 3 and 4.**
   It is not dropped; the amended order enacts the graduation at the front instead of holding it as a
   late slice.
-- ⚠️ **Two rulings must land before any of this starts** — slice 4's read mechanism and the batch
-  shape. They are listed as rulings, further down, and they are not work.
+- ⚠️ **Slice 3 no longer opens the order, and nothing has replaced it.** R2 falsified the premise
+  its plan rests on — see slice 3 below, and ruling **R7**. Slice 4 still needs a backup; **what
+  produces one against a tree Gramps is holding open is now unruled.**
+- ⚠️ **Of the two rulings that had to land before any of this starts, one has.** R2 is ruled; **R1,
+  the batch shape, is not.** They are listed as rulings, further down, and they are not work.
 
-### 3 — "My tree came back from a file."
+### 3 — "My tree came back from a file." ⛔ **PARKED by R2**
 
-**Demo.** Ask for a backup, get one, restore it into Gramps as a working tree that opens. The owner
-has personally seen his own tree come back.
+⛔ **Parked 2026-08-19, and it was the one slice startable the moment the owner said go.** Its plan
+(`.claude/plans/slice3.md`) produces the artifact through a second registered CLI tool in the plugin
+door, and Gramps' own lock check refuses a locked tree — so **the plan assumes Gramps is closed.**
+Its §2 answers Phase 2's *"a backup produced from inside a running Gramps"* with *you cannot*, and
+says in its own words that the answer holds **"only while every write also requires the tree
+closed."** ⭐ **R2 removes that condition, so the answer goes with it.**
+
+⚠️ **And the alternative that plan already refused is refused for exactly the reason that now
+bites:** a file-level copy of the tree directory was the only candidate takeable under the lock, and
+it was rejected because **a copy of a live SQLite database taken mid-transaction is a torn read with
+no way to detect it.** You cannot safely copy an open tree.
+
+**What a backup is under this ruling is a design question, not a detail** — Gramps' own XML export
+driven from inside the process that holds the handle, or SQLite's own backup API, or something else.
+That is ruling **R7**, and it is owed. ⚠️ **The `importxml` handle finding still governs whatever
+restores, whichever way R7 goes:** importing into a tree that holds even one person **silently
+regenerates every handle** in the document, so the restore is *"import into a brand-new empty
+tree"*, and that constraint is part of the question rather than a consequence of it.
+
+**Demo (unchanged, and still the deliverable).** Ask for a backup, get one, restore it into Gramps
+as a working tree that opens. The owner has personally seen his own tree come back.
 
 **What it settles.** Phase 2's own precondition — *no write endpoint ships before this*. Bounded
 deliberately: **one backup, one restore, verified by the owner in Gramps.** Not retention, not
@@ -83,14 +175,15 @@ scheduling, not incremental anything.
 **What it unparks.** Nothing yet. It is what makes slice 4 approvable, and it is the reason #25's
 destructive operations can stay later.
 
-**Depends on.** Nothing. **It is startable the moment the owner says go.**
+**Depends on.** ⚠️ **Ruling R7.** It depended on nothing before, and losing that is what the ruling
+cost here: **the front of the order is now blocked on a conversation rather than open for work.**
 
 ⚠️ **It is a precondition of slice 4 specifically, not only of destructive operations generally.**
 Two independent reasons, both from the analysis: at batch scale, hand-undo of *constructive* writes
 is already unrealistic (twenty interlinked objects, one undo record shaped for one note), and
 `update_*` operations arriving in slices 6–7 **overwrite recorded data** — delete's smaller sibling.
 
-### 4 — "My real tree." *(mechanism ruled first)*
+### 4 — "My real tree." *(mechanism **ruled** — R2)*
 
 **Demo.** Add a person in Gramps, immediately ask the agent about them, it finds them. Add a note. A
 backup is taken automatically first. The note is in the tree the owner actually works in, and he
@@ -101,28 +194,46 @@ keeps it.
 **What it unparks.** #77 (export staleness) dissolves; #76 goes moot rather than deferred, on the
 condition that this slice does **not** keep the export reader; most of `core/people.py` goes with
 it. A live `priv` flag kills the stale-export privacy fail-open outright rather than detecting it —
-a real safety gain, and worth claiming.
+a real safety gain, and worth claiming. ⭐ **And the gramplet (Phase 6), which R2 un-kills** — an
+in-process host inside Gramps is this slice's core rather than a LATER nicety. ⛔ **Whether the GTK
+gramplet is that host, or one of several ways to be in-process, is the channel's own plan gate and
+is not settled here.**
 
-**Depends on.** Slice 3. **And on two rulings, neither of which is an implementation detail:**
+**Depends on.** ⚠️ **A backup — which no longer has a slice.** The precondition is unchanged (*no
+write to the live tree before the owner has seen one come back*); what changed is that slice 3 is
+parked and producing a backup against an open tree is **ruling R7**. **And on rulings — one now
+made, two still owed:**
 
-- ⚠️ **The read mechanism (ruling R2).** *"Ask Claude about them"* is a read of the live tree **while
-  Gramps holds it open**, and **every door that exists is closed to it**: the CLI tool door refuses a
-  locked tree by design and bans `--force-unlock` "ever"; the in-process channel went down with
-  Phase 5, on a reason that covers the endpoint half and **not** this one — see that section below;
-  a second-process open of a tree Gramps holds is what the one-writer rail forbids (`docs/using.md`:
-  *"we never break Gramps' lock"*). **This slice is "resurrect the live architecture" wearing a
-  demo's clothes**, and it must be put to the owner as a reversal of a standing ruling with the door
-  named — not implied by a demo sentence.
+- ⭐ **The read mechanism — RULED (R2, 2026-08-19).** *"Ask Claude about them"* is a read of the live
+  tree **while Gramps holds it open**, and the ruled answer is an **in-process component inside
+  Gramps holding its database handle, reachable from the MCP server.** The doors this slice used to
+  be stuck between are closed as they always were — the CLI tool door refuses a locked tree by
+  design and bans `--force-unlock` "ever", and a second-process open of a tree Gramps holds is what
+  the one-writer rail forbids (`docs/using.md`: *"we never break Gramps' lock"*) — and the ruling
+  opens a different one rather than weakening either. ⚠️ **The channel is a listening channel on the
+  owner's machine and needs authentication: a named risk surface, so this slice's plan gate is FULL
+  tier, no exceptions.** ⛔ **Its design is not in this document.**
 - ⚠️ **The guarantee downgrade (part of ruling R4).** The sentinel makes the live tree unwritable *by
   construction*; the offered replacement, backup-taken-first, is **weaker in kind, not equivalent**.
   *Unwritable-by-construction* is a guarantee about what can happen; *recoverable-after* is a
   guarantee about what can be undone, and it still costs the owner noticing, choosing, and knowing
   which backup predates the damage. That may be exactly the right trade — it is what "the notes
-  count" costs — but **it should be approved as a downgrade, in those words.**
+  count" costs — but **it should be approved as a downgrade, in those words.** ⚠️ **R7 now sits
+  underneath it:** the downgrade cannot be approved as *backup-taken-first* until something can take
+  one against an open tree.
+- ⚠️ **The injection widening (ruling R3), which R2 moved here.** A live read is a read of everything
+  the tree holds — note, source and citation text included — so the trigger recorded verbatim in
+  `docs/slice2-mcp.md` fires at **this** slice unless 5a somehow ships first.
 
 ⚠️ **The cost this slice does not otherwise name:** after it, every subsequent vocabulary slice's
 first bugs land in the real tree. Mitigated only by auto-backup-before-write — and **only for as
-long as the backup stays per-write** rather than per-session.
+long as the backup stays per-write** rather than per-session, and now only once R7 says what takes
+one.
+
+⚠️ **And a cost R2 adds to this slice specifically: the tool is dead whenever Gramps is closed.**
+The demo above is performed with Gramps open, which is how the owner says he works — but *"ask the
+agent about them"* stops being answerable the moment he quits, and that is a change in what the
+product is, not only in how it is built.
 
 ⭐ **Keep the blessed-copy path alive after this slice as a rehearsal space.** The analysis is precise
 about what the copy is good for: it is *misleading* about workflow truths (staleness, the export
@@ -134,6 +245,12 @@ renders, validation, the batch linker. First-run defects are cheaper to find the
 **Demo.** The agent proposes a batch of two notes — the only writable type today; one console shows
 both sentences in full; one `y` writes both inside **one** `DbTxn`; `n` writes neither; one undo
 record and one result record naming both notes.
+
+⚠️ **R2 leaves "one console" as wording this slice does not own.** The ruling records that approval
+*can* happen in a Gramps dialog instead of a spawned console, and slice 4 comes first — so by the
+time this demo is performed the approval surface may be a dialog. **What the demo asserts is *one*
+approval for *two* writes; where that one approval is taken is the channel's plan gate.** The same
+reading applies to every later demo sentence below that says "console".
 
 **What it settles.** The whole batch spine on the existing vocabulary: batch digest, batch store
 record, batch display, one-transaction apply, batch result and undo shapes. **This is the slice the
@@ -184,11 +301,13 @@ fragment, slice 5's demo is the manual handle hunt again, for events.
 **Depends on.** ⭐ **Ruling R3 — the injection widening — and nothing else.** `docs/slice2-mcp.md`
 records the trigger in exact words: *any tool that returns note, source or citation text.* This is
 that tool. The ruling is owed **before** the slice is built, because tools built before it are tools
-built against an unrecorded trust model, which is how a guard gets removed later.
+built against an unrecorded trust model, which is how a guard gets removed later. ⚠️ **Under R2 it is
+owed earlier still** — slice 4's live read trips the same trigger, so R3 will already have been made
+by the time this slice is reached, rather than being this slice's own gate.
 
-⚠️ **If slice 4's live read lands first, the trigger fires there instead** — live reads widen the
-channel from two export fields to everything the tree holds. **Whichever tool ships first, that is
-where the ruling is owed.**
+⚠️ **Under R2 the trigger fires at slice 4, which comes first** — a live read widens the channel from
+two export fields to everything the tree holds, and R2 ruled that slice 4 reads live. **The ruling
+is owed at whichever tool ships first, and on the order above that is slice 4, not this slice.**
 
 ### 5 — "The record itself enters the tree."
 
@@ -330,19 +449,21 @@ roadmap.
 | **#21** — the date model | **6** (value-type half **now**, in parallel with 3–4) | Slice-scheduled. Its serialisation behind 3–4 is held for no reason. |
 | **#22** — identity-side operations | **7**, reshaped | Slice-scheduled, **onto 4½'s settled reference model**, not today's. |
 | **#23** — evidence-side operations | **5**, reshaped | Same condition as #22. |
-| **#66** — the 32,767-character environment block | **4½** | The batch is what breaks the cap. Whether it *must* land there or can trail is measurement **M2**. |
+| **#66** — the 32,767-character environment block | **4½** | The batch is what breaks the cap. Whether it *must* land there or can trail is measurement **M2**. ⚠️ **R2 may dissolve this rather than release it, and this document does not decide that:** the cap is a property of handing an operation to a **spawned** process, and an in-process write has no environment block in its path. **Whether the write moves in-process with the read is the channel's plan gate** — until it runs, both #66 and M2 stay as written. |
 | **#73** — `_write_and_verify` serves two callers | **4½** | Answered inside the batch slice's plan gate; the write path is being reshaped anyway. |
 | **#77** — export staleness unsatisfiable by the documented workflow | **4** | Dissolves with the export reader. |
 | **#76** — duplicate eventref handles counted twice | **4**, moot | ⚠️ Conditional on slice 4 **dropping** the export reader — the defect is in that reader (`core/people.py`), so keeping it **preserves** the defect. The analysis says slice 4 does not keep it — so **moot, not deferred**. |
 | **#64**'s shape, for events | **5a** | Not the filed issue, its recurrence: no read surface returns an event identity, and the Gramps UI shows none. |
-| **#25** — destructive operations | LATER | *"Backup proven in anger."* ⚠️ **Coupled:** the entry holds only as long as backup stays **per-write**. Throttle it to per-session and destructive ops jump the queue, because restore *is* batch undo. |
+| **#25** — destructive operations | LATER | *"Backup proven in anger."* ⚠️ **Coupled:** the entry holds only as long as backup stays **per-write**. Throttle it to per-session and destructive ops jump the queue, because restore *is* batch undo. ⚠️ **And the coupling now runs through R7** — a backup nobody can take against an open tree is not a cadence, and this entry rests on one existing at all. |
 | **#53** — a name spelled with ZWNJ cannot be previewed | use-derived | A real name trips the render guard. |
 | **#75**, **F-1**, **F-2**, **N-1** | use-derived | Someone actually hits them. All recorded residuals, all off the census path. |
 | **pii_guard freeze** | use-derived | A demonstrable fail-open on real data. |
-| **the gramplet** (Phase 6) | LATER — ⚠️ **conditionally** | *"Use has not asked for it."* **But if ruling R2 names an in-process host as slice 4's read mechanism, the gramplet is not later — it is slice 4's core.** The LATER entry is only safe once that door is named. |
+| **the gramplet** (Phase 6) | ⭐ **UN-PARKED by R2** — **4** | The condition this row carried has fired: R2 named an in-process host, so the gramplet is **not** LATER — an in-process host is slice 4's core. *"Use has not asked for it"* no longer holds, because the mechanism asked. ⛔ **Un-killed is not designed:** whether the GTK gramplet is the host is the channel's own plan gate. |
+| ⚠️ **the in-process channel** (Phase 5's surviving half) | ⭐ **UN-KILLED by R2** — **4** | Was not a parked item at all; it was **dead**, killed on a false reason. It returns as slice 4's read mechanism. ⛔ **The HTTP tool surface does not return with it.** ⚠️ **Its plan gate is FULL tier** — a listening channel needing authentication is a named risk surface. |
+| ⚠️ **the backup mechanism** | ⛔ **newly PARKED by R2**, and **ruling R7 first** | Slice 3's plan assumes Gramps closed, and an open SQLite tree cannot be safely copied. What produces a backup against an open tree is a design question. ⚠️ **It blocks slice 4, which blocks everything after it** — this is what the ruling cost. |
 | **multi-user** | LATER | Genuinely. Single-user is the brief's own premise. |
 | ⚠️ **the batch / provisional-reference model** | **4½**, and **ruling R1 first** | On no list. The single ordering decision; see 4½. |
-| ⚠️ **the injection widening** | **5a** (or **4**, whichever widened read tool ships first), and **ruling R3 first** | On no list, and the trigger is recorded verbatim in `docs/slice2-mcp.md`. |
+| ⚠️ **the injection widening** | **4**, and **ruling R3 first** | On no list, and the trigger is recorded verbatim in `docs/slice2-mcp.md`. ⚠️ **R2 settled which slice it lands in:** slice 4 now reads the live tree, so the widened read tool ships there rather than at 5a. |
 | ⚠️ **`add_family`** | **7** | On no list. Mandatory under slice 7's *own* criterion — schema alone determines the write. Measurement **M3** decides whether Gramps agrees. |
 | ⚠️ **the attribute operation** | **5** / **7**, or **never** | On no list. A census line's columns — occupation, relationship to head, marital status — are recorded partly as events and partly as `Attribute`s, and **no operation touches attributes.** Ruling **R6** decides whether the row exists at all. |
 | ⚠️ **media file custody** | **9**, and **ruling R5 first** | On no list. The first write outside the database and outside `DbTxn`. |
@@ -352,7 +473,8 @@ roadmap.
 | **#52** — #4's remainder, against slice 5's fixtures | ⛔ **undetermined** | Phase 1's own ordering rule — evidence-side fixtures wait for the guard audit — presumably still binds the reshaped slice 5. **How much of #4 remains live beyond #52 could not be determined from the code.** |
 
 ⭐ **Startable today, before any ruling:** #21's value type, the census-line walkthrough, and the
-rulings themselves.
+rulings themselves. ⚠️ **That list has not grown, and slice 3 has left it** — R2 opened the
+architecture and closed the one slice that was ready to build.
 
 ---
 
@@ -361,12 +483,15 @@ rulings themselves.
 **These are rulings, not work.** They cost a conversation each; what they cost if deferred is written
 beside them.
 
+⭐ **R2 has been made** — *Gramps stays open*, recorded near the top of this document — and is no
+longer in this table. It put **R7** into it.
+
 | | The ruling | Blocks | If it is not made |
 | --- | --- | --- | --- |
-| **R2** | ⭐ **Slice 4's live-read mechanism.** How does a read of the live tree happen **while Gramps holds it open**? The named candidates: **un-kill Phase 5/6** (an in-process host — the architecture that was killed), or **open a new, unruled door** (e.g. read-only access beside a live Gramps). The CLI tool door is not a candidate: it refuses a locked tree by design and bans `--force-unlock` "ever". | **4**, and everything after it | ⚠️ **The analysis names this as the single ruling with the most downstream work hanging on it.** Nothing in the tail of the review answered it. It also decides whether the LATER-gramplet entry is safe, and it is a **reversal of a standing owner ruling** — it must be put as one, with the door named. |
+| **R7** | ⛔ **What takes a backup against an open tree.** R2 parked slice 3 by removing its premise: its plan produces the artifact through a CLI tool that Gramps' own lock check refuses, and the one candidate takeable under a lock — a file copy of the tree directory — is a torn read of a live SQLite database with no way to detect it. Gramps' own export driven from **inside** the process, SQLite's backup API, or something else. ⚠️ **Whatever restores it inherits the `importxml` handle finding**: import into a tree holding even one person and every handle is silently regenerated, so *"restore"* means *"into a brand-new empty tree"*. | **3**, therefore **4**, therefore everything | ⚠️ **The front of the order has nothing startable in it.** Slice 3 depended on nothing before this ruling; it now depends on a conversation. And R4's guarantee downgrade cannot be approved as *backup-taken-first* while nothing can take one. |
 | **R1** | **The batch shape.** A — a transaction of the existing small operations, held as an approval unit *outside* the registry, executed in one `DbTxn`, with a provisional-reference spelling added to the reference vocabulary. Or B — one registered composite operation per document kind. **The analysis recommends A** and argues both failure modes; **the owner rules.** Conditional on measurement **M1**. | **4½**, and every vocabulary slice after it | The nine specified operation types get built on a reference model that cannot name what the same batch creates, and then reworked. **The rework bill is itemised under 4½.** |
-| **R3** | **The injection widening.** `docs/slice2-mcp.md` records the trigger — *any tool that returns note, source or citation text* — and demands a plan when it fires. What is the trust model for a read tool that returns tree prose? | **5a**, or **4** if its live read ships first | A tool built against an unrecorded trust model, which is how a guard gets removed later. ⚠️ **Rule first, build after** — it is a ruling, not machinery, and it is cheap. |
-| **R4** | **Graduation to the live tree.** Is the blessed copy a disposable rehearsal, the future live tree, or something else? ⭐ **The sentinel model already contains the mechanism** — blessing is per-tree-directory, and the rail is *"blessed trees only,"* not *"never the live tree."* **Includes approving the guarantee downgrade in its own words:** unwritable-by-construction → recoverable-after. | **4**, and it decides where slice 3 sits | Every slice's product stays a demonstration artifact, and *"done"* has no meaning for any write slice. |
+| **R3** | **The injection widening.** `docs/slice2-mcp.md` records the trigger — *any tool that returns note, source or citation text* — and demands a plan when it fires. What is the trust model for a read tool that returns tree prose? ⚠️ **R2 made this sooner, not different:** slice 4's read is now a live read of everything the tree holds, so the trigger fires there. | **4**, and 5a behind it | A tool built against an unrecorded trust model, which is how a guard gets removed later. ⚠️ **Rule first, build after** — it is a ruling, not machinery, and it is cheap. |
+| **R4** | **Graduation to the live tree.** Is the blessed copy a disposable rehearsal, the future live tree, or something else? ⭐ **The sentinel model already contains the mechanism** — blessing is per-tree-directory, and the rail is *"blessed trees only,"* not *"never the live tree."* **Includes approving the guarantee downgrade in its own words:** unwritable-by-construction → recoverable-after. ⚠️ **R7 sits under that half** — *recoverable-after* is not approvable until something can take a backup against an open tree. | **4**, and it decides where slice 3 sits | Every slice's product stays a demonstration artifact, and *"done"* has no meaning for any write slice. |
 | **R5** | **Media file custody.** Where does the image live, who copies it there, and what does undo mean for a write that is not in the database? | **9** | Media is in the destination sentence and has no mechanism. |
 | **R6** | **Attributes versus events**, in the owner's own recording practice. Occupation is legitimately either. | the row list of **5** and **7** | Decides whether the attribute operation exists at all — a genealogy-practice question, not a code question. |
 
@@ -377,7 +502,7 @@ Not rulings — things the analysis could not determine from the code and would 
 | | Measurement | Decides |
 | --- | --- | --- |
 | **M1** | Does a Gramps 6.0.8 `DbTxn` **abort cleanly** when an exception is raised mid-transaction? Needs a run on this box against a scratch tree. | **The all-or-nothing batch claim rests on it, so R1's recommendation is conditional on it.** |
-| **M2** | One transcribed census household, serialised as a batch, measured against #66's per-machine headroom. | Whether #66 must land **inside** 4½ or can trail it. |
+| **M2** | One transcribed census household, serialised as a batch, measured against #66's per-machine headroom. ⚠️ **Moot if the write moves in-process under R2** — see #66's row; the channel's plan gate decides, not this document. | Whether #66 must land **inside** 4½ or can trail it. |
 | **M3** | How Gramps wants households built — is `add_family` a required vocabulary row, or do the link operations legitimately create the Family object? Needs the Gramps db API read on the box, not a guess. | Slice 7's row list. |
 | **M4** | How much of #4 remains live beyond what #52 records, against slice 5's fixtures. | Whether Phase 1's evidence-side ordering rule still binds the reshaped slice 5. |
 
@@ -399,9 +524,10 @@ not happened and is not close** — it is slice 4. The milestone reads as nearly
 
 **This proposal changes no milestone.** Retiring the table is itself a ruling for the owner.
 
-### ⛔ Phase 5 — the endpoint half is dead; the in-process half is not replaced
+### Phase 5 — ⛔ the endpoint half is dead; ⭐ the in-process half is **ruled back** (R2)
 
-**Phase 5 carried two jobs in one milestone, and the kill lands on only one of them.**
+**Phase 5 carried two jobs in one milestone, the kill landed on both, and only one of them deserved
+it.**
 
 **The tool surface is dead, and the MCP server is genuinely why.** Phase 5 specified a loopback HTTP
 endpoint with token auth and four routes. Slice 2 shipped three tools over **stdio**, with no socket,
@@ -415,25 +541,36 @@ step: the agent host launches `gramps_live_api_mcp` as a **standalone stdio proc
 **another process again** — a console running `python -m gramps_live_api approve` — for the write.
 A snapshot read taken in a separate process is not the job the bridge was hosted inside Gramps to do.
 
-⭐ **So the reason recorded for the kill covers the endpoint and not the channel, and the channel's
-return is ruling R2** — which is why R2 is a ruling rather than a milestone-hygiene question.
+⭐ **So the reason recorded for the kill — *"the MCP server does that job in-process"* — covers the
+endpoint and not the channel, and it is false about the channel.** That is the whole of the error,
+and it is written up where it belongs, under *R2 is ruled* near the top: a demo sentence describing
+an experience was read as evidence about process topology.
 
-⚠️ **And recording the kill is not the same as recording what it cost:**
+⭐ **The channel is ruled back (R2, 2026-08-19): an in-process component inside Gramps holding its
+database handle, reachable from the MCP server.** ⛔ **The endpoint half is not reopened with it** —
+*"what returns is the channel, not the four-endpoint API."* ⚠️ **And nothing is built:** what returns
+is a specification and a plan gate that has not run.
 
-1. **Phase 6's gramplet is orphaned.** It existed to **host the bridge** — `GLib.idle_add`
-   marshalling into a loopback endpoint. With the endpoint dead, the GTK shell hosts nothing. Either
-   it is dead too and the milestone closes, **or it is quietly the future live-read channel** — and
-   that is ruling **R2** again.
-2. ⭐ **Snapshot reads became the architecture, by consequence rather than by decision.** With no live
-   channel, everything downstream — query-before-propose, matching, duplicate detection — gets built
-   on a manual export. That is **why slice 4's mechanism is an open ruling rather than an
-   implementation detail**: killing Phase 5 did not merely remove a component, it chose a read
-   architecture, and nobody ruled on that choice.
-3. **The README carried the dead premise, and this document is now where it can recur.** Its opening
-   sections described an addon running *inside* a Gramps process, with no staleness, borrowing
-   Gramps' own database handle; it has since been rewritten to say what ships — reads from a manual
-   snapshot export, writes through a one-shot spawned Gramps process. Same stale-roadmap defect as
-   #24, and the fix was to state the architecture rather than the intention.
+⚠️ **The three costs the kill was recorded as having, re-read against the ruling — two are undone
+and one is not:**
+
+1. ⭐ **Phase 6's gramplet is no longer orphaned — R2 un-kills it.** It existed to **host the
+   bridge**, and with the endpoint dead the GTK shell hosted nothing; with an in-process host ruled
+   as slice 4's read mechanism, a shell inside Gramps has a job again. ⛔ **Un-killed is not
+   designed:** the earlier `GLib.idle_add`-into-a-loopback-endpoint shape marshalled into the
+   surface that stayed dead, so *what* the gramplet hosts is the channel's own plan gate, not this
+   document's, and the Phase 6 milestone does not close.
+2. ⭐ **Snapshot reads are no longer the architecture, and this is the ruling's largest single
+   effect.** They had become it *by consequence rather than by decision* — with no live channel,
+   query-before-propose, matching and duplicate detection were all going to be built on a manual
+   export. R2 is the decision that was missing. ⚠️ **What ships today still reads a snapshot**, and
+   will until slice 4 lands; what changed is what it is being built toward.
+3. ⚠️ **The README's premise is the one cost the ruling does not undo — it sharpens it.** The
+   README's opening sections once described an addon running *inside* a Gramps process, borrowing
+   Gramps' own database handle with no staleness; they were rewritten to say what ships — reads from
+   a manual snapshot export, writes through a one-shot spawned Gramps process. **R2 makes the old
+   description an intention again, and an intention is exactly what #24's defect was made of.** The
+   rewritten README stays as it is until the channel exists: **what ships is what gets described.**
 
 ---
 
@@ -448,9 +585,14 @@ return is ruling R2** — which is why R2 is a ruling rather than a milestone-hy
   multi-object chain. It is target-spec, not hardening, so the use-derived-trigger rule does not
   apply to it — and a caveat taken at full strength would be a licence to defer exactly the decision
   whose deferral costs the most.
+- ⚠️ **That R2 costs the shipped code nothing.** It is a ruling, not a build, and what it un-kills
+  has no plan gate yet — but it does put a **new component inside Gramps** in front of everything
+  from slice 4 onward, and that component is a named risk surface with authentication attached. The
+  cheapest slice in the order was the one it parked.
 - **That the shipped code is what stands in the way.** It is not. ⭐ **The shipped code is in better
   shape for this target than the roadmap is.** One narrow transport mechanism needs replacing (#66,
-  already filed with its fix shape). Everything that looks restrictive — one write type, one target
+  already filed with its fix shape — ⚠️ and possibly dissolved rather than replaced under R2; see its
+  unpark row). Everything that looks restrictive — one write type, one target
   type, one operation per approval, a closed registry, a frozen rule table — is a **named refusal
   with its widening point prepared.** The danger is in what is *specified and unbuilt*, and in what
   was *unnamed*.
