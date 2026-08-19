@@ -3,8 +3,11 @@
 **Ruled 2026-08-19.** This page records a decision. It is not a proposal and it is not argued again
 here.
 
-⚠️ **Nothing described below is built.** The ruling settles *what* the channel is; the host, the
-client and every test are unwritten.
+⚠️ **When ruled, nothing described below was built.** ⭐ **Updated 2026-08-19:** Slice A — the plugin,
+the loopback listener, the token and the main-thread boundary — **is built and was run live** (see the
+GUI session under *Falsifiers*). **The MCP client half, the write path and the approval dialog are
+still unwritten**, and everything the ruling says about them remains a decision rather than a
+description.
 
 ---
 
@@ -146,8 +149,8 @@ separate writer survivable. **It no longer needs that job.**
 
 ## Falsifiers
 
-Any one of these falsifies the ruling and it is re-opened. **Two are discharged by measurement;
-three are not measured and are open.**
+Any one of these falsifies the ruling and it is re-opened. **Four are discharged by measurement; one
+is partially measured and stays open.**
 
 ### Measured: the AIO probe
 
@@ -174,15 +177,87 @@ anyone's data.
   so are `socketserver`, `ssl`, `secrets`, `hmac`, `threading` and `GLib` — every import the host
   needs.
 
-**⚠️ Still open — these three need a running GUI with a tree loaded, and none of them is measured:**
+**The probe was a CLI run. It said nothing about the three below**, which are exactly the properties
+the design rests on at runtime, and which needed a GUI session with a tree loaded. That session has
+now been held.
 
-- `GLib.idle_add` callbacks do not run while a Gramps modal dialog holds a nested main loop.
-- A `DbTxn` write from `idle_add` does not refresh the Gramps UI.
-- A single-person read round trip through the main-thread hop exceeds **~2 s**.
+### Measured: the GUI session, 2026-08-19
 
-**The probe was a CLI run. It says nothing about any of the three**, which are exactly the properties
-the design rests on at runtime. Measuring them needs a GUI session and is owed before the host is
-built on.
+The three remaining falsifiers were measured in a real Gramps AIO 6.0.8 GUI session against the
+**blessed copy** — `RandyReid-Testing`, tree directory `…\grampsdb\6a821852`, the one carrying
+`.gramps-live-api-copy`. Raw log: `%APPDATA%\gramps-live-api\falsifiers.txt`, timestamps 08:52:56 to
+08:53:09. Every number quoted below is that log's.
+
+#### ⛔ F1 — *`GLib.idle_add` callbacks do not run while a Gramps modal dialog holds a nested main loop.* **DISCHARGED — they do.**
+
+- parent window taken from `uistate`: `ApplicationWindow`
+- GLib main-loop depth **before** the dialog: **1**
+- the modal dialog held the main thread for **3.004 s** (`response=-7`), **dismissed programmatically
+  on a timer**
+- the idle callback was scheduled from thread `f1-worker` at **+0.751 s**, and **fired 0.0002 s after
+  it was scheduled**
+- **the dialog was still up when it fired: True**
+- GLib main-loop depth **inside** the callback: **2** — outside the dialog it was 1, so the callback
+  genuinely ran under the nested loop
+
+⭐ **This is the one that could have killed R8's approval surface, and it did not.** The ruling puts
+approval in a Gramps dialog on the main thread; if `idle_add` had stalled behind that dialog's nested
+loop, nothing could have driven the dialog from an HTTP request. **It can.**
+
+#### ⚠️ F2 — *a `DbTxn` write from `idle_add` does not refresh the Gramps UI.* **PARTIALLY measured. NOT discharged.**
+
+**Established — the write crosses and lands:**
+
+- `idle_add` crossed from the worker thread in **0.0002 s**
+- the write ran on thread **`MainThread`** (main thread: **True**)
+- the transaction committed in **0.0709 s**
+- ground truth: the note **reads back = True**, and **it is on the person's note list = True**
+- notes in the tree: **before = 60, after = 61**
+
+**Established — the mechanism that drives refresh fires:**
+
+- `note-add` — **1 handle**, carried ours = **True**, on thread **`MainThread`**
+- `person-update` — **1 handle**, carried ours = **True**, on thread **`MainThread`**
+
+Both were already heard by the time the transaction closed, and were unchanged when re-read **1.5 s**
+after the write.
+
+⚠️ **NOT established: whether a relevant view refreshes in place.** The active page was
+**`DashboardView` both before and after** the write, and a dashboard displays neither notes nor
+people. The log's three-way answer —
+
+```
+refreshed in place: NOTHING
+deferred (dirty, will refresh when you navigate back): nothing
+unchanged: DashboardView
+```
+
+— is therefore **not evidence that a Person view would fail to refresh.** The probe never put a view
+that cares about the written objects in front of the write. Every line of that split is about a page
+with no reason to react.
+
+**What would settle it:** the same measurement with a **Person or Note view active** at the moment
+the transaction commits.
+
+⛔ **F2 stays open.** The mechanism is confirmed; the visible outcome is not, and the ruling does not
+claim it.
+
+#### ⛔ F3 — *a single-person read round trip through the main-thread hop exceeds ~2 s.* **DISCHARGED, with room to spare.**
+
+Slice A's demo run against the live host, Gramps open on the copy:
+
+- valid token, tree open → `{ok: true, tree: {open: true, name: "RandyReid-Testing", people: 2924}}`
+- **bad token → 401** · **a request carrying an `Origin` header → 403**
+- **25 iterations:** median **2.2 ms**, min **1.5 ms**, p90 **3.4 ms**, **worst 89.9 ms** — the first
+  call, cold
+
+**The budget this falsifier names is ~2000 ms. The worst case is ~22× inside it; the median is ~900×
+inside it.**
+
+⚠️ **Demo step 2 — "close the tree in Gramps, and ask again" — was NOT performed.** It needs a GUI
+menu action and nobody was present to click it. **Recorded as unperformed, not as passed.** The *code
+path* was reached from the other direction: `host.log` carries
+`2026-08-19T08:52:58 INFO database-changed: no tree open` at startup, before the tree was opened.
 
 ### ⚠️ Two things the probe established that this ruling did not anticipate
 
@@ -195,6 +270,42 @@ built on.
    reports. It is the condition this ruling predicted in *Why `load_on_reg`, not a gramplet*: the hook fires
    unconditionally at startup, before any UI state exists and with `dbstate.db` a `DummyDb`. **Predicted,
    and now measured.**
+
+### Measured against finding 1: the in-situ 3.14 harness
+
+Finding 1's sentence *"the gap between them is untested by construction"* stands as written — it
+describes the **gates**, and no gate has changed. What the same GUI session added is a **one-off
+in-situ run** of this repository's own tests inside the AIO's frozen 3.14.4 interpreter. Raw log:
+`%APPDATA%\gramps-live-api\insitu.txt`.
+
+**Getting the suite to run at all took three attempts, and which one worked is part of the record:**
+
+- **Route 1 (`pytest`) — unavailable.** `pytest` is **not importable in this interpreter**; the AIO
+  ships **no `site-packages` at all**.
+- **Route 2 (`unittest`) — collected 0.** `unittest.TestLoader` found **0 tests** across the **5**
+  modules that imported, because they are plain `test_*` functions with bare asserts and `TestLoader`
+  discovers only `TestCase` subclasses.
+- **Route 3 — taken.** The real test functions, called directly, behind a minimal `pytest` stand-in
+  supplying `raises`, `param` and no-op decorators. The only fixture supplied is `tmp_path`.
+
+**Result on the AIO's 3.14.4: 60 passed, 0 failed, 9 skipped, 0 module errors.** The same harness on
+the project's own **3.12: identical — 60 / 0 / 9.**
+
+⭐ **No 3.12 → 3.14 divergence in the surface this harness covers.**
+
+- **`tests/unit/test_host_thread_boundary.py` — the suite carrying the load-bearing invariant above —
+  ran 8 of 8, all passing, under 3.14.**
+- ⚠️ **`sys.flags.optimize` was checked and is 0.** This matters more than it looks: under `-O` every
+  bare assert is stripped and the whole suite would pass **vacuously**. The check is what stops the
+  60/0/9 from being meaningless, so it is recorded as part of the result rather than as a detail.
+- **The harness was negative-controlled.** A module holding a false assert, a `raises` that does not
+  raise, and a `raises` with a wrong `match` reported **1 passed, 3 failed**, with tracebacks — so the
+  harness reports failures rather than being decorative.
+- **9 skipped, by name** — the tests needing `monkeypatch` or parameters the stand-in does not supply.
+  **Nine, not "a few".**
+
+⛔ **This does not mean CI covers 3.14.** It is a **separate in-situ run on one machine, not a gate**,
+and it covers only what route 3 could reach. Finding 1's warning is unchanged for every future change.
 
 ---
 
