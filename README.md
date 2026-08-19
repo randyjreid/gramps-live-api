@@ -50,7 +50,9 @@ told the outcome — not written, not declined, not failed.
   than warns on a stale export.
 - **One writable operation type** (`add_note`), one target type (person), one operation per
   approval. Everything that looks restrictive is a named refusal with its widening point recorded.
-- **No HTTP server and no endpoint of any kind.** The MCP server speaks **stdio** only.
+- **No HTTP server and no endpoint of any kind.** The MCP server speaks **stdio** only. ⚠️ **That is
+  a statement about what ships, and the direction below changes it:** the ruled architecture puts a
+  loopback HTTP listener inside Gramps. None of it is written.
 - **The core has `dependencies = []`** and runs on the standard library alone. The official MCP SDK
   sits behind an optional `mcp` extra, and installing it brings 27–30 packages with it, measured —
   what that costs, and why the SDK anyway, is in [`docs/slice2-mcp.md`](docs/slice2-mcp.md).
@@ -60,22 +62,37 @@ told the outcome — not written, not declined, not failed.
 Named by the demo each slice has to perform. **Every one of these is a plan, not a feature**, and
 there are no dates because none exist.
 
-- **3 — *"My tree came back from a file."*** A backup taken and restored into Gramps, verified by
-  the owner. It depends on nothing and is startable now; slice 4 depends on it.
-- **4 — *"My real tree."*** Graduation off the blessed copy. ⚠️ Gated on a ruling, not on work:
-  every door onto a tree Gramps holds open is currently closed, so this is a reversal of a standing
-  decision rather than a demo.
-- **4½ — *"Two notes, one console, one yes."*** The batch spine — two notes, one transaction, one
+⚠️ **The architecture changed on 2026-08-19 and nothing shipped changed with it.** Two rulings, both
+the owner's: **Gramps stays open** (R2), and **the tool becomes a Gramps addon running inside the
+Gramps process** (R8) — a plugin loaded at startup that hosts a loopback HTTP listener on a
+background thread and does every database and GTK touch on Gramps' own main thread, with **approval
+taken in a Gramps dialog**. The MCP server becomes a thin client holding no Gramps code. **There is
+no export, no copy-to-write, no spawned Gramps process left in that design.**
+
+⛔ **None of it exists.** Not a line of the addon is written, and the two slices above still work the
+way this page describes. The ruling is
+[`docs/rulings/R8-channel-architecture.md`](docs/rulings/R8-channel-architecture.md).
+
+- **4 — *"My real tree."*** Graduation off the blessed copy: add a person in Gramps, ask the agent
+  about them, get a note back into the tree you actually work in. ⚠️ Still gated on rulings, not on
+  work — a backup that can be taken while Gramps holds the tree open, and the trust model for a tool
+  that reads live tree prose.
+- **4½ — *"Two notes, one dialog, one yes."*** The batch spine — two notes, one transaction, one
   approval. This is where *"not twenty"* in the sentence above lives, and building operation types
   before it is the single most expensive mistake available.
 - **Then**, as a pool of specified work rather than a schedule: a read surface the agent can
   question, sources and citations, events and dates, people and relationships, analytics, media,
   matching — and finally the census demo itself.
 
+⚠️ **There used to be a slice 3 here — *"my tree came back from a file"* — and R8 deleted its plan,
+because that plan spawned a second Gramps process against a closed tree.** **The requirement
+survives**: nothing writes to the real tree before the owner has watched a backup of it come back.
+What produces one against a tree Gramps is holding open is an open ruling.
+
 [`docs/roadmap.md`](docs/roadmap.md) carries the full version: what each slice settles, what it
-releases, the six rulings the owner still owes and the four measurements nobody has taken. The
-eight-phase milestone list this page used to carry is superseded by those slices; retiring the
-milestones themselves is one of the rulings owed.
+releases, the rulings the owner still owes and the measurements nobody has taken. The eight-phase
+milestone list this page used to carry is superseded by those slices; retiring the milestones
+themselves is one of the rulings owed.
 
 ## Running the gates
 
