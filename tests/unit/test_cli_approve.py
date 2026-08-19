@@ -628,7 +628,86 @@ def test_check_reports_an_export_older_than_the_copy_as_stale(tmp_path: Path) ->
 
     assert not line.ok
     assert "export" in line.detail.lower()
-    assert "again" in line.detail, "the remedy is named"
+    assert "LastWriteTime" in line.detail, "the remedy is named -- and see #77 for which remedy"
+
+
+def stale_export_detail(tmp_path: Path, *, named: str = "tree.gramps") -> str:
+    """The doctor's ``export`` line over an export the copy has moved past."""
+    copy = blessed(tmp_path / "tree")
+    export = tmp_path / named
+    export.write_text("<database/>", encoding="utf-8")
+    aged(export, seconds=60)
+
+    checks = cli.inspect(
+        None, equipped(tmp_path, **{config.ENV_COPY: copy.tree_dir, config.ENV_EXPORT: str(export)})
+    )
+    return next(check for check in checks if check.label == "export").detail
+
+
+def test_the_stale_export_message_names_no_remedy_that_cannot_work(tmp_path: Path) -> None:
+    """#77, reproduced by the owner in use: *"Export the tree again"* CANNOT clear this.
+
+    You can only export from **inside** Gramps, and Gramps writes ``sqlite.db``
+    and ``meta_data.db`` when it **closes** -- after the export. Measured on his
+    box at 46 seconds::
+
+        export written : 20:09:44
+        sqlite.db      : 20:10:30      (written when Gramps CLOSED)
+
+    So a second export reproduces the same ordering one cycle later, and
+    ``Copy-Item`` does not help either: it **preserves** ``LastWriteTime`` on
+    Windows, so the copy arrives stale carrying content that hashes identical to
+    the fresh export. **A refusal prescribing a remedy that provably cannot work
+    is the refusal lying**, and that is the whole of this defect.
+
+    Exporting again is *addressed* rather than deleted, because it is the first
+    thing anybody tries -- so every mention of it here has to say it does not
+    work, which is what the second assertion checks.
+    """
+    detail = stale_export_detail(tmp_path)
+
+    assert "Export the tree again" not in detail, "the impossible imperative is gone"
+    tries = [sentence for sentence in detail.split(". ") if "again" in sentence]
+    assert tries, "exporting again is answered, not left for the owner to discover"
+    assert all("not" in sentence for sentence in tries), (
+        f"every mention of exporting again says it does NOT clear this; got {tries}"
+    )
+    assert "clos" in detail.lower(), "and the reason: Gramps writes the tree when it closes"
+    assert "LastWriteTime" in detail, "the remedy that does work is named"
+
+
+def test_the_stale_export_message_does_not_claim_the_stamp_checks_the_contents(
+    tmp_path: Path,
+) -> None:
+    """A re-stamp asserts *at least as new as the tree*. It asserts nothing else.
+
+    The comparison reads two timestamps and never opens the export, so somebody
+    who stamps a genuinely old file defeats this check completely. The message
+    prescribes the stamp, so the message owes the bound -- prescribing it while
+    implying it verifies the snapshot would trade one false remedy for another.
+    """
+    detail = stale_export_detail(tmp_path)
+
+    assert "at least as new" in detail, "what the stamp does assert is stated"
+    assert "defeats the check" in detail, "and what it does not, in the same breath"
+
+
+def test_the_re_stamp_command_quotes_a_path_the_way_powershell_quotes(tmp_path: Path) -> None:
+    """An export named ``O'Brien.gramps`` must not end the string early.
+
+    The message hands over a command to paste, so the path in it is quoted the
+    way the shell it is written for quotes: PowerShell escapes a single quote
+    inside a single-quoted string by **doubling** it, and an unescaped one turns
+    the remedy into a parse error -- which is this defect again, one layer down:
+    a refusal naming something that does not run. An apostrophe is ordinary in a
+    surname and legal in a Windows filename, so this is not a corner.
+
+    (The path itself is not written out here -- the guard reads this file, and an
+    absolute one in a docstring is a P1 finding whatever it is illustrating.)
+    """
+    detail = stale_export_detail(tmp_path, named="O'Brien.gramps")
+
+    assert "O''Brien.gramps'" in detail, f"the pasted path is closed and escaped; got {detail}"
 
 
 def test_an_unreadable_copy_fails_the_export_check_rather_than_passing_it(

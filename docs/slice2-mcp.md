@@ -245,8 +245,29 @@ because printing "ready" over a stale privacy oracle is the claim the ruling for
 the undo records and the proposal store are subdirectories, so minting a proposal cannot make the
 doctor report its own side effect — a check that fires on its own output is one people learn to
 ignore. What it *does* over-report is a copy Gramps merely opened, because the lock file is touched
-either way. **That direction is deliberate.** This answer must err toward *export it again*, never
-toward *the flag you are reading is current*.
+either way. **That direction is deliberate.** This answer must err toward *this snapshot may not speak
+for the copy*, never toward *the flag you are reading is current*.
+
+⚠️ **What it must NOT do is name a remedy that cannot work, and until #77 it did.** The refusal said
+*"export the tree again"*. You can only export from **inside** Gramps, and Gramps writes `sqlite.db`
+and `meta_data.db` when it **closes** — 46 seconds after the export on the owner's own run — so every
+export is older than the copy by the time Gramps has exited, and a second one reproduces the ordering
+one cycle later:
+
+```
+export written : 20:09:44
+sqlite.db      : 20:10:30      (written when Gramps CLOSED)
+```
+
+`Copy-Item` is the other thing that looks right and is not: it **preserves** `LastWriteTime` on
+Windows, so the copy arrives stale carrying content that hashes identical to the fresh export.
+
+**What clears it is re-stamping the export once Gramps is closed** — `(Get-Item
+<path>).LastWriteTime = Get-Date` — which is honest rather than a trick: Gramps is shut, the tree has
+stopped changing, and the file's content *is* the current export. ⚠️ **And it claims only that the
+export is at least as new as the tree.** Nothing here opens the file, so somebody who stamps a
+genuinely old export defeats the check entirely; the message says so, because prescribing a stamp
+while implying it verifies the snapshot would trade one false remedy for another.
 
 **What was NOT built:** `propose_note` does not itself refuse on a stale export. That would be a
 second, stricter rule in a second place, and the plan asked for a `check` line. Recorded as a
@@ -573,8 +594,10 @@ Then check it:
 python -m gramps_live_api check
 ```
 
-The report now carries an `export` line. **If it says the export is older than the copy, export
-again** — see the staleness section above for why that is not a nag.
+The report now carries an `export` line. **If it says the export is older than the copy, do not
+export again — close Gramps and re-stamp the file** (`(Get-Item <path>).LastWriteTime = Get-Date`),
+which is what the refusal itself now tells you. See the staleness section above for why another
+export cannot clear it, and for the one thing the stamp does not claim.
 
 ### 2. Register the server
 
