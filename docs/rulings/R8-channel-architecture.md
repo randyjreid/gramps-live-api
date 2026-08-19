@@ -146,13 +146,55 @@ separate writer survivable. **It no longer needs that job.**
 
 ## Falsifiers
 
-Any one of these falsifies the ruling and it is re-opened:
+Any one of these falsifies the ruling and it is re-opened. **Two are discharged by measurement;
+three are not measured and are open.**
 
-- `load_on_reg` does not fire on the AIO build.
-- Both `http.server` and raw `socket` are absent from the frozen stdlib.
+### Measured: the AIO probe
+
+A `GENERAL` plugin with `load_on_reg = True` was installed into the user plugin directory and the
+**Gramps AIO CLI** was run with `-L` (list plugins), **no tree opened**. The hook fired inside the
+AIO's own frozen interpreter and printed:
+
+```
+python=3.14.4 (main, Apr 11 2026) [MINGW GCC 15.2.0 64 bit (AMD64)]
+uistate=False
+http.server=OK  socketserver=OK  socket=OK  ssl=OK
+json=OK  secrets=OK  threading=OK  hmac=OK
+GLib=OK
+```
+
+**No `lock` file was created** by the run, checked against a baseline taken before it. Listing plugins
+does not open a tree, which is the whole point of the route: the hook is reachable without touching
+anyone's data.
+
+**⛔ Discharged — these two cannot falsify the ruling any more:**
+
+- ~~`load_on_reg` does not fire on the AIO build.~~ **It fired.**
+- ~~Both `http.server` and raw `socket` are absent from the frozen stdlib.~~ **Both are present**, and
+  so are `socketserver`, `ssl`, `secrets`, `hmac`, `threading` and `GLib` — every import the host
+  needs.
+
+**⚠️ Still open — these three need a running GUI with a tree loaded, and none of them is measured:**
+
 - `GLib.idle_add` callbacks do not run while a Gramps modal dialog holds a nested main loop.
 - A `DbTxn` write from `idle_add` does not refresh the Gramps UI.
 - A single-person read round trip through the main-thread hop exceeds **~2 s**.
+
+**The probe was a CLI run. It says nothing about any of the three**, which are exactly the properties
+the design rests on at runtime. Measuring them needs a GUI session and is owed before the host is
+built on.
+
+### ⚠️ Two things the probe established that this ruling did not anticipate
+
+1. **The AIO ships Python 3.14.4.** This repository targets `py310` and CI runs **3.10, 3.11 and
+   3.12**. So the host plugin's source **must stay 3.10-compatible** — it is linted and typed against
+   that floor — **and will execute on 3.14, an interpreter CI never runs.** Neither end of that range
+   is optional and the gap between them is untested by construction. Treat any 3.11+ syntax or any
+   behaviour that moved between 3.12 and 3.14 as a defect the gates cannot catch.
+2. **`uistate` was `None` and no tree was open** — that is what the `uistate=False` line above
+   reports. It is the condition this ruling predicted in *Why `load_on_reg`, not a gramplet*: the hook fires
+   unconditionally at startup, before any UI state exists and with `dbstate.db` a `DummyDb`. **Predicted,
+   and now measured.**
 
 ---
 

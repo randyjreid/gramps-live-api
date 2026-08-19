@@ -291,7 +291,7 @@ nobody told you.
 | --- | --- |
 | `is NOT blessed for writing by hand` | the sentinel file is not in that tree's directory |
 | `the open database is not the copy this token authorises` | the tree Gramps opened is not the one that was blessed |
-| `locked` | Gramps has that tree open. Close it — we never break Gramps' lock, and that is the one-writer rail |
+| `locked` | Gramps has that tree open. Close it — we never break Gramps' lock, and only one process ever writes a tree |
 | `the reference's handle names a different object` | the handle and the Gramps ID name two different people |
 | `the approved operation is not this operation` | the operation that reached the write is not the one you approved |
 | `printed no GRAMPS-LIVE-API-RESULT line` | the Gramps run did not complete. Its own error output is printed underneath |
@@ -300,3 +300,19 @@ That last one is worth knowing about: **the exit code of a Gramps run tells you 
 launcher refuses to start by exiting zero, and it catches and logs any exception a tool raises and
 then exits normally. So this reads a single line of result from the run's output and treats its
 absence as failure — which is the only reading that is right in both of those cases.
+
+> ⚠️ **Why `locked` stops us, when the lock itself forbids nothing.** Gramps' lock is **advisory**: a
+> text file holding one line of `user@host`, with no PID and no `flock`, and Gramps writes it on open
+> **without ever checking whether one is already there**. A second process can open the same tree and
+> SQLite will let it. So the lock is not what keeps one writer — it is only the signal that another
+> process is holding the tree.
+>
+> **What actually makes a second writer unsafe is underneath it.** Gramps reads every Gramps ID
+> counter into the memory of the process that opened the tree and writes them back **only when that
+> process closes**. Two processes are therefore last-writer-wins on those counters: the second one to
+> close overwrites what the first recorded, and the next ID Gramps issues **collides** — silent
+> duplicate Gramps IDs, with no SQLite error to notice, because row locking says nothing about a value
+> cached in another process's heap.
+>
+> **The policy does not change: we never touch a lock file, and we never write a tree Gramps has
+> open.** Only the reason does.
