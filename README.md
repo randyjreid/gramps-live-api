@@ -1,134 +1,133 @@
 # gramps-live-api
 
-A loopback HTTP API over a **live, already-open Gramps family tree**, plus a thin MCP client so an
-assistant can read and eventually propose changes to that tree.
+An agent-assisted way to put genealogical facts into a **Gramps** family tree, with a human
+approving every write. Single-user, on the owner's own machine.
 
-The distinction that matters: this is not a tool that opens a tree file and parses it. It is an
-addon that runs *inside* a Gramps process you already have open, and serves the tree as Gramps
-itself currently sees it.
+**What works today:** a note onto a person — from a terminal, or by asking an agent and then typing
+`y` at a console window the agent cannot reach.
 
-## Why in-process
+⚠️ **Both write into a copy of the tree blessed by hand, and both read a snapshot export. Nothing
+has ever been written to a real family tree.**
 
-A Gramps tree is a live database with a single owning process. Talking to it from outside means
-either parsing an export -- which is a stale copy the moment it is written -- or opening the same
-database a second time, which risks lock contention and, on a write, corruption.
+**Where it is going** is one sentence, the owner's own:
 
-So the API runs inside Gramps and borrows **Gramps' own database handle**:
+> *"I photograph or transcribe a census record. I want an agent to read it, work out what it says
+> about people in my tree, work out what is already recorded and what is not, and make all the
+> necessary updates — new people, events, places, the source, the citation, the image attached — as
+> ONE thing I review and approve, not twenty."*
 
-- **One writer.** Every change goes through the handle Gramps is already using, inside Gramps'
-  own transaction and undo machinery. There is never a second process writing the same tree.
-- **No staleness.** A read reflects the tree as of now, including edits made in the UI a second
-  ago and not yet saved anywhere.
-- **Gramps' own rules.** Validation, referential integrity and undo are Gramps', not a
-  reimplementation that drifts from it.
+The route from here to there, and what is a plan rather than a feature, is
+[`docs/roadmap.md`](docs/roadmap.md).
 
-The API binds to loopback only. Nothing about this design is intended to be reachable from another
-machine.
+## What works today
 
-## Status
+Two slices. Each has a page with the exact steps; this is enough to tell whether the click is worth
+it. Setup is Windows PowerShell, and every command is run from a checkout.
 
-**Phase 1 of 8 -- `core/schema`** is complete: the operation model, its validation and its preview,
-on pure unit tests.
+**Slice 1 — a note onto a person, from the terminal.** [`docs/using.md`](docs/using.md). You write
+the note as a JSON file; `preview` shows the one sentence that would be written; `apply` shows it
+again and asks; `y` writes it through Gramps' own plugin door inside a `DbTxn`, and a second, fresh
+Gramps process goes and reads it back. Then you open the copy in Gramps and find the note — that,
+and not the exit code, is the verification.
 
-**Slice 1 adds the other half of one sentence.** A validated, previewed, human-approved `add_note`
-now becomes a note attached to a person in a Gramps tree you can then open and look at. It is one
-interactive command, it writes only into a copy blessed by hand, and it is the first thing here that
-writes anything at all. See `docs/using.md`.
+**Slice 2 — the same write, with an agent in front of it.**
+[`docs/slice2-mcp.md`](docs/slice2-mcp.md). Three MCP tools — `list_people`, `propose_note`,
+`approve` — registered with `claude mcp add`. The operation never travels through the agent:
+`propose_note` files it server-side and returns only an id, the sentence you will be shown, and a
+digest; `approve` takes only an id and a digest, and opens a **console window the agent cannot type
+in**. Your yes in the chat is a courtesy; the `y` in that window is the approval. The agent is never
+told the outcome — not written, not declined, not failed.
 
-Two things follow, and both are load-bearing:
+## The honest status
 
-- **`src/` still imports no `gramps` and no `gi`.** The two files that must are a top-level
-  `gramps_plugin/`, outside the package and never imported by it — Gramps loads them, we do not.
-  That is the second recorded exception in `CONTRIBUTING.md`, and it is what keeps the core testable
-  without Gramps.
-- **CI cannot see the write.** The runners have no Gramps, so the round-trip test skips there, by
-  name, in the log. **Green CI is not evidence slice 1 works** — opening the copy and finding the
-  note is.
-
-**Slice 2 puts an agent in front of that sentence, and a console in front of the agent.** Three MCP
-tools — `list_people`, `propose_note`, `approve` — replace the manual handle hunt slice 1's own
-author declined to perform on demo day (#64). The operation never travels through the agent, and
-`approve` opens a **console window the agent cannot type in**: your yes in the chat is a courtesy,
-and the `y` in that window is the approval. See `docs/slice2-mcp.md`.
-
-⚠️ **Personal data now reaches a model by design, and that is a ruling rather than a side effect.**
-It is bounded by the tree's own `priv="1"` flag — a private person is neither listed nor accepted as
-a target — and by a required search term and a result cap. The residual is stated plainly in
-`docs/slice2-mcp.md`: **the names and note text of non-private people enter a model's context.**
-
-There is still no HTTP server and no endpoint of any kind. The MCP server speaks **stdio only**.
-
-**The official SDK is an optional extra, not a project dependency.** The core keeps
-`dependencies = []` and runs on the standard library alone; installing the `mcp` extra brings the SDK
-and — measured, on this machine — **29 packages behind it**, including an HTTP stack this project uses
-none of. CI runs the core tests dependency-free and the MCP tests with the extra installed, and each
-leg proves its own half rather than being trusted about it. What it costs, why the SDK anyway, and why
-a telemetry package in that list does not mean this project phones home: `docs/slice2-mcp.md`.
+- **Both demos end in a copy.** Every write goes into a tree carrying a `.gramps-live-api-copy`
+  sentinel file you created by hand. There is no flag and no config key that overrides it, so the
+  live tree is unwritable by construction.
+- **Reads are a snapshot, not the database.** `list_people` reads a Gramps XML export you produced
+  by hand. It cannot see its own writes until you export again
+  ([#77](https://github.com/randyjreid/gramps-live-api/issues/77)), and a `priv="1"` flag set
+  *after* the export was taken would be a privacy fail-open — which is why `check` **fails** rather
+  than warns on a stale export.
+- **One writable operation type** (`add_note`), one target type (person), one operation per
+  approval. Everything that looks restrictive is a named refusal with its widening point recorded.
+- **No HTTP server and no endpoint of any kind.** The MCP server speaks **stdio** only.
+- **The core has `dependencies = []`** and runs on the standard library alone. The official MCP SDK
+  is an optional extra — installing it brings 27–30 packages behind it, measured, including an HTTP
+  stack this project uses none of. What that costs and why the SDK anyway:
+  [`docs/slice2-mcp.md`](docs/slice2-mcp.md).
 
 ```sh
 python -m pip install -e ".[mcp]"     # only if you want the MCP server
 ```
 
-## Roadmap
+## Where it is going
 
-Provisional beyond the current phase; the ones after it are specified as they are reached.
+Named by the demo each slice has to perform. **Every one of these is a plan, not a feature**, and
+there are no dates because none exist.
 
-**When this table and the [milestones](https://github.com/randyjreid/gramps-live-api/milestones)
-disagree, the milestones are the authority.** This table was stale in all eight rows once already,
-and the point of saying where the answer lives is that the next drift is resolved by looking rather
-than re-argued.
+- **3 — *"My tree came back from a file."*** A backup taken and restored into Gramps, verified by
+  the owner. It depends on nothing and is startable now; slice 4 depends on it.
+- **4 — *"My real tree."*** Graduation off the blessed copy. ⚠️ Gated on a ruling, not on work:
+  every door onto a tree Gramps holds open is currently closed, so this is a reversal of a standing
+  decision rather than a demo.
+- **4½ — *"Two notes, one console, one yes."*** The batch spine — two notes, one transaction, one
+  approval. This is where *"not twenty"* in the sentence above lives, and building operation types
+  before it is the single most expensive mistake available.
+- **Then**, as a pool of specified work rather than a schedule: a read surface the agent can
+  question, sources and citations, events and dates, people and relationships, analytics, media,
+  matching — and finally the census demo itself.
 
-| Phase | Milestone | What it adds |
-| --- | --- | --- |
-| 0 | Scaffold | Repo, GPL-2.0, `.gitignore` in the first commit, `pyproject`, ruff/mypy, CI green on an empty suite |
-| 1 | core/schema | Operation model and validation. Pure unit tests. Gramps' `Date` model used directly, conditional on an import check passing on 3.10/3.11/3.12 |
-| 2 | Backup mechanism | How a pre-batch backup is produced from inside a running Gramps. **No write ENDPOINT ships before this** — see the ruling below |
-| 3 | core/apply | `DbTxn` writes. Integration tests assert reference backlink integrity after every operation |
-| 4 | core/query | Read helpers over a seeded synthetic tree |
-| 5 | bridge/server | Loopback HTTP with token auth and the four endpoints. Tests against a stub core |
-| 6 | gramplet | GTK shell and `GLib.idle_add` marshalling. Manual verification checklist; not CI-testable |
-| 7 | mcp | stdio MCP client, `claude mcp add`, full end-to-end verification against the live tree |
+[`docs/roadmap.md`](docs/roadmap.md) carries the full version: what each slice settles, what it
+releases, the six rulings the owner still owes and the four measurements nobody has taken. The
+eight-phase milestone list this page used to carry is superseded by those slices; retiring the
+milestones themselves is one of the rulings owed.
 
-### Recorded ruling: slice 1 writes, and Phase 2 is still required
+## Running the gates
 
-Phase 2 above used to read *"No write endpoint ships before this"*, and slice 1 — which adds
-`core/apply` and a command that writes a note into a tree — reached it first. **The ruling is that
-this is not the thing that row forbids, and the row now says so rather than being quietly
-overtaken.**
+With `".[dev,mcp]"` installed, from the checkout root:
 
-Slice 1 ships **no endpoint**: no HTTP, no MCP, no unattended path, nothing that runs without a
-person typing it. It writes only into a copy the owner has blessed by hand with a sentinel file
-inside the tree directory, refuses every other tree including the live one, and writes an `fsync`'d
-undo record before the transaction opens — aborting the whole operation if that record cannot be
-written.
+```sh
+ruff check .
+ruff format --check .
+mypy src
+pytest -rs
+```
 
-**What that undo record is not is a backup.** It makes one write reversible by hand. The Phase 2
-backup mechanism remains in scope, remains unbuilt, and remains **required before any write
-endpoint ships**. See `docs/using.md`.
+`-rs` names every skipped test and its reason, and that matters here: a skip is this suite's answer
+to a platform it cannot observe, and an unseen skip reads exactly like a pass. `CONTRIBUTING.md` has
+the fifth gate — the privacy guard — and how to run it over a push.
+
+CI runs those on Python 3.10, 3.11 and 3.12 in two legs over the same tree: a **core** leg that
+installs `.[dev]` and refuses to continue if `mcp` is importable or if this distribution declares a
+single unconditional requirement, and an **mcp** leg that installs the extra and refuses a run whose
+MCP tests did not actually execute. A third job runs the guard.
+
+⚠️ **Green CI is not evidence the write path works.** The runners have no Gramps, no `gi` and no
+tree, so the write, the plugin registration and the read-back cannot be observed there at all — those
+tests skip, by name, in the log. That is the stated cost of going through Gramps' own door rather
+than parsing a file, and it is why every demo above ends with you looking at the tree.
+
+It is also why `src/` imports no `gramps` and no `gi`. The two files that must are a top-level
+`gramps_plugin/`, outside the package and never imported by it — Gramps loads them, we do not.
+`CONTRIBUTING.md` records that as an exception and why it exists.
 
 ## Privacy
 
 This repository is public. The family tree it is built for is not, and no part of it will ever be
 committed here. A guard (`src/gramps_live_api/core/pii_guard.py`) fails the build on absolute
-filesystem paths that identify a person or a machine, and on genealogy data — under any filename for
-the formats it has a property for, and by refusing any file type it cannot prove safe for the rest.
-That distinction is deliberate and `CONTRIBUTING.md` records what it does and does not reach.
+filesystem paths that identify a person or a machine, and on genealogy data — refusing outright any
+file type it cannot prove safe. Three things about it are deliberate: it scans **what Git contains**
+rather than the working tree, because a push publishes every commit it holds; it **fails closed**,
+because it cannot possibly know every genealogy format that exists; and in CI it **redacts what it
+matched**, because a build log is as public as the repository. It does not scan for credentials —
+`CONTRIBUTING.md` records why, and what would reopen the question. Read it before adding a fixture
+or a new file type.
 
-It does **not** scan for credentials. That was a third property, it failed four times, and this
-repository's risk is personal data rather than secrets — see `CONTRIBUTING.md` for the reasoning and
-for what would reopen the question.
-
-Three things about it are deliberate:
-
-- **It scans what Git contains, not the working tree.** A push publishes every commit in it, so
-  content added in one commit and deleted in the next is still reachable, and still a finding.
-- **It fails closed.** Content passes only if it can be positively classified as safe. A file type
-  nobody has vouched for is a build failure, not a silent pass -- because the guard cannot possibly
-  know every genealogy format that exists.
-- **It does not republish what it finds.** In CI the matched value is redacted; a build log is as
-  public as the repository. At a terminal it is shown, because you already have the file.
-
-See `CONTRIBUTING.md` before adding fixtures or a new file type.
+Separately, and **by design**: slice 2 puts the names and note text of non-private people into a
+model's context. That is bounded by the tree's own `priv="1"` flag — a private person is neither
+listed nor accepted as a target — by a required search term, and by a result cap. It is not bounded
+by anything else, and text that has reached a model's context has reached it. The residual is stated
+plainly in [`docs/slice2-mcp.md`](docs/slice2-mcp.md).
 
 ## Licence
 
