@@ -42,8 +42,9 @@ the approval taken as a `y` at a console the agent holds no handle on and learns
 into a tree the owner blessed by hand with a `.gramps-live-api-copy` sentinel file; the live tree is
 unwritable by construction, and **nothing has ever been written to the owner's real genealogy.**
 
-⚠️ **And both read a snapshot.** `list_people` reads a Gramps XML export the owner produced by hand,
-not the database. That has two costs already recorded: the tool cannot see its own writes until the
+⚠️ **And slice 2 reads a snapshot** — slice 1's `preview`, `apply` and `check` read no export at all,
+and its read-back comes from the written tree. `list_people` reads a Gramps XML export the owner
+produced by hand, not the database. That has two costs already recorded: the tool cannot see its own writes until the
 owner re-exports from inside Gramps (#77), and a `priv="1"` flag set *after* the export was taken is
 a **privacy fail-open** — which is why `check` fails rather than warns on a stale export.
 
@@ -106,11 +107,12 @@ a real safety gain, and worth claiming.
 
 - ⚠️ **The read mechanism (ruling R2).** *"Ask Claude about them"* is a read of the live tree **while
   Gramps holds it open**, and **every door that exists is closed to it**: the CLI tool door refuses a
-  locked tree by design and bans `--force-unlock` "ever"; the in-process channel is owner-ruled dead
-  (Phase 5); a second-process open of the database is what the README's "Why in-process" section
-  exists to forbid. **This slice is "resurrect the live architecture" wearing a demo's clothes**, and
-  it must be put to the owner as a reversal of a standing ruling with the door named — not implied by
-  a demo sentence.
+  locked tree by design and bans `--force-unlock` "ever"; the in-process channel went down with
+  Phase 5, on a reason that covers the endpoint half and **not** this one — see that section below;
+  a second-process open of a tree Gramps holds is what the one-writer rail forbids (`docs/using.md`:
+  *"we never break Gramps' lock"*). **This slice is "resurrect the live architecture" wearing a
+  demo's clothes**, and it must be put to the owner as a reversal of a standing ruling with the door
+  named — not implied by a demo sentence.
 - ⚠️ **The guarantee downgrade (part of ruling R4).** The sentinel makes the live tree unwritable *by
   construction*; the offered replacement, backup-taken-first, is **weaker in kind, not equivalent**.
   *Unwritable-by-construction* is a guarantee about what can happen; *recoverable-after* is a
@@ -331,7 +333,7 @@ roadmap.
 | **#66** — the 32,767-character environment block | **4½** | The batch is what breaks the cap. Whether it *must* land there or can trail is measurement **M2**. |
 | **#73** — `_write_and_verify` serves two callers | **4½** | Answered inside the batch slice's plan gate; the write path is being reshaped anyway. |
 | **#77** — export staleness unsatisfiable by the documented workflow | **4** | Dissolves with the export reader. |
-| **#76** — duplicate eventref handles counted twice | **4**, moot | ⚠️ Conditional on slice 4 **keeping** the export reader. The analysis says it does not — so **moot, not deferred**. |
+| **#76** — duplicate eventref handles counted twice | **4**, moot | ⚠️ Conditional on slice 4 **dropping** the export reader — the defect is in that reader (`core/people.py`), so keeping it **preserves** the defect. The analysis says slice 4 does not keep it — so **moot, not deferred**. |
 | **#64**'s shape, for events | **5a** | Not the filed issue, its recurrence: no read surface returns an event identity, and the Gramps UI shows none. |
 | **#25** — destructive operations | LATER | *"Backup proven in anger."* ⚠️ **Coupled:** the entry holds only as long as backup stays **per-write**. Throttle it to per-session and destructive ops jump the queue, because restore *is* batch undo. |
 | **#53** — a name spelled with ZWNJ cannot be previewed | use-derived | A real name trips the render guard. |
@@ -397,29 +399,41 @@ not happened and is not close** — it is slice 4. The milestone reads as nearly
 
 **This proposal changes no milestone.** Retiring the table is itself a ruling for the owner.
 
-### ⛔ Phase 5 — bridge/server is dead, and here is the reason
+### ⛔ Phase 5 — the endpoint half is dead; the in-process half is not replaced
 
-**Killed: the MCP server does that job in-process.** Phase 5 specified a loopback HTTP endpoint with
-token auth and four routes, hosted inside Gramps. Slice 2 shipped an MCP server speaking **stdio**,
-in the same process as the tools it exposes, with no socket, no token and no HTTP stack reached. The
-bridge has no remaining job.
+**Phase 5 carried two jobs in one milestone, and the kill lands on only one of them.**
 
-⚠️ **Recording that is not the same as recording what killing it cost, and the record has not drawn
-the consequence:**
+**The tool surface is dead, and the MCP server is genuinely why.** Phase 5 specified a loopback HTTP
+endpoint with token auth and four routes. Slice 2 shipped three tools over **stdio**, with no socket,
+no token and no HTTP stack reached. As the way an agent reaches this project, the bridge has no
+remaining job. ⛔ **That half of the owner's ruling stands, and this document does not reopen it.**
+
+⚠️ **But Phase 5's other job was an in-process channel onto a live tree — a process holding Gramps'
+own database handle — and nothing shipped does that job.** What ships is out-of-process at every
+step: the agent host launches `gramps_live_api_mcp` as a **standalone stdio process**;
+`Tools.list_people` reads the **configured export** rather than a database; and `approve` spawns
+**another process again** — a console running `python -m gramps_live_api approve` — for the write.
+A snapshot read taken in a separate process is not the job the bridge was hosted inside Gramps to do.
+
+⭐ **So the reason recorded for the kill covers the endpoint and not the channel, and the channel's
+return is ruling R2** — which is why R2 is a ruling rather than a milestone-hygiene question.
+
+⚠️ **And recording the kill is not the same as recording what it cost:**
 
 1. **Phase 6's gramplet is orphaned.** It existed to **host the bridge** — `GLib.idle_add`
-   marshalling into a loopback endpoint. With the bridge dead, the GTK shell hosts nothing. Either it
-   is dead too and the milestone closes, **or it is quietly the future live-read channel** — and that
-   is ruling **R2**, not a milestone-hygiene question.
+   marshalling into a loopback endpoint. With the endpoint dead, the GTK shell hosts nothing. Either
+   it is dead too and the milestone closes, **or it is quietly the future live-read channel** — and
+   that is ruling **R2** again.
 2. ⭐ **Snapshot reads became the architecture, by consequence rather than by decision.** With no live
    channel, everything downstream — query-before-propose, matching, duplicate detection — gets built
    on a manual export. That is **why slice 4's mechanism is an open ruling rather than an
    implementation detail**: killing Phase 5 did not merely remove a component, it chose a read
    architecture, and nobody ruled on that choice.
-3. **The README's own premise is now false.** Its opening sections still describe an addon that runs
-   *inside* a Gramps process, with no staleness, borrowing Gramps' own database handle. What shipped
-   is the opposite: reads from a manual snapshot export, writes through a one-shot spawned Gramps
-   process. Same stale-roadmap defect as #24, one section higher.
+3. **The README carried the dead premise, and this document is now where it can recur.** Its opening
+   sections described an addon running *inside* a Gramps process, with no staleness, borrowing
+   Gramps' own database handle; it has since been rewritten to say what ships — reads from a manual
+   snapshot export, writes through a one-shot spawned Gramps process. Same stale-roadmap defect as
+   #24, and the fix was to state the architecture rather than the intention.
 
 ---
 
