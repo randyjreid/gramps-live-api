@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from gramps_live_api.host import accessor, httpd, log, mainthread, paths, tokens
+from gramps_live_api.host import accessor, httpd, log, mainthread, paths, status, tokens
 
 THREAD_NAME = "gramps-live-api-host"
 
@@ -88,10 +88,12 @@ def start(
     marshal = mainthread.Marshal(schedule=schedule, timeout=timeout)
     context = httpd.Context(
         token=token,
-        # The ONLY thing this host ever puts on the GTK loop, and it reads two
-        # O(1) values. R8's accepted risk 4 is that long work inside idle_add
-        # blocks that loop; the cap is what gets scheduled.
+        # The two things this host puts on the GTK loop from a request, and both
+        # are one cheap callable. R8's accepted risk 4 is that long work inside
+        # idle_add blocks that loop; the cap is what gets scheduled, so this one
+        # reads two O(1) values and the next fetches exactly one person.
         snapshot=functools.partial(marshal.call, accessor.tree_status),
+        person=functools.partial(_person, marshal),
         note=functools.partial(_note, paths.log_path(directory)),
     )
 
@@ -164,6 +166,23 @@ def database_changed(host: Host, database: Any = None) -> None:
     """
     tree = accessor.tree_status()
     host.note(log.INFO, "database-changed: " + ("a tree is open" if tree.open else "no tree open"))
+
+    # ⛔ REPORT ONLY, for R7. Nothing is written and nothing here depends on
+    # what it says -- see ``accessor.note_connection_shape``. It rides on this
+    # signal because this is the moment a tree becomes open, which is the only
+    # state the question is about, and because this handler already runs on the
+    # main thread the probe requires.
+    accessor.note_connection_shape(host.note)
+
+
+def _person(marshal: mainthread.Marshal, gramps_id: str) -> status.PersonStatus:
+    """One person read, scheduled onto the main thread as one cheap callable.
+
+    ``Marshal.call`` takes work of no arguments, so the Gramps ID is bound here
+    rather than travelling across the boundary as a parameter -- one lookup, no
+    loop and no batch, which is what keeps R8's accepted risk 4 where it was.
+    """
+    return marshal.call(functools.partial(accessor.person_status, gramps_id))
 
 
 def _note(path: Path, level: str, message: str) -> None:
