@@ -263,9 +263,13 @@ says in the same docstring that *"anything that walks people belongs behind a ro
 not have."* **So no person was read, and the quantity the ~2 s budget was written about — the cost of
 the database work on the GTK main thread — does not appear in these numbers at all.**
 
-⭐ **What the measurement does establish, and it is worth keeping:** the transport is cheap. The
-listener, the thread hop and the scheduling round trip cost single-digit milliseconds. Whatever a
-person read costs, it will be dominated by the read and not by the channel.
+⭐ **What the measurement does establish, and it is worth keeping:** the transport works, and its cost
+is now a known number — **1.5 to 3.4 ms across 25 warm calls, and 89.9 ms on the cold first one.**
+That is the baseline a person read would be added to.
+
+⚠️ **It is a baseline, not a bound.** Nothing here says whether the read or the channel would dominate:
+an indexed single-person lookup could land under the 2.2 ms median, and the cold call was 89.9 ms
+rather than single-digit. **That comparison waits on the measurement, like the rest of F3.**
 
 **What would settle it:** time a single-person read end to end through the main-thread hop against the
 ~2 s budget, under the same live-GUI conditions. **Tracked as
