@@ -1,4 +1,4 @@
-"""The listener: one route, four refusals, and nothing that touches the database.
+"""The listener: two routes, four refusals, and nothing that touches the database.
 
 ⚠️ **Every handler method here runs on the HTTP thread.** It reaches the tree
 through ``Context.snapshot``, which is a ``Marshal.call`` -- so the database is
@@ -15,12 +15,19 @@ refuses it if anything ever does.
    shut.
 2. no token, or the wrong one -> **401**. Before the route check, so an
    unauthenticated caller learns nothing about which routes exist.
-3. not ``/health`` -> **404**.
+3. neither route -> **404**.
 4. the main thread did not answer in time -> **503**, never a hung socket.
 
-⛔ **``/health`` is the whole surface.** No ``/people``, no writes. The response
-carries a tree's own name and a count of people and no other text at all, which
-is what keeps this slice unblocked by R3.
+⛔ **Two routes are the whole surface.** No listing, no writes. ``/health``
+carries a tree's own name and a count of people; ``/person`` carries two booleans
+about one Gramps ID the caller already holds. **No other text at all**, which is
+what keeps this slice unblocked by R3.
+
+⭐ **``/person`` answers 200 in all three of its states**, and that is a decision
+rather than laziness. *Does this ID name a person, and may I use them* is
+answered **successfully** whether the answer is yes, no, or *they exist and are
+private* -- and a 404 for "no such person" would collide with refusal 3 above,
+which means *no such route*. Not-found and private are payload states.
 """
 
 from __future__ import annotations
@@ -33,7 +40,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Any, cast
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from gramps_live_api.host import auth, log, mainthread, status
 
@@ -48,6 +55,15 @@ whatever else the owner is running."""
 
 HEALTH_ROUTE = "/health"
 
+PERSON_ROUTE = "/person"
+"""One person, named by the ID the caller already holds. ⛔ Not a listing."""
+
+GRAMPS_ID_PARAMETER = "gramps_id"
+"""⚠️ A query parameter and not a path segment, deliberately. ``urlsplit`` is
+already here and already separates the query from the path, so the ID arrives
+parsed; a path segment would mean this file grew path parsing -- surface the
+route does not need and the one place a traversal-shaped input could matter."""
+
 ORIGIN_REJECTED = "origin-rejected"
 UNAUTHORISED = "unauthorised"
 NO_SUCH_ROUTE = "no-such-route"
@@ -61,6 +77,12 @@ class Context:
 
     token: str
     snapshot: Callable[[], status.TreeStatus]
+    person: Callable[[str], status.PersonStatus]
+    """One Gramps ID in, three states out. Like ``snapshot`` it is a ``Marshal``
+    call, so the fetch happens on the GTK main thread and only the two booleans
+    come back -- **the handler never holds the Person object**, which is what
+    keeps the boundary where the accessor's rules can see it."""
+
     note: Callable[[str, str], None]
 
 
@@ -90,15 +112,19 @@ class HostServer(http.server.HTTPServer):
 
     def __init__(self, address: tuple[str, int], context: Context) -> None:
         self.context = context
-        super().__init__(address, HealthHandler)
+        super().__init__(address, RequestHandler)
 
     def handle_error(self, request: Any, client_address: Any) -> None:
         failure = sys.exc_info()[1]
         self.context.note(log.ERROR, f"the request handler raised {failure!r}")
 
 
-class HealthHandler(http.server.BaseHTTPRequestHandler):
+class RequestHandler(http.server.BaseHTTPRequestHandler):
     """One ``GET``, and refusals for everything else.
+
+    Named for what it is rather than for the first route it carried: it was
+    ``HealthHandler`` while ``/health`` was the only route, and a second route
+    made that name a claim about the surface that is no longer true.
 
     ``protocol_version`` is left at HTTP/1.0, so every response closes its
     connection. Keep-alive on a single-threaded listener means one client holding
@@ -136,12 +162,41 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
             )
             return
 
-        if urlsplit(self.path).path != HEALTH_ROUTE:
-            self._respond(HTTPStatus.NOT_FOUND, {"ok": False, "error": NO_SUCH_ROUTE})
+        target = urlsplit(self.path)
+
+        if target.path == HEALTH_ROUTE:
+            self._answer(HEALTH_ROUTE, "tree", self.context.snapshot, _wire)
             return
 
+        if target.path == PERSON_ROUTE:
+            gramps_id = _requested_id(target.query)
+            self._answer(
+                PERSON_ROUTE,
+                "person",
+                lambda: self.context.person(gramps_id),
+                _person_wire,
+            )
+            return
+
+        self._respond(HTTPStatus.NOT_FOUND, {"ok": False, "error": NO_SUCH_ROUTE})
+
+    def _answer(
+        self,
+        route: str,
+        key: str,
+        work: Callable[[], Any],
+        wire: Callable[[Any], dict[str, Any]],
+    ) -> None:
+        """Cross to the main thread for ``work``, or answer for the two ways it fails.
+
+        ⚠️ **Shared by both routes on purpose.** The two failures below are the
+        ones R8 accepts rather than route-specific handling, so a second copy of
+        them is a second place for one of them to be got wrong -- and the one
+        that would be got wrong is the ``Exception`` arm, whose whole job is to
+        keep a database message off the wire.
+        """
         try:
-            tree = self.context.snapshot()
+            answer = work()
         except mainthread.MainThreadTimeout:
             self._respond(
                 HTTPStatus.SERVICE_UNAVAILABLE,
@@ -152,14 +207,14 @@ class HealthHandler(http.server.BaseHTTPRequestHandler):
             # ⛔ The detail goes to the log on the owner's own machine and NOT
             # into the response: a database error message can quote a value out
             # of the tree, and this slice puts no tree text on the wire.
-            self.context.note(log.ERROR, f"{HEALTH_ROUTE} failed: {failure!r}")
+            self.context.note(log.ERROR, f"{route} failed: {failure!r}")
             self._respond(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 {"ok": False, "error": TREE_READ_FAILED},
             )
             return
 
-        self._respond(HTTPStatus.OK, {"ok": True, "tree": _wire(tree)})
+        self._respond(HTTPStatus.OK, {"ok": True, key: wire(answer)})
 
     def _respond(
         self,
@@ -190,6 +245,38 @@ def _wire(tree: status.TreeStatus) -> dict[str, Any]:
     if not tree.open:
         return {"open": False}
     return {"open": True, "name": tree.name, "people": tree.people}
+
+
+def _person_wire(person: status.PersonStatus) -> dict[str, Any]:
+    """The three states, as the two booleans this slice is allowed to publish.
+
+    ⛔ **No name, no date, no Gramps ID echoed back.** The caller supplied the
+    key; what comes back is only what is true of it, which is what keeps this
+    route inside the same rule ``/health`` sits in and unblocked by R3.
+
+    ⚠️ **``private`` is ABSENT rather than ``false`` when nobody was found**, in
+    the same shape ``_wire`` uses for a closed tree. A ``false`` there would be a
+    claim about the privacy of somebody the tree does not hold -- and ruling 1's
+    second enforcement point is precisely that *no such person* and *that person
+    is private* must not be one answer.
+    """
+    if not person.found:
+        return {"found": False}
+    return {"found": True, "private": person.private}
+
+
+def _requested_id(query: str) -> str:
+    """The ``gramps_id`` the caller asked about, or the empty string.
+
+    ⚠️ **An absent parameter is an ID that names nobody, not a fourth refusal.**
+    *Does this ID name a person* is answered successfully by *no* when there is
+    no ID, which needs no status code and no payload state this route does not
+    already have -- and the lookup still runs, so what is measured is still a
+    read. **A repeated parameter takes the first value**, so one request has one
+    answer whatever a client sends.
+    """
+    values = parse_qs(query).get(GRAMPS_ID_PARAMETER, [])
+    return values[0] if values else ""
 
 
 def build(context: Context, *, port: int = EPHEMERAL_PORT) -> HostServer:

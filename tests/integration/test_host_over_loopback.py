@@ -21,20 +21,38 @@ Those are the owner's machine. ``docs/slice-a-demo.md`` says what to run there.
 
 from __future__ import annotations
 
+import json
+import sqlite3
 from pathlib import Path
+from urllib.parse import urlencode
 
 from gramps_live_api.host import httpd, log, paths, service
 from tests.fixtures.host import (
     AngryDatabase,
+    AngryPersonDatabase,
+    ConnectedDatabase,
     DummyDatabase,
     FakeDatabase,
     FakeDbState,
+    FakePerson,
     ask,
     running_host,
 )
 
 A_TREE = "an-invented-tree"
 """Invented, like every fixture here. CONTRIBUTING's fixture rule."""
+
+A_PERSON = "I0042"
+A_PRIVATE_PERSON = "I0043"
+NOBODY_AT_ALL = "I9999"
+"""Three invented Gramps IDs. **No real ID and no name anywhere in this file** --
+the person route answers about an ID the caller already holds and returns no name
+at all, so a fixture never needs one."""
+
+
+def person_route(gramps_id: str) -> str:
+    """``/person?gramps_id=<id>``, with the id escaped the way a client would."""
+    return f"{httpd.PERSON_ROUTE}?{urlencode({httpd.GRAMPS_ID_PARAMETER: gramps_id})}"
 
 
 def test_step_one_a_valid_token_gets_the_open_trees_name_and_person_count(
@@ -161,6 +179,228 @@ def test_a_query_string_does_not_hide_the_route(tmp_path: Path) -> None:
         answer = ask(host, loop, route=f"{httpd.HEALTH_ROUTE}?anything=1")
 
     assert answer.status == 200
+
+
+# ---------------------------------------------------------------------------
+# The person probe -- A2. Ruling 1's SECOND enforcement point, and the read F3
+# is about. Three states, one status code, and no tree text in any of them.
+# ---------------------------------------------------------------------------
+
+
+def test_a_person_who_is_not_private_is_found_and_usable(tmp_path: Path) -> None:
+    """State one, and the state the F3 measurement is taken in.
+
+    The assertion on ``person_lookups`` is the load-bearing half: it says the
+    database was ASKED for the person, which is the difference between timing a
+    read and timing the hop around one.
+    """
+    person = FakePerson(A_PERSON)
+    database = FakeDatabase(A_TREE, people=2, persons=[person])
+
+    with running_host(tmp_path, FakeDbState(db=database)) as (host, loop):
+        answer = ask(host, loop, route=person_route(A_PERSON))
+
+    assert answer.status == 200
+    assert answer.body == {"ok": True, "person": {"found": True, "private": False}}
+    assert database.person_lookups == [A_PERSON], (
+        "the route answered without fetching the person, so it measures the hop "
+        "and not the read -- which is the one defect A2 exists not to repeat"
+    )
+    assert person.privacy_reads >= 1, (
+        "the privacy flag did not come off the fetched object, so the answer is "
+        "not derived from the person at all"
+    )
+
+
+def test_a_private_person_is_refused_by_name_rather_than_reported_absent(
+    tmp_path: Path,
+) -> None:
+    """State two -- ruling 1's second enforcement point, on the wire.
+
+    ⭐ **The comparison is the test, not the payload.** *No such person* and
+    *that person is private* have to be tellable apart, which is exactly what
+    ``TargetIsPrivate`` refuses to collapse one level down; asserting the private
+    payload alone would pass even if the two answers were identical.
+    """
+    database = FakeDatabase(A_TREE, people=2, persons=[FakePerson(A_PRIVATE_PERSON, private=True)])
+
+    with running_host(tmp_path, FakeDbState(db=database)) as (host, loop):
+        private = ask(host, loop, route=person_route(A_PRIVATE_PERSON))
+        absent = ask(host, loop, route=person_route(NOBODY_AT_ALL))
+
+    assert private.status == 200
+    assert private.body == {"ok": True, "person": {"found": True, "private": True}}
+    assert private.body != absent.body, (
+        "a private person and a person who is not there gave the same answer, so "
+        "the caller cannot tell 'no such person' from 'that person is private'"
+    )
+
+
+def test_an_id_that_names_nobody_is_an_ordinary_answer_and_not_an_error(
+    tmp_path: Path,
+) -> None:
+    """State three. A 404 would collide with the listener's own 'no such route'."""
+    database = FakeDatabase(A_TREE, people=2, persons=[FakePerson(A_PERSON)])
+
+    with running_host(tmp_path, FakeDbState(db=database)) as (host, loop):
+        answer = ask(host, loop, route=person_route(NOBODY_AT_ALL))
+
+    assert answer.status == 200
+    assert answer.body == {"ok": True, "person": {"found": False}}
+    assert database.person_lookups == [NOBODY_AT_ALL]
+
+
+def test_the_person_route_puts_no_tree_text_on_the_wire(tmp_path: Path) -> None:
+    """⛔ The rule the whole slice is unblocked by: two booleans and nothing else.
+
+    R3 -- the injection widening -- is still owed, so the response echoes neither
+    the tree's name nor the Gramps ID it was asked about. The exact-equality
+    assertions above already forbid a third key; this says the same thing about
+    the values, and names the strings that would be the tempting ones to add.
+    """
+    database = FakeDatabase(A_TREE, people=2, persons=[FakePerson(A_PERSON)])
+
+    with running_host(tmp_path, FakeDbState(db=database)) as (host, loop):
+        answer = ask(host, loop, route=person_route(A_PERSON))
+
+    written = json.dumps(answer.body)
+    assert A_TREE not in written, "the tree's own name reached a route that may not carry it"
+    assert A_PERSON not in written, "the Gramps ID was echoed back, which is free text on the wire"
+    assert all(isinstance(value, bool) for value in answer.body["person"].values()), (
+        "the person payload carries something that is not a boolean"
+    )
+
+
+def test_a_closed_tree_answers_the_person_route_without_reaching_into_it(
+    tmp_path: Path,
+) -> None:
+    """The state ``load_on_reg`` starts in, so it is ORDINARY rather than a fault.
+
+    ⚠️ **The closed-database fake has no person reader at all**, so a 200 here is
+    evidence the ``is_open`` check ran -- exactly as its raising name reader is
+    evidence for ``/health``. Had the check been missing, this would be a 500.
+
+    ⚠️ **What this ANSWERS is a decision the brief did not make**, and it is
+    reported as such: a closed tree is answered ``found: false``, on the ground
+    that no Gramps ID names a person in a tree that is not open, and that
+    ``/health`` is the route that says whether one is. Nothing here claims the
+    caller can tell the two apart from this payload alone.
+    """
+    dbstate = FakeDbState(db=FakeDatabase(A_TREE, people=2, persons=[FakePerson(A_PERSON)]))
+
+    with running_host(tmp_path, dbstate) as (host, loop):
+        assert ask(host, loop, route=person_route(A_PERSON)).body["person"]["found"] is True
+
+        dbstate.db = DummyDatabase()
+        answer = ask(host, loop, route=person_route(A_PERSON))
+
+    assert answer.status == 200
+    assert answer.body == {"ok": True, "person": {"found": False}}
+
+
+def test_a_person_read_that_raises_is_a_500_carrying_no_tree_text(tmp_path: Path) -> None:
+    """The same rule ``/health`` holds: a database message never reaches the wire."""
+    with running_host(tmp_path, FakeDbState(db=AngryPersonDatabase())) as (host, loop):
+        answer = ask(host, loop, route=person_route(A_PERSON))
+        written = paths.log_path(host.directory).read_text(encoding="utf-8")
+
+    assert answer.status == 500
+    assert answer.body == {"ok": False, "error": httpd.TREE_READ_FAILED}
+    assert "SQLite objects" not in json.dumps(answer.body)
+    assert log.ERROR in written, "nothing recorded the failure where the owner could find it"
+    assert httpd.PERSON_ROUTE in written, "the log line does not say which route failed"
+
+
+def test_a_blocked_main_thread_makes_the_person_route_a_503_too(tmp_path: Path) -> None:
+    """R8's accepted risk 4 reaches the new route as well, and by the same mechanism."""
+    database = FakeDatabase(A_TREE, people=2, persons=[FakePerson(A_PERSON)])
+
+    with running_host(tmp_path, FakeDbState(db=database), timeout=0.2) as (host, loop):
+        answer = ask(host, loop, route=person_route(A_PERSON), drain=False)
+
+    assert answer.status == 503
+    assert answer.body == {"ok": False, "error": httpd.MAIN_THREAD_TIMEOUT}
+
+
+def test_the_person_route_sits_behind_the_token_and_the_origin_rule(tmp_path: Path) -> None:
+    """The new route adds no auth path, which is the reason A2 is a LIGHT-tier slice.
+
+    Both refusals are checked on the NEW route rather than inferred from
+    ``/health``: the ordering is what makes a stolen token useless to a page the
+    owner has open, and a route that slotted in ahead of either check would be
+    the one place it did not hold.
+    """
+    database = FakeDatabase(A_TREE, people=2, persons=[FakePerson(A_PERSON)])
+
+    with running_host(tmp_path, FakeDbState(db=database)) as (host, loop):
+        anonymous = ask(host, loop, route=person_route(A_PERSON), token="not-the-token")
+        from_a_page = ask(
+            host,
+            loop,
+            route=person_route(A_PERSON),
+            origin="https://a-page-the-owner-has-open.example",
+        )
+
+    assert anonymous.status == 401
+    assert from_a_page.status == 403
+    assert database.person_lookups == [], (
+        "a refused request still read a person out of the tree, so the refusal "
+        "happened after the work rather than before it"
+    )
+
+
+def test_the_person_route_with_no_gramps_id_names_nobody(tmp_path: Path) -> None:
+    """An absent parameter is an ID that names nobody, not a new refusal.
+
+    Answering *"does this ID name a person"* with 200 ``found: false`` needs no
+    fourth status code and no fourth payload state -- and the lookup still runs,
+    so what is measured is still a read.
+    """
+    database = FakeDatabase(A_TREE, people=2, persons=[FakePerson(A_PERSON)])
+
+    with running_host(tmp_path, FakeDbState(db=database)) as (host, loop):
+        answer = ask(host, loop, route=httpd.PERSON_ROUTE)
+
+    assert answer.status == 200
+    assert answer.body == {"ok": True, "person": {"found": False}}
+    assert database.person_lookups == [""]
+
+
+# ---------------------------------------------------------------------------
+# The fenced extra: R7's connection-reachability probe. REPORT ONLY.
+# ---------------------------------------------------------------------------
+
+
+def test_the_connection_probe_names_a_sqlite_connection_it_can_reach(tmp_path: Path) -> None:
+    """R7 asks whether a process holding the tree can reach the connection. One line, no more.
+
+    ⛔ **Nothing is written and nothing depends on the answer.** A real
+    ``sqlite3.Connection`` is used rather than a stand-in because the whole
+    question is whether the object at the end of the walk *is* one.
+    """
+    connection = sqlite3.connect(":memory:")
+    try:
+        database = ConnectedDatabase(A_TREE, people=1, connection=connection)
+        with running_host(tmp_path, FakeDbState(db=database)) as (host, loop):
+            service.database_changed(host)
+            written = paths.log_path(host.directory).read_text(encoding="utf-8")
+    finally:
+        connection.close()
+
+    assert "connection probe:" in written
+    assert "sqlite3.Connection=True" in written
+
+
+def test_the_connection_probe_reports_finding_nothing_rather_than_raising(
+    tmp_path: Path,
+) -> None:
+    """Finding nothing is a valid result, and A2 ships either way."""
+    with running_host(tmp_path, FakeDbState(db=FakeDatabase(A_TREE, 1))) as (host, loop):
+        service.database_changed(host)
+        written = paths.log_path(host.directory).read_text(encoding="utf-8")
+
+    assert "connection probe:" in written
+    assert "sqlite3.Connection=True" not in written
 
 
 def test_the_listener_is_on_loopback_and_writes_its_port_beside_the_token(
