@@ -38,7 +38,17 @@ comparison that operates on a shortened rendering is not a comparison of what wi
 ### 1. D does nothing for egress
 
 **Text that makes the agent emit tree contents is a read-side attack.** Nothing is written, so no
-dialog opens, so the write-side bound never engages. **The only egress bound is `priv`.**
+dialog opens, so the write-side bound never engages.
+
+**Three egress bounds exist, and all three live in `src/gramps_live_api/core/people.py`:**
+
+1. **`priv`** — which people may be returned at all;
+2. **the required search term** — there is no way to list everybody. `SearchTermRequired` is
+   documented as *"a privacy control rather than an ergonomic one"*, because *list everyone* would
+   put the whole tree into a model's context in one call;
+3. **`RESULT_CAP = 25`** — how many one call returns, documented as *"a cap rather than a page"*.
+
+⚠️ **None of the three exists in `src/gramps_live_api/host/`**, which is what P2 below is about.
 
 ### 2. Live reads open an interval that did not exist before
 
@@ -85,12 +95,6 @@ implementation can honour `priv` perfectly, return every non-private match, and 
 precondition written as *"carry the privacy flag"* — while a broad search term walks an unbounded
 number of records into a model's context. **A bound on WHO may be returned is not a bound on HOW
 MANY.**
-
-⚠️ **One inconsistency inherited from the brief, flagged rather than silently harmonised.** The
-first accepted residual below says *"the only egress bound is `priv`"*, which is true of what
-**this ruling** supplies and is not true of what the export reader implements. **Read residual 1 as
-scoping membership and this precondition as scoping volume.** If that reading is wrong, the residual
-is the half to correct, and it is the owner's.
 
 ## Accepted risks
 
