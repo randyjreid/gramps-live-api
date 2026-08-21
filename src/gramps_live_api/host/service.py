@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from gramps_live_api.host import accessor, httpd, log, mainthread, paths, status, tokens
+from gramps_live_api.host import accessor, document, httpd, log, mainthread, paths, status, tokens
 
 THREAD_NAME = "gramps-live-api-host"
 
@@ -64,6 +64,7 @@ def start(
     platform: str = sys.platform,
     timeout: float = mainthread.DEFAULT_TIMEOUT_SECONDS,
     run: Callable[[list[str]], tokens.CommandResult] | None = None,
+    present: Callable[[dict[str, Any]], None] | None = None,
 ) -> Host:
     """Mint a token, bind loopback, serve on a daemon thread, and write it all down.
 
@@ -95,6 +96,7 @@ def start(
         snapshot=functools.partial(marshal.call, accessor.tree_status),
         person=functools.partial(_person, marshal),
         note=functools.partial(_note, paths.log_path(directory)),
+        write_document=functools.partial(_document, marshal, schedule, present),
     )
 
     server = httpd.build(context)
@@ -121,6 +123,7 @@ def start_and_report(
     platform: str = sys.platform,
     timeout: float = mainthread.DEFAULT_TIMEOUT_SECONDS,
     run: Callable[[list[str]], tokens.CommandResult] | None = None,
+    present: Callable[[dict[str, Any]], None] | None = None,
 ) -> Host | None:
     """``start``, with the failure written down instead of thrown into a hook that eats it.
 
@@ -141,6 +144,7 @@ def start_and_report(
             platform=platform,
             timeout=timeout,
             run=run,
+            present=present,
         )
     except Exception as failure:
         log.record(
@@ -173,6 +177,40 @@ def database_changed(host: Host, database: Any = None) -> None:
     # state the question is about, and because this handler already runs on the
     # main thread the probe requires.
     accessor.note_connection_shape(host.note)
+
+
+def _document(
+    marshal: mainthread.Marshal,
+    schedule: Callable[[Callable[[], bool]], Any],
+    present: Callable[[dict[str, Any]], None] | None,
+    graph: dict[str, Any],
+) -> document.Blessing:
+    """Check the tree may be written to, then SCHEDULE the dialog and return.
+
+    ⚠️ **Two different crossings, and the difference is the point.**
+
+    The blessing is a ``Marshal.call``: O(1), the caller needs the answer, and a
+    refusal must reach the client instead of a dialog reaching the owner. The
+    dialog is a bare ``schedule`` -- nothing waits for it, because what it waits
+    on is a human. ⛔ Marshalling it would 503 after five seconds, in the middle
+    of the owner deciding, and the write would then land with the client already
+    told it had failed.
+    """
+    outcome = marshal.call(accessor.blessing)
+    if not outcome.blessed:
+        return outcome
+
+    if present is None:
+        # No presenter was injected -- the host is running outside Gramps, which
+        # is every test and no real session. Refuse rather than silently accept.
+        return document.Blessing(blessed=False, message="this host cannot show a dialog")
+
+    def show() -> bool:
+        present(graph)
+        return False
+
+    schedule(show)
+    return outcome
 
 
 def _person(marshal: mainthread.Marshal, gramps_id: str) -> status.PersonStatus:

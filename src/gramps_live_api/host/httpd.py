@@ -42,7 +42,7 @@ from http import HTTPStatus
 from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
-from gramps_live_api.host import auth, log, mainthread, status
+from gramps_live_api.host import auth, document, log, mainthread, status
 
 LOOPBACK = "127.0.0.1"
 """⛔ The only address this ever binds. The wildcard would put the owner's tree
@@ -64,11 +64,26 @@ already here and already separates the query from the path, so the ID arrives
 parsed; a path segment would mean this file grew path parsing -- surface the
 route does not need and the one place a traversal-shaped input could matter."""
 
+DOCUMENT_ROUTE = "/document"
+"""⭐ The only route that writes, and it does not write on this thread.
+
+It hands the graph to the GTK main thread and answers **202 immediately**. ⛔ It
+does NOT hold the connection while a human reads a dialog: ``Marshal`` has a
+five-second timeout, so waiting for an answer would 503 in the middle of the
+owner deciding. **The agent therefore learns no outcome**, which is the existing
+trust model rather than a limitation -- the owner finds out by looking at Gramps,
+which is open in front of him."""
+
+MAX_BODY_BYTES = document.MAX_GRAPH_BYTES
+
 ORIGIN_REJECTED = "origin-rejected"
 UNAUTHORISED = "unauthorised"
 NO_SUCH_ROUTE = "no-such-route"
 MAIN_THREAD_TIMEOUT = "main-thread-timeout"
 TREE_READ_FAILED = "tree-read-failed"
+GRAPH_INVALID = "graph-invalid"
+TREE_NOT_BLESSED = "tree-not-blessed"
+BODY_TOO_LARGE = "body-too-large"
 
 
 @dataclass(frozen=True)
@@ -84,6 +99,15 @@ class Context:
     keeps the boundary where the accessor's rules can see it."""
 
     note: Callable[[str, str], None]
+
+    write_document: Callable[[dict[str, Any]], document.Blessing]
+    """Blessing check, then schedule the dialog. ⛔ Fire and forget.
+
+    Unlike ``snapshot`` and ``person`` this is **not** a ``Marshal.call`` all the
+    way through: the blessing read is marshalled and waited for, because it is
+    O(1) and the caller needs its answer; the dialog is merely *scheduled*, and
+    nothing waits. That asymmetry is the whole reason this route can answer 202
+    while a human takes as long as they like."""
 
 
 class HostServer(http.server.HTTPServer):
@@ -179,6 +203,90 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
             return
 
         self._respond(HTTPStatus.NOT_FOUND, {"ok": False, "error": NO_SUCH_ROUTE})
+
+    def do_POST(self) -> None:
+        """One route, and the same three refusals in the same order as ``do_GET``.
+
+        ⚠️ **The order is repeated rather than shared** because it is the thing a
+        reader checks: ``Origin`` before authentication, authentication before
+        the route. A helper would hide it at exactly the place it must be visible.
+        """
+        if self.headers.get("Origin") is not None:
+            self._respond(HTTPStatus.FORBIDDEN, {"ok": False, "error": ORIGIN_REJECTED})
+            return
+
+        presented = auth.presented_token(self.headers.get("Authorization"))
+        if presented is None or not auth.token_matches(presented, self.context.token):
+            self._respond(
+                HTTPStatus.UNAUTHORIZED,
+                {"ok": False, "error": UNAUTHORISED},
+                headers=[("WWW-Authenticate", "Bearer")],
+            )
+            return
+
+        if urlsplit(self.path).path != DOCUMENT_ROUTE:
+            self._respond(HTTPStatus.NOT_FOUND, {"ok": False, "error": NO_SUCH_ROUTE})
+            return
+
+        body = self._body()
+        if body is None:
+            return
+
+        try:
+            graph = document.parse(body)
+        except document.GraphInvalid as refusal:
+            self._respond(
+                HTTPStatus.BAD_REQUEST,
+                {"ok": False, "error": GRAPH_INVALID, "detail": str(refusal)},
+            )
+            return
+
+        try:
+            outcome = self.context.write_document(graph.as_dict())
+        except mainthread.MainThreadTimeout:
+            self._respond(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"ok": False, "error": MAIN_THREAD_TIMEOUT},
+            )
+            return
+        except Exception as failure:
+            self.context.note(log.ERROR, f"{DOCUMENT_ROUTE} failed: {failure!r}")
+            self._respond(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"ok": False, "error": TREE_READ_FAILED},
+            )
+            return
+
+        if not outcome.blessed:
+            self._respond(
+                HTTPStatus.FORBIDDEN,
+                {"ok": False, "error": TREE_NOT_BLESSED, "detail": outcome.message},
+            )
+            return
+
+        # ⭐ 202, not 200, and not a result. The dialog is up; what the human does
+        # with it is between them and Gramps.
+        self._respond(HTTPStatus.ACCEPTED, {"ok": True, "shown": True})
+
+    def _body(self) -> bytes | None:
+        """The request body, or answer for the two ways reading it fails."""
+        try:
+            declared = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self._respond(
+                HTTPStatus.BAD_REQUEST,
+                {"ok": False, "error": GRAPH_INVALID, "detail": "Content-Length is not a number"},
+            )
+            return None
+        if declared > MAX_BODY_BYTES:
+            # ⛔ Refused on the DECLARED length, before a byte is read. Reading it
+            # first to find out how big it was is the denial of service.
+            self._respond(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                {"ok": False, "error": BODY_TOO_LARGE},
+            )
+            return None
+        return self.rfile.read(declared) if declared > 0 else b""
 
     def _answer(
         self,

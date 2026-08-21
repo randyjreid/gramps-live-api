@@ -30,7 +30,7 @@ from __future__ import annotations
 import sqlite3
 import typing
 
-from gramps_live_api.host import log, mainthread, status
+from gramps_live_api.host import document, log, mainthread, status
 
 # ⚠️ Every import here is a MODULE, including ``typing``. Rule 2 above is
 # checked with no exemption list, and ``from typing import Any`` would need one
@@ -91,6 +91,26 @@ def tree_status() -> status.TreeStatus:
         name=database.get_dbname(),
         people=database.get_number_of_people(),
     )
+
+
+@mainthread.on_main_thread
+def blessing() -> document.Blessing:
+    """Whether the OPEN tree may be written to, and the message if it may not.
+
+    ⚠️ **The path comes from the open database, never from an argument**, the
+    same rule ``core/apply`` follows: a refusal then names the tree that is
+    actually open rather than one a caller nominated.
+
+    ⛔ **Two files, both required** -- ``name.txt`` says it is a Gramps tree at
+    all, and the sentinel says the owner is willing to have it written to. Same
+    two conditions ``core/apply.authorise`` applies.
+    """
+    if _DBSTATE is None:
+        return document.Blessing(blessed=False, message="no tree is open")
+    database = _DBSTATE.db
+    if database is None or not database.is_open():
+        return document.Blessing(blessed=False, message="no tree is open")
+    return document.blessing_of(database.get_save_path())
 
 
 @mainthread.on_main_thread

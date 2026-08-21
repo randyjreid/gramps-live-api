@@ -64,7 +64,7 @@ def load_on_reg(dbstate, uistate=None, plugin=None, *rest):
         # importable, and therefore testable, on a machine with no GTK.
         from gi.repository import GLib
 
-        started = start_host(dbstate, GLib.idle_add)
+        started = start_host(dbstate, GLib.idle_add, uistate)
         if started is not None:
             from gramps_live_api.host import service
 
@@ -82,20 +82,97 @@ def load_on_reg(dbstate, uistate=None, plugin=None, *rest):
         _last_resort_note(traceback.format_exc())
 
 
-def start_host(dbstate, schedule):
-    """Hand Gramps' two possessions to the package and start listening.
+def start_host(dbstate, schedule, uistate=None):
+    """Hand Gramps' possessions to the package and start listening.
 
     ``dbstate`` goes straight into the accessor -- the one module allowed to
     spell the database -- and ``schedule`` is ``GLib.idle_add``, which is how
     anything gets back onto this thread. Returns the running host, or ``None``
     if it did not start, in which case ``host.log`` says why.
+
+    ⭐ **``present`` is the third possession and the newest.** The package can
+    validate a graph and render it as prose, but it cannot show a window: the
+    Gtk classes live here. So the host is handed a callable that takes a graph,
+    puts it in front of the owner, and writes it if he says yes.
     """
     from gramps_live_api.host import accessor, service
 
     accessor.bind(dbstate)
-    host = service.start_and_report(schedule=schedule, environ=os.environ)
+    host = service.start_and_report(
+        schedule=schedule,
+        environ=os.environ,
+        present=lambda graph: _present(dbstate, uistate, graph),
+    )
     _RUNNING["host"] = host
     return host
+
+
+def _present(dbstate, uistate, graph):
+    """Show what would be written, and write it if the owner says so.
+
+    ⚠️ **Runs on the GTK main thread, inside a ``GLib.idle_add`` callback**, and
+    ``confirm`` spins a nested main loop there. ``spike/dialogprobe.py`` measured
+    that working before anything was built on it: dialog shown from inside the
+    callback, answer returned after 3.9 s, ``DbTxn`` committed and read back.
+
+    ⭐ **The preview is rendered from the graph that arrived**, which the MCP
+    server loaded from its own stored record -- never from anything an agent
+    passed at approval time. That is what carries the approval binding across
+    from the console to this dialog.
+
+    Never raises. It is reached from a hook whose exceptions go nowhere, so
+    everything lands in ``host.log`` instead.
+    """
+    from gramps_live_api.host import document
+
+    host = _RUNNING.get("host")
+
+    def note(level, message):
+        if host is not None:
+            host.note(level, message)
+
+    try:
+        import gramps_live_api_writer as writer
+
+        parsed = document.parse(graph)
+        note("INFO", "document: showing " + document.summary(parsed))
+
+        if not writer.confirm(uistate, document.preview(parsed)):
+            note("INFO", "document: the owner said no. Nothing was written.")
+            return
+
+        # ⛔ The blessing is checked AGAIN here, on the main thread, immediately
+        # before the transaction. The route checked it too -- but that was a
+        # different moment and a tree can be closed or swapped while a dialog is
+        # open. This is the check that is adjacent to the write.
+        #
+        # ⚠️ Through the ACCESSOR, not through ``dbstate.db``. This file is host
+        # code by the rule in ``tests/fixtures/host_sources.py`` -- it imports the
+        # host package -- so reaching the database here is exactly the trespass
+        # the boundary test refuses, and it caught this on the first run.
+        from gramps_live_api.host import accessor
+
+        outcome = accessor.blessing()
+        if not outcome.blessed:
+            note("ERROR", "document: refused at write time: " + outcome.message)
+            writer.tell(uistate, "Nothing was written", outcome.message)
+            return
+
+        summary = writer.write(dbstate, graph)
+        note("INFO", "document: wrote " + summary)
+        writer.tell(
+            uistate,
+            "Written",
+            summary + "\n\nUse Edit > Undo in Gramps if you want it back out.",
+        )
+    except Exception:
+        note("ERROR", "document: the write failed: " + traceback.format_exc())
+        try:
+            import gramps_live_api_writer as writer
+
+            writer.tell(uistate, "The document could not be written", traceback.format_exc()[:2000])
+        except Exception:
+            pass
 
 
 def _put_the_package_on_the_path():
