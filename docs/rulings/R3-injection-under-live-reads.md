@@ -67,11 +67,30 @@ on the answer; the build does.**
 
 ### P2 — the egress bound has no implementation on the live path
 
-**The `priv` exclusion and the search-term requirement live in `src/gramps_live_api/core/people.py`** —
-the export reader — **which `docs/roadmap.md` says slice 4 dissolves.**
+**Three mechanisms live in `src/gramps_live_api/core/people.py`** — the export reader, **which
+`docs/roadmap.md` says slice 4 dissolves:**
 
-⚠️ **Nothing in `src/gramps_live_api/host/` implements either.** **The first live read tool must
-carry them, or R3's only egress bound ships with nothing behind it.**
+1. **the `priv` exclusion**;
+2. **the search-term requirement** — no term, no listing;
+3. ⭐ **the result cap** (`RESULT_CAP = 25`). Its own docstring says why it is a bound and not
+   pagination: *"A cap rather than a page: every name it returns enters a model's context."*
+   `docs/slice2-mcp.md` records the cap as part of what bounds data entering the model, alongside
+   the search term and the privacy flag.
+
+⚠️ **Nothing in `src/gramps_live_api/host/` implements any of the three.** **The first live read
+tool must carry all three, or R3's egress bound ships with nothing behind it.**
+
+⛔ **Naming all three matters because two of them bound volume rather than membership.** An
+implementation can honour `priv` perfectly, return every non-private match, and satisfy a
+precondition written as *"carry the privacy flag"* — while a broad search term walks an unbounded
+number of records into a model's context. **A bound on WHO may be returned is not a bound on HOW
+MANY.**
+
+⚠️ **One inconsistency inherited from the brief, flagged rather than silently harmonised.** The
+first accepted residual below says *"the only egress bound is `priv`"*, which is true of what
+**this ruling** supplies and is not true of what the export reader implements. **Read residual 1 as
+scoping membership and this precondition as scoping volume.** If that reading is wrong, the residual
+is the half to correct, and it is the owner's.
 
 ## Accepted risks
 

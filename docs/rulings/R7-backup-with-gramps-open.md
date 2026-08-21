@@ -91,5 +91,10 @@ actually be taken, and now it can be.
   this page's.
 - **Nothing about restore ergonomics** — file replacement is a mechanism, not a procedure someone
   can follow under stress.
-- ⚠️ **Nothing is measured.** The route is read from source and reasoned about. No backup has been
-  taken, and the first build that takes one is the first evidence this works.
+- ⚠️ **No backup has been taken through Gramps' live connection, and that is the limitation
+  that matters.** ⭐ **Be precise about what the one measurement on this page covers:** it establishes
+  the *semantics* of `Connection.backup()` — that it runs to completion in a single call — on a
+  standalone SQLite connection. **It says nothing about reaching Gramps' connection, about backing up
+  a database Gramps is actively using, or about doing either from a GTK callback.**
+- ⚠️ **The route to the connection is read from source and reasoned about, not exercised.** The
+  first build that takes a real backup is the first evidence this works.
