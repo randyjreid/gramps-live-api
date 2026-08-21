@@ -149,8 +149,8 @@ separate writer survivable. **It no longer needs that job.**
 
 ## Falsifiers
 
-Any one of these falsifies the ruling and it is re-opened. **Three are discharged by measurement; two
-are partially measured and stay open.**
+Any one of these falsifies the ruling and it is re-opened. **Four are discharged by measurement; one
+— F2 — is partially measured and stays open.**
 
 ### Measured: the AIO probe
 
@@ -186,7 +186,8 @@ now been held.
 The three remaining falsifiers were measured in a real Gramps AIO 6.0.8 GUI session against the
 **blessed copy** — `RandyReid-Testing`, tree directory `…\grampsdb\6a821852`, the one carrying
 `.gramps-live-api-copy`. Raw log: `%APPDATA%\gramps-live-api\falsifiers.txt`, timestamps 08:52:56 to
-08:53:09. Every number quoted below is that log's.
+08:53:09. Every number quoted below is that log's — **except F3's person-read timings, which were
+taken in a later session against the same copy and say so where they appear.**
 
 #### ⛔ F1 — *`GLib.idle_add` callbacks do not run while a Gramps modal dialog holds a nested main loop.* **DISCHARGED — they do.**
 
@@ -242,31 +243,47 @@ the transaction commits.
 ⛔ **F2 stays open.** The mechanism is confirmed; the visible outcome is not, and the ruling does not
 claim it.
 
-#### ⚠️ F3 — *a single-person read round trip through the main-thread hop exceeds ~2 s.* **PARTIALLY measured. NOT discharged.**
+#### ⛔ F3 — *a single-person read round trip through the main-thread hop exceeds ~2 s.* **DISCHARGED — it does not.**
 
-⛔ **What was measured is the hop, and the hop is not the falsifier.** Slice A's demo run against
-the live host, Gramps open on the copy:
+**Measured in a live GUI session against the blessed copy (2,924 people), warmed loop, 25 iterations
+each**, over `/person?gramps_id=…` — the route A2 added, which materialises one Person by Gramps ID:
 
-- valid token, tree open → `{ok: true, tree: {open: true, name: "RandyReid-Testing", people: 2924}}`
-- **bad token → 401** · **a request carrying an `Origin` header → 403**
-- **25 iterations:** median **2.2 ms**, min **1.5 ms**, p90 **3.4 ms**, **worst 89.9 ms** — the first
-  call, cold
+| route | median | min | p90 | worst |
+| --- | --- | --- | --- | --- |
+| `/person?gramps_id=…` | **1.63 ms** | 1.19 | 2.57 | 3.22 |
+| `/health`, same loop | **2.02 ms** | 1.34 | 2.72 | 3.47 |
 
-**Against a ~2000 ms budget that is ~22× inside on the worst case and ~900× on the median** — for
-**the round trip through the HTTP listener and the `GLib.idle_add` hop**, which is what those 25
-iterations exercised.
+**F3's budget is ~2 s. The worst case is 621× inside it.**
 
-⚠️ **NOT measured: a single-person read, which is what F3 names.** The only route this slice has is
-`/health`, and `tree_status()` reads `get_dbname` — a cached string — and `get_number_of_people`, a
-table count. Both are O(1) **by requirement rather than by accident**: `accessor.py` states it, and
-says in the same docstring that *"anything that walks people belongs behind a route this slice does
-not have."* **So no person was read, and the quantity the ~2 s budget was written about — the cost of
-the database work on the GTK main thread — does not appear in these numbers at all.**
+⭐ **The result worth stating plainly: the person read is FASTER than `/health`** — delta on the
+median **−0.4 ms**. `/health` counts 2,924 people; `/person` materialises one by Gramps ID. **So the
+channel dominates, not the read.**
 
-**What would settle it:** time a single-person read end to end through the main-thread hop against the
-~2 s budget, under the same live-GUI conditions. **Tracked as
-[#89](https://github.com/randyjreid/gramps-live-api/issues/89), blocked on the first route that reads
-a person** — slice 4 or 5a in `docs/roadmap.md`'s numbering, neither of which is startable today.
+**Why the discharge needed a second route — the context that stands unchanged.** The only route slice
+A had was `/health`, and `tree_status()` reads `get_dbname` — a cached string — and
+`get_number_of_people`, a table count. Both are O(1) **by requirement rather than by accident**:
+`accessor.py` states it, and says in the same docstring that *"anything that walks people belongs
+behind a route this slice does not have."* **So no person was read, and the quantity the ~2 s budget
+was written about — the cost of the database work on the GTK main thread — did not appear in those
+numbers at all.** That earlier 25-iteration run — median **2.2 ms**, min **1.5 ms**, p90 **3.4 ms**,
+**worst 89.9 ms** on the cold first call — timed **the round trip through the HTTP listener and the
+`GLib.idle_add` hop**, alongside the same session's `{ok: true, tree: {open: true, name:
+"RandyReid-Testing", people: 2924}}`, **bad token → 401** and **`Origin` header → 403**. The table
+above is the person read [#89](https://github.com/randyjreid/gramps-live-api/issues/89) was waiting
+on.
+
+**Three conditions — a discharge without its conditions is what #83 spent four rounds on:**
+
+1. Measured on a **2,924-person tree**, not the live tree.
+2. ⚠️ **The lookup is not proven indexed.** One tree size cannot separate O(1) from O(n) with a small
+   constant. **At 621× margin even a 100× scaling error leaves ~6×, so this does not re-open F3** —
+   but it is not a proof of complexity and must not read as one.
+3. The measurement was taken against the A2 branch before it merged; that code is now on `main` as
+   #92, and the figures have not been re-taken since the merge.
+
+⭐ **Why this discharge is unlike the one withdrawn in `fe85831`:** the route materialises the Person
+via `get_person_from_gramps_id`, and a negative control asserts a test fails if it does not — so the
+claim rests on a **structural property**, not on a timing inference.
 
 ⚠️ **Demo step 2 — "close the tree in Gramps, and ask again" — was NOT performed.** It needs a GUI
 menu action and nobody was present to click it. **Recorded as unperformed, not as passed.** The *code
