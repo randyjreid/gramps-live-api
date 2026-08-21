@@ -184,7 +184,7 @@ now been held.
 ### Measured: the GUI session, 2026-08-19
 
 The three remaining falsifiers were measured in a real Gramps AIO 6.0.8 GUI session against the
-**blessed copy** — `RandyReid-Testing`, tree directory `…\grampsdb\6a821852`, the one carrying
+**blessed copy** — tree directory `…\grampsdb\6a821852`, the one carrying
 `.gramps-live-api-copy`. Raw log: `%APPDATA%\gramps-live-api\falsifiers.txt`, timestamps 08:52:56 to
 08:53:09. Every number quoted below is that log's — **except F3's person-read timings, which were
 taken in a later session against the same copy and say so where they appear.**
@@ -268,7 +268,7 @@ was written about — the cost of the database work on the GTK main thread — d
 numbers at all.** That earlier 25-iteration run — median **2.2 ms**, min **1.5 ms**, p90 **3.4 ms**,
 **worst 89.9 ms** on the cold first call — timed **the round trip through the HTTP listener and the
 `GLib.idle_add` hop**, alongside the same session's `{ok: true, tree: {open: true, name:
-"RandyReid-Testing", people: 2924}}`, **bad token → 401** and **`Origin` header → 403**. The table
+"<the blessed copy>", people: 2924}}`, **bad token → 401** and **`Origin` header → 403**. The table
 above is the person read [#89](https://github.com/randyjreid/gramps-live-api/issues/89) was waiting
 on.
 
