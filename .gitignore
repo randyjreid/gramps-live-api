@@ -334,3 +334,10 @@ __marimo__/
 # tests/integration/test_pii_guard_over_a_tree.py.
 # ---------------------------------------------------------------------------
 .pii-denylist*
+
+# Throwaway probes. Kept on disk so the instrument is not lost with the run --
+# the last spike's probe was deleted and its measurement went with it -- but NOT
+# tracked: writeprobe.py holds a dense block of GEDCOM-X keys, and pii_guard is
+# right that such a block does not belong in tracked content on a public
+# repository, invented values or not. See the handover for what they proved.
+spike/

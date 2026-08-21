@@ -189,10 +189,17 @@ def _put_the_package_on_the_path():
         resolving symbolic links and stepping up one level lands on the checkout
         root. ``realpath`` is what follows the junction; ``dirname(__file__)``
         alone would land in Gramps' plugin folder, where there is no ``src``.
+
+    ⚠️ **And this directory itself, which is the third answer and was learned
+    the hard way.** Gramps ``exec``s a plugin rather than importing it, so the
+    plugin folder is NOT on ``sys.path`` and a sibling module -- the writer --
+    cannot be imported by name. Observed as ``ModuleNotFoundError: No module
+    named 'gramps_live_api_writer'`` on the first real request, with the route
+    already answered 202 and the failure visible only in ``host.log``.
     """
     named = os.environ.get("GRAMPS_LIVE_API_SRC")
     here = os.path.dirname(os.path.realpath(__file__))
-    for candidate in (named, os.path.join(os.path.dirname(here), "src")):
+    for candidate in (named, os.path.join(os.path.dirname(here), "src"), here):
         if candidate and os.path.isdir(candidate) and candidate not in sys.path:
             sys.path.insert(0, candidate)
 

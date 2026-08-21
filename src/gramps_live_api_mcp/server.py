@@ -42,9 +42,12 @@ on a runner that has never seen Gramps or an MCP client.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Literal, Protocol
 
@@ -52,9 +55,18 @@ from mcp.server import MCPServer
 
 from gramps_live_api import config
 from gramps_live_api.core import apply, people, proposals, schema
+from gramps_live_api.host import document, paths
 
-TOOL_NAMES = frozenset({"list_people", "propose_note", "approve"})
-"""Exactly three, and criterion 1 asserts the server's own answer equals this."""
+TOOL_NAMES = frozenset(
+    {"list_people", "propose_note", "approve", "propose_document", "approve_document"}
+)
+"""The whole surface, and the tests assert the server's own answer equals this.
+
+⚠️ **Three became five when the document flow arrived**, and the number is not
+the invariant. What criterion 1 is actually about survives unchanged: the surface
+is asserted against what the server exposes rather than against a comment, and
+⛔ **none of these tools reports what the owner decided.** ``approve_document``
+answers *shown*, not *written* -- the outcome is learned by looking at Gramps."""
 
 SERVER_NAME = "gramps-live-api"
 
@@ -154,6 +166,22 @@ types y there.** Tell him that plainly: agreement in this conversation is not \
 the approval, and this server cannot type in that window -- and this server will \
 not learn what he typed, so you must ask him.\
 """
+
+PROPOSE_DOCUMENT_DESCRIPTION = (
+    "Propose everything a genealogical document says about people -- names, "
+    "genders, events, dates, places, the source, its citations, relationships "
+    "and a transcription -- as ONE graph with local ids. Writes nothing. "
+    "Returns a proposal id and a preview of exactly what would be written. "
+    "EVERYTHING IS CREATED NEW: nothing is matched against people already in "
+    "the tree, so a person who is already there will get a second copy."
+)
+
+APPROVE_DOCUMENT_DESCRIPTION = (
+    "Put a proposed document in front of the owner in Gramps. Loads the stored "
+    "proposal -- nothing you pass here reaches the dialog except which proposal "
+    "to show. Returns as soon as the dialog is up; it does NOT report what the "
+    "owner decided. Gramps must be open. Ask the owner to look at Gramps."
+)
 
 APPROVE_DESCRIPTION = """\
 Open the approval console for one proposal. Pass the proposal id and the \
@@ -459,6 +487,103 @@ class Tools:
             )
         return runtime
 
+    # -- the document flow --------------------------------------------------
+
+    def propose_document(self, graph: dict[str, object]) -> dict[str, object]:
+        """Validate a document's findings and put them where approval can find them.
+
+        ⭐ **The graph is STORED here and read back at approval time.** Nothing
+        an agent says in the approve call reaches the dialog -- that is the whole
+        binding, and it is what carries slice 2's guarantee across from a console
+        this server held no handle on to a dialog inside Gramps.
+
+        ⛔ **Nothing is written to the tree.** This returns a preview and an id.
+        """
+        parsed = document.parse(graph)
+        settings = config.load(self._environ)
+        if settings.copy_path is None:
+            raise config.ConfigError(
+                f"no copy is configured -- set copy_path in "
+                f"{config.user_config_path(self._environ)} or {config.ENV_COPY}"
+            )
+        copy = apply.authorise(settings.copy_path)
+
+        directory = os.path.join(proposals.store_directory(copy.tree_dir), "documents")
+        os.makedirs(directory, exist_ok=True)
+        proposal_id = proposals.new_session()
+        record = {
+            "id": proposal_id,
+            "session": self.session,
+            "graph": parsed.as_dict(),
+        }
+        path = os.path.join(directory, proposal_id + ".json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(record, handle, ensure_ascii=False, indent=2)
+
+        return {
+            "proposal_id": proposal_id,
+            "summary": document.summary(parsed),
+            "preview": document.preview(parsed),
+        }
+
+    def approve_document(self, proposal_id: str) -> dict[str, object]:
+        """Load the STORED graph and put it in front of the owner in Gramps.
+
+        ⚠️ **A separate verb from ``approve``, deliberately.** ``approve``
+        carries the console-and-digest contract the note flow is built on; giving
+        one name two meanings would put a second set of rules behind a word the
+        owner already understands.
+
+        ⚠️ **The answer is "shown", not an outcome.** The host returns 202 the
+        moment the dialog is up, because holding an HTTP connection while a human
+        reads would time out mid-decision. **What the owner does with the dialog
+        is between him and Gramps**, and he learns the result by looking at it.
+        """
+        settings = config.load(self._environ)
+        if settings.copy_path is None:
+            raise config.ConfigError("no copy is configured")
+        copy = apply.authorise(settings.copy_path)
+        path = os.path.join(
+            proposals.store_directory(copy.tree_dir), "documents", proposal_id + ".json"
+        )
+        if not os.path.exists(path):
+            raise proposals.ProposalNotFound(f"no document proposal called {proposal_id!r}")
+        with open(path, encoding="utf-8") as handle:
+            record = json.load(handle)
+
+        # ⛔ From the stored record. The argument named WHICH proposal; it did
+        # not supply any part of what the dialog will show.
+        graph = record["graph"]
+
+        directory = paths.state_directory(self._environ)
+        port = (directory / "port").read_text(encoding="utf-8").strip()
+        token = (directory / "token").read_text(encoding="utf-8").strip()
+
+        body = json.dumps(graph).encode("utf-8")
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/document",
+            data=body,
+            method="POST",
+            headers={
+                "Authorization": "Bearer " + token,
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                answer = json.loads(response.read().decode("utf-8"))
+                status = response.status
+        except urllib.error.HTTPError as refusal:
+            detail = refusal.read().decode("utf-8", "replace")
+            return {"shown": False, "status": refusal.code, "detail": detail}
+        except OSError as failure:
+            return {
+                "shown": False,
+                "detail": (f"the Gramps host is not answering -- is Gramps open? ({failure})"),
+            }
+
+        return {"shown": bool(answer.get("shown")), "status": status}
+
     def _store(self) -> proposals.Store:
         """The store inside the blessed copy. **The blessing is the permission.**
 
@@ -496,6 +621,14 @@ def build_server(tools: Tools) -> MCPServer:
     @server.tool(name="propose_note", description=PROPOSE_NOTE_DESCRIPTION)
     def propose_note(gramps_id: str, handle: str, note_type: str, text: str) -> dict[str, object]:
         return tools.propose_note(gramps_id, handle, note_type, text)
+
+    @server.tool(name="propose_document", description=PROPOSE_DOCUMENT_DESCRIPTION)
+    def propose_document(graph: dict[str, object]) -> dict[str, object]:
+        return tools.propose_document(graph)
+
+    @server.tool(name="approve_document", description=APPROVE_DOCUMENT_DESCRIPTION)
+    def approve_document(proposal_id: str) -> dict[str, object]:
+        return tools.approve_document(proposal_id)
 
     @server.tool(name="approve", description=APPROVE_DESCRIPTION)
     def approve(proposal_id: str, approval_digest: str) -> dict[str, object]:
