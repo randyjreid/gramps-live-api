@@ -57,10 +57,24 @@ the class's contract promises the name survives a Gramps release.**
 
 **Owed to the build's plan gate, not open as rulings.**
 
-1. **Whether the copy runs incrementally**, so it respects R8's cap on work performed inside
-   `GLib.idle_add`. ⚠️ **The `pages` and `sleep` arguments are believed to exist and have NOT been
-   confirmed on the AIO's Python 3.14.4.** Confirm before relying on them; if they are absent, the
-   work-cap question is open on different terms.
+1. ⚠️ **How the copy respects R8's cap on work inside `GLib.idle_add`. This is an open problem,
+   not a confirmation task.** An earlier draft of this page framed it as *"whether the copy runs
+   incrementally via the `pages` and `sleep` arguments"*. ⛔ **That framing is wrong, and it was
+   measured rather than argued.**
+
+   **`Connection.backup()` is synchronous and runs to completion in one call.** `pages` sets the
+   size of each internal copy step; it does **not** make the call return partway. `sleep` only
+   delays retries when the source is locked. Measured on CPython 3.12 with `pages=1` — the smallest
+   possible step — against a 200,000-row database: **one call produced 531 progress callbacks,
+   returned with `remaining=0`, and the destination held every row.** ⚠️ **Not re-measured on the
+   AIO's 3.14.4**; the semantics are long-standing, and the figure above is the one that was taken.
+
+   ⭐ **So the whole backup lands in a single GTK callback, and R8 caps what one callback may do.**
+   Gramps' connection is also thread-bound, so the work cannot simply be moved off the main thread.
+   **The build must either find a genuinely resumable mechanism or take the main-loop-blocking risk
+   explicitly, with the owner told what it costs.** ⛔ **It may not be recorded as solved by naming
+   arguments that do not solve it.**
+
 2. **Where the backup file lands, and its retention.**
 
 ## What this settles that was open

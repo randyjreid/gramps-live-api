@@ -10,15 +10,25 @@
 > choose. Where the analysis could not determine something from the code, this document names the
 > measurement and does not guess it.
 >
-> ⭐ **Two of those rulings have since been made, both on 2026-08-19.** **R2 — Gramps stays open.**
+> ⭐ **Five of those rulings have since been made.** **R2 — Gramps stays open** (2026-08-19).
 > It is the owner's, it reverses a standing ruling of his own, and it is transcribed below under
 > *R2 is ruled* rather than argued again. **R8 — the channel is an in-process HTTP host inside
-> Gramps**, recorded in full in [`rulings/R8-channel-architecture.md`](rulings/R8-channel-architecture.md)
+> Gramps** (2026-08-19), recorded in full in [`rulings/R8-channel-architecture.md`](rulings/R8-channel-architecture.md)
 > and summarised below. R8 **supersedes the process-model half of R2**: R2's conclusion stands, its
 > reasoning is replaced. Between them they reshaped the order, **deleted** a slice, un-killed one
 > piece of a dead milestone and put another back down — every consequence is marked where it lands.
-> **Every other ruling in the table near the end is still owed, and nothing has been built on
-> either.**
+>
+> ⭐ **And on 2026-08-21, three more — the three that stood in front of every write.**
+> **R7 — a backup is taken with SQLite's backup API against the connection Gramps already holds**,
+> restored by file replacement
+> ([`rulings/R7-backup-with-gramps-open.md`](rulings/R7-backup-with-gramps-open.md)).
+> **R4 — the live tree may be blessed, backup-taken-first**, with the guarantee downgrade approved in
+> its own words ([`rulings/R4-graduation-to-the-live-tree.md`](rulings/R4-graduation-to-the-live-tree.md)).
+> **R3 — D + A**: injected text may shape a proposal, the damage is bounded at the write
+> ([`rulings/R3-injection-under-live-reads.md`](rulings/R3-injection-under-live-reads.md)).
+> ⚠️ **None of the three is built.** A ruling is a decision, not a mechanism.
+>
+> **R1, R5 and R6 remain in the table near the end, and nothing has been built on any of them.**
 >
 > ⛔ **There are no dates, no estimates and no effort figures anywhere below, because none exist.**
 
@@ -203,9 +213,10 @@ read-back approval. Each is marked where it appears below.
 
 ### What it leaves owed
 
-**R1, R5 and R6 are untouched.** ⭐ **R3, R4 and R7 were all ruled on 2026-08-21** — R8 recorded R3
-as unchanged in kind and R7 as reshaped rather than answered, and both have since been decided. See
-[`rulings/R3-injection-under-live-reads.md`](rulings/R3-injection-under-live-reads.md), [`rulings/R4-graduation-to-the-live-tree.md`](rulings/R4-graduation-to-the-live-tree.md) and
+**R1, R5 and R6 are untouched.** ⭐ **R3, R4 and R7 were all ruled on 2026-08-21.** R8 recorded R3
+as unchanged in kind and R7 as reshaped rather than answered; both have since been decided. See
+[`rulings/R3-injection-under-live-reads.md`](rulings/R3-injection-under-live-reads.md),
+[`rulings/R4-graduation-to-the-live-tree.md`](rulings/R4-graduation-to-the-live-tree.md) and
 [`rulings/R7-backup-with-gramps-open.md`](rulings/R7-backup-with-gramps-open.md).
 
 ---
@@ -229,10 +240,9 @@ Four notes on the numbering before the detail:
   with slice 3 deleted, **all of it now sits behind slice 4 and ruling R7.** It is not dropped; the
   amended order still enacts the graduation at the front.
 - ⚠️ **Slice 3 no longer opens the order, and nothing has replaced it.** R2 falsified the premise its
-- ⚠️ **Slice 3 no longer opens the order, and nothing has replaced it.** R2 falsified the premise its
   plan rests on and **R8 deleted the plan** — see slice 3 below, and ruling **R7**. Slice 4 still
-  needs a backup; **what produces one against a tree Gramps is holding open was ruled on 2026-08-21 —
-  SQLite's backup API against the connection Gramps already holds.**
+  needs a backup; ⭐ **what produces one against a tree Gramps is holding open was ruled on
+  2026-08-21** — SQLite's backup API against the connection Gramps already holds.
 - ⚠️ **Of the two rulings that had to land before any of this starts, one has.** R2 is ruled — and
   R8 with it, which R2 did not anticipate needing. **R1, the batch shape, is not.** They are listed
   as rulings, further down, and they are not work.
@@ -262,15 +272,15 @@ and is a rule we must keep ourselves.
 XML export driven from **inside** the host — R7's own first candidate — stops being hypothetical the
 moment the host exists, because the host *is* code running inside the process that owns the database.
 **That is a mechanism, not an answer.** ⚠️ **And it inherits R8's accepted risk 4** — a whole-tree
-**That is a mechanism, not an answer.** ⚠️ **And it inherits R8's accepted risk 4** — a whole-tree
-export is long work, and long work inside `GLib.idle_add` blocks the GTK loop. ⭐ **What a backup is
-was ruled on 2026-08-21, and it is not the export:** SQLite's backup API against the live connection —
-[`rulings/R7-backup-with-gramps-open.md`](rulings/R7-backup-with-gramps-open.md).
+export is long work, and long work inside `GLib.idle_add` blocks the GTK loop. What a backup is
+was ruled on 2026-08-21, and it is not the export: SQLite's backup API against the live
+connection — [`rulings/R7-backup-with-gramps-open.md`](rulings/R7-backup-with-gramps-open.md).
 
 ⭐ **The `importxml` handle finding governed whatever restores — and R7's ruling routes around it.**
 Importing into a tree that holds even one person **silently regenerates every handle** in the
 document, so an export-based restore means *"import into a brand-new empty tree"*. **R7 restores by
-file replacement instead, so the finding never applies to it** — see [`rulings/R7-backup-with-gramps-open.md`](rulings/R7-backup-with-gramps-open.md).
+file replacement instead, so the finding never applies to it** —
+[`rulings/R7-backup-with-gramps-open.md`](rulings/R7-backup-with-gramps-open.md).
 
 **The deliverable, unchanged and now owned by R7 and slice 4.** Ask for a backup, get one, restore it
 into Gramps as a working tree that opens. The owner has personally seen his own tree come back.
@@ -328,27 +338,33 @@ three are now made, on 2026-08-21:**
   *Unwritable-by-construction* is a guarantee about what can happen; *recoverable-after* is a
   guarantee about what can be undone, and it still costs the owner noticing, choosing, and knowing
   which backup predates the damage. That may be exactly the right trade — it is what "the notes
-  count" costs — but **it should be approved as a downgrade, in those words.** ⭐ **Both were ruled on
-  2026-08-21:** R4 approves the downgrade in exactly those words ([`rulings/R4-graduation-to-the-live-tree.md`](rulings/R4-graduation-to-the-live-tree.md)),
-  and R7 says what takes the backup underneath it.
+  count" costs — but **it should be approved as a downgrade, in those words.** ⭐ **Both were ruled
+  on 2026-08-21:** R4 approves the
+  downgrade in exactly those words
+  ([`rulings/R4-graduation-to-the-live-tree.md`](rulings/R4-graduation-to-the-live-tree.md)), and R7
+  says what takes the backup underneath it. ⭐ **R8 changes the sentinel's form and not its
+  strength:** it is no
   longer *"the writer can only ever open a blessed tree"* but *"the host refuses to arm its write
   path unless the open tree directory carries `.gramps-live-api-copy`, checked on
   `database-changed`."* **The downgrade R4 must approve is the same downgrade** — the check is now a
   runtime arming condition rather than a property of the process topology, and R8 attaches one config
-  runtime arming condition rather than a property of the process topology, and R8 attaches one config
-  flag to relax it later. ⭐ **R4 does not take that flag up.** Blessing is creating a file, not
-  setting a setting, so `docs/using.md:52`'s *"there is no flag that overrides it, and there is no
+  flag to relax it later. ⭐ **R4 does not take that flag up.** Blessing is creating a file,
+  not setting a setting, so `docs/using.md:52`'s *"there is no flag that overrides it, and there is
+  no
   configuration key that reaches the check"* **stays true and needs no change.**
 - ⚠️ **The injection widening (ruling R3), which R2 moved here.** A live read is a read of everything
   the tree holds — note, source and citation text included — so the trigger recorded verbatim in
-  `docs/slice2-mcp.md` fires at **this** slice unless 5a somehow ships first. ⛔ **R8 changes nothing
-  about it** and said so plainly: the injection surface is unchanged in kind, and the widening ruling
-  ⭐ **R3 was ruled on 2026-08-21 — D + A** ([`rulings/R3-injection-under-live-reads.md`](rulings/R3-injection-under-live-reads.md)).
+  `docs/slice2-mcp.md` fires at **this** slice unless 5a somehow ships first. ⛔ **R8 changed nothing
+  about it** and said so plainly: the injection surface is unchanged in kind. ⭐ **R3 was ruled on
+  2026-08-21 — D + A**
+  ([`rulings/R3-injection-under-live-reads.md`](rulings/R3-injection-under-live-reads.md)).
+  An HTTP hop between our own halves moves tree prose along a different wire, not into a different
   trust model.
 
 ⚠️ **The cost this slice does not otherwise name:** after it, every subsequent vocabulary slice's
-as long as the backup stays per-write** rather than per-session — which **R4's ruling keeps
-deliberately** — and now on R7's mechanism being built rather than on R7 being decided.
+first bugs land in the real tree. Mitigated only by auto-backup-before-write — and **only for as
+long as the backup stays per-write** rather than per-session, ⭐ **and R4's ruling keeps that cadence
+deliberately.** What remains is R7's mechanism being **built**, not decided.
 
 ⚠️ **And a cost R2 adds to this slice specifically: the tool is dead whenever Gramps is closed.**
 The demo above is performed with Gramps open, which is how the owner says he works — but *"ask the
@@ -426,14 +442,16 @@ fragment, slice 5's demo is the manual handle hunt again, for events.
 
 **Depends on.** ⭐ **Ruling R3 — the injection widening — and nothing else.** `docs/slice2-mcp.md`
 records the trigger in exact words: *any tool that returns note, source or citation text.* This is
-that tool. ⭐ **R3 was ruled on 2026-08-21 — D + A** — so the trust model is recorded before any tool
-is built against it, which is what the condition was for. See
-[`rulings/R3-injection-under-live-reads.md`](rulings/R3-injection-under-live-reads.md).
+that tool. ⭐ **R3 was ruled on 2026-08-21 — D + A** — so the trust model is
+recorded before any tool is built against it, which is what the condition was for. See
+[`rulings/R3-injection-under-live-reads.md`](rulings/R3-injection-under-live-reads.md). ⚠️ **Its two
+build preconditions
+travel with it**, and the first tool to return tree prose carries them: the console→dialog
+walk-through, and the egress bound having no implementation on the live path.
 
-⚠️ **Its two build preconditions travel with it**, and the first tool to return tree prose carries
-them: the console→dialog walk-through, and the egress bound having no implementation on the live
-path.
-is owed at whichever tool ships first, and on the order above that is slice 4, not this slice.**
+⚠️ **Under R2 the trigger fires at slice 4, which comes first** — a live read widens the channel from
+two export fields to everything the tree holds, and R2 ruled that slice 4 reads live. **So the tool
+that ships first is slice 4's, not this slice's.**
 
 ### 5 — "The record itself enters the tree."
 
@@ -611,9 +629,9 @@ roadmap.
 
 ⭐ **Startable today, before any further ruling:** #21's value type, the census-line walkthrough, the
 rulings themselves — **and, newly, the channel host, because R8 is its design ruling.** ⚠️ **Slice 3
-⚠️ **And building the host is not building slice 4** — slice 4 is graduation onto the live tree.
-⭐ **Its three rulings are now made** (R3, R4, R7, all 2026-08-21); what remains is the backup
-being **built**, not decided.
+has left this list permanently:** R2 removed its premise and R8 deleted its plan. ⚠️ **And building
+the host is not building slice 4** — slice 4 is graduation onto the live tree. ⭐ **Its three rulings
+are now made** (R3, R4 and R7, all 2026-08-21); what remains is the backup being **built**.
 
 ---
 
@@ -629,7 +647,8 @@ host inside Gramps* — recorded in
 table but reshaped **R7** and touched **R4** and **R5**. ⭐ **And on 2026-08-21, R7, R4 and R3 were
 all ruled** — [`rulings/R7-backup-with-gramps-open.md`](rulings/R7-backup-with-gramps-open.md),
 [`rulings/R4-graduation-to-the-live-tree.md`](rulings/R4-graduation-to-the-live-tree.md) and
-[`rulings/R3-injection-under-live-reads.md`](rulings/R3-injection-under-live-reads.md). **R1, R5 and R6 remain.**
+[`rulings/R3-injection-under-live-reads.md`](rulings/R3-injection-under-live-reads.md). **R1, R5 and
+R6 remain.**
 
 | | The ruling | Blocks | If it is not made |
 | --- | --- | --- | --- |
