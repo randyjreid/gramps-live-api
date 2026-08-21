@@ -81,6 +81,103 @@ def blessing_of(tree_dir: str | None) -> Blessing:
     return Blessing(blessed=True, message=tree_dir)
 
 
+ATTACHABLE = ("people", "places", "source")
+"""⭐ The three node kinds that may carry a ``gramps_id`` and mean *this one*.
+
+**Events are deliberately absent**: their handles are invisible in the Gramps UI,
+so nobody could supply one and a field nobody can fill is a field that only ever
+holds a mistake. Citations, families and notes are always created -- a document
+asserting a relationship is asserting a NEW claim about it, even between people
+who already exist.
+
+⭐ **Sources belong here as much as people do.** The same parish register gets
+cited across many documents, and twelve copies of it is the same defect as twelve
+copies of a person."""
+
+IGNORED_WHEN_ATTACHING = ("given", "surname", "gender", "title", "author", "pubinfo")
+"""Fields that describe an object, and are therefore NOT applied to one that
+already exists.
+
+⛔ **Nothing already in the tree is ever modified.** An existing object is only
+ever attached to. If a graph carries both a ``gramps_id`` and a name, the name is
+**dropped and reported in the dialog** rather than written over what Gramps
+holds -- overwriting a recorded birth year with a model's reading of a smudged
+page is exactly the failure this rule exists to prevent.
+
+**A diff is a different problem and needs its own ruling.** This is addition."""
+
+
+@dataclass(frozen=True)
+class Requested:
+    """One node that says it already exists. ``kind`` is person, place or source."""
+
+    local_id: str
+    gramps_id: str
+    kind: str
+
+
+@dataclass(frozen=True)
+class Resolved:
+    """What the TREE says about a requested node.
+
+    ⭐ **``display`` comes from Gramps and never from the graph.** That is the
+    whole safety mechanism: if the model picked the wrong ID, the owner reads the
+    wrong person's name in the dialog and cancels. Echoing the model's own guess
+    back at him would defeat it entirely.
+    """
+
+    local_id: str
+    gramps_id: str
+    kind: str
+    found: bool
+    display: str = ""
+
+
+@dataclass(frozen=True)
+class Resolution:
+    """Every requested node, looked up."""
+
+    nodes: tuple[Resolved, ...] = ()
+
+    @property
+    def missing(self) -> tuple[Resolved, ...]:
+        return tuple(node for node in self.nodes if not node.found)
+
+    def by_local_id(self) -> dict[str, Resolved]:
+        return {node.local_id: node for node in self.nodes}
+
+
+def requested(graph: Graph) -> tuple[Requested, ...]:
+    """Every node carrying a ``gramps_id``, as (local id, Gramps ID, kind).
+
+    Pure, so the accessor can be handed a list of lookups rather than a graph to
+    interpret.
+    """
+    out: list[Requested] = []
+    for entry in graph.people:
+        if entry.get("gramps_id"):
+            out.append(Requested(str(entry["id"]), str(entry["gramps_id"]), "person"))
+    for entry in graph.places:
+        if entry.get("gramps_id"):
+            out.append(Requested(str(entry["id"]), str(entry["gramps_id"]), "place"))
+    if graph.source and graph.source.get("gramps_id"):
+        out.append(
+            Requested(
+                str(graph.source.get("id") or "source"),
+                str(graph.source["gramps_id"]),
+                "source",
+            )
+        )
+    return tuple(out)
+
+
+def dropped_fields(entry: dict[str, Any]) -> tuple[str, ...]:
+    """Descriptive fields present on a node that already exists, so not applied."""
+    if not entry.get("gramps_id"):
+        return ()
+    return tuple(field for field in IGNORED_WHEN_ATTACHING if entry.get(field))
+
+
 class GraphInvalid(ValueError):
     """The graph could not be used as given. The message names the reason."""
 
@@ -192,6 +289,25 @@ def parse(body: Any) -> Graph:
         for target in note.get("attach_to") or []:
             check("a note", target)
 
+    # ⛔ A ``gramps_id`` on a kind that is always created would be silently
+    # ignored, and a field that is silently ignored is a field somebody relies
+    # on. Refuse it instead, naming the kind.
+    for group, one, items in (
+        ("events", "event", events),
+        ("citations", "citation", citations),
+        ("families", "family", families),
+    ):
+        for item in items:
+            if item.get("gramps_id"):
+                raise GraphInvalid(
+                    f"{one} {item.get('id')!r} carries a 'gramps_id', but "
+                    f"{group} are always created. Only {', '.join(ATTACHABLE)} may "
+                    "name something that already exists."
+                )
+    for note in notes:
+        if note.get("gramps_id"):
+            raise GraphInvalid("a note carries a 'gramps_id', but notes are always created")
+
     return Graph(
         people=people,
         places=places,
@@ -211,87 +327,125 @@ def _named(entry: dict[str, Any]) -> str:
     return name or "(no name given)"
 
 
-def preview(graph: Graph) -> str:
+def preview(graph: Graph, resolution: Resolution | None = None) -> str:
     """Everything that would be written, in plain readable text.
 
-    ⭐ **This is what the dialog shows, and it is rendered from the STORED
-    record** -- never from anything an agent passes at approval time. That single
-    constraint is what carries the approval binding across from a console the
-    server held no handle on to a dialog inside Gramps: the thing the human reads
-    and the thing that gets written come from one object.
+    ⭐ **Two sections, and the split is the point.** *Attaching to existing* names
+    what Gramps already holds, **with the name read from the TREE**; *creating
+    new* names what does not exist yet. A reader who sees the wrong person under
+    the first heading cancels, and that is the whole safety mechanism.
+
+    ⭐ **Rendered from the STORED record** -- never from anything an agent passes
+    at approval time. That constraint is what carries the approval binding across
+    from a console the server held no handle on to a dialog inside Gramps.
     """
+    resolved = (resolution or Resolution()).by_local_id()
     people_by_id = {p.get("id"): p for p in graph.people}
     places_by_id = {p.get("id"): p for p in graph.places}
+
+    def shown(local_id: Any) -> str:
+        """A node's name -- from the tree if it exists there, else from the graph."""
+        node = resolved.get(local_id)
+        if node is not None and node.found:
+            return f"{node.gramps_id}  {node.display}"
+        entry = people_by_id.get(local_id) or places_by_id.get(local_id) or {}
+        if entry.get("title"):
+            return str(entry["title"])
+        return _named(entry) if entry else str(local_id)
+
+    def events_of(local_id: Any) -> list[str]:
+        lines = []
+        for event in graph.events:
+            if local_id not in (event.get("people") or []):
+                continue
+            bits = [str(event.get("type") or "Event")]
+            if event.get("date"):
+                bits.append(str(event["date"]))
+            place = event.get("place")
+            if place:
+                lines.append("    + " + ", ".join(bits) + ", " + shown(place))
+            else:
+                lines.append("    + " + ", ".join(bits))
+        for citation in graph.citations:
+            if local_id in (citation.get("attach_to") or []):
+                target = citation.get("source")
+                page = citation.get("page")
+                lines.append("    + Citation -> " + shown(target) + (f" p.{page}" if page else ""))
+        for note in graph.notes:
+            if local_id in (note.get("attach_to") or []):
+                lines.append("    + Note")
+        return lines
 
     out: list[str] = []
     out.append("THIS IS WHAT WOULD BE WRITTEN TO YOUR TREE")
     out.append("=" * 62)
     out.append("")
-    out.append("*** EVERYTHING BELOW IS CREATED AS NEW. ***")
-    out.append("")
-    out.append("Nothing is matched against people already in your tree. If any of")
-    out.append("these people are already there, you will get a SECOND COPY.")
-    out.append("Matching existing people is a later problem and this does not do it.")
-    out.append("")
-    out.append("-" * 62)
-    out.append("")
 
-    if graph.source:
-        out.append("SOURCE:   " + str(graph.source.get("title") or "Untitled document"))
-        if graph.source.get("author"):
-            out.append("AUTHOR:   " + str(graph.source["author"]))
-        if graph.source.get("pubinfo"):
-            out.append("DETAIL:   " + str(graph.source["pubinfo"]))
+    attaching = [n for n in (resolution or Resolution()).nodes if n.found]
+    if attaching:
+        out.append("ATTACHING TO EXISTING")
+        out.append("")
+        for node in attaching:
+            out.append(f"  {node.gramps_id}  {node.display}")
+            entry = (
+                people_by_id.get(node.local_id)
+                or places_by_id.get(node.local_id)
+                or (
+                    graph.source if graph.source and graph.source.get("id") == node.local_id else {}
+                )
+                or {}
+            )
+            dropped = dropped_fields(entry)
+            if dropped:
+                out.append(
+                    "      (the document also gave "
+                    + ", ".join(dropped)
+                    + " -- NOT applied; nothing already in your tree is changed)"
+                )
+            for line in events_of(node.local_id):
+                out.append("  " + line)
         out.append("")
 
-    out.append(f"{len(graph.people)} person(s):")
-    out.append("")
-    for person in graph.people:
-        gender = str(person.get("gender") or "unknown")
-        out.append(f"  {_named(person)}   [{gender}]")
-        for event in graph.events:
-            if person.get("id") not in (event.get("people") or []):
-                continue
-            bits = [str(event.get("type") or "Event")]
-            if event.get("date"):
-                bits.append(str(event["date"]))
-            place = places_by_id.get(event.get("place"))
-            if place:
-                bits.append("at " + str(place.get("title") or ""))
-            out.append("      - " + "   ".join(bits))
-        out.append("")
+    creating_people = [p for p in graph.people if p.get("id") not in resolved]
+    creating_places = [p for p in graph.places if p.get("id") not in resolved]
+    creating_source = (
+        graph.source if graph.source and graph.source.get("id") not in resolved else None
+    )
 
-    if graph.families:
-        out.append(f"{len(graph.families)} family record(s):")
+    if creating_people or creating_places or creating_source or graph.families:
+        out.append("CREATING NEW")
+        out.append("")
+        if creating_source:
+            out.append("  Source  " + str(creating_source.get("title") or "Untitled document"))
+            if creating_source.get("author"):
+                out.append("            author: " + str(creating_source["author"]))
+            if creating_source.get("pubinfo"):
+                out.append("            detail: " + str(creating_source["pubinfo"]))
+        for person in creating_people:
+            gender = str(person.get("gender") or "unknown")
+            out.append(f"  Person  {_named(person)}   [{gender}]")
+            for line in events_of(person.get("id")):
+                out.append("  " + line)
+        for place in creating_places:
+            out.append("  Place   " + str(place.get("title") or "?"))
         for family in graph.families:
-            parents = " + ".join(
-                _named(people_by_id.get(p, {})) for p in (family.get("parents") or [])
-            )
-            children = ", ".join(
-                _named(people_by_id.get(c, {})) for c in (family.get("children") or [])
-            )
-            out.append("  " + (parents or "(no parents named)"))
+            parents = " + ".join(shown(x) for x in (family.get("parents") or []))
+            children = ", ".join(shown(c) for c in (family.get("children") or []))
+            out.append("  Family  " + (parents or "(no parents named)"))
             if children:
-                out.append("      children: " + children)
-        out.append("")
-
-    if graph.places:
-        out.append(
-            f"{len(graph.places)} place(s): "
-            + ", ".join(str(p.get("title") or "?") for p in graph.places)
-        )
-        out.append("")
-
-    if graph.citations:
-        out.append(f"{len(graph.citations)} citation(s) attached to what they support.")
-    if graph.notes:
-        out.append(f"{len(graph.notes)} note(s), including any transcription.")
-    if graph.citations or graph.notes:
+                out.append("            children: " + children)
         out.append("")
 
     out.append("-" * 62)
     out.append("")
-    out.append("OK writes all of the above, in ONE transaction.")
+    if creating_people:
+        out.append("⚠ The people under CREATING NEW are made fresh. Nothing is matched")
+        out.append("  by name -- if one of them is already in your tree, you get a second copy.")
+        out.append("")
+    out.append("Nothing already in your tree is modified. Existing objects are only")
+    out.append("added to.")
+    out.append("")
+    out.append("Write it writes all of the above, in ONE transaction.")
     out.append("Cancel writes nothing at all.")
     return "\n".join(out)
 

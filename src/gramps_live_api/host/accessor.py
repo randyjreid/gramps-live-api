@@ -94,6 +94,96 @@ def tree_status() -> status.TreeStatus:
 
 
 @mainthread.on_main_thread
+def resolve_nodes(graph: dict[str, typing.Any]) -> document.Resolution:
+    """Look up every node that says it already exists, and read its name from the TREE.
+
+    ⭐ **The display string comes from Gramps, never from the graph.** If the
+    model picked the wrong Gramps ID, the owner reads the wrong person's name in
+    the dialog and cancels -- echoing back the name the model supplied would
+    defeat the only check there is.
+
+    ⚠️ **One O(1) lookup per requested node, plus a birth date for a person.**
+    R8's accepted risk 4 caps what a single ``idle_add`` callback may do; a
+    document names a handful of people, not a tree's worth.
+
+    A node that does not resolve comes back with ``found=False`` rather than
+    raising, so the caller can refuse the **whole batch** naming every missing
+    id at once instead of one per round trip.
+    """
+    parsed = document.parse(graph)
+    if _DBSTATE is None:
+        return document.Resolution(
+            nodes=tuple(
+                document.Resolved(r.local_id, r.gramps_id, r.kind, found=False)
+                for r in document.requested(parsed)
+            )
+        )
+    database = _DBSTATE.db
+    found: list[document.Resolved] = []
+    for request in document.requested(parsed):
+        obj = _by_gramps_id(database, request.kind, request.gramps_id)
+        found.append(
+            document.Resolved(
+                local_id=request.local_id,
+                gramps_id=request.gramps_id,
+                kind=request.kind,
+                found=obj is not None,
+                display=_display_of(database, request.kind, obj) if obj is not None else "",
+            )
+        )
+    return document.Resolution(nodes=tuple(found))
+
+
+def _by_gramps_id(database: typing.Any, kind: str, gramps_id: str) -> typing.Any:
+    """The object that Gramps ID names, or ``None``. ⛔ Never creates anything."""
+    getter = {
+        "person": "get_person_from_gramps_id",
+        "place": "get_place_from_gramps_id",
+        "source": "get_source_from_gramps_id",
+    }.get(kind)
+    if getter is None:
+        return None
+    try:
+        return getattr(database, getter)(gramps_id)
+    except Exception:
+        return None
+
+
+def _display_of(database: typing.Any, kind: str, obj: typing.Any) -> str:
+    """How the owner will recognise it: the name Gramps holds, and a birth year.
+
+    ⚠️ **A birth year is what makes two people with one name distinguishable**, so
+    it is worth the extra lookup -- it is the difference between *Standlake,
+    Peregrine* and *the right Standlake, Peregrine*.
+    """
+    try:
+        if kind == "person":
+            name = obj.get_primary_name()
+            shown = (
+                ", ".join(part for part in (name.get_surname(), name.get_first_name()) if part)
+                or "(no name)"
+            )
+            birth = obj.get_birth_ref()
+            if birth is not None:
+                event = database.get_event_from_handle(birth.ref)
+                date = event.get_date_object()
+                if date is not None and not date.is_empty():
+                    shown += f"  (b. {date.get_year() or date})"
+            return shown
+        if kind == "place":
+            return str(obj.get_title() or obj.get_name().get_value())
+        if kind == "source":
+            title = str(obj.get_title() or "(untitled)")
+            author = str(obj.get_author() or "")
+            return f"{title} -- {author}" if author else title
+    except Exception:
+        # A display string is not worth failing a lookup over. The id resolved;
+        # that is the load-bearing fact.
+        return "(could not read its name)"
+    return ""
+
+
+@mainthread.on_main_thread
 def blessing() -> document.Blessing:
     """Whether the OPEN tree may be written to, and the message if it may not.
 

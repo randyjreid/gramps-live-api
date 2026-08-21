@@ -147,6 +147,32 @@ def _event_role(name):
     return EventRoleType(EventRoleType.PRIMARY)
 
 
+_BY_GRAMPS_ID = {
+    "person": "get_person_from_gramps_id",
+    "place": "get_place_from_gramps_id",
+    "source": "get_source_from_gramps_id",
+}
+
+
+def _existing(database, kind, spec):
+    """The handle a node's ``gramps_id`` names, or ``None`` if it has none.
+
+    ⛔ **Raises if an id was supplied and does not resolve.** Falling back to
+    creating would produce exactly the duplicate the id was there to prevent,
+    and it would do it silently. The route resolves every id before the dialog
+    opens, so reaching this raise means the tree changed underneath -- rare,
+    and still not a reason to guess.
+    """
+    gramps_id = spec.get("gramps_id")
+    if not gramps_id:
+        return None
+    getter = _BY_GRAMPS_ID.get(kind)
+    obj = getattr(database, getter)(str(gramps_id)) if getter else None
+    if obj is None:
+        raise ValueError(f"the graph names {kind} {gramps_id!r}, which is not in this tree")
+    return obj.get_handle()
+
+
 def write(dbstate, graph):
     """Write the whole graph in ONE transaction. Returns a one-line summary.
 
@@ -185,6 +211,8 @@ def write(dbstate, graph):
         # --- the source ------------------------------------------------------
         source_handle = None
         if source_spec:
+            source_handle = _existing(database, "source", source_spec)
+        if source_spec and source_handle is None:
             source = Source()
             source.set_title(str(source_spec.get("title") or "Untitled document"))
             if source_spec.get("author"):
@@ -192,12 +220,17 @@ def write(dbstate, graph):
             if source_spec.get("pubinfo"):
                 source.set_publication_info(str(source_spec["pubinfo"]))
             source_handle = database.add_source(source, trans)
-            if source_spec.get("id"):
-                handles[source_spec["id"]] = source_handle
-                kinds[source_spec["id"]] = "source"
+        if source_spec and source_spec.get("id"):
+            handles[source_spec["id"]] = source_handle
+            kinds[source_spec["id"]] = "source"
 
         # --- places ----------------------------------------------------------
         for spec in graph.get("places") or []:
+            existing = _existing(database, "place", spec)
+            if existing is not None:
+                handles[spec["id"]] = existing
+                kinds[spec["id"]] = "place"
+                continue
             place = Place()
             place.set_title(str(spec.get("title") or ""))
             place_name = PlaceName()
@@ -210,6 +243,13 @@ def write(dbstate, graph):
 
         # --- people ----------------------------------------------------------
         for spec in graph.get("people") or []:
+            existing = _existing(database, "person", spec)
+            if existing is not None:
+                # ⛔ Attached to, never altered. The graph's given/surname/gender
+                # are deliberately NOT applied -- see IGNORED_WHEN_ATTACHING.
+                handles[spec["id"]] = existing
+                kinds[spec["id"]] = "person"
+                continue
             person = Person()
             name = Name()
             if spec.get("given"):

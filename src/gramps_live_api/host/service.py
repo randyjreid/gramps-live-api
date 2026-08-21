@@ -200,6 +200,22 @@ def _document(
     if not outcome.blessed:
         return outcome
 
+    # ⛔ Every supplied Gramps ID is resolved BEFORE the dialog opens, and a
+    # single miss refuses the WHOLE batch naming every one that missed.
+    # Creating a new object where an id was supplied is precisely the duplicate
+    # the id was there to prevent, arriving quietly.
+    resolution = marshal.call(functools.partial(accessor.resolve_nodes, graph))
+    if resolution.missing:
+        named = ", ".join(f"{node.gramps_id} ({node.kind})" for node in resolution.missing)
+        return document.Blessing(
+            blessed=False,
+            message=(
+                f"these Gramps IDs are not in the open tree: {named}. "
+                "Nothing was written and no dialog was shown. Look them up with "
+                "list_people, or leave gramps_id out to create a new record."
+            ),
+        )
+
     if present is None:
         # No presenter was injected -- the host is running outside Gramps, which
         # is every test and no real session. Refuse rather than silently accept.

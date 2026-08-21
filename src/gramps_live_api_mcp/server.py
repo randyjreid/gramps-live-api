@@ -167,14 +167,47 @@ the approval, and this server cannot type in that window -- and this server will
 not learn what he typed, so you must ask him.\
 """
 
-PROPOSE_DOCUMENT_DESCRIPTION = (
-    "Propose everything a genealogical document says about people -- names, "
-    "genders, events, dates, places, the source, its citations, relationships "
-    "and a transcription -- as ONE graph with local ids. Writes nothing. "
-    "Returns a proposal id and a preview of exactly what would be written. "
-    "EVERYTHING IS CREATED NEW: nothing is matched against people already in "
-    "the tree, so a person who is already there will get a second copy."
-)
+PROPOSE_DOCUMENT_DESCRIPTION = """\
+Propose everything a genealogical document says about people, as ONE graph.
+
+Writes nothing. Returns a proposal id and a preview of exactly what would be
+written. Follow it with approve_document to put it in front of the owner.
+
+SHAPE. Every node has a local "id" you invent (p1, e1, l1, s1, c1, f1) and other
+nodes refer to it by that id. The ids are resolved to real records when the write
+happens, so you never need a handle.
+
+  people:    [{"id","gramps_id?","given","surname","gender"}]
+  places:    [{"id","gramps_id?","title"}]
+  events:    [{"id","type","date","place":<place id>,"people":[<person ids>],"role"}]
+  source:     {"id","gramps_id?","title","author","pubinfo"}
+  citations: [{"id","source":<source id>,"page","attach_to":[<any ids>]}]
+  families:  [{"id","parents":[<person ids>],"children":[<person ids>]}]
+  notes:     [{"text","attach_to":[<any ids>]}]
+
+*** IF A PERSON IS ALREADY IN THE TREE, LOOK THEM UP WITH list_people FIRST AND
+PASS THEIR GRAMPS ID as "gramps_id". *** Otherwise you create a duplicate of
+somebody the owner already has, which is the single most likely way to get this
+wrong. The same goes for the SOURCE: if you have already cited this parish
+register or this census, pass its Gramps ID rather than making a second copy of
+it.
+
+gramps_id works on people, places and the source only. Events, citations,
+families and notes are always created new -- a document asserting a fact is
+asserting a new claim about it, even between people who already exist.
+
+A node with a gramps_id is ATTACHED TO, never modified. Its given/surname/gender
+are ignored: nothing already in the tree is changed, ever. If the document
+contradicts what is recorded, say so to the owner in conversation -- do not try
+to write the correction.
+
+If a gramps_id does not exist in the tree, the WHOLE batch is refused and nothing
+is written. Leave gramps_id out to create a new record deliberately.
+
+list_people reads the owner's XML export, which may be stale. Gramps IDs are
+stable once assigned, so an id from a stale export still points at the right
+person -- the only risk is that somebody added very recently is not in it yet.
+"""
 
 APPROVE_DOCUMENT_DESCRIPTION = (
     "Put a proposed document in front of the owner in Gramps. Loads the stored "

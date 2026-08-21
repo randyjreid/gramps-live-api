@@ -135,9 +135,28 @@ def _present(dbstate, uistate, graph):
         import gramps_live_api_writer as writer
 
         parsed = document.parse(graph)
+
+        # ⭐ The names in the dialog are read from the TREE, not from the graph.
+        # If the model picked the wrong Gramps ID the owner sees the wrong
+        # person and cancels, and that is the only check there is. Resolving
+        # here rather than trusting what the route resolved keeps the lookup
+        # adjacent to the rendering it feeds.
+        from gramps_live_api.host import accessor
+
+        resolution = accessor.resolve_nodes(graph)
+        if resolution.missing:
+            named = ", ".join(n.gramps_id for n in resolution.missing)
+            note("ERROR", "document: refusing, unresolved ids: " + named)
+            writer.tell(
+                uistate,
+                "Nothing was written",
+                "These Gramps IDs are not in this tree: " + named,
+            )
+            return
+
         note("INFO", "document: showing " + document.summary(parsed))
 
-        if not writer.confirm(uistate, document.preview(parsed)):
+        if not writer.confirm(uistate, document.preview(parsed, resolution)):
             note("INFO", "document: the owner said no. Nothing was written.")
             return
 
