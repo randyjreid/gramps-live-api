@@ -52,8 +52,9 @@ with list_people, or leave gramps_id out to create a new record.
 
 ## ⭐ The safety mechanism proved itself, by catching me
 
-I picked `I8888` as an obviously-fake test id. **It is a real person in your
-copy** — the tree has 2,933 people and I had assumed the ids stopped near the
+I picked a four-digit test id I assumed was obviously fake. **It is a real
+person in your copy** (the id is in my message, not in this file --
+it is tracked and this repository is public) — the tree has 2,933 people and I had assumed the ids stopped near the
 ones added this week. The route resolved it and opened a dialog **showing that
 person's real name, read from the tree.**
 
