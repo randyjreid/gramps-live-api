@@ -123,10 +123,20 @@ Three answers, **all of them 200**:
 | the ID names somebody **marked private in Gramps** | `@{ found = True; private = True }` |
 | the ID names nobody | `@{ found = False }` |
 
+⭐ **The third row carries no `private` key at all, and that is deliberate.** A `false` there would be
+a claim about the privacy of somebody the tree does not hold — an answer about a person who is not
+there. The key is absent instead, so the only two things the route ever says about a real person are
+*found* and *private*.
+
 ⚠️ **The middle row is the one worth checking deliberately.** Mark a person private in Gramps, ask
 again, and the answer must be *found and private* — **not** *no such person*. Ruling 1's second
 enforcement point is that a target is refused **by name** rather than reported absent, because
 silence would leave a caller unable to tell the two apart.
+
+⛔ **The private state has only ever been exercised against fakes.** Nobody has flagged a `priv="1"`
+person in the blessed copy, so the middle row's live behaviour is untested on real data — and
+flagging one is **a write**, which is why it has not been done casually. The integration tests cover
+it against a stand-in database; that is not the same observation.
 
 ### Taking F3's measurement
 
@@ -147,6 +157,12 @@ $sorted = $ms | Sort-Object
 
 ⚠️ **Report the first call separately.** It was the outlier last time — 89.9 ms against a 2.2 ms
 median — and averaging it in hides both facts.
+
+⛔ **This number has now been taken, and F3 is discharged.** Against the blessed copy, warmed loop:
+median **1.63 ms**, worst **3.22 ms** — **621× inside the ~2 s budget**, and *faster* than `/health`
+on the same loop. R8's F3 section carries the table and the three conditions the discharge rests on.
+Re-running the block above is how you check it against your own tree, not how the falsifier gets
+answered again.
 
 ---
 
@@ -179,16 +195,43 @@ all.
 - the token, the `Origin` rule and the constant-time comparison — `tests/unit/test_host_auth.py`;
 - that every host source would have parsed on 3.10 — `tests/unit/test_host_language_floor.py`.
 
-⛔ **CI proves none of the following, and a green run must not be read as though it did:**
+⛔ **CI proves none of the following, and a green run must not be read as though it did.** What has
+happened since is that some of them were answered *here*, at this keyboard, which is the only place
+they could be. **Three states, and they are not interchangeable:**
+
+### 1. Measured on this machine, and discharged
+
+- **F1** — that `GLib.idle_add` drains while a Gramps modal dialog holds a nested main loop. **It
+  does.** The dialog held the main thread for **3.004 s**; the callback fired **0.0002 s** after it
+  was scheduled, **with the dialog still up**; GLib main-loop depth went **1 → 2**, so it genuinely
+  ran under the nested loop.
+- **The transport** — steps 1, 3 and 4 above, against the live host with a tree open.
+- **F3** — whether a **single-person read** exceeds ~2 s. ⚠️ **Step 1 does not answer it and was
+  wrongly recorded as doing so**: it times the hop, and `/health` walks nobody. **Step 5 is the step
+  that answered it** — median **1.63 ms**, worst **3.22 ms**, 621× inside the budget. R8 carries the
+  table and the three conditions it rests on.
+
+### 2. Still open
+
+- **F2's visible outcome** — whether a `DbTxn` write from `idle_add` refreshes a Gramps view in
+  place. The write lands and the `note-add` / `person-update` signals fire on the main thread; what is
+  unmeasured is whether a view that cares *repaints*. ⚠️ **The earlier run had `DashboardView`
+  active, which displays neither notes nor people**, so *"nothing refreshed"* proved nothing about a
+  view that would have had a reason to react. **What settles it: the same measurement with a Person
+  or Note view active** at the moment the transaction commits.
+
+### 3. What CI structurally cannot reach — unchanged
 
 - that the plugin loads at all inside the AIO's frozen **Python 3.14.4** interpreter;
-- that `GLib.idle_add` drains while a Gramps modal dialog holds a nested main loop — R8's first open
-  falsifier, still unmeasured;
-- that Gramps' real `DbState` and `DummyDb` answer `is_open()` the way the stand-in does;
-- what a real round trip costs. R8's third open falsifier — F3 — is whether a **single-person read**
-  exceeds ~2 s. ⚠️ **Step 1 does not answer it and was wrongly recorded as doing so**: it times the
-  hop, and `/health` walks nobody. **Step 5 is the step that answers F3**, and #89 stays open until
-  its number is taken here.
+- that Gramps' real `DbState` and `DummyDb` answer `is_open()` the way the stand-in does.
 
-**Step 1 producing a real tree's name is the demo. Nothing else is.** Step 5 is not a demo — it is
-the measurement #89 is waiting on.
+⚠️ **One in-situ observation exists and it is NOT a gate.** This repository's own tests, run once by
+hand on **2026-08-19** inside the AIO's frozen **3.14.4** interpreter behind a minimal `pytest`
+stand-in, reported **60 passed / 0 failed / 9 skipped** — **identical 60 / 0 / 9** on the project's
+own 3.12. That is a
+one-off run on one machine covering only what the stand-in could reach. **It must not be read as CI
+covering 3.14, because it is not**: the gates still run 3.10, 3.11 and 3.12, and the source still has
+to be 3.10-compatible while executing on 3.14.
+
+**Step 1 producing a real tree's name is the demo. Nothing else is.** Step 5 is not a demo — it is the
+measurement, and it has now been taken.
