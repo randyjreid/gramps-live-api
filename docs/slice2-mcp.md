@@ -130,6 +130,8 @@ not delete this.** It is guarding a live path today, not a hypothetical one, and
 about to add widens that path rather than creating it. The reason is written down rather than left
 implicit, because a guard whose reason is unrecorded is a guard somebody later removes.
 
+
+⭐ **The trigger above has FIRED and been RULED.** R3 was decided on 2026-08-21 — **D + A**: injected text may influence what the agent proposes, the damage is bounded at the write, and structural fencing is defence in depth that closes no class of attack. The record is [`rulings/R3-injection-under-live-reads.md`](rulings/R3-injection-under-live-reads.md), and it carries the walk-through of the four mechanisms above as a named build precondition.
 ### ⚠️ What this does NOT defend against
 
 `approval_digest`'s own docstring says it is *not a security boundary against a hostile front end*,

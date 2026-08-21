@@ -203,9 +203,10 @@ read-back approval. Each is marked where it appears below.
 
 ### What it leaves owed
 
-**R1, R3, R4, R5 and R6 are untouched.** ⚠️ **R3 in particular: R8 says the injection surface is
-unchanged in kind, so the widening ruling is owed exactly as before, at slice 4.** **R7 is reshaped,
-not answered** — see its row in the rulings table.
+**R1, R5 and R6 are untouched.** ⭐ **R3, R4 and R7 were all ruled on 2026-08-21** — R8 recorded R3
+as unchanged in kind and R7 as reshaped rather than answered, and both have since been decided. See
+[`rulings/R3-injection-under-live-reads.md`](rulings/R3-injection-under-live-reads.md), [`rulings/R4-graduation-to-the-live-tree.md`](rulings/R4-graduation-to-the-live-tree.md) and
+[`rulings/R7-backup-with-gramps-open.md`](rulings/R7-backup-with-gramps-open.md).
 
 ---
 
@@ -228,9 +229,10 @@ Four notes on the numbering before the detail:
   with slice 3 deleted, **all of it now sits behind slice 4 and ruling R7.** It is not dropped; the
   amended order still enacts the graduation at the front.
 - ⚠️ **Slice 3 no longer opens the order, and nothing has replaced it.** R2 falsified the premise its
+- ⚠️ **Slice 3 no longer opens the order, and nothing has replaced it.** R2 falsified the premise its
   plan rests on and **R8 deleted the plan** — see slice 3 below, and ruling **R7**. Slice 4 still
-  needs a backup; **what produces one against a tree Gramps is holding open is unruled, though R8
-  hands R7 a mechanism it did not have.**
+  needs a backup; **what produces one against a tree Gramps is holding open was ruled on 2026-08-21 —
+  SQLite's backup API against the connection Gramps already holds.**
 - ⚠️ **Of the two rulings that had to land before any of this starts, one has.** R2 is ruled — and
   R8 with it, which R2 did not anticipate needing. **R1, the batch shape, is not.** They are listed
   as rulings, further down, and they are not work.
@@ -260,13 +262,15 @@ and is a rule we must keep ourselves.
 XML export driven from **inside** the host — R7's own first candidate — stops being hypothetical the
 moment the host exists, because the host *is* code running inside the process that owns the database.
 **That is a mechanism, not an answer.** ⚠️ **And it inherits R8's accepted risk 4** — a whole-tree
-export is long work, and long work inside `GLib.idle_add` blocks the GTK loop. What a backup is
-remains ruling **R7**, and it is owed.
+**That is a mechanism, not an answer.** ⚠️ **And it inherits R8's accepted risk 4** — a whole-tree
+export is long work, and long work inside `GLib.idle_add` blocks the GTK loop. ⭐ **What a backup is
+was ruled on 2026-08-21, and it is not the export:** SQLite's backup API against the live connection —
+[`rulings/R7-backup-with-gramps-open.md`](rulings/R7-backup-with-gramps-open.md).
 
-⚠️ **The `importxml` handle finding still governs whatever restores, whichever way R7 goes:**
-importing into a tree that holds even one person **silently regenerates every handle** in the
-document, so the restore is *"import into a brand-new empty tree"*, and that constraint is part of
-the question rather than a consequence of it.
+⭐ **The `importxml` handle finding governed whatever restores — and R7's ruling routes around it.**
+Importing into a tree that holds even one person **silently regenerates every handle** in the
+document, so an export-based restore means *"import into a brand-new empty tree"*. **R7 restores by
+file replacement instead, so the finding never applies to it** — see [`rulings/R7-backup-with-gramps-open.md`](rulings/R7-backup-with-gramps-open.md).
 
 **The deliverable, unchanged and now owned by R7 and slice 4.** Ask for a backup, get one, restore it
 into Gramps as a working tree that opens. The owner has personally seen his own tree come back.
@@ -302,8 +306,8 @@ R8**; see its row in *What unparks when*.
 
 **Depends on.** ⚠️ **A backup — which no longer has a slice.** The precondition is unchanged (*no
 write to the live tree before the owner has seen one come back*); what changed is that slice 3 is
-**deleted** and producing a backup against an open tree is **ruling R7**. **And on rulings — the
-first now made twice over, two still owed:**
+**deleted** and producing a backup against an open tree is **ruling R7**. ⭐ **And on rulings — all
+three are now made, on 2026-08-21:**
 
 - ⭐ **The read mechanism — RULED (R2, 2026-08-19; specified by R8 the same day).** *"Ask Claude about
   them"* is a read of the live tree **while Gramps holds it open**, and the ruled answer is an
@@ -324,27 +328,27 @@ first now made twice over, two still owed:**
   *Unwritable-by-construction* is a guarantee about what can happen; *recoverable-after* is a
   guarantee about what can be undone, and it still costs the owner noticing, choosing, and knowing
   which backup predates the damage. That may be exactly the right trade — it is what "the notes
-  count" costs — but **it should be approved as a downgrade, in those words.** ⚠️ **R7 now sits
-  underneath it:** the downgrade cannot be approved as *backup-taken-first* until something can take
-  one against an open tree. ⭐ **R8 changes the sentinel's form and not its strength:** it is no
+  count" costs — but **it should be approved as a downgrade, in those words.** ⭐ **Both were ruled on
+  2026-08-21:** R4 approves the downgrade in exactly those words ([`rulings/R4-graduation-to-the-live-tree.md`](rulings/R4-graduation-to-the-live-tree.md)),
+  and R7 says what takes the backup underneath it.
   longer *"the writer can only ever open a blessed tree"* but *"the host refuses to arm its write
   path unless the open tree directory carries `.gramps-live-api-copy`, checked on
   `database-changed`."* **The downgrade R4 must approve is the same downgrade** — the check is now a
   runtime arming condition rather than a property of the process topology, and R8 attaches one config
-  flag to relax it later. ⚠️ **That flag would be a proposed change to the invariant `docs/using.md:52`
-  states of the shipped mechanism** — *"there is no flag that overrides it, and there is no configuration
-  key that reaches the check."* **Whether to make it is unresolved pending R4.**
+  runtime arming condition rather than a property of the process topology, and R8 attaches one config
+  flag to relax it later. ⭐ **R4 does not take that flag up.** Blessing is creating a file, not
+  setting a setting, so `docs/using.md:52`'s *"there is no flag that overrides it, and there is no
+  configuration key that reaches the check"* **stays true and needs no change.**
 - ⚠️ **The injection widening (ruling R3), which R2 moved here.** A live read is a read of everything
   the tree holds — note, source and citation text included — so the trigger recorded verbatim in
   `docs/slice2-mcp.md` fires at **this** slice unless 5a somehow ships first. ⛔ **R8 changes nothing
-  about it** and says so in its own words: *injection surface is unchanged in kind; R3 still owed.*
-  An HTTP hop between our own halves moves tree prose along a different wire, not into a different
+  about it** and said so plainly: the injection surface is unchanged in kind, and the widening ruling
+  ⭐ **R3 was ruled on 2026-08-21 — D + A** ([`rulings/R3-injection-under-live-reads.md`](rulings/R3-injection-under-live-reads.md)).
   trust model.
 
 ⚠️ **The cost this slice does not otherwise name:** after it, every subsequent vocabulary slice's
-first bugs land in the real tree. Mitigated only by auto-backup-before-write — and **only for as
-long as the backup stays per-write** rather than per-session, and now only once R7 says what takes
-one.
+as long as the backup stays per-write** rather than per-session — which **R4's ruling keeps
+deliberately** — and now on R7's mechanism being built rather than on R7 being decided.
 
 ⚠️ **And a cost R2 adds to this slice specifically: the tool is dead whenever Gramps is closed.**
 The demo above is performed with Gramps open, which is how the owner says he works — but *"ask the
@@ -422,13 +426,13 @@ fragment, slice 5's demo is the manual handle hunt again, for events.
 
 **Depends on.** ⭐ **Ruling R3 — the injection widening — and nothing else.** `docs/slice2-mcp.md`
 records the trigger in exact words: *any tool that returns note, source or citation text.* This is
-that tool. The ruling is owed **before** the slice is built, because tools built before it are tools
-built against an unrecorded trust model, which is how a guard gets removed later. ⚠️ **Under R2 it is
-owed earlier still** — slice 4's live read trips the same trigger, so R3 will already have been made
-by the time this slice is reached, rather than being this slice's own gate.
+that tool. ⭐ **R3 was ruled on 2026-08-21 — D + A** — so the trust model is recorded before any tool
+is built against it, which is what the condition was for. See
+[`rulings/R3-injection-under-live-reads.md`](rulings/R3-injection-under-live-reads.md).
 
-⚠️ **Under R2 the trigger fires at slice 4, which comes first** — a live read widens the channel from
-two export fields to everything the tree holds, and R2 ruled that slice 4 reads live. **The ruling
+⚠️ **Its two build preconditions travel with it**, and the first tool to return tree prose carries
+them: the console→dialog walk-through, and the egress bound having no implementation on the live
+path.
 is owed at whichever tool ships first, and on the order above that is slice 4, not this slice.**
 
 ### 5 — "The record itself enters the tree."
@@ -587,16 +591,16 @@ roadmap.
 | **#77** — export staleness unsatisfiable by the documented workflow | **4** | Dissolves with the export reader. |
 | **#76** — duplicate eventref handles counted twice | **4**, moot | ⚠️ Conditional on slice 4 **dropping** the export reader — the defect is in that reader (`core/people.py`), so keeping it **preserves** the defect. The analysis says slice 4 does not keep it — so **moot, not deferred**. |
 | **#64**'s shape, for events | **5a** | Not the filed issue, its recurrence: no read surface returns an event identity, and the Gramps UI shows none. |
-| **#25** — destructive operations | LATER | *"Backup proven in anger."* ⚠️ **Coupled:** the entry holds only as long as backup stays **per-write**. Throttle it to per-session and destructive ops jump the queue, because restore *is* batch undo. ⚠️ **And the coupling runs through R7** — a backup nobody can take against an open tree is not a cadence, and this entry rests on one existing at all. ⚠️ **R8 removes the fallback that made this feel softer than it is:** Gramps' own undo is a process-local list discarded on close, so *"undo it in Gramps"* stops working the moment the tree does. |
+| **#25** — destructive operations | LATER | *"Backup proven in anger."* ⚠️ **Coupled:** the entry holds only as long as backup stays **per-write**. Throttle it to per-session and destructive ops jump the queue, because restore *is* batch undo. ⭐ **R7 was ruled on 2026-08-21** — SQLite's backup API against the live connection — so this entry now rests on that backup being **built**, not on the question being decided. ⭐ **R4 keeps the cadence per-write deliberately**, which is what preserves this entry's condition. ⚠️ **R8 removes the fallback that made this feel softer than it is:** Gramps' own undo is a process-local list discarded on close, so *"undo it in Gramps"* stops working the moment the tree does. |
 | **#53** — a name spelled with ZWNJ cannot be previewed | use-derived | A real name trips the render guard. |
 | **#75**, **F-1**, **F-2**, **N-1** | use-derived | Someone actually hits them. All recorded residuals, all off the census path. |
 | **pii_guard freeze** | use-derived | A demonstrable fail-open on real data. |
 | **the gramplet** (Phase 6) | ⛔ **UN-PARKED by R2, then RULED OUT as the host by R8** — back to **use-derived** | R2 un-parked it for one reason: it was a candidate to *host* the channel. **R8 rules that it cannot be** — `GrampletPane` constructs gramplets only when the containing page is built and `ViewManager.goto_page()` builds pages lazily, so a gramplet may never be constructed at all; the host is a `GENERAL` plugin with `load_on_reg = True`. ⚠️ **R8 gives it no other job** — approval is a Gramps dialog on the main thread, which is not a gramplet — **so the reason it un-parked is gone and its old condition returns: use has not asked for it.** |
 | ⚠️ **the in-process channel** (Phase 5's surviving half) | ⭐ **UN-KILLED by R2, SPECIFIED by R8** — **4** | Was not a parked item at all; it was **dead**, killed on a false reason. It returns as slice 4's read mechanism, and **R8 says what it is**: a `load_on_reg` `GENERAL` plugin hosting a stdlib `http.server` on `127.0.0.1` on a daemon thread, all DB and GTK work marshalled to the main thread by `GLib.idle_add`. ⛔ **Phase 5's agent-facing four-route API does not return with it** — the agent still speaks stdio MCP; the HTTP is the hop between our own two halves. ⚠️ **Its gate is FULL tier** — a listening socket needing authentication is a named risk surface — **and it is now an implementation gate, not a design one.** |
-| ⚠️ **the backup mechanism** | ⛔ **PARKED by R2**, its slice **DELETED by R8**, and **ruling R7 first** | Slice 3's plan assumes Gramps closed **and produces the artifact through a spawned CLI tool R8 deletes**, so the plan is gone rather than held. An open SQLite tree still cannot be safely copied. ⭐ **What R8 adds is a mechanism R7 did not have** — a process that already holds the handle, so Gramps' own export driven from inside it is real rather than hypothetical; ⚠️ **subject to R8's cap on work inside `GLib.idle_add`.** ⚠️ **It still blocks slice 4, which blocks everything after it.** |
+| ⚠️ **the backup mechanism** | ⛔ **PARKED by R2**, its slice **DELETED by R8**; ⭐ **ruling R7 MADE 2026-08-21** — now released by **building** it | Slice 3's plan assumes Gramps closed **and produces the artifact through a spawned CLI tool R8 deletes**, so the plan is gone rather than held. An open SQLite tree still cannot be safely copied. ⭐ **R7 rules the mechanism:** SQLite's backup API against the connection Gramps already holds, restored by file replacement — [`rulings/R7-backup-with-gramps-open.md`](rulings/R7-backup-with-gramps-open.md). ⚠️ **Subject to R8's cap on work inside `GLib.idle_add`, and it still blocks slice 4.** |
 | **multi-user** | LATER | Genuinely. Single-user is the brief's own premise. |
 | ⚠️ **the batch / provisional-reference model** | **4½**, and **ruling R1 first** | On no list. The single ordering decision; see 4½. |
-| ⚠️ **the injection widening** | **4**, and **ruling R3 first** | On no list, and the trigger is recorded verbatim in `docs/slice2-mcp.md`. ⚠️ **R2 settled which slice it lands in:** slice 4 now reads the live tree, so the widened read tool ships there rather than at 5a. ⛔ **R8 changes nothing here** — *"injection surface is unchanged in kind; R3 still owed."* |
+| ⚠️ **the injection widening** | **4** — ⭐ **ruling R3 MADE 2026-08-21** | On no list, and the trigger is recorded verbatim in `docs/slice2-mcp.md`. ⚠️ **R2 settled which slice it lands in:** slice 4 now reads the live tree, so the widened read tool ships there rather than at 5a. ⭐ **R3 rules D + A** — the damage is bounded at the write, fencing is defence in depth — [`rulings/R3-injection-under-live-reads.md`](rulings/R3-injection-under-live-reads.md). ⚠️ **Its two build preconditions travel with the first tool that returns tree prose.** |
 | ⚠️ **`add_family`** | **7** | On no list. Mandatory under slice 7's *own* criterion — schema alone determines the write. Measurement **M3** decides whether Gramps agrees. |
 | ⚠️ **the attribute operation** | **5** / **7**, or **never** | On no list. A census line's columns — occupation, relationship to head, marital status — are recorded partly as events and partly as `Attribute`s, and **no operation touches attributes.** Ruling **R6** decides whether the row exists at all. |
 | ⚠️ **media file custody** | **9**, and **ruling R5 first** | On no list. The first write outside the database and outside `DbTxn`. ⚠️ **R8 adds a constraint R5 must answer:** the file copy is long work, it may not run on the HTTP thread, and R8 caps what one `GLib.idle_add` callback may do on the main thread. |
@@ -607,9 +611,9 @@ roadmap.
 
 ⭐ **Startable today, before any further ruling:** #21's value type, the census-line walkthrough, the
 rulings themselves — **and, newly, the channel host, because R8 is its design ruling.** ⚠️ **Slice 3
-has left this list permanently:** R2 removed its premise and R8 deleted its plan. ⚠️ **And building
-the host is not building slice 4** — slice 4 is graduation onto the live tree and still waits on R7,
-R3 and R4.
+⚠️ **And building the host is not building slice 4** — slice 4 is graduation onto the live tree.
+⭐ **Its three rulings are now made** (R3, R4, R7, all 2026-08-21); what remains is the backup
+being **built**, not decided.
 
 ---
 
@@ -618,19 +622,18 @@ R3 and R4.
 **These are rulings, not work.** They cost a conversation each; what they cost if deferred is written
 beside them.
 
-⭐ **Two have been made and neither is in this table any longer.** **R2** — *Gramps stays open* —
+⭐ **Five have been made and none is in this table any longer.** **R2** — *Gramps stays open* —
 recorded near the top of this document; it put **R7** into the table. **R8** — *an in-process HTTP
 host inside Gramps* — recorded in
-[`rulings/R8-channel-architecture.md`](rulings/R8-channel-architecture.md); ⭐ **it adds nothing to
-this table and answers none of it**, but it reshapes **R7** and touches **R4** and **R5**, marked in
-their rows.
+[`rulings/R8-channel-architecture.md`](rulings/R8-channel-architecture.md); it added nothing to this
+table but reshaped **R7** and touched **R4** and **R5**. ⭐ **And on 2026-08-21, R7, R4 and R3 were
+all ruled** — [`rulings/R7-backup-with-gramps-open.md`](rulings/R7-backup-with-gramps-open.md),
+[`rulings/R4-graduation-to-the-live-tree.md`](rulings/R4-graduation-to-the-live-tree.md) and
+[`rulings/R3-injection-under-live-reads.md`](rulings/R3-injection-under-live-reads.md). **R1, R5 and R6 remain.**
 
 | | The ruling | Blocks | If it is not made |
 | --- | --- | --- | --- |
-| **R7** | ⛔ **What takes a backup against an open tree.** R2 removed slice 3's premise and **R8 deleted its plan** — the plan produced the artifact through a **spawned CLI tool**, which R8 deletes, and the reason that tool refused was recorded as Gramps' lock check, which **R8 shows guarantees nothing**. The one candidate takeable while Gramps holds the tree — a file copy of the tree directory — is still a torn read of a live SQLite database with no way to detect it. ⭐ **R8 reshapes the question rather than answering it:** the host is code inside the process that owns the handle, so *Gramps' own export driven from inside* stops being hypothetical. SQLite's backup API, or something else, remain open. ⚠️ **Whatever runs it inherits R8's cap on work inside `GLib.idle_add`** — a whole-tree export is long work on the GTK main thread. ⚠️ **Whatever restores it inherits the `importxml` handle finding**: import into a tree holding even one person and every handle is silently regenerated, so *"restore"* means *"into a brand-new empty tree"*. | **4**, therefore everything — ⚠️ **it no longer blocks a slice 3, because there is none** | ⚠️ **The front of the order still has no write slice startable in it.** And R4's guarantee downgrade cannot be approved as *backup-taken-first* while nothing can take one. |
 | **R1** | **The batch shape.** A — a transaction of the existing small operations, held as an approval unit *outside* the registry, executed in one `DbTxn`, with a provisional-reference spelling added to the reference vocabulary. Or B — one registered composite operation per document kind. **The analysis recommends A** and argues both failure modes; **the owner rules.** Conditional on measurement **M1**. | **4½**, and every vocabulary slice after it | The nine specified operation types get built on a reference model that cannot name what the same batch creates, and then reworked. **The rework bill is itemised under 4½.** |
-| **R3** | **The injection widening.** `docs/slice2-mcp.md` records the trigger — *any tool that returns note, source or citation text* — and demands a plan when it fires. What is the trust model for a read tool that returns tree prose? ⚠️ **R2 made this sooner, not different:** slice 4's read is now a live read of everything the tree holds, so the trigger fires there. ⛔ **R8 makes it neither sooner nor different** — *"injection surface is unchanged in kind; R3 still owed."* | **4**, and 5a behind it | A tool built against an unrecorded trust model, which is how a guard gets removed later. ⚠️ **Rule first, build after** — it is a ruling, not machinery, and it is cheap. |
-| **R4** | **Graduation to the live tree.** Is the blessed copy a disposable rehearsal, the future live tree, or something else? ⭐ **The sentinel model already contains the mechanism** — blessing is per-tree-directory, and the rail is *"blessed trees only,"* not *"never the live tree."* ⚠️ **R8 changes the sentinel's form, not this question:** it is no longer a property of which tree a spawned writer may open, but **a check the host makes on `database-changed` before it arms its write path**, with one config flag to relax it. ⚠️ **That flag would be a proposed change to the invariant `docs/using.md:52` states of the shipped mechanism — *"there is no flag that overrides it, and there is no configuration key that reaches the check"* — and whether to make it is unresolved pending R4.** **Includes approving the guarantee downgrade in its own words:** unwritable-by-construction → recoverable-after. ⚠️ **R7 sits under that half** — *recoverable-after* is not approvable until something can take a backup against an open tree. | **4** — ⚠️ **it no longer decides where slice 3 sits; R8 deleted it** | Every slice's product stays a demonstration artifact, and *"done"* has no meaning for any write slice. |
 | **R5** | **Media file custody.** Where does the image live, who copies it there, and what does undo mean for a write that is not in the database? ⚠️ **R8 adds a fourth part to the question: on which thread.** The HTTP thread may touch nothing Gramps owns, and the GTK main thread has a per-callback work cap. | **9** | Media is in the destination sentence and has no mechanism. |
 | **R6** | **Attributes versus events**, in the owner's own recording practice. Occupation is legitimately either. | the row list of **5** and **7** | Decides whether the attribute operation exists at all — a genealogy-practice question, not a code question. |
 
