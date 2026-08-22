@@ -168,6 +168,10 @@ def test_the_exposed_surface_is_exactly_what_the_server_says_it_is(tmp_path: Pat
         "find_source",
         "find_citation",
         "list_events",
+        "find_families",
+        "list_family_events",
+        "list_notes",
+        "list_associations",
     }
     assert {tool.name for tool in exposed} == mcp_server.TOOL_NAMES
 

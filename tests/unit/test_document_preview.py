@@ -326,3 +326,78 @@ def test_a_citation_may_support_any_kind_of_node() -> None:
         }
     )
     assert len(graph.citations) == 1
+
+
+# ---------------------------------------------------------------------------
+# Round 1's blocking finding: an attached family described as a new one.
+# ---------------------------------------------------------------------------
+
+ATTACHED_FAMILY_GRAPH = dict(
+    people=[node("pn", given="Wilhelmina", surname="Newcomer", gender="female")],
+    families=[node("f1", gramps_id="F0100", parents=["pn"], children=["pn"])],
+)
+
+ATTACHED_FAMILY_RESOLUTION = document.Resolution(
+    nodes=(
+        document.Resolved(
+            "f1", "F0100", "family", True, "Kettleby, Bartholomew + Kettleby, Susanna  [2 children]"
+        ),
+    )
+)
+
+
+def test_an_attached_family_is_not_described_as_a_new_one() -> None:
+    """⛔ The owner must not be asked to approve a different operation.
+
+    The writer APPENDS CHILDREN to a family that already exists. The preview
+    listed every family under ``CREATING NEW`` regardless -- so the dialog
+    described creating a household, and the write modified one. That is R3's
+    criterion, which is that no byte reaches the tree that was not rendered to
+    the human, failing on the description rather than on the bytes.
+    """
+    rendered = document.preview(document.parse(ATTACHED_FAMILY_GRAPH), ATTACHED_FAMILY_RESOLUTION)
+
+    creating = rendered.split("CREATING NEW", 1)
+    if len(creating) > 1:
+        assert "F0100" not in creating[1], (
+            "the family being ATTACHED TO is listed under CREATING NEW:\n" + rendered
+        )
+        assert "Kettleby" not in creating[1]
+
+    assert "ATTACHING TO EXISTING" in rendered
+    attaching = rendered.split("ATTACHING TO EXISTING", 1)[1].split("CREATING NEW", 1)[0]
+    assert "F0100" in attaching, "the attached family is not under ATTACHING TO EXISTING"
+    assert "Kettleby, Bartholomew" in attaching, (
+        "the household the owner is attaching to is unnamed, so he cannot notice "
+        "it is the wrong one"
+    )
+
+
+def test_the_preview_says_what_is_being_added_to_the_family() -> None:
+    """⛔ *Attach to this family* is not an operation until it says what joins it."""
+    rendered = document.preview(document.parse(ATTACHED_FAMILY_GRAPH), ATTACHED_FAMILY_RESOLUTION)
+
+    assert "adding as children" in rendered, (
+        "the preview names the family but never says what would be put in it:\n" + rendered
+    )
+    assert "Newcomer" in rendered
+
+
+def test_the_document_parents_are_reported_as_not_applied() -> None:
+    """⛔ Attaching never rewrites recorded parents, and must say so."""
+    rendered = document.preview(document.parse(ATTACHED_FAMILY_GRAPH), ATTACHED_FAMILY_RESOLUTION)
+
+    assert "parents" in rendered and "NOT applied" in rendered, (
+        "the graph gave parents for an existing family and the preview did not "
+        "say they would be ignored:\n" + rendered
+    )
+
+
+def test_caller_preview_no_longer_claims_families_are_always_new() -> None:
+    """⛔ It told the caller its own proposal would do something it would not."""
+    rendered = document.caller_preview(document.parse(ATTACHED_FAMILY_GRAPH))
+
+    assert "always created new" not in rendered, (
+        "caller_preview still claims every family is created new:\n" + rendered
+    )
+    assert "already in the tree" in rendered
