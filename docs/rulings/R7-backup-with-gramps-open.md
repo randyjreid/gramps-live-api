@@ -77,6 +77,53 @@ the class's contract promises the name survives a Gramps release.**
 
 2. **Where the backup file lands, and its retention.**
 
+## ⭐ The build constraint, measured 2026-08-22
+
+**The work-cap problem above is solved, and the private-attribute problem goes
+with it.** Both fall to one change of mechanism.
+
+⭐ **Back up through a SECOND, read-only `sqlite3` connection to the tree's
+database file, opened on a worker thread — not through Gramps' own connection.**
+
+- **No GTK callback**, so R8's cap on work inside `GLib.idle_add` does not apply.
+- **No `db.dbapi._Connection__connection`**, so the fragility this page accepts
+  as its cost — an unpublished attribute with no public alternative — **is not
+  incurred at all.**
+- The `create_function`/collation objection **does not apply**: that was about
+  *querying* with `regexp`. A backup copies pages.
+
+**Measured against the owner's real tree, with Gramps open and holding it:**
+
+| | |
+| --- | --- |
+| tree | 24,141,824 bytes, 2,933 people |
+| **backup** | **120 ms** |
+| `integrity_check` | **ok** |
+| all ten table counts | **match the source exactly** |
+| indexes / metadata rows preserved | 19 / 39 |
+| Gramps lock preventing a second reader | **none** — and no `-wal`, `-shm` or `-journal` file present |
+
+⚠️ **The connection must be opened ON the worker thread.** `sqlite3` refuses an
+object created on another one, which is not an obstacle but a reminder that
+nothing is shared with Gramps.
+
+### ⛔ The one hazard, and any build must carry a bound for it
+
+**Under a CONTINUOUSLY committing writer, `backup()` did not converge.** Run
+against a scratch copy with a writer committing in a tight loop, it was still
+restarting after **ten minutes** and was abandoned. SQLite restarts the copy when
+the source is written during it, and a source written faster than it can be
+copied never finishes.
+
+⚠️ **Gramps writes in bursts rather than continuously, so this is probably not
+the real case.** It is recorded because *probably* is not a bound: **a per-write
+backup must carry a page budget and an attempt limit, and must say what it does
+when it hits them, before it ships.**
+
+⛔ **Nothing was built.** This establishes that the option is viable and what it
+costs; the implementation is still owed a plan gate, and it still writes to a
+tree, so it is still FULL tier.
+
 ## What this settles that was open
 
 **Slice 3's deleted deliverable now has a mechanism.** R8 removed the spawned-CLI writer and left

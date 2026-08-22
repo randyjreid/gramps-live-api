@@ -42,9 +42,14 @@ on a runner that has never seen Gramps or an MCP client.
 
 from __future__ import annotations
 
+import contextlib
+import json
 import os
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Literal, Protocol
 
@@ -52,9 +57,29 @@ from mcp.server import MCPServer
 
 from gramps_live_api import config
 from gramps_live_api.core import apply, people, proposals, schema
+from gramps_live_api.host import document, paths
 
-TOOL_NAMES = frozenset({"list_people", "propose_note", "approve"})
-"""Exactly three, and criterion 1 asserts the server's own answer equals this."""
+TOOL_NAMES = frozenset(
+    {
+        "list_people",
+        "propose_note",
+        "approve",
+        "propose_document",
+        "approve_document",
+        "find_people",
+        "find_place",
+        "find_source",
+        "find_citation",
+        "list_events",
+    }
+)
+"""The whole surface, and the tests assert the server's own answer equals this.
+
+⚠️ **Three became five when the document flow arrived**, and the number is not
+the invariant. What criterion 1 is actually about survives unchanged: the surface
+is asserted against what the server exposes rather than against a comment, and
+⛔ **none of these tools reports what the owner decided.** ``approve_document``
+answers *shown*, not *written* -- the outcome is learned by looking at Gramps."""
 
 SERVER_NAME = "gramps-live-api"
 
@@ -154,6 +179,88 @@ types y there.** Tell him that plainly: agreement in this conversation is not \
 the approval, and this server cannot type in that window -- and this server will \
 not learn what he typed, so you must ask him.\
 """
+
+FIND_PEOPLE_DESCRIPTION = (
+    "Search people in the OPEN Gramps tree by name, and get their Gramps IDs. "
+    "Searches alternate name spellings as well as the primary name, and ignores "
+    "accents. USE THIS BEFORE PROPOSING ANYBODY, so you attach to the person who "
+    "is already there instead of creating a duplicate. A search term is required. "
+    "Private people are never returned and are not counted in any total."
+)
+
+FIND_PLACE_DESCRIPTION = (
+    "Search places in the OPEN tree and get their Gramps IDs. Use it before "
+    "naming a place: a tree often holds several spellings of one village, and "
+    "picking blind makes another. A search term is required."
+)
+
+FIND_SOURCE_DESCRIPTION = (
+    "Search sources in the OPEN tree by title or author, and get their Gramps "
+    "IDs. Use it before proposing a source: the same parish register should be "
+    "cited across many documents, not copied per document. A term is required."
+)
+
+FIND_CITATION_DESCRIPTION = (
+    "ASK THIS FIRST: has this document already been entered? Lists the citations "
+    "of one source, optionally narrowed by page. If a citation already names the "
+    "page you are about to enter, the document is probably already in the tree -- "
+    "say so to the owner instead of proposing it again."
+)
+
+LIST_EVENTS_DESCRIPTION = (
+    "The events already recorded on one person, by Gramps ID. Use it before "
+    "proposing an event, so citing what is already there stops meaning "
+    "duplicating it. Refused by name if that person is marked private."
+)
+
+PROPOSE_DOCUMENT_DESCRIPTION = """\
+Propose everything a genealogical document says about people, as ONE graph.
+
+Writes nothing. Returns a proposal id and a preview of exactly what would be
+written. Follow it with approve_document to put it in front of the owner.
+
+SHAPE. Every node has a local "id" you invent (p1, e1, l1, s1, c1, f1) and other
+nodes refer to it by that id. The ids are resolved to real records when the write
+happens, so you never need a handle.
+
+  people:    [{"id","gramps_id?","given","surname","gender"}]
+  places:    [{"id","gramps_id?","title"}]
+  events:    [{"id","type","date","place":<place id>,"people":[<person ids>],"role"}]
+  source:     {"id","gramps_id?","title","author","pubinfo"}
+  citations: [{"id","source":<source id>,"page","attach_to":[<any ids>]}]
+  families:  [{"id","parents":[<person ids>],"children":[<person ids>]}]
+  notes:     [{"text","attach_to":[<any ids>]}]
+
+*** IF A PERSON IS ALREADY IN THE TREE, LOOK THEM UP WITH list_people FIRST AND
+PASS THEIR GRAMPS ID as "gramps_id". *** Otherwise you create a duplicate of
+somebody the owner already has, which is the single most likely way to get this
+wrong. The same goes for the SOURCE: if you have already cited this parish
+register or this census, pass its Gramps ID rather than making a second copy of
+it.
+
+gramps_id works on people, places and the source only. Events, citations,
+families and notes are always created new -- a document asserting a fact is
+asserting a new claim about it, even between people who already exist.
+
+A node with a gramps_id is ATTACHED TO, never modified. Its given/surname/gender
+are ignored: nothing already in the tree is changed, ever. If the document
+contradicts what is recorded, say so to the owner in conversation -- do not try
+to write the correction.
+
+If a gramps_id does not exist in the tree, the WHOLE batch is refused and nothing
+is written. Leave gramps_id out to create a new record deliberately.
+
+list_people reads the owner's XML export, which may be stale. Gramps IDs are
+stable once assigned, so an id from a stale export still points at the right
+person -- the only risk is that somebody added very recently is not in it yet.
+"""
+
+APPROVE_DOCUMENT_DESCRIPTION = (
+    "Put a proposed document in front of the owner in Gramps. Loads the stored "
+    "proposal -- nothing you pass here reaches the dialog except which proposal "
+    "to show. Returns as soon as the dialog is up; it does NOT report what the "
+    "owner decided. Gramps must be open. Ask the owner to look at Gramps."
+)
 
 APPROVE_DESCRIPTION = """\
 Open the approval console for one proposal. Pass the proposal id and the \
@@ -459,6 +566,230 @@ class Tools:
             )
         return runtime
 
+    # -- the document flow --------------------------------------------------
+
+    def propose_document(self, graph: dict[str, object]) -> dict[str, object]:
+        """Validate a document's findings and put them where approval can find them.
+
+        ⭐ **The graph is STORED here and read back at approval time.** Nothing
+        an agent says in the approve call reaches the dialog -- that is the whole
+        binding, and it is what carries slice 2's guarantee across from a console
+        this server held no handle on to a dialog inside Gramps.
+
+        ⛔ **Nothing is written to the tree.** This returns a preview and an id.
+        """
+        parsed = document.parse(graph)
+
+        # ⭐ Validate every gramps_id against the LIVE tree by KEYED lookup.
+        # ⚠️ This used the name searches and that was wrong in both directions:
+        # /find/place matches a place's NAME, so a valid P0123 did not match and
+        # was reported missing, while /find/events answers the same empty result
+        # for "no such person" and for "a person with no events", so a
+        # nonexistent person passed. **A search is not an existence check.**
+        missing = self._resolve_ids(parsed)
+        if missing:
+            raise ToolRefusal(
+                "these Gramps IDs are not in the open tree: "
+                + ", ".join(missing)
+                + ". Look them up with find_people / find_place / find_source, or "
+                "leave gramps_id out to create a new record."
+            )
+
+        settings = config.load(self._environ)
+        if settings.copy_path is None:
+            raise config.ConfigError(
+                f"no copy is configured -- set copy_path in "
+                f"{config.user_config_path(self._environ)} or {config.ENV_COPY}"
+            )
+        copy = apply.authorise(settings.copy_path)
+
+        directory = os.path.join(proposals.store_directory(copy.tree_dir), "documents")
+        os.makedirs(directory, exist_ok=True)
+        proposal_id = proposals.new_session()
+        record = {
+            "id": proposal_id,
+            "session": self.session,
+            "graph": parsed.as_dict(),
+        }
+        path = os.path.join(directory, proposal_id + ".json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(record, handle, ensure_ascii=False, indent=2)
+
+        return {
+            "proposal_id": proposal_id,
+            "summary": document.summary(parsed),
+            "preview": document.caller_preview(parsed),
+        }
+
+    def approve_document(self, proposal_id: str) -> dict[str, object]:
+        """Load the STORED graph and put it in front of the owner in Gramps.
+
+        ⚠️ **A separate verb from ``approve``, deliberately.** ``approve``
+        carries the console-and-digest contract the note flow is built on; giving
+        one name two meanings would put a second set of rules behind a word the
+        owner already understands.
+
+        ⚠️ **The answer is "shown", not an outcome.** The host returns 202 the
+        moment the dialog is up, because holding an HTTP connection while a human
+        reads would time out mid-decision. **What the owner does with the dialog
+        is between him and Gramps**, and he learns the result by looking at it.
+        """
+        settings = config.load(self._environ)
+        if settings.copy_path is None:
+            raise config.ConfigError("no copy is configured")
+        copy = apply.authorise(settings.copy_path)
+
+        # ⛔ The id is CALLER-CONTROLLED and is joined into a path. Without this
+        # an absolute or ``../``-shaped id let approve_document read, claim and
+        # UNLINK an arbitrary reachable .json -- and dispatch it for approval if
+        # it happened to hold a "graph", which is a write path opened by a file
+        # this server never minted.
+        #
+        # ⚠️ The same rule ``proposals.Store`` already applies to its own ids.
+        # It was not applied here because this store was written beside that one
+        # rather than through it, which is exactly how a rail gets left off.
+        if not proposals._ID.fullmatch(proposal_id):
+            raise proposals.ProposalNotFound(
+                f"{proposal_id!r} is not the name of a document proposal"
+            )
+
+        directory = os.path.join(proposals.store_directory(copy.tree_dir), "documents")
+        path = os.path.join(directory, proposal_id + ".json")
+
+        claimed = os.path.join(directory, proposal_id + ".claimed.json")
+        record = proposals.claim_document(path, claimed, proposal_id)
+
+        def unclaim() -> None:
+            """Put it back. ⚠️ ONLY when the host never showed the dialog."""
+            with contextlib.suppress(OSError):
+                os.replace(claimed, path)
+
+        # ⛔ From the stored record. The argument named WHICH proposal; it did
+        # not supply any part of what the dialog will show.
+        graph = record["graph"]
+
+        # ⚠️ Host discovery is INSIDE the guarded section. It raises when Gramps
+        # is closed or the port file is gone, and raising outside meant the claim
+        # was consumed for ever with no dialog ever scheduled -- a proposal spent
+        # on nothing.
+        try:
+            port, token = self._host_address()
+        except ToolRefusal:
+            unclaim()
+            raise
+
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/document",
+            data=json.dumps(graph).encode("utf-8"),
+            method="POST",
+            headers={
+                "Authorization": "Bearer " + token,
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                answer = json.loads(response.read().decode("utf-8"))
+                status = response.status
+        except urllib.error.HTTPError as refusal:
+            # The host refused before showing anything, so the proposal is still
+            # unspent and goes back.
+            unclaim()
+            detail = refusal.read().decode("utf-8", "replace")
+            return {"shown": False, "status": refusal.code, "detail": detail}
+        except OSError as failure:
+            unclaim()
+            return {
+                "shown": False,
+                "detail": f"the Gramps host is not answering -- is Gramps open? ({failure})",
+            }
+
+        if not answer.get("shown"):
+            unclaim()
+            return {"shown": False, "status": status}
+
+        return {"shown": bool(answer.get("shown")), "status": status}
+
+    # -- the live reads, served by the host from the OPEN tree -------------
+
+    def _host(self, path: str, **query: str) -> dict[str, object]:
+        """One live read through the host. **Not the export.**
+
+        ⚠️ **The export is a snapshot and the tree is not.** Three documents in a
+        row were entered that were already in the tree, and nothing in the tool
+        could say so; these reads exist so that question has an answer.
+        """
+        port, token = self._host_address()
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}{path}?" + urllib.parse.urlencode(query),
+            headers={"Authorization": "Bearer " + token},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return dict(json.loads(response.read().decode("utf-8")))
+        except urllib.error.HTTPError as refusal:
+            body = refusal.read().decode("utf-8", "replace")
+            detail = json.loads(body or "{}")
+            raise ToolRefusal(str(detail.get("detail") or detail.get("error") or refusal)) from None
+        except OSError as failure:
+            raise ToolRefusal(f"the Gramps host is not answering: {failure}") from None
+
+    def _resolve_ids(self, parsed: document.Graph) -> list[str]:
+        """The Gramps IDs in ``parsed`` that the OPEN tree does not hold."""
+        if not document.requested(parsed):
+            return []
+        answer = self._post("/resolve", parsed.as_dict())
+        rows = answer.get("missing")
+        return [str(x) for x in rows] if isinstance(rows, list) else []
+
+    def _post(self, path: str, payload: dict[str, object]) -> dict[str, object]:
+        """A POST to the host, answered as JSON."""
+        port, token = self._host_address()
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}{path}",
+            data=json.dumps(payload).encode("utf-8"),
+            method="POST",
+            headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return dict(json.loads(response.read().decode("utf-8")))
+        except urllib.error.HTTPError as refusal:
+            body = refusal.read().decode("utf-8", "replace")
+            detail = json.loads(body or "{}")
+            raise ToolRefusal(str(detail.get("detail") or detail.get("error") or refusal)) from None
+        except OSError as failure:
+            raise ToolRefusal(f"the Gramps host is not answering: {failure}") from None
+
+    def _host_address(self) -> tuple[str, str]:
+        """Where the host is listening, and the token it minted."""
+        directory = paths.state_directory(self._environ)
+        try:
+            return (
+                (directory / "port").read_text(encoding="utf-8").strip(),
+                (directory / "token").read_text(encoding="utf-8").strip(),
+            )
+        except OSError:
+            raise ToolRefusal(
+                "the Gramps host is not running -- open Gramps on the blessed copy"
+            ) from None
+
+    def find_people(self, name: str) -> dict[str, object]:
+        """People in the OPEN tree whose name contains ``name``, alternates included."""
+        return self._host("/find/people", q=name)
+
+    def find_place(self, text: str) -> dict[str, object]:
+        return self._host("/find/place", q=text)
+
+    def find_source(self, text: str) -> dict[str, object]:
+        return self._host("/find/source", q=text)
+
+    def find_citation(self, source: str, page: str = "") -> dict[str, object]:
+        return self._host("/find/citation", source=source, page=page)
+
+    def list_events(self, gramps_id: str) -> dict[str, object]:
+        return self._host("/find/events", gramps_id=gramps_id)
+
     def _store(self) -> proposals.Store:
         """The store inside the blessed copy. **The blessing is the permission.**
 
@@ -496,6 +827,34 @@ def build_server(tools: Tools) -> MCPServer:
     @server.tool(name="propose_note", description=PROPOSE_NOTE_DESCRIPTION)
     def propose_note(gramps_id: str, handle: str, note_type: str, text: str) -> dict[str, object]:
         return tools.propose_note(gramps_id, handle, note_type, text)
+
+    @server.tool(name="find_people", description=FIND_PEOPLE_DESCRIPTION)
+    def find_people(name: str) -> dict[str, object]:
+        return tools.find_people(name)
+
+    @server.tool(name="find_place", description=FIND_PLACE_DESCRIPTION)
+    def find_place(text: str) -> dict[str, object]:
+        return tools.find_place(text)
+
+    @server.tool(name="find_source", description=FIND_SOURCE_DESCRIPTION)
+    def find_source(text: str) -> dict[str, object]:
+        return tools.find_source(text)
+
+    @server.tool(name="find_citation", description=FIND_CITATION_DESCRIPTION)
+    def find_citation(source: str, page: str = "") -> dict[str, object]:
+        return tools.find_citation(source, page)
+
+    @server.tool(name="list_events", description=LIST_EVENTS_DESCRIPTION)
+    def list_events(gramps_id: str) -> dict[str, object]:
+        return tools.list_events(gramps_id)
+
+    @server.tool(name="propose_document", description=PROPOSE_DOCUMENT_DESCRIPTION)
+    def propose_document(graph: dict[str, object]) -> dict[str, object]:
+        return tools.propose_document(graph)
+
+    @server.tool(name="approve_document", description=APPROVE_DOCUMENT_DESCRIPTION)
+    def approve_document(proposal_id: str) -> dict[str, object]:
+        return tools.approve_document(proposal_id)
 
     @server.tool(name="approve", description=APPROVE_DESCRIPTION)
     def approve(proposal_id: str, approval_digest: str) -> dict[str, object]:

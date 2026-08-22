@@ -23,7 +23,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from gramps_live_api.host import accessor, httpd, log, mainthread, paths, status, tokens
+from gramps_live_api.host import (
+    accessor,
+    document,
+    httpd,
+    log,
+    mainthread,
+    paths,
+    reads,
+    status,
+    tokens,
+)
 
 THREAD_NAME = "gramps-live-api-host"
 
@@ -64,6 +74,7 @@ def start(
     platform: str = sys.platform,
     timeout: float = mainthread.DEFAULT_TIMEOUT_SECONDS,
     run: Callable[[list[str]], tokens.CommandResult] | None = None,
+    present: Callable[[dict[str, Any]], None] | None = None,
 ) -> Host:
     """Mint a token, bind loopback, serve on a daemon thread, and write it all down.
 
@@ -95,6 +106,13 @@ def start(
         snapshot=functools.partial(marshal.call, accessor.tree_status),
         person=functools.partial(_person, marshal),
         note=functools.partial(_note, paths.log_path(directory)),
+        write_document=functools.partial(_document, marshal, schedule, present),
+        # ⭐ Five live reads, each one marshalled onto the GTK loop as a single
+        # cheap callable. Measured: a full name walk of a 2,933-person tree
+        # costs ~48 ms, inside what one callback may take -- so R8's accepted
+        # risk 4 is respected by measurement rather than by hope.
+        read=functools.partial(_read, marshal),
+        resolve=functools.partial(_resolve, marshal),
     )
 
     server = httpd.build(context)
@@ -121,6 +139,7 @@ def start_and_report(
     platform: str = sys.platform,
     timeout: float = mainthread.DEFAULT_TIMEOUT_SECONDS,
     run: Callable[[list[str]], tokens.CommandResult] | None = None,
+    present: Callable[[dict[str, Any]], None] | None = None,
 ) -> Host | None:
     """``start``, with the failure written down instead of thrown into a hook that eats it.
 
@@ -141,6 +160,7 @@ def start_and_report(
             platform=platform,
             timeout=timeout,
             run=run,
+            present=present,
         )
     except Exception as failure:
         log.record(
@@ -173,6 +193,78 @@ def database_changed(host: Host, database: Any = None) -> None:
     # state the question is about, and because this handler already runs on the
     # main thread the probe requires.
     accessor.note_connection_shape(host.note)
+
+
+def _document(
+    marshal: mainthread.Marshal,
+    schedule: Callable[[Callable[[], bool]], Any],
+    present: Callable[[dict[str, Any]], None] | None,
+    graph: dict[str, Any],
+) -> document.Blessing:
+    """Check the tree may be written to, then SCHEDULE the dialog and return.
+
+    ⚠️ **Two different crossings, and the difference is the point.**
+
+    The blessing is a ``Marshal.call``: O(1), the caller needs the answer, and a
+    refusal must reach the client instead of a dialog reaching the owner. The
+    dialog is a bare ``schedule`` -- nothing waits for it, because what it waits
+    on is a human. ⛔ Marshalling it would 503 after five seconds, in the middle
+    of the owner deciding, and the write would then land with the client already
+    told it had failed.
+    """
+    outcome = marshal.call(accessor.blessing)
+    if not outcome.blessed:
+        return outcome
+
+    # ⛔ Every supplied Gramps ID is resolved BEFORE the dialog opens, and a
+    # single miss refuses the WHOLE batch naming every one that missed.
+    # Creating a new object where an id was supplied is precisely the duplicate
+    # the id was there to prevent, arriving quietly.
+    resolution = marshal.call(functools.partial(accessor.resolve_nodes, graph))
+    # ⛔ One question, asked once. ``refusal()`` checks refused before missing so
+    # this call site cannot get the order wrong -- and the plugin's re-resolve
+    # cannot either, which is where it WAS wrong.
+    refusal = resolution.refusal()
+    if refusal is not None:
+        return document.Blessing(blessed=False, message=refusal)
+
+    if present is None:
+        # No presenter was injected -- the host is running outside Gramps, which
+        # is every test and no real session. Refuse rather than silently accept.
+        return document.Blessing(blessed=False, message="this host cannot show a dialog")
+
+    def show() -> bool:
+        present(graph)
+        return False
+
+    schedule(show)
+    return outcome
+
+
+_READS = {
+    "people": "find_people",
+    "place": "find_place",
+    "source": "find_source",
+    "citation": "find_citation",
+    "events": "list_events",
+}
+
+
+def _resolve(marshal: mainthread.Marshal, graph: dict[str, Any]) -> document.Resolution:
+    """Every ``gramps_id`` in the graph, looked up by key on the main thread."""
+    return marshal.call(functools.partial(accessor.resolve_nodes, graph))
+
+
+def _read(marshal: mainthread.Marshal, which: str, first: str, second: str = "") -> reads.Found:
+    """One live read, onto the main thread and back as plain data.
+
+    ⛔ **The handler never holds a Gramps object**, only ``reads.Found`` -- the
+    same shape the boundary keeps for ``/health`` and ``/person``.
+    """
+    helper: Callable[..., reads.Found] = getattr(accessor, _READS[which])
+    if which == "citation":
+        return marshal.call(functools.partial(helper, first, second))
+    return marshal.call(functools.partial(helper, first))
 
 
 def _person(marshal: mainthread.Marshal, gramps_id: str) -> status.PersonStatus:

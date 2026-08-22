@@ -64,7 +64,7 @@ def load_on_reg(dbstate, uistate=None, plugin=None, *rest):
         # importable, and therefore testable, on a machine with no GTK.
         from gi.repository import GLib
 
-        started = start_host(dbstate, GLib.idle_add)
+        started = start_host(dbstate, GLib.idle_add, uistate)
         if started is not None:
             from gramps_live_api.host import service
 
@@ -82,20 +82,151 @@ def load_on_reg(dbstate, uistate=None, plugin=None, *rest):
         _last_resort_note(traceback.format_exc())
 
 
-def start_host(dbstate, schedule):
-    """Hand Gramps' two possessions to the package and start listening.
+def start_host(dbstate, schedule, uistate=None):
+    """Hand Gramps' possessions to the package and start listening.
 
     ``dbstate`` goes straight into the accessor -- the one module allowed to
     spell the database -- and ``schedule`` is ``GLib.idle_add``, which is how
     anything gets back onto this thread. Returns the running host, or ``None``
     if it did not start, in which case ``host.log`` says why.
+
+    ⭐ **``present`` is the third possession and the newest.** The package can
+    validate a graph and render it as prose, but it cannot show a window: the
+    Gtk classes live here. So the host is handed a callable that takes a graph,
+    puts it in front of the owner, and writes it if he says yes.
     """
     from gramps_live_api.host import accessor, service
 
     accessor.bind(dbstate)
-    host = service.start_and_report(schedule=schedule, environ=os.environ)
+    host = service.start_and_report(
+        schedule=schedule,
+        environ=os.environ,
+        present=lambda graph: _present(dbstate, uistate, graph),
+    )
     _RUNNING["host"] = host
     return host
+
+
+def _present(dbstate, uistate, graph):
+    """Show what would be written, and write it if the owner says so.
+
+    ⚠️ **Runs on the GTK main thread, inside a ``GLib.idle_add`` callback**, and
+    ``confirm`` spins a nested main loop there. ``spike/dialogprobe.py`` measured
+    that working before anything was built on it: dialog shown from inside the
+    callback, answer returned after 3.9 s, ``DbTxn`` committed and read back.
+
+    ⭐ **The preview is rendered from the graph that arrived**, which the MCP
+    server loaded from its own stored record -- never from anything an agent
+    passed at approval time. That is what carries the approval binding across
+    from the console to this dialog.
+
+    Never raises. It is reached from a hook whose exceptions go nowhere, so
+    everything lands in ``host.log`` instead.
+    """
+    from gramps_live_api.host import document
+
+    host = _RUNNING.get("host")
+
+    def note(level, message):
+        if host is not None:
+            host.note(level, message)
+
+    try:
+        import gramps_live_api_writer as writer
+
+        parsed = document.parse(graph)
+
+        # ⭐ The names in the dialog are read from the TREE, not from the graph.
+        # If the model picked the wrong Gramps ID the owner sees the wrong
+        # person and cancels, and that is the only check there is. Resolving
+        # here rather than trusting what the route resolved keeps the lookup
+        # adjacent to the rendering it feeds.
+        from gramps_live_api.host import accessor
+
+        resolution = accessor.resolve_nodes(graph)
+        # ⛔ ``refusal()`` and not ``missing``. This re-resolve happens AFTER the
+        # route's, so a target can have become private in between -- and checking
+        # ``missing`` alone reported it as absent, losing ruling 1's second
+        # enforcement point to a call-site convention. The order lives in the
+        # method now, so this site cannot get it wrong.
+        refusal = resolution.refusal()
+        if refusal is not None:
+            note("ERROR", "document: refusing: " + refusal)
+            writer.tell(uistate, "Nothing was written", refusal)
+            return
+
+        note("INFO", "document: showing " + document.summary(parsed))
+
+        if not writer.confirm(uistate, document.preview(parsed, resolution)):
+            note("INFO", "document: the owner said no. Nothing was written.")
+            return
+
+        # ⛔ The blessing is checked AGAIN here, on the main thread, immediately
+        # before the transaction. The route checked it too -- but that was a
+        # different moment and a tree can be closed or swapped while a dialog is
+        # open. This is the check that is adjacent to the write.
+        #
+        # ⚠️ Through the ACCESSOR, not through ``dbstate.db``. This file is host
+        # code by the rule in ``tests/fixtures/host_sources.py`` -- it imports the
+        # host package -- so reaching the database here is exactly the trespass
+        # the boundary test refuses, and it caught this on the first run.
+        from gramps_live_api.host import accessor
+
+        outcome = accessor.blessing()
+        if not outcome.blessed:
+            note("ERROR", "document: refused at write time: " + outcome.message)
+            writer.tell(uistate, "Nothing was written", outcome.message)
+            return
+
+        approved = document.preview(parsed, resolution)
+        result = writer.write(dbstate, graph)
+        summary = result["summary"]
+        note("INFO", "document: wrote " + summary)
+
+        # ⛔ Journal it. Gramps' own undo is a process-local list discarded on
+        # close, so without this a six-object write is unrecoverable the moment
+        # Gramps quits -- which has already cost one manual cleanup.
+        # ⚠️ AFTER the commit, deliberately: a record of a write that did not
+        # happen is worse than no record, and the transaction has returned by here.
+        journal = "(not written)"
+        try:
+            import datetime
+
+            written_utc = datetime.datetime.now(datetime.timezone.utc)
+            journal = document.write_journal(
+                outcome.message,
+                document.journal_record(
+                    parsed,
+                    result["created"],
+                    result["attached"],
+                    tree_dir=outcome.message,
+                    written_utc=written_utc.isoformat(),
+                    approved_preview=approved,
+                ),
+                stem=written_utc.strftime("%Y%m%dT%H%M%SZ") + "-document",
+            )
+            note("INFO", "document: journalled to " + journal)
+        except Exception:
+            # ⚠️ A failed journal must not un-write the tree, and must not be
+            # silent either. The write happened; say where it is not recorded.
+            note("ERROR", "document: THE WRITE IS NOT JOURNALLED: " + traceback.format_exc())
+
+        writer.tell(
+            uistate,
+            "Written",
+            summary
+            + "\n\nUndo record: "
+            + journal
+            + "\n\nEdit > Undo in Gramps also works, until Gramps closes.",
+        )
+    except Exception:
+        note("ERROR", "document: the write failed: " + traceback.format_exc())
+        try:
+            import gramps_live_api_writer as writer
+
+            writer.tell(uistate, "The document could not be written", traceback.format_exc()[:2000])
+        except Exception:
+            pass
 
 
 def _put_the_package_on_the_path():
@@ -112,10 +243,17 @@ def _put_the_package_on_the_path():
         resolving symbolic links and stepping up one level lands on the checkout
         root. ``realpath`` is what follows the junction; ``dirname(__file__)``
         alone would land in Gramps' plugin folder, where there is no ``src``.
+
+    ⚠️ **And this directory itself, which is the third answer and was learned
+    the hard way.** Gramps ``exec``s a plugin rather than importing it, so the
+    plugin folder is NOT on ``sys.path`` and a sibling module -- the writer --
+    cannot be imported by name. Observed as ``ModuleNotFoundError: No module
+    named 'gramps_live_api_writer'`` on the first real request, with the route
+    already answered 202 and the failure visible only in ``host.log``.
     """
     named = os.environ.get("GRAMPS_LIVE_API_SRC")
     here = os.path.dirname(os.path.realpath(__file__))
-    for candidate in (named, os.path.join(os.path.dirname(here), "src")):
+    for candidate in (named, os.path.join(os.path.dirname(here), "src"), here):
         if candidate and os.path.isdir(candidate) and candidate not in sys.path:
             sys.path.insert(0, candidate)
 

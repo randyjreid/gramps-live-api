@@ -42,7 +42,7 @@ from http import HTTPStatus
 from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
-from gramps_live_api.host import auth, log, mainthread, status
+from gramps_live_api.host import auth, document, log, mainthread, reads, status
 
 LOOPBACK = "127.0.0.1"
 """⛔ The only address this ever binds. The wildcard would put the owner's tree
@@ -64,11 +64,53 @@ already here and already separates the query from the path, so the ID arrives
 parsed; a path segment would mean this file grew path parsing -- surface the
 route does not need and the one place a traversal-shaped input could matter."""
 
+RESOLVE_ROUTE = "/resolve"
+"""⭐ A KEYED lookup of every ``gramps_id`` a graph names, before anything else.
+
+⚠️ **Added because validating ids through the name searches was unreliable, and
+unreliable in the direction that matters.** ``/find/place`` matches on a place's
+name, so a perfectly valid ``P0123`` did not match and was reported missing;
+``/find/events`` answers the same empty result for *no such person* and for *a
+person with no events*, so a nonexistent person passed. A search is not an
+existence check, and using one as though it were made the attach-to-existing
+flow fail in both directions at once."""
+
+DOCUMENT_ROUTE = "/document"
+"""⭐ The only route that writes, and it does not write on this thread.
+
+It hands the graph to the GTK main thread and answers **202 immediately**. ⛔ It
+does NOT hold the connection while a human reads a dialog: ``Marshal`` has a
+five-second timeout, so waiting for an answer would 503 in the middle of the
+owner deciding. **The agent therefore learns no outcome**, which is the existing
+trust model rather than a limitation -- the owner finds out by looking at Gramps,
+which is open in front of him."""
+
+MAX_BODY_BYTES = document.MAX_GRAPH_BYTES
+
+READ_ROUTES = {
+    "/find/people": ("people", ("q",)),
+    "/find/place": ("place", ("q",)),
+    "/find/source": ("source", ("q",)),
+    "/find/citation": ("citation", ("source", "page")),
+    "/find/events": ("events", ("gramps_id",)),
+}
+"""⭐ Five live reads, and every one of them carries R3's precondition P2.
+
+⛔ **No route lists anything without a term.** ``reads.require_term`` refuses,
+and the refusal is a 400 rather than an empty list, so a caller cannot mistake
+*you may not* for *there are none*."""
+
+SEARCH_TERM_REQUIRED = "search-term-required"
+TARGET_IS_PRIVATE = "target-is-private"
+
 ORIGIN_REJECTED = "origin-rejected"
 UNAUTHORISED = "unauthorised"
 NO_SUCH_ROUTE = "no-such-route"
 MAIN_THREAD_TIMEOUT = "main-thread-timeout"
 TREE_READ_FAILED = "tree-read-failed"
+GRAPH_INVALID = "graph-invalid"
+TREE_NOT_BLESSED = "tree-not-blessed"
+BODY_TOO_LARGE = "body-too-large"
 
 
 @dataclass(frozen=True)
@@ -84,6 +126,26 @@ class Context:
     keeps the boundary where the accessor's rules can see it."""
 
     note: Callable[[str, str], None]
+
+    resolve: Callable[[dict[str, Any]], document.Resolution]
+    """⛔ A keyed existence check, not a search. See ``RESOLVE_ROUTE``.
+
+    ⚠️ **The display strings are deliberately NOT put on the wire here.** This
+    answers *does this id exist*; who it names is the dialog's business, and a
+    caller that could read the name would be a caller that could echo it back."""
+
+    read: Callable[..., reads.Found]
+    """One live read of the open tree, marshalled. ⛔ Returns plain data, never
+    a Gramps object -- the handler is on the HTTP thread."""
+
+    write_document: Callable[[dict[str, Any]], document.Blessing]
+    """Blessing check, then schedule the dialog. ⛔ Fire and forget.
+
+    Unlike ``snapshot`` and ``person`` this is **not** a ``Marshal.call`` all the
+    way through: the blessing read is marshalled and waited for, because it is
+    O(1) and the caller needs its answer; the dialog is merely *scheduled*, and
+    nothing waits. That asymmetry is the whole reason this route can answer 202
+    while a human takes as long as they like."""
 
 
 class HostServer(http.server.HTTPServer):
@@ -178,7 +240,188 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
             )
             return
 
+        if target.path in READ_ROUTES:
+            self._read(target)
+            return
+
         self._respond(HTTPStatus.NOT_FOUND, {"ok": False, "error": NO_SUCH_ROUTE})
+
+    def _read(self, target: Any) -> None:
+        """One live read, with P2's three bounds answered as status codes.
+
+        ⛔ **A missing search term is a 400, not an empty list.** *You may not
+        list everybody* and *there are none* are different answers, and
+        collapsing them would let a caller conclude the tree is empty.
+
+        ⛔ **A private target is a 403 naming the refusal**, not a 404 -- ruling
+        1's second enforcement point: silence would leave the caller unable to
+        tell *no such person* from *that person is private*.
+        """
+        which, parameters = READ_ROUTES[target.path]
+        query = parse_qs(target.query)
+        values = [(query.get(name) or [""])[0] for name in parameters]
+        try:
+            found = self.context.read(which, *values)
+        except reads.SearchTermRequired as refusal:
+            self._respond(
+                HTTPStatus.BAD_REQUEST,
+                {"ok": False, "error": SEARCH_TERM_REQUIRED, "detail": str(refusal)},
+            )
+            return
+        except reads.TargetIsPrivate as refusal:
+            self._respond(
+                HTTPStatus.FORBIDDEN,
+                {"ok": False, "error": TARGET_IS_PRIVATE, "detail": str(refusal)},
+            )
+            return
+        except mainthread.MainThreadTimeout:
+            self._respond(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"ok": False, "error": MAIN_THREAD_TIMEOUT},
+            )
+            return
+        except Exception as failure:
+            self.context.note(log.ERROR, f"{target.path} failed: {failure!r}")
+            self._respond(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"ok": False, "error": TREE_READ_FAILED},
+            )
+            return
+
+        self._respond(HTTPStatus.OK, {"ok": True, **_found_wire(found)})
+
+    def do_POST(self) -> None:
+        """One route, and the same three refusals in the same order as ``do_GET``.
+
+        ⚠️ **The order is repeated rather than shared** because it is the thing a
+        reader checks: ``Origin`` before authentication, authentication before
+        the route. A helper would hide it at exactly the place it must be visible.
+        """
+        if self.headers.get("Origin") is not None:
+            self._respond(HTTPStatus.FORBIDDEN, {"ok": False, "error": ORIGIN_REJECTED})
+            return
+
+        presented = auth.presented_token(self.headers.get("Authorization"))
+        if presented is None or not auth.token_matches(presented, self.context.token):
+            self._respond(
+                HTTPStatus.UNAUTHORIZED,
+                {"ok": False, "error": UNAUTHORISED},
+                headers=[("WWW-Authenticate", "Bearer")],
+            )
+            return
+
+        route = urlsplit(self.path).path
+        if route == RESOLVE_ROUTE:
+            self._resolve()
+            return
+
+        if route != DOCUMENT_ROUTE:
+            self._respond(HTTPStatus.NOT_FOUND, {"ok": False, "error": NO_SUCH_ROUTE})
+            return
+
+        body = self._body()
+        if body is None:
+            return
+
+        try:
+            graph = document.parse(body)
+        except document.GraphInvalid as refusal:
+            self._respond(
+                HTTPStatus.BAD_REQUEST,
+                {"ok": False, "error": GRAPH_INVALID, "detail": str(refusal)},
+            )
+            return
+
+        try:
+            outcome = self.context.write_document(graph.as_dict())
+        except mainthread.MainThreadTimeout:
+            self._respond(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"ok": False, "error": MAIN_THREAD_TIMEOUT},
+            )
+            return
+        except Exception as failure:
+            self.context.note(log.ERROR, f"{DOCUMENT_ROUTE} failed: {failure!r}")
+            self._respond(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"ok": False, "error": TREE_READ_FAILED},
+            )
+            return
+
+        if not outcome.blessed:
+            self._respond(
+                HTTPStatus.FORBIDDEN,
+                {"ok": False, "error": TREE_NOT_BLESSED, "detail": outcome.message},
+            )
+            return
+
+        # ⭐ 202, not 200, and not a result. The dialog is up; what the human does
+        # with it is between them and Gramps.
+        self._respond(HTTPStatus.ACCEPTED, {"ok": True, "shown": True})
+
+    def _resolve(self) -> None:
+        """Look up every ``gramps_id`` in a graph. ⛔ Writes nothing, shows nothing."""
+        body = self._body()
+        if body is None:
+            return
+        try:
+            graph = document.parse(body)
+        except document.GraphInvalid as refusal:
+            self._respond(
+                HTTPStatus.BAD_REQUEST,
+                {"ok": False, "error": GRAPH_INVALID, "detail": str(refusal)},
+            )
+            return
+        try:
+            resolution = self.context.resolve(graph.as_dict())
+        except mainthread.MainThreadTimeout:
+            self._respond(
+                HTTPStatus.SERVICE_UNAVAILABLE, {"ok": False, "error": MAIN_THREAD_TIMEOUT}
+            )
+            return
+        except Exception as failure:
+            self.context.note(log.ERROR, f"{RESOLVE_ROUTE} failed: {failure!r}")
+            self._respond(
+                HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": TREE_READ_FAILED}
+            )
+            return
+
+        self._respond(
+            HTTPStatus.OK,
+            {
+                "ok": True,
+                "nodes": [
+                    {
+                        "id": node.local_id,
+                        "gramps_id": node.gramps_id,
+                        "kind": node.kind,
+                        "found": node.found,
+                    }
+                    for node in resolution.nodes
+                ],
+                "missing": [node.gramps_id for node in resolution.missing],
+            },
+        )
+
+    def _body(self) -> bytes | None:
+        """The request body, or answer for the two ways reading it fails."""
+        try:
+            declared = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self._respond(
+                HTTPStatus.BAD_REQUEST,
+                {"ok": False, "error": GRAPH_INVALID, "detail": "Content-Length is not a number"},
+            )
+            return None
+        if declared > MAX_BODY_BYTES:
+            # ⛔ Refused on the DECLARED length, before a byte is read. Reading it
+            # first to find out how big it was is the denial of service.
+            self._respond(
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                {"ok": False, "error": BODY_TOO_LARGE},
+            )
+            return None
+        return self.rfile.read(declared) if declared > 0 else b""
 
     def _answer(
         self,
@@ -263,6 +506,26 @@ def _person_wire(person: status.PersonStatus) -> dict[str, Any]:
     if not person.found:
         return {"found": False}
     return {"found": True, "private": person.private}
+
+
+def _found_wire(found: reads.Found) -> dict[str, Any]:
+    """A read's answer on the wire.
+
+    ⛔ **``matched`` counts only what could be shown.** Private records are gone
+    before counting, so *42 matched, 25 shown* can never be run backwards to
+    learn that seventeen private people exist -- ruling 1's first enforcement
+    point, which is about arithmetic rather than about text.
+    """
+    return {
+        "results": [
+            {"gramps_id": match.gramps_id, "display": match.display, **match.detail}
+            for match in found.matches
+        ],
+        "shown": found.shown,
+        "matched": found.matched,
+        "withheld": found.withheld,
+        "capped": found.capped,
+    }
 
 
 def _requested_id(query: str) -> str:

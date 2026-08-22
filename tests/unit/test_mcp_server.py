@@ -146,10 +146,29 @@ def tools(
 # ---------------------------------------------------------------------------
 
 
-def test_exactly_three_tools_are_exposed(tmp_path: Path) -> None:
-    """Criterion 1. Asserted against the SERVER's own answer, not a constant."""
+def test_the_exposed_surface_is_exactly_what_the_server_says_it_is(tmp_path: Path) -> None:
+    """Criterion 1. Asserted against the SERVER's own answer, not a constant.
+
+    ⚠️ **Renamed from ``test_exactly_three_tools_are_exposed``**: the document
+    flow added ``propose_document`` and ``approve_document``, and the live
+    reads added five more, so three became ten. **The count was never the
+    criterion** -- the criterion is that the
+    surface is enumerated from what the server actually exposes, and that no
+    tool arrives without being written down here.
+    """
     exposed = asyncio.run(mcp_server.build_server(tools(tmp_path)).list_tools())
-    assert {tool.name for tool in exposed} == {"list_people", "propose_note", "approve"}
+    assert {tool.name for tool in exposed} == {
+        "list_people",
+        "propose_note",
+        "approve",
+        "propose_document",
+        "approve_document",
+        "find_people",
+        "find_place",
+        "find_source",
+        "find_citation",
+        "list_events",
+    }
     assert {tool.name for tool in exposed} == mcp_server.TOOL_NAMES
 
 
