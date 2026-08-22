@@ -48,43 +48,52 @@ EXEMPT = {
 
 
 def fetch_calls() -> list[tuple[str, ast.Call, bool]]:
-    """Every Gramps fetch in the accessor, and whether it is wrapped in the gate."""
+    """Every Gramps fetch in the accessor, and whether it is wrapped in the gate.
+
+    ⚠️ **Everything here is resolved PER FUNCTION, and that is not tidiness.**
+    An earlier version collected gated variable names module-wide, so because
+    one route legitimately gates a variable called ``raw``, a future route
+    containing an ungated ``raw = database.get_person_from_gramps_id(...)``
+    counted as wrapped **without ever calling the gate.** The structural claim
+    would then have passed while leaking -- a guard that reports success for a
+    reason unrelated to the property, which is the failure this whole file
+    exists to prevent one level down.
+    """
     tree = ast.parse(ACCESSOR.read_text(encoding="utf-8"), filename=str(ACCESSOR))
 
-    enclosing: dict[ast.AST, str] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef):
-            for child in ast.walk(node):
-                enclosing[child] = node.name
+    found: list[tuple[str, ast.Call, bool]] = []
+    for function in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+        # 1. calls passed straight into the gate, inside THIS function
+        wrapped: set[int] = set()
+        gated_names: set[str] = set()
+        for node in ast.walk(function):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == GATE
+            ):
+                for argument in node.args:
+                    wrapped.add(id(argument))
+                    if isinstance(argument, ast.Name):
+                        gated_names.add(argument.id)
 
-    wrapped: set[int] = set()
-    gated_names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == GATE:
-            for argument in node.args:
-                wrapped.add(id(argument))
-                # ⭐ ``raw = db.get_x(...)`` then ``obj = _public(raw)`` counts as
-                # gated. That two-line form is REQUIRED by the routes with a
-                # direct target: ``_public`` returns None for both *absent* and
-                # *private*, and those must stay distinguishable, so the ungated
-                # fetch is kept purely to tell them apart and is never read from.
-                if isinstance(argument, ast.Name):
-                    gated_names.add(argument.id)
+        # 2. ``raw = db.get_x(...)`` then ``obj = _public(raw)`` -- but only when
+        #    both halves are in the SAME function. That two-line form is required
+        #    by the direct-target routes: ``_public`` returns None for both
+        #    *absent* and *private*, and those must stay distinguishable.
+        for node in ast.walk(function):
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id in gated_names:
+                        wrapped.add(id(node.value))
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id in gated_names:
-                    wrapped.add(id(node.value))
-
-    found = []
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and FETCH.match(node.func.attr)
-        ):
-            found.append((enclosing.get(node, "<module>"), node, id(node) in wrapped))
+        for node in ast.walk(function):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and FETCH.match(node.func.attr)
+            ):
+                found.append((function.name, node, id(node) in wrapped))
     return found
 
 

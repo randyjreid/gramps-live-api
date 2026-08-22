@@ -148,7 +148,20 @@ class Resolution:
 
     @property
     def missing(self) -> tuple[Resolved, ...]:
-        return tuple(node for node in self.nodes if not node.found and not node.private)
+        """Everything that did not resolve, ⛔ **private records included.**
+
+        ⚠️ **Excluding them here re-opened the leak the ``private`` state closed.**
+        A private node answers ``found: false``, so leaving it out of ``missing``
+        made it the ONE id that is neither found nor missing -- and a caller
+        comparing those two fields could read that difference back as *this
+        record exists and you may not see it*. **The privacy fix has to hold on
+        the wire, not only in the flag.**
+
+        The write path is unaffected because it checks ``refused`` FIRST, so a
+        private target is still refused by name there rather than reported
+        absent -- ruling 1's two enforcement points, kept apart by ordering
+        rather than by making this list lie."""
+        return tuple(node for node in self.nodes if not node.found)
 
     @property
     def refused(self) -> tuple[Resolved, ...]:

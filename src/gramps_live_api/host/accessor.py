@@ -421,9 +421,20 @@ def _display_of(database: typing.Any, kind: str, obj: typing.Any) -> str:
             birth = obj.get_birth_ref()
             if birth is not None:
                 event = _public(database.get_event_from_handle(birth.ref))
-                date = event.get_date_object()
-                if date is not None and not date.is_empty():
-                    shown += f"  (b. {date.get_year() or date})"
+                # ⛔ ``None`` here means the birth event is PRIVATE, and only the
+                # DATE is dropped for it -- never the name.
+                #
+                # ⚠️ Letting that ``None`` fall through raised, the broad handler
+                # below caught it, and the whole display became "(could not read
+                # its name)". ``document.preview`` relies on this tree-read name
+                # for the owner to notice he is attaching to the WRONG person, so
+                # hiding a private date was silently disabling the identity check
+                # on the write path. **A privacy fix must not cost a safety
+                # check.**
+                if event is not None:
+                    date = event.get_date_object()
+                    if date is not None and not date.is_empty():
+                        shown += f"  (b. {date.get_year() or date})"
             return shown
         if kind == "place":
             # ⭐ ``name.value`` FIRST, ``title`` only as a fallback. Measured on

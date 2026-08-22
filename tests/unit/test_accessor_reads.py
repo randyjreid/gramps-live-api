@@ -156,3 +156,65 @@ def test_listing_events_of_a_private_person_is_refused_by_name(bound_tree: None)
 
     # ⚠️ And absent is a DIFFERENT answer, not the same silence.
     assert accessor.list_events("I9999").matches == ()
+
+
+@dataclass
+class FakeDate:
+    year: int = 1867
+
+    def is_empty(self) -> bool:
+        return False
+
+    def get_year(self) -> int:
+        return self.year
+
+
+@dataclass
+class FakeEvent:
+    private: bool = False
+
+    def get_privacy(self) -> bool:
+        return self.private
+
+    def get_date_object(self) -> FakeDate:
+        return FakeDate()
+
+
+class TreeWithABirth:
+    def __init__(self, private_birth: bool) -> None:
+        self._event = FakeEvent(private=private_birth)
+        self.person = person("I0500", "Anna", "Public")
+        self.person.get_birth_ref = lambda: type("Ref", (), {"ref": "h1"})()  # type: ignore[method-assign]
+
+    def get_person_from_gramps_id(self, gramps_id: str):  # noqa: ANN201
+        return self.person if gramps_id == "I0500" else None
+
+    def get_event_from_handle(self, handle: str) -> FakeEvent:
+        return self._event
+
+    def iter_people(self):  # noqa: ANN201
+        return iter([self.person])
+
+
+def test_a_private_birth_event_costs_the_date_and_not_the_name() -> None:
+    """⛔ Hiding a private date must not disable the identity check.
+
+    ``document.preview`` shows this tree-read name so the owner can notice he is
+    attaching to the WRONG person. Letting the gate's ``None`` raise into the
+    broad handler replaced the whole display with "(could not read its name)" —
+    a privacy fix silently switching off a safety check on the write path.
+    """
+    for private, expect_year in ((False, True), (True, False)):
+        tree = TreeWithABirth(private_birth=private)
+        accessor.bind(FakeDbState(db=tree))
+        try:
+            shown = accessor.find_people("Public").matches[0].display
+        finally:
+            accessor.forget()
+
+        assert "Public, Anna" in shown, (
+            f"the person's NAME must survive a private birth event; got {shown!r}"
+        )
+        assert ("1867" in shown) is expect_year, (
+            f"private={private} should {'show' if expect_year else 'hide'} the year; got {shown!r}"
+        )

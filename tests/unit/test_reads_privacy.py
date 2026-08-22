@@ -131,3 +131,46 @@ def test_folding_matches_across_an_accent_but_not_across_a_transliteration() -> 
         "ue -> umlaut is a transliteration rule, not a Unicode one; the "
         "alternate-name walk covers it instead"
     )
+
+
+# ---------------------------------------------------------------------------
+# Private must not be distinguishable from absent, ON THE WIRE
+# ---------------------------------------------------------------------------
+
+
+def test_a_private_node_appears_in_missing_just_like_an_absent_one() -> None:
+    """⛔ Otherwise the caller reads the difference back as *this record exists*.
+
+    A private node answers ``found: false``. Leaving it out of ``missing`` made
+    it the one id that is neither found nor missing — and comparing those two
+    fields recovers exactly the fact the privacy flag was hiding.
+    """
+    from gramps_live_api.host import document
+
+    absent = document.Resolved("p1", "I9999", "person", found=False)
+    private = document.Resolved("p2", "I0001", "person", found=False, private=True)
+    resolution = document.Resolution(nodes=(absent, private))
+
+    on_the_wire = [node.gramps_id for node in resolution.missing]
+    assert on_the_wire == ["I9999", "I0001"], (
+        "a private id must be indistinguishable from an absent one in the read "
+        f"projection, got {on_the_wire}"
+    )
+
+
+def test_the_write_path_can_still_tell_them_apart() -> None:
+    """⭐ The two enforcement points are kept apart by ORDERING, not by lying.
+
+    ``missing`` is deliberately undiscriminating; ``refused`` carries the
+    difference, and the write path checks it first — so a private target is
+    still refused BY NAME there rather than reported absent.
+    """
+    from gramps_live_api.host import document
+
+    resolution = document.Resolution(
+        nodes=(
+            document.Resolved("p1", "I9999", "person", found=False),
+            document.Resolved("p2", "I0001", "person", found=False, private=True),
+        )
+    )
+    assert [n.gramps_id for n in resolution.refused] == ["I0001"]
