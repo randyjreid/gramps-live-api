@@ -144,14 +144,15 @@ def _present(dbstate, uistate, graph):
         from gramps_live_api.host import accessor
 
         resolution = accessor.resolve_nodes(graph)
-        if resolution.missing:
-            named = ", ".join(n.gramps_id for n in resolution.missing)
-            note("ERROR", "document: refusing, unresolved ids: " + named)
-            writer.tell(
-                uistate,
-                "Nothing was written",
-                "These Gramps IDs are not in this tree: " + named,
-            )
+        # ⛔ ``refusal()`` and not ``missing``. This re-resolve happens AFTER the
+        # route's, so a target can have become private in between -- and checking
+        # ``missing`` alone reported it as absent, losing ruling 1's second
+        # enforcement point to a call-site convention. The order lives in the
+        # method now, so this site cannot get it wrong.
+        refusal = resolution.refusal()
+        if refusal is not None:
+            note("ERROR", "document: refusing: " + refusal)
+            writer.tell(uistate, "Nothing was written", refusal)
             return
 
         note("INFO", "document: showing " + document.summary(parsed))

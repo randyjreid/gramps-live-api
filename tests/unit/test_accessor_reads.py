@@ -203,12 +203,21 @@ def test_a_private_birth_event_costs_the_date_and_not_the_name() -> None:
     attaching to the WRONG person. Letting the gate's ``None`` raise into the
     broad handler replaced the whole display with "(could not read its name)" —
     a privacy fix silently switching off a safety check on the write path.
+
+    ⚠️ **Driven through ``resolve_nodes``, which is the APPROVAL path.** An
+    earlier version of this test called ``find_people`` — that renders through
+    ``_person_display``, while the dialog renders through the separate
+    ``_display_of``. **Reverting the fix would have left this test green**, which
+    is a regression test asserting the wrong function: the same
+    passes-for-an-unrelated-reason defect the privacy guard itself exists to
+    prevent.
     """
     for private, expect_year in ((False, True), (True, False)):
         tree = TreeWithABirth(private_birth=private)
         accessor.bind(FakeDbState(db=tree))
         try:
-            shown = accessor.find_people("Public").matches[0].display
+            resolution = accessor.resolve_nodes({"people": [{"id": "p1", "gramps_id": "I0500"}]})
+            shown = resolution.nodes[0].display
         finally:
             accessor.forget()
 

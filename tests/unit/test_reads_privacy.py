@@ -174,3 +174,39 @@ def test_the_write_path_can_still_tell_them_apart() -> None:
         )
     )
     assert [n.gramps_id for n in resolution.refused] == ["I0001"]
+
+
+def test_the_refusal_puts_private_before_absent_so_no_caller_has_to() -> None:
+    """⛔ Ordering lived at the call sites, and a second consumer got it wrong.
+
+    ``missing`` deliberately includes private nodes, so every write-side consumer
+    had to check ``refused`` FIRST. The plugin's re-resolve checked only
+    ``missing`` and would report a target that became private as *absent* —
+    ruling 1's second enforcement point lost to a convention.
+
+    ⭐ ``refusal()`` answers both in the right order, so the convention is deleted
+    rather than documented.
+    """
+    from gramps_live_api.host import document
+
+    both = document.Resolution(
+        nodes=(
+            document.Resolved("p1", "I9999", "person", found=False),
+            document.Resolved("p2", "I0001", "person", found=False, private=True),
+        )
+    )
+    message = both.refusal()
+    assert message is not None
+    assert "marked private" in message, (
+        f"with one private and one absent, the PRIVATE refusal must win -- got {message!r}"
+    )
+    assert "I0001" in message
+
+    only_absent = document.Resolution(
+        nodes=(document.Resolved("p1", "I9999", "person", found=False),)
+    )
+    absent_message = only_absent.refusal()
+    assert absent_message is not None
+    assert "not in the open tree" in absent_message
+
+    assert document.Resolution().refusal() is None, "nothing wrong means no refusal"

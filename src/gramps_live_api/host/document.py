@@ -168,6 +168,41 @@ class Resolution:
         """Nodes naming a record the tree marks private. Refused BY NAME."""
         return tuple(node for node in self.nodes if node.private)
 
+    def refusal(self) -> str | None:
+        """The refusal this resolution requires, or ``None``. ⛔ **Order is inside.**
+
+        ⭐ **This exists so no consumer has to remember the order.** ``missing``
+        deliberately includes private nodes -- otherwise a caller reads the
+        difference between the two lists back as *this record exists* -- which
+        means every write-side consumer has to check ``refused`` FIRST or it will
+        report a private target as absent.
+
+        ⚠️ **Ordering is a weaker guarantee than a type, and a second consumer
+        promptly got it wrong**: the plugin's re-resolve checked only ``missing``,
+        so a target that became private between the route's check and the dialog
+        reported *absent* rather than being refused by name -- ruling 1's second
+        enforcement point, lost to a call-site convention.
+
+        **A method that answers both questions in the right order deletes the
+        convention instead of documenting it.**
+        """
+        if self.refused:
+            named = ", ".join(f"{node.gramps_id} ({node.kind})" for node in self.refused)
+            return (
+                f"these records are marked private in this tree: {named}. "
+                "A private record cannot be written to, and it is refused by name "
+                "rather than reported absent so you can tell the two apart."
+            )
+        if self.missing:
+            named = ", ".join(f"{node.gramps_id} ({node.kind})" for node in self.missing)
+            return (
+                f"these Gramps IDs are not in the open tree: {named}. "
+                "Nothing was written and no dialog was shown. Look them up with "
+                "find_people / find_place / find_source, or leave gramps_id out "
+                "to create a new record."
+            )
+        return None
+
     def by_local_id(self) -> dict[str, Resolved]:
         return {node.local_id: node for node in self.nodes}
 
