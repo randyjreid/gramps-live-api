@@ -589,7 +589,31 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
             # what the addition is. Without it the owner approved "attach to this
             # household" with no statement of what would be put in it.
             if node.local_id in families_by_id:
-                joining = [named_node(c) for c in (entry.get("children") or [])]
+                # ⛔ De-duplicated, because the WRITER de-duplicates. A graph may
+                # name the same child twice, and two local ids may name the same
+                # gramps_id -- the writer passes the resolved handles through
+                # ``_unique`` and adds one ChildRef, so rendering the person
+                # twice makes the owner approve, and the journal record, an
+                # addition that never happens.
+                #
+                # ⚠️ Keyed on the resolved gramps_id where there is one, which is
+                # as close to the writer's handle-level identity as a renderer
+                # that never touches the database can get. Two distinct NEW
+                # people become two distinct records anyway, so the local id is
+                # the right key for them.
+                seen_children: set[Any] = set()
+                joining = []
+                for child in entry.get("children") or []:
+                    resolved_child = resolved.get(child)
+                    key = (
+                        resolved_child.gramps_id
+                        if resolved_child is not None and resolved_child.found
+                        else child
+                    )
+                    if key in seen_children:
+                        continue
+                    seen_children.add(key)
+                    joining.append(named_node(child))
                 # ⛔ This line speaks about CHILDREN and nothing else. Saying
                 # "nothing would be added to this family" was a claim about the
                 # whole operation, and it was false: a citation or a note whose

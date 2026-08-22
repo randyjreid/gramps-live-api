@@ -433,3 +433,52 @@ def test_a_citation_only_family_attachment_is_not_called_a_no_op() -> None:
     assert "Parish register" in rendered or "c1" in rendered or "Citation" in rendered, (
         "and the citation that IS being attached must appear:\n" + rendered
     )
+
+
+DUPLICATE_CHILD_GRAPH = dict(
+    people=[
+        node("pn", given="Wilhelmina", surname="Newcomer", gender="female"),
+        node("pa", gramps_id="I0500"),
+        node("pb", gramps_id="I0500"),
+    ],
+    families=[node("f1", gramps_id="F0100", children=["pn", "pn", "pa", "pb"])],
+)
+
+DUPLICATE_CHILD_RESOLUTION = document.Resolution(
+    nodes=(
+        document.Resolved(
+            "f1", "F0100", "family", True, "Kettleby, Bartholomew + Kettleby, Susanna"
+        ),
+        document.Resolved("pa", "I0500", "person", True, "Kettleby, Tobias"),
+        document.Resolved("pb", "I0500", "person", True, "Kettleby, Tobias"),
+    )
+)
+
+
+def test_a_child_named_twice_is_previewed_once() -> None:
+    """⛔ The preview promised two additions the writer would never make.
+
+    The writer passes resolved handles through ``_unique`` and adds one
+    ``ChildRef``. Rendering the person twice makes the owner approve — and the
+    journal record — an addition that does not happen.
+    """
+    rendered = document.preview(document.parse(DUPLICATE_CHILD_GRAPH), DUPLICATE_CHILD_RESOLUTION)
+    line = next(row for row in rendered.splitlines() if "adding as children" in row)
+
+    assert line.count("Wilhelmina") == 1, f"the same local id was rendered twice: {line!r}"
+
+
+def test_two_local_ids_naming_one_person_are_previewed_once() -> None:
+    """⛔ The subtler half: distinct local ids, one Gramps ID, one person.
+
+    ⚠️ ``document.preview`` never touches the database, so handle identity is not
+    available to it — but the resolved ``gramps_id`` is, and that is the same
+    fact by another name.
+    """
+    rendered = document.preview(document.parse(DUPLICATE_CHILD_GRAPH), DUPLICATE_CHILD_RESOLUTION)
+    attaching = rendered.split("ATTACHING TO EXISTING", 1)[1].split("CREATING NEW", 1)[0]
+    line = next(row for row in attaching.splitlines() if "adding as children" in row)
+
+    assert line.count("I0500") == 1, (
+        f"one person reached by two local ids was rendered twice: {line!r}"
+    )
