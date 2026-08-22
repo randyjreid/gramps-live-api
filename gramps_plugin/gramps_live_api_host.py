@@ -177,12 +177,46 @@ def _present(dbstate, uistate, graph):
             writer.tell(uistate, "Nothing was written", outcome.message)
             return
 
-        summary = writer.write(dbstate, graph)
+        approved = document.preview(parsed, resolution)
+        result = writer.write(dbstate, graph)
+        summary = result["summary"]
         note("INFO", "document: wrote " + summary)
+
+        # ⛔ Journal it. Gramps' own undo is a process-local list discarded on
+        # close, so without this a six-object write is unrecoverable the moment
+        # Gramps quits -- which has already cost one manual cleanup.
+        # ⚠️ AFTER the commit, deliberately: a record of a write that did not
+        # happen is worse than no record, and the transaction has returned by here.
+        journal = "(not written)"
+        try:
+            import datetime
+
+            written_utc = datetime.datetime.now(datetime.timezone.utc)
+            journal = document.write_journal(
+                outcome.message,
+                document.journal_record(
+                    parsed,
+                    result["created"],
+                    result["attached"],
+                    tree_dir=outcome.message,
+                    written_utc=written_utc.isoformat(),
+                    approved_preview=approved,
+                ),
+                stem=written_utc.strftime("%Y%m%dT%H%M%SZ") + "-document",
+            )
+            note("INFO", "document: journalled to " + journal)
+        except Exception:
+            # ⚠️ A failed journal must not un-write the tree, and must not be
+            # silent either. The write happened; say where it is not recorded.
+            note("ERROR", "document: THE WRITE IS NOT JOURNALLED: " + traceback.format_exc())
+
         writer.tell(
             uistate,
             "Written",
-            summary + "\n\nUse Edit > Undo in Gramps if you want it back out.",
+            summary
+            + "\n\nUndo record: "
+            + journal
+            + "\n\nEdit > Undo in Gramps also works, until Gramps closes.",
         )
     except Exception:
         note("ERROR", "document: the write failed: " + traceback.format_exc())

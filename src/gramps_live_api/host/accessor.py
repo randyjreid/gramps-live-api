@@ -30,7 +30,7 @@ from __future__ import annotations
 import sqlite3
 import typing
 
-from gramps_live_api.host import document, log, mainthread, status
+from gramps_live_api.host import document, log, mainthread, reads, status
 
 # ⚠️ Every import here is a MODULE, including ``typing``. Rule 2 above is
 # checked with no exemption list, and ``from typing import Any`` would need one
@@ -91,6 +91,176 @@ def tree_status() -> status.TreeStatus:
         name=database.get_dbname(),
         people=database.get_number_of_people(),
     )
+
+
+def _person_names(person: typing.Any) -> list[str]:
+    """Every spelling of a person's name the tree holds -- primary AND alternates.
+
+    ⭐ **The alternates are the point, and it is confirmed against the tree.** A
+    search for one spelling misses somebody whose PRIMARY name uses another and
+    who carries the searched spelling only as an alternate name. Measured on the
+    owner's copy: one person's primary surname uses an umlaut while the ``ue``
+    spelling sits in her alternate names, so a primary-only search does not find
+    her -- one step from entering a duplicate mother.
+    """
+    out: list[str] = []
+    for name in [person.get_primary_name(), *person.get_alternate_names()]:
+        if name is None:
+            continue
+        out.append(name.get_first_name())
+        for surname in name.get_surname_list() or []:
+            out.append(surname.get_surname())
+        out.append(name.get_surname())
+    return [part for part in out if part]
+
+
+def _person_display(person: typing.Any, database: typing.Any) -> str:
+    name = person.get_primary_name()
+    shown = ", ".join(p for p in (name.get_surname(), name.get_first_name()) if p) or "(no name)"
+    try:
+        birth = person.get_birth_ref()
+        if birth is not None:
+            date = database.get_event_from_handle(birth.ref).get_date_object()
+            if date is not None and not date.is_empty():
+                shown += f"  (b. {date.get_year() or date})"
+    except Exception:
+        pass
+    return shown
+
+
+@mainthread.on_main_thread
+def find_people(term: str) -> reads.Found:
+    """People whose name contains ``term``, private ones excluded and uncounted.
+
+    ⚠️ **Measured before it was written**: a full walk of the owner's 2,933-person
+    tree with deserialisation costs **~48 ms**, well inside the ~200 ms the GTK
+    loop can absorb in one callback, so this needs no chunking. R8's accepted
+    risk 4 is respected by the measurement rather than by hope.
+    """
+    wanted = reads.require_term(term)
+    if _DBSTATE is None:
+        return reads.Found()
+    database = _DBSTATE.db
+    rows = []
+    for person in database.iter_people():
+        if not reads.matches_term(wanted, *_person_names(person)):
+            continue
+        rows.append(
+            (
+                bool(person.get_privacy()),
+                reads.Match(
+                    gramps_id=person.get_gramps_id(),
+                    display=_person_display(person, database),
+                ),
+            )
+        )
+    return reads.bound(rows)
+
+
+@mainthread.on_main_thread
+def find_place(term: str) -> reads.Found:
+    """Places whose name contains ``term``. Five Unterensingen variants already exist."""
+    wanted = reads.require_term(term)
+    if _DBSTATE is None:
+        return reads.Found()
+    database = _DBSTATE.db
+    rows = []
+    for place in database.iter_places():
+        name = place.get_name().get_value() or place.get_title() or ""
+        if not reads.matches_term(wanted, name, place.get_title()):
+            continue
+        rows.append((bool(place.get_privacy()), reads.Match(place.get_gramps_id(), name)))
+    return reads.bound(rows)
+
+
+@mainthread.on_main_thread
+def find_source(term: str) -> reads.Found:
+    """Sources whose title or author contains ``term``."""
+    wanted = reads.require_term(term)
+    if _DBSTATE is None:
+        return reads.Found()
+    database = _DBSTATE.db
+    rows = []
+    for source in database.iter_sources():
+        title = source.get_title() or ""
+        author = source.get_author() or ""
+        if not reads.matches_term(wanted, title, author):
+            continue
+        shown = f"{title} -- {author}" if author else title
+        rows.append((bool(source.get_privacy()), reads.Match(source.get_gramps_id(), shown)))
+    return reads.bound(rows)
+
+
+@mainthread.on_main_thread
+def find_citation(source_gramps_id: str, page: str = "") -> reads.Found:
+    """⭐ *Has this document already been entered?* -- the question whose absence
+    caused three documents to be entered twice.
+
+    Citations of one source, optionally narrowed by page. ⚠️ **The source id is
+    the search term here**, so this is not a way to list every citation.
+    """
+    wanted = reads.require_term(source_gramps_id)
+    if _DBSTATE is None:
+        return reads.Found()
+    database = _DBSTATE.db
+    source = database.get_source_from_gramps_id(wanted)
+    if source is None:
+        return reads.Found()
+    if source.get_privacy():
+        raise reads.TargetIsPrivate(f"source {wanted} is marked private in this tree")
+    handle = source.get_handle()
+    narrow = str(page or "").strip()
+    rows = []
+    for citation in database.iter_citations():
+        if citation.get_reference_handle() != handle:
+            continue
+        this_page = citation.get_page() or ""
+        if narrow and not reads.matches_term(narrow, this_page):
+            continue
+        rows.append(
+            (
+                bool(citation.get_privacy()),
+                reads.Match(citation.get_gramps_id(), this_page or "(no page)"),
+            )
+        )
+    return reads.bound(rows)
+
+
+@mainthread.on_main_thread
+def list_events(person_gramps_id: str) -> reads.Found:
+    """One person's events, so citing an existing one stops meaning duplicating it.
+
+    ⛔ **Refused BY NAME if that person is private** -- ruling 1's second
+    enforcement point. Reporting them absent would leave the caller unable to
+    tell *no such person* from *that person is private*.
+    """
+    wanted = reads.require_term(person_gramps_id)
+    if _DBSTATE is None:
+        return reads.Found()
+    database = _DBSTATE.db
+    person = database.get_person_from_gramps_id(wanted)
+    if person is None:
+        return reads.Found()
+    if person.get_privacy():
+        raise reads.TargetIsPrivate(
+            f"{wanted} is marked private in this tree, so their events cannot be listed"
+        )
+    rows = []
+    for ref in person.get_event_ref_list():
+        event = database.get_event_from_handle(ref.ref)
+        if event is None:
+            continue
+        date = event.get_date_object()
+        place = ""
+        if event.get_place_handle():
+            found = database.get_place_from_handle(event.get_place_handle())
+            if found is not None:
+                place = found.get_name().get_value() or found.get_title() or ""
+        shown = " ".join(
+            part for part in (str(event.get_type()), str(date) if date else "", place) if part
+        )
+        rows.append((bool(event.get_privacy()), reads.Match(event.get_gramps_id(), shown)))
+    return reads.bound(rows)
 
 
 @mainthread.on_main_thread
@@ -171,7 +341,13 @@ def _display_of(database: typing.Any, kind: str, obj: typing.Any) -> str:
                     shown += f"  (b. {date.get_year() or date})"
             return shown
         if kind == "place":
-            return str(obj.get_title() or obj.get_name().get_value())
+            # ⭐ ``name.value`` FIRST, ``title`` only as a fallback. Measured on
+            # the owner's copy: of 2,256 places, 7 differ between the two, and
+            # ``title`` carries an umlaut in NONE of them while ``name.value``
+            # does in four -- so where they differ, ``title`` is the damaged
+            # one. ⚠️ And four places have a ``name.value`` with no ``title`` at
+            # all, which rendered as nothing.
+            return str(obj.get_name().get_value() or obj.get_title() or "(unnamed place)")
         if kind == "source":
             title = str(obj.get_title() or "(untitled)")
             author = str(obj.get_author() or "")

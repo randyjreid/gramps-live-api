@@ -47,6 +47,7 @@ import os
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Literal, Protocol
@@ -58,7 +59,18 @@ from gramps_live_api.core import apply, people, proposals, schema
 from gramps_live_api.host import document, paths
 
 TOOL_NAMES = frozenset(
-    {"list_people", "propose_note", "approve", "propose_document", "approve_document"}
+    {
+        "list_people",
+        "propose_note",
+        "approve",
+        "propose_document",
+        "approve_document",
+        "find_people",
+        "find_place",
+        "find_source",
+        "find_citation",
+        "list_events",
+    }
 )
 """The whole surface, and the tests assert the server's own answer equals this.
 
@@ -166,6 +178,39 @@ types y there.** Tell him that plainly: agreement in this conversation is not \
 the approval, and this server cannot type in that window -- and this server will \
 not learn what he typed, so you must ask him.\
 """
+
+FIND_PEOPLE_DESCRIPTION = (
+    "Search people in the OPEN Gramps tree by name, and get their Gramps IDs. "
+    "Searches alternate name spellings as well as the primary name, and ignores "
+    "accents. USE THIS BEFORE PROPOSING ANYBODY, so you attach to the person who "
+    "is already there instead of creating a duplicate. A search term is required. "
+    "Private people are never returned and are not counted in any total."
+)
+
+FIND_PLACE_DESCRIPTION = (
+    "Search places in the OPEN tree and get their Gramps IDs. Use it before "
+    "naming a place: a tree often holds several spellings of one village, and "
+    "picking blind makes another. A search term is required."
+)
+
+FIND_SOURCE_DESCRIPTION = (
+    "Search sources in the OPEN tree by title or author, and get their Gramps "
+    "IDs. Use it before proposing a source: the same parish register should be "
+    "cited across many documents, not copied per document. A term is required."
+)
+
+FIND_CITATION_DESCRIPTION = (
+    "ASK THIS FIRST: has this document already been entered? Lists the citations "
+    "of one source, optionally narrowed by page. If a citation already names the "
+    "page you are about to enter, the document is probably already in the tree -- "
+    "say so to the owner instead of proposing it again."
+)
+
+LIST_EVENTS_DESCRIPTION = (
+    "The events already recorded on one person, by Gramps ID. Use it before "
+    "proposing an event, so citing what is already there stops meaning "
+    "duplicating it. Refused by name if that person is marked private."
+)
 
 PROPOSE_DOCUMENT_DESCRIPTION = """\
 Propose everything a genealogical document says about people, as ONE graph.
@@ -533,6 +578,35 @@ class Tools:
         ⛔ **Nothing is written to the tree.** This returns a preview and an id.
         """
         parsed = document.parse(graph)
+
+        # ⭐ Validate every gramps_id against the LIVE tree, here, so a wrong id
+        # is caught while the caller can still fix it -- rather than at the
+        # write, after a proposal has been stored and an approval attempted.
+        # ⚠️ Against the host, NOT the export: the export is a snapshot and a
+        # record added since it was taken is invisible in it.
+        unresolved: list[str] = []
+        for request in document.requested(parsed):
+            route = {"person": "/find/events", "place": "/find/place", "source": "/find/source"}
+            try:
+                if request.kind == "person":
+                    self._host("/find/events", gramps_id=request.gramps_id)
+                else:
+                    answer = self._host(route[request.kind], q=request.gramps_id)
+                    rows = answer.get("results")
+                    found = rows if isinstance(rows, list) else []
+                    ids = [str(row.get("gramps_id")) for row in found if isinstance(row, dict)]
+                    if request.gramps_id not in ids:
+                        unresolved.append(request.gramps_id)
+            except ToolRefusal as refusal:
+                unresolved.append(f"{request.gramps_id} ({refusal})")
+        if unresolved:
+            raise ToolRefusal(
+                "these Gramps IDs could not be confirmed in the open tree: "
+                + ", ".join(unresolved)
+                + ". Look them up with find_people / find_place / find_source, or "
+                "leave gramps_id out to create a new record."
+            )
+
         settings = config.load(self._environ)
         if settings.copy_path is None:
             raise config.ConfigError(
@@ -556,7 +630,8 @@ class Tools:
         return {
             "proposal_id": proposal_id,
             "summary": document.summary(parsed),
-            "preview": document.preview(parsed),
+            "preview": document.caller_preview(parsed),
+            "unresolved": unresolved,
         }
 
     def approve_document(self, proposal_id: str) -> dict[str, object]:
@@ -617,6 +692,53 @@ class Tools:
 
         return {"shown": bool(answer.get("shown")), "status": status}
 
+    # -- the live reads, served by the host from the OPEN tree -------------
+
+    def _host(self, path: str, **query: str) -> dict[str, object]:
+        """One live read through the host. **Not the export.**
+
+        ⚠️ **The export is a snapshot and the tree is not.** Three documents in a
+        row were entered that were already in the tree, and nothing in the tool
+        could say so; these reads exist so that question has an answer.
+        """
+        directory = paths.state_directory(self._environ)
+        try:
+            port = (directory / "port").read_text(encoding="utf-8").strip()
+            token = (directory / "token").read_text(encoding="utf-8").strip()
+        except OSError:
+            raise ToolRefusal(
+                "the Gramps host is not running -- open Gramps on the blessed copy"
+            ) from None
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}{path}?" + urllib.parse.urlencode(query),
+            headers={"Authorization": "Bearer " + token},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return dict(json.loads(response.read().decode("utf-8")))
+        except urllib.error.HTTPError as refusal:
+            body = refusal.read().decode("utf-8", "replace")
+            detail = json.loads(body or "{}")
+            raise ToolRefusal(str(detail.get("detail") or detail.get("error") or refusal)) from None
+        except OSError as failure:
+            raise ToolRefusal(f"the Gramps host is not answering: {failure}") from None
+
+    def find_people(self, name: str) -> dict[str, object]:
+        """People in the OPEN tree whose name contains ``name``, alternates included."""
+        return self._host("/find/people", q=name)
+
+    def find_place(self, text: str) -> dict[str, object]:
+        return self._host("/find/place", q=text)
+
+    def find_source(self, text: str) -> dict[str, object]:
+        return self._host("/find/source", q=text)
+
+    def find_citation(self, source: str, page: str = "") -> dict[str, object]:
+        return self._host("/find/citation", source=source, page=page)
+
+    def list_events(self, gramps_id: str) -> dict[str, object]:
+        return self._host("/find/events", gramps_id=gramps_id)
+
     def _store(self) -> proposals.Store:
         """The store inside the blessed copy. **The blessing is the permission.**
 
@@ -654,6 +776,26 @@ def build_server(tools: Tools) -> MCPServer:
     @server.tool(name="propose_note", description=PROPOSE_NOTE_DESCRIPTION)
     def propose_note(gramps_id: str, handle: str, note_type: str, text: str) -> dict[str, object]:
         return tools.propose_note(gramps_id, handle, note_type, text)
+
+    @server.tool(name="find_people", description=FIND_PEOPLE_DESCRIPTION)
+    def find_people(name: str) -> dict[str, object]:
+        return tools.find_people(name)
+
+    @server.tool(name="find_place", description=FIND_PLACE_DESCRIPTION)
+    def find_place(text: str) -> dict[str, object]:
+        return tools.find_place(text)
+
+    @server.tool(name="find_source", description=FIND_SOURCE_DESCRIPTION)
+    def find_source(text: str) -> dict[str, object]:
+        return tools.find_source(text)
+
+    @server.tool(name="find_citation", description=FIND_CITATION_DESCRIPTION)
+    def find_citation(source: str, page: str = "") -> dict[str, object]:
+        return tools.find_citation(source, page)
+
+    @server.tool(name="list_events", description=LIST_EVENTS_DESCRIPTION)
+    def list_events(gramps_id: str) -> dict[str, object]:
+        return tools.list_events(gramps_id)
 
     @server.tool(name="propose_document", description=PROPOSE_DOCUMENT_DESCRIPTION)
     def propose_document(graph: dict[str, object]) -> dict[str, object]:

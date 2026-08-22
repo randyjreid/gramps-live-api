@@ -42,7 +42,7 @@ from http import HTTPStatus
 from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
-from gramps_live_api.host import auth, document, log, mainthread, status
+from gramps_live_api.host import auth, document, log, mainthread, reads, status
 
 LOOPBACK = "127.0.0.1"
 """⛔ The only address this ever binds. The wildcard would put the owner's tree
@@ -76,6 +76,22 @@ which is open in front of him."""
 
 MAX_BODY_BYTES = document.MAX_GRAPH_BYTES
 
+READ_ROUTES = {
+    "/find/people": ("people", ("q",)),
+    "/find/place": ("place", ("q",)),
+    "/find/source": ("source", ("q",)),
+    "/find/citation": ("citation", ("source", "page")),
+    "/find/events": ("events", ("gramps_id",)),
+}
+"""⭐ Five live reads, and every one of them carries R3's precondition P2.
+
+⛔ **No route lists anything without a term.** ``reads.require_term`` refuses,
+and the refusal is a 400 rather than an empty list, so a caller cannot mistake
+*you may not* for *there are none*."""
+
+SEARCH_TERM_REQUIRED = "search-term-required"
+TARGET_IS_PRIVATE = "target-is-private"
+
 ORIGIN_REJECTED = "origin-rejected"
 UNAUTHORISED = "unauthorised"
 NO_SUCH_ROUTE = "no-such-route"
@@ -99,6 +115,10 @@ class Context:
     keeps the boundary where the accessor's rules can see it."""
 
     note: Callable[[str, str], None]
+
+    read: Callable[..., reads.Found]
+    """One live read of the open tree, marshalled. ⛔ Returns plain data, never
+    a Gramps object -- the handler is on the HTTP thread."""
 
     write_document: Callable[[dict[str, Any]], document.Blessing]
     """Blessing check, then schedule the dialog. ⛔ Fire and forget.
@@ -202,7 +222,55 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
             )
             return
 
+        if target.path in READ_ROUTES:
+            self._read(target)
+            return
+
         self._respond(HTTPStatus.NOT_FOUND, {"ok": False, "error": NO_SUCH_ROUTE})
+
+    def _read(self, target: Any) -> None:
+        """One live read, with P2's three bounds answered as status codes.
+
+        ⛔ **A missing search term is a 400, not an empty list.** *You may not
+        list everybody* and *there are none* are different answers, and
+        collapsing them would let a caller conclude the tree is empty.
+
+        ⛔ **A private target is a 403 naming the refusal**, not a 404 -- ruling
+        1's second enforcement point: silence would leave the caller unable to
+        tell *no such person* from *that person is private*.
+        """
+        which, parameters = READ_ROUTES[target.path]
+        query = parse_qs(target.query)
+        values = [(query.get(name) or [""])[0] for name in parameters]
+        try:
+            found = self.context.read(which, *values)
+        except reads.SearchTermRequired as refusal:
+            self._respond(
+                HTTPStatus.BAD_REQUEST,
+                {"ok": False, "error": SEARCH_TERM_REQUIRED, "detail": str(refusal)},
+            )
+            return
+        except reads.TargetIsPrivate as refusal:
+            self._respond(
+                HTTPStatus.FORBIDDEN,
+                {"ok": False, "error": TARGET_IS_PRIVATE, "detail": str(refusal)},
+            )
+            return
+        except mainthread.MainThreadTimeout:
+            self._respond(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"ok": False, "error": MAIN_THREAD_TIMEOUT},
+            )
+            return
+        except Exception as failure:
+            self.context.note(log.ERROR, f"{target.path} failed: {failure!r}")
+            self._respond(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"ok": False, "error": TREE_READ_FAILED},
+            )
+            return
+
+        self._respond(HTTPStatus.OK, {"ok": True, **_found_wire(found)})
 
     def do_POST(self) -> None:
         """One route, and the same three refusals in the same order as ``do_GET``.
@@ -371,6 +439,26 @@ def _person_wire(person: status.PersonStatus) -> dict[str, Any]:
     if not person.found:
         return {"found": False}
     return {"found": True, "private": person.private}
+
+
+def _found_wire(found: reads.Found) -> dict[str, Any]:
+    """A read's answer on the wire.
+
+    ⛔ **``matched`` counts only what could be shown.** Private records are gone
+    before counting, so *42 matched, 25 shown* can never be run backwards to
+    learn that seventeen private people exist -- ruling 1's first enforcement
+    point, which is about arithmetic rather than about text.
+    """
+    return {
+        "results": [
+            {"gramps_id": match.gramps_id, "display": match.display, **match.detail}
+            for match in found.matches
+        ],
+        "shown": found.shown,
+        "matched": found.matched,
+        "withheld": found.withheld,
+        "capped": found.capped,
+    }
 
 
 def _requested_id(query: str) -> str:

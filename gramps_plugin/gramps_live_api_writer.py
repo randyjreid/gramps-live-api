@@ -70,10 +70,18 @@ def confirm(uistate, text):
     view.set_left_margin(10)
     view.set_right_margin(10)
     view.set_monospace(True)
+    # ⛔ WRAP, never scroll sideways. A line running off the right edge behind a
+    # horizontal scrollbar is content approved unseen -- the slice-1 elision
+    # defect in a new costume. WORD_CHAR also breaks a single unbroken 400
+    # character token rather than letting it push the line off the edge.
+    view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
     view.get_buffer().set_text(text)
 
     scroller = Gtk.ScrolledWindow()
-    scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+    # ⛔ NEVER horizontal. The renderer wraps and so does the view; a horizontal
+    # policy of AUTOMATIC would silently re-enable the thing both of them exist
+    # to prevent.
+    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
     scroller.add(view)
     dialog.get_content_area().pack_start(scroller, True, True, 0)
     dialog.show_all()
@@ -202,6 +210,18 @@ def write(dbstate, graph):
     handles = {}
     kinds = {}
     counts = {"people": 0, "events": 0, "places": 0, "families": 0, "citations": 0, "notes": 0}
+    # ⭐ What was created, by Gramps ID -- which is what somebody types into
+    # Gramps to find it again, and therefore what a journal record is for.
+    created = {
+        k: [] for k in ("people", "events", "places", "families", "citations", "notes", "sources")
+    }
+    attached = {k: [] for k in ("people", "places", "sources")}
+
+    def note_created(kind, handle_, getter):
+        try:
+            created[kind].append(getattr(database, getter)(handle_).get_gramps_id())
+        except Exception:
+            created[kind].append(handle_)
 
     genders = {"male": Person.MALE, "female": Person.FEMALE}
     source_spec = graph.get("source") or None
@@ -220,6 +240,9 @@ def write(dbstate, graph):
             if source_spec.get("pubinfo"):
                 source.set_publication_info(str(source_spec["pubinfo"]))
             source_handle = database.add_source(source, trans)
+            note_created("sources", source_handle, "get_source_from_handle")
+        elif source_spec:
+            attached["sources"].append(str(source_spec.get("gramps_id")))
         if source_spec and source_spec.get("id"):
             handles[source_spec["id"]] = source_handle
             kinds[source_spec["id"]] = "source"
@@ -230,6 +253,7 @@ def write(dbstate, graph):
             if existing is not None:
                 handles[spec["id"]] = existing
                 kinds[spec["id"]] = "place"
+                attached["places"].append(str(spec.get("gramps_id")))
                 continue
             place = Place()
             place.set_title(str(spec.get("title") or ""))
@@ -237,6 +261,7 @@ def write(dbstate, graph):
             place_name.set_value(str(spec.get("title") or ""))
             place.set_name(place_name)
             handle = database.add_place(place, trans)
+            note_created("places", handle, "get_place_from_handle")
             handles[spec["id"]] = handle
             kinds[spec["id"]] = "place"
             counts["places"] += 1
@@ -249,6 +274,7 @@ def write(dbstate, graph):
                 # are deliberately NOT applied -- see IGNORED_WHEN_ATTACHING.
                 handles[spec["id"]] = existing
                 kinds[spec["id"]] = "person"
+                attached["people"].append(str(spec.get("gramps_id")))
                 continue
             person = Person()
             name = Name()
@@ -261,6 +287,7 @@ def write(dbstate, graph):
             person.set_primary_name(name)
             person.set_gender(genders.get(str(spec.get("gender") or "").lower(), Person.UNKNOWN))
             handle = database.add_person(person, trans)
+            note_created("people", handle, "get_person_from_handle")
             handles[spec["id"]] = handle
             kinds[spec["id"]] = "person"
             counts["people"] += 1
@@ -278,6 +305,7 @@ def write(dbstate, graph):
             if place_local and place_local in handles:
                 event.set_place_handle(handles[place_local])
             event_handle = database.add_event(event, trans)
+            note_created("events", event_handle, "get_event_from_handle")
             handles[spec["id"]] = event_handle
             kinds[spec["id"]] = "event"
             counts["events"] += 1
@@ -332,6 +360,7 @@ def write(dbstate, graph):
                 child_ref.ref = child
                 family.add_child_ref(child_ref)
             family_handle = database.add_family(family, trans)
+            note_created("families", family_handle, "get_family_from_handle")
             handles[spec["id"]] = family_handle
             kinds[spec["id"]] = "family"
             counts["families"] += 1
@@ -357,6 +386,7 @@ def write(dbstate, graph):
             citation.set_reference_handle(target_source)
             citation.set_page(str(spec.get("page") or ""))
             citation_handle = database.add_citation(citation, trans)
+            note_created("citations", citation_handle, "get_citation_from_handle")
             handles[spec["id"]] = citation_handle
             kinds[spec["id"]] = "citation"
             counts["citations"] += 1
@@ -369,11 +399,13 @@ def write(dbstate, graph):
             note.set(str(spec.get("text") or ""))
             note.set_type(NoteType(NoteType.TRANSCRIPT))
             note_handle = database.add_note(note, trans)
+            note_created("notes", note_handle, "get_note_from_handle")
             counts["notes"] += 1
             for local in spec.get("attach_to") or []:
                 _attach(database, trans, handles, kinds, local, "note", note_handle)
 
-    return ", ".join(f"{value} {label}" for label, value in counts.items() if value) or "nothing"
+    summary = ", ".join(f"{value} {label}" for label, value in counts.items() if value) or "nothing"
+    return {"summary": summary, "created": created, "attached": attached}
 
 
 _COMMIT = {
