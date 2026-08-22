@@ -31,6 +31,10 @@ class FakeSurname:
 class FakeName:
     first: str = ""
     surnames: list[FakeSurname] = field(default_factory=list)
+    private: bool = False
+
+    def get_privacy(self) -> bool:
+        return self.private
 
     def get_first_name(self) -> str:
         return self.first
@@ -602,3 +606,61 @@ def test_a_public_membership_is_still_returned() -> None:
 
     assert len(found.matches) == 1, "a public membership was hidden -- the gate over-reaches"
     assert found.matches[0].gramps_id == "F0300"
+
+
+# --------------------------------------------------------------------------
+# Round 5: the person is public and the NAME is not.
+# --------------------------------------------------------------------------
+
+
+def _person_with_a_private_alternate() -> FakePerson:
+    """Public person, public primary name, PRIVATE alternate spelling."""
+    subject = FakePerson(
+        gramps_id="I0400",
+        primary=FakeName(first="Cornelia", surnames=[FakeSurname("Ostrander")]),
+        alternates=[FakeName(first="Cornelia", surnames=[FakeSurname("Vandermeer")], private=True)],
+    )
+    return subject
+
+
+def test_a_private_alternate_spelling_is_not_searchable() -> None:
+    """⛔ The oracle. The name never reached the wire and was still leaked.
+
+    Searching the private spelling returned the person under their PUBLIC name,
+    so nothing on the wire looked wrong — and the caller had just confirmed that
+    a person is associated with a name marked private.
+    """
+    accessor.bind(FakeDbState(db=FakeTree([_person_with_a_private_alternate()])))
+    try:
+        hidden = accessor.find_people("Vandermeer")
+        public = accessor.find_people("Ostrander")
+    finally:
+        accessor.forget()
+
+    assert hidden.matches == (), (
+        "a private alternate name is searchable -- the route is an oracle for it"
+    )
+    assert hidden.matched == 0, "and counted, which leaks it by arithmetic"
+    assert len(public.matches) == 1, "the PUBLIC spelling must still find them"
+
+
+def test_a_private_primary_name_is_withheld_not_rendered() -> None:
+    """⛔ Public person, private primary name."""
+    subject = FakePerson(
+        gramps_id="I0401",
+        primary=FakeName(first="Ignatius", surnames=[FakeSurname("Thorncastle")], private=True),
+    )
+    accessor.bind(FakeDbState(db=FakeTree([subject])))
+    try:
+        resolution = accessor.resolve_nodes(dict(people=[dict(id="p1", gramps_id="I0401")]))
+        shown = resolution.nodes[0].display
+    finally:
+        accessor.forget()
+
+    assert "Thorncastle" not in shown and "Ignatius" not in shown, (
+        f"a private name was rendered in the approval dialog: {shown!r}"
+    )
+    assert shown == accessor.WITHHELD, (
+        "the owner must be told the name is withheld rather than shown nothing -- "
+        f"he cannot confirm the identity, so he cancels; got {shown!r}"
+    )

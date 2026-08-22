@@ -135,6 +135,42 @@ def _public(obj: typing.Any) -> typing.Any:
     return obj
 
 
+WITHHELD = "(name withheld)"
+"""What a private name renders as.
+
+⛔ **The person may be public while their NAME is not** -- the frozen checklist
+records ``name/priv`` beside ``person/priv``. There is no way to show a name that
+is marked private, so the identity check the display exists for degrades to *you
+cannot confirm this, so do not proceed*. That is the correct failure: the owner
+cancels. ⚠️ It is NOT the same as the private-birth-date case, where hiding the
+date must never cost the name -- here the name itself is the private thing."""
+
+
+def _name_spellings(name: typing.Any) -> list[str]:
+    """Every spelling inside one ``Name``, or nothing if that name is private.
+
+    ⛔ **This is the INDEXING half, and it is the subtler leak.** The search
+    corpus was built from the primary name and every alternate, ungated -- so a
+    private alternate spelling was *searchable*. The name itself never reached
+    the wire, which is exactly what made it hard to see: **the route became an
+    oracle for a name marked private**, and nothing on the wire looked wrong.
+    """
+    if _public(name) is None:
+        return []
+    out = [name.get_first_name(), name.get_surname()]
+    for surname in name.get_surname_list() or []:
+        out.append(surname.get_surname())
+    return [part for part in out if part]
+
+
+def _name_shown(name: typing.Any) -> str:
+    """One ``Name`` as the owner reads it, or ``WITHHELD``. ⛔ The RENDERING half."""
+    if _public(name) is None:
+        return WITHHELD
+    parts = [part for part in (name.get_surname(), name.get_first_name()) if part]
+    return ", ".join(parts) or "(no name)"
+
+
 def _person_names(person: typing.Any) -> list[str]:
     """Every spelling of a person's name the tree holds -- primary AND alternates.
 
@@ -149,16 +185,12 @@ def _person_names(person: typing.Any) -> list[str]:
     for name in [person.get_primary_name(), *person.get_alternate_names()]:
         if name is None:
             continue
-        out.append(name.get_first_name())
-        for surname in name.get_surname_list() or []:
-            out.append(surname.get_surname())
-        out.append(name.get_surname())
-    return [part for part in out if part]
+        out.extend(_name_spellings(name))
+    return out
 
 
 def _person_display(person: typing.Any, database: typing.Any) -> str:
-    name = person.get_primary_name()
-    shown = ", ".join(p for p in (name.get_surname(), name.get_first_name()) if p) or "(no name)"
+    shown = _name_shown(person.get_primary_name())
     try:
         birth = person.get_birth_ref()
         # ⛔ The REFERENCE carries its own ``priv``, separately from the event
@@ -665,11 +697,7 @@ def _display_of(database: typing.Any, kind: str, obj: typing.Any) -> str:
     """
     try:
         if kind == "person":
-            name = obj.get_primary_name()
-            shown = (
-                ", ".join(part for part in (name.get_surname(), name.get_first_name()) if part)
-                or "(no name)"
-            )
+            shown = _name_shown(obj.get_primary_name())
             birth = obj.get_birth_ref()
             if birth is not None and _public(birth) is not None:
                 event = _public(database.get_event_from_handle(birth.ref))

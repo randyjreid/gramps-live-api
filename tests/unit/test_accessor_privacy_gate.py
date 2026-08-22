@@ -198,3 +198,75 @@ def test_every_reference_is_gated_before_it_is_followed() -> None:
         "a reference is followed without its OWN privacy flag being read, so a "
         "record joined by a private reference reaches the wire: " + "; ".join(offenders)
     )
+
+
+NAME_READERS = {"_name_spellings", "_name_shown"}
+"""The only functions allowed to take a ``Name`` apart. Both gate it first."""
+
+NAME_METHODS = {"get_first_name", "get_surname", "get_surname_list"}
+
+
+def test_a_name_is_only_read_inside_a_function_that_gates_it() -> None:
+    """⛔ ``name`` carries its own ``priv``, beside ``person``'s.
+
+    A person can be public while their NAME is not — the frozen checklist records
+    ``name/priv`` — and both halves leaked:
+
+    * **rendering**, where the display showed the name a flag said to hide;
+    * **indexing**, which is the subtler one. The search corpus was built from
+      the primary name and every alternate, ungated, so a private alternate
+      spelling was *searchable*. The name never reached the wire, which is what
+      made it hard to see: **the route became an oracle for it**, and nothing on
+      the wire looked wrong.
+
+    ⭐ **The bounded sub-property, stated as such: every name rendered or indexed
+    by a read route is gated.** That closes. *No private data reaches the wire*
+    does not, and is not what this claims — see the reference test above for the
+    same distinction and what it does not cover.
+
+    Enforced by confinement rather than by inspection: a ``Name`` may only be
+    taken apart inside the two helpers, and both call ``_public`` on it first.
+    """
+    tree = ast.parse(ACCESSOR.read_text(encoding="utf-8"), filename=str(ACCESSOR))
+
+    offenders: list[str] = []
+    for function in ast.walk(tree):
+        if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        if function.name in NAME_READERS:
+            continue
+        for node in ast.walk(function):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in NAME_METHODS
+            ):
+                offenders.append(f"{function.name}: {node.func.attr}() on line {node.lineno}")
+
+    assert offenders == [], (
+        "a name is taken apart outside the gated helpers, so a private name can "
+        "be rendered or indexed: " + "; ".join(offenders)
+    )
+
+
+def test_both_name_helpers_actually_gate() -> None:
+    """⚠️ Confinement is worth nothing if the helper it confines to does not gate.
+
+    Without this, deleting the ``_public`` call inside a helper leaves the test
+    above green — the confinement holds and the property does not.
+    """
+    tree = ast.parse(ACCESSOR.read_text(encoding="utf-8"), filename=str(ACCESSOR))
+
+    for function in ast.walk(tree):
+        if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        if function.name not in NAME_READERS:
+            continue
+        gates = [
+            node
+            for node in ast.walk(function)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == GATE
+        ]
+        assert gates, f"{function.name} reads a name and never calls {GATE}"
