@@ -76,6 +76,11 @@ class FakePerson:
     def get_family_handle_list(self) -> list[Any]:
         return []
 
+    def get_handle(self) -> str:
+        # A handle no fixture's ref list uses, so tests that are not about
+        # membership privacy behave exactly as they did before the gate.
+        return "handle_of_" + self.gramps_id
+
 
 def person(gramps_id: str, first: str, surname: str, **kw: Any) -> FakePerson:
     alt = kw.pop("alternate", None)
@@ -525,3 +530,75 @@ def test_a_private_childref_is_not_counted_in_the_family() -> None:
         accessor.forget()
 
     assert "children" not in shown, f"a child joined by a private reference was counted: {shown!r}"
+
+
+# --------------------------------------------------------------------------
+# Round 4. The membership is private while both ends are public -- and the
+# backlink carries no reference, so the round 2 bound cannot see it.
+# --------------------------------------------------------------------------
+
+
+class TreeWithAPrivateMembership:
+    """A public child, a public family, and a PRIVATE ChildRef joining them."""
+
+    def __init__(self) -> None:
+        self.child = person("I0300", "Rowena", "Openly")
+        self.father = person("I0301", "Aurelius", "Openly")
+        self.child.get_handle = lambda: "h_child"  # type: ignore[method-assign]
+        self.child.get_parent_family_handle_list = lambda: ["h_fam"]  # type: ignore[method-assign]
+        self.child.get_family_handle_list = lambda: []  # type: ignore[method-assign]
+        self.family = FakeFamily(gramps_id="F0300", father="h_dad")
+        self.family.get_child_ref_list = lambda: [FakeChildRef2("h_child", private=True)]  # type: ignore[method-assign]
+        self._people = {"h_child": self.child, "h_dad": self.father}
+
+    def get_person_from_handle(self, handle: str):  # noqa: ANN201
+        return self._people.get(handle)
+
+    def get_family_from_handle(self, handle: str):  # noqa: ANN201
+        return self.family
+
+    def get_person_from_gramps_id(self, gramps_id: str):  # noqa: ANN201
+        return next((p for p in self._people.values() if p.gramps_id == gramps_id), None)
+
+    def get_family_from_gramps_id(self, gramps_id: str):  # noqa: ANN201
+        return self.family if gramps_id == "F0300" else None
+
+    def iter_people(self):  # noqa: ANN201
+        return iter(self._people.values())
+
+
+def test_a_privately_joined_child_does_not_reveal_the_household() -> None:
+    """⛔ Walking from the CHILD reached the family through a bare handle.
+
+    ``get_parent_family_handle_list()`` returns handles, not references, so the
+    private ``ChildRef`` sits on the family's side with nothing on the person's
+    side pointing at it. The family came back public, with its public parents,
+    publishing the single fact the flag was set on: **that this child belongs to
+    this household.**
+
+    ⚠️ This is the mirror of the round 2 count fix, and the round 2 *bound* does
+    not cover it — that test governs how a ``.ref`` is followed, and there is no
+    ``.ref`` on this path.
+    """
+    accessor.bind(FakeDbState(db=TreeWithAPrivateMembership()))
+    try:
+        found = accessor.find_families("I0300")
+    finally:
+        accessor.forget()
+
+    assert found.matches == (), f"a private parent-child membership was published: {found.matches}"
+    assert found.matched == 0, "and counted, which leaks it by arithmetic"
+
+
+def test_a_public_membership_is_still_returned() -> None:
+    """⚠️ The gate must not simply hide every family reached from a child."""
+    tree = TreeWithAPrivateMembership()
+    tree.family.get_child_ref_list = lambda: [FakeChildRef2("h_child", private=False)]  # type: ignore[method-assign]
+    accessor.bind(FakeDbState(db=tree))
+    try:
+        found = accessor.find_families("I0300")
+    finally:
+        accessor.forget()
+
+    assert len(found.matches) == 1, "a public membership was hidden -- the gate over-reaches"
+    assert found.matches[0].gramps_id == "F0300"

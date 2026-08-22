@@ -152,6 +152,19 @@ def test_every_reference_is_gated_before_it_is_followed() -> None:
     So the rule is structural. Any name whose ``.ref`` is dereferenced in a
     function must ALSO have been handed to ``_public`` somewhere in that same
     function. A seventh reference site inherits the bound by being written.
+
+    ⛔ **What this does NOT bound, stated because it was measured rather than
+    guessed.** This governs how a **reference** is followed. It says nothing
+    about a leak that follows a bare **handle**, and there is at least one:
+    ``get_parent_family_handle_list()`` returns handles, so a child joined to a
+    family by a private ``ChildRef`` was reachable from the child's side with no
+    ``.ref`` anywhere on the path. Removing the gate that fixes that case leaves
+    THIS TEST GREEN -- confirmed by mutation.
+
+    ⚠️ *No private relationship reaches the wire* is a universally quantified
+    negative over the whole object graph and has no fixed point. This test is a
+    bounded sub-property with one: **every reference dereference is gated**. It
+    is not a proof of the larger claim and must not be read as one.
     """
     tree = ast.parse(ACCESSOR.read_text(encoding="utf-8"), filename=str(ACCESSOR))
 

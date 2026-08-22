@@ -371,6 +371,30 @@ def _family_display(database: typing.Any, family: typing.Any) -> str:
     return shown + (f"  [{children} children]" if children else "")
 
 
+def _membership_is_public(family: typing.Any, person_handle: typing.Any) -> bool:
+    """Whether this person's membership of this family may be shown at all.
+
+    ⛔ **The backlink carries no reference, which is why this is needed.**
+    ``get_parent_family_handle_list()`` returns HANDLES, so the ``ChildRef``
+    marked private lives on the FAMILY's side and nothing on the person's side
+    points at it. Walking from the child therefore reached a public family with
+    public parents and returned it, publishing the one fact that was marked
+    private: **that this child belongs to this household.**
+
+    ⚠️ **The reference gate does not cover this, and the difference is worth
+    stating.** ``test_every_reference_is_gated_before_it_is_followed`` bounds
+    dereferences of a ``.ref``; there is no ``.ref`` on this path. A rule about
+    how references are followed cannot see a leak that follows a bare handle.
+
+    Returns True when the person is not a child of this family -- a spouse link
+    is two handle slots on the family and carries no privacy flag of its own.
+    """
+    for ref in family.get_child_ref_list():
+        if ref.ref == person_handle:
+            return _public(ref) is not None
+    return True
+
+
 @mainthread.on_main_thread
 def find_families(person_gramps_id: str) -> reads.Found:
     """The families one person belongs to, as spouse or as child.
@@ -408,6 +432,9 @@ def find_families(person_gramps_id: str) -> reads.Found:
         raw = database.get_family_from_handle(handle)
         family = _public(raw)
         if family is None:
+            continue
+        # ⛔ The MEMBERSHIP can be private while both ends are public.
+        if not _membership_is_public(family, person.get_handle()):
             continue
         rows.append((False, reads.Match(family.get_gramps_id(), _family_display(database, family))))
     return reads.bound(rows)
