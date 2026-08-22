@@ -39,7 +39,7 @@ from collections.abc import Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
-from typing import NoReturn
+from typing import Any, NoReturn
 
 from gramps_live_api import __version__
 from gramps_live_api.core import apply, schema
@@ -175,6 +175,64 @@ class Proposal:
     approval_digest: str
     full_display: str
     rules_fingerprint: str
+
+
+def claim_document(path: str, claimed: str, proposal_id: str) -> dict[str, Any]:
+    """Take a document proposal exactly once, and return what it held.
+
+    ⭐ **It lives HERE rather than beside the store**, and that is the point of
+    moving it. The document flow was written *next to* ``Store`` rather than
+    *through* it, and inherited the location and none of the rails -- the missing
+    id validation was the same omission. It is also why the test covering it
+    could not run on CI's core legs at all: reaching it meant importing the MCP
+    server, and ``mcp`` is an optional extra. **The fix for a rail being left off
+    is to put the code where the rails are.**
+
+    ⛔ **``O_CREAT | O_EXCL`` is the lock, and it fails on an existing target on
+    EVERY platform.** That matters for what the test proves rather than for what
+    the host does -- the host is Windows-only, CI is Linux on three interpreters,
+    and a fix whose test passes for a different reason than the fix works is a
+    fix with no coverage.
+
+    ⚠️ **The previous spelling was ``os.rename`` and its comment was wrong.** It
+    said the rename fails because the destination exists, which is true on
+    Windows and false on POSIX. What actually refused the second call on both was
+    that the SOURCE had been consumed -- so the protection was real and the
+    stated reason was not, and under two genuinely concurrent calls POSIX would
+    have silently replaced the claim and opened two dialogs.
+
+    Raises ``ProposalNotFound`` if there is nothing to claim and
+    ``ProposalError`` if somebody already claimed it.
+    """
+    try:
+        with open(path, encoding="utf-8") as handle:
+            body = handle.read()
+    except OSError:
+        if os.path.exists(claimed):
+            raise ProposalError(
+                f"document proposal {proposal_id!r} has already been dispatched. "
+                "Propose it again if you need to show it once more."
+            ) from None
+        raise ProposalNotFound(f"no document proposal called {proposal_id!r}") from None
+
+    try:
+        descriptor = os.open(claimed, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        raise ProposalError(
+            f"document proposal {proposal_id!r} has already been dispatched. "
+            "Propose it again if you need to show it once more."
+        ) from None
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(body)
+
+    # ⚠️ The original goes only AFTER the claim exists. A crash between the two
+    # leaves both, and the claim is what a second call trips over -- which is the
+    # safe direction: refusing a proposal twice costs a re-propose, dispatching
+    # one twice writes the graph twice.
+    with suppress(OSError):
+        os.unlink(path)
+
+    return dict(json.loads(body))
 
 
 def store_directory(tree_dir: str) -> str:
