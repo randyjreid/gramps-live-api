@@ -410,3 +410,118 @@ def test_note_kinds_matches_what_the_lookup_actually_supports() -> None:
         f"only in the code {sorted(spelled - set(accessor.NOTE_KINDS))}, "
         f"only in the constant {sorted(set(accessor.NOTE_KINDS) - spelled)}"
     )
+
+
+# --------------------------------------------------------------------------
+# Round 2. The REFERENCE carries its own priv, separately from its target.
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class FakeRef:
+    """A Gramps reference: a handle, plus a privacy flag of its own."""
+
+    ref: str
+    private: bool = False
+    relation: str = ""
+
+    def get_privacy(self) -> bool:
+        return self.private
+
+    def get_relation(self) -> str:
+        return self.relation
+
+
+class TreeJoinedByPrivateReferences:
+    """Everything public. Every JOIN between them marked private."""
+
+    def __init__(self) -> None:
+        self.subject = person("I0200", "Frederick", "Openly")
+        self.associate = person("I0201", "Godwin", "Openly")
+        self.child = person("I0202", "Perpetua", "Openly")
+        self.event = FakeEvent(private=False)
+        self.family = FakeFamily(gramps_id="F0200", father="h_s", children=["h_c"])
+        self.family.get_child_ref_list = lambda: [FakeChildRef2("h_c", private=True)]  # type: ignore[method-assign]
+        self.family.get_event_ref_list = lambda: [FakeRef("h_e", private=True)]  # type: ignore[method-assign]
+        self.subject.get_person_ref_list = lambda: [  # type: ignore[method-assign]
+            FakeRef("h_a", private=True, relation="Godfather")
+        ]
+        self.subject.get_family_handle_list = lambda: ["h_fam"]  # type: ignore[method-assign]
+        self._people = {"h_s": self.subject, "h_a": self.associate, "h_c": self.child}
+
+    def get_person_from_handle(self, handle: str):  # noqa: ANN201
+        return self._people.get(handle)
+
+    def get_event_from_handle(self, handle: str):  # noqa: ANN201
+        return self.event
+
+    def get_family_from_handle(self, handle: str):  # noqa: ANN201
+        return self.family
+
+    def get_family_from_gramps_id(self, gramps_id: str):  # noqa: ANN201
+        return self.family if gramps_id == "F0200" else None
+
+    def get_person_from_gramps_id(self, gramps_id: str):  # noqa: ANN201
+        return next((p for p in self._people.values() if p.gramps_id == gramps_id), None)
+
+    def iter_people(self):  # noqa: ANN201
+        return iter(self._people.values())
+
+
+@dataclass
+class FakeChildRef2:
+    ref: str
+    private: bool = False
+
+    def get_privacy(self) -> bool:
+        return self.private
+
+
+def _joined_tree():
+    tree = TreeJoinedByPrivateReferences()
+    accessor.bind(FakeDbState(db=tree))
+    return tree
+
+
+def test_a_private_personref_association_is_not_returned() -> None:
+    """⛔ Both people public, the ASSOCIATION private.
+
+    The relationship is the private fact. Returning the associate's id, the
+    relationship text and their name because both endpoints are public publishes
+    exactly what the flag on the join was set to hide.
+    """
+    _joined_tree()
+    try:
+        found = accessor.list_associations("I0200")
+    finally:
+        accessor.forget()
+
+    assert found.matches == (), f"a private association reached the wire: {found.matches}"
+    assert found.matched == 0, "and it was counted, which leaks it by arithmetic"
+
+
+def test_a_private_eventref_on_a_family_is_not_returned() -> None:
+    """⛔ Public family, public event, PRIVATE join."""
+    _joined_tree()
+    try:
+        found = accessor.list_family_events("F0200")
+    finally:
+        accessor.forget()
+
+    assert found.matches == (), f"an event joined by a private reference leaked: {found.matches}"
+
+
+def test_a_private_childref_is_not_counted_in_the_family() -> None:
+    """⛔ The child is public; the family MEMBERSHIP is private.
+
+    Distinct from the private-child case fixed in round 1 -- there the person
+    was private, here the relationship is.
+    """
+    _joined_tree()
+    try:
+        found = accessor.find_families("I0200")
+        shown = found.matches[0].display
+    finally:
+        accessor.forget()
+
+    assert "children" not in shown, f"a child joined by a private reference was counted: {shown!r}"

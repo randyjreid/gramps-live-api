@@ -161,7 +161,10 @@ def _person_display(person: typing.Any, database: typing.Any) -> str:
     shown = ", ".join(p for p in (name.get_surname(), name.get_first_name()) if p) or "(no name)"
     try:
         birth = person.get_birth_ref()
-        if birth is not None:
+        # ⛔ The REFERENCE carries its own ``priv``, separately from the event
+        # it points at. A public person joined to a public event by a PRIVATE
+        # EventRef was leaking the date the reference was marked to hide.
+        if birth is not None and _public(birth) is not None:
             event = _public(database.get_event_from_handle(birth.ref))
             # ⛔ The EVENT's own flag, not just the person's. A public person
             # whose birth event is marked private was leaking that event's date
@@ -323,6 +326,8 @@ def list_events(person_gramps_id: str) -> reads.Found:
         return reads.Found()
     rows = []
     for ref in person.get_event_ref_list():
+        if _public(ref) is None:
+            continue
         event = _public(database.get_event_from_handle(ref.ref))
         if event is None:
             continue
@@ -359,6 +364,8 @@ def _family_display(database: typing.Any, family: typing.Any) -> str:
     # to prevent, arriving through a display string instead of through a count.
     children = 0
     for ref in family.get_child_ref_list():
+        if _public(ref) is None:
+            continue
         if _public(database.get_person_from_handle(ref.ref)) is not None:
             children += 1
     return shown + (f"  [{children} children]" if children else "")
@@ -426,6 +433,8 @@ def list_family_events(family_gramps_id: str) -> reads.Found:
 
     rows = []
     for ref in family.get_event_ref_list():
+        if _public(ref) is None:
+            continue
         raw = database.get_event_from_handle(ref.ref)
         event = _public(raw)
         if event is None:
@@ -508,6 +517,8 @@ def list_associations(person_gramps_id: str) -> reads.Found:
 
     rows = []
     for ref in person.get_person_ref_list():
+        if _public(ref) is None:
+            continue
         raw = database.get_person_from_handle(ref.ref)
         other = _public(raw)
         if other is None:
@@ -633,7 +644,7 @@ def _display_of(database: typing.Any, kind: str, obj: typing.Any) -> str:
                 or "(no name)"
             )
             birth = obj.get_birth_ref()
-            if birth is not None:
+            if birth is not None and _public(birth) is not None:
                 event = _public(database.get_event_from_handle(birth.ref))
                 # ⛔ ``None`` here means the birth event is PRIVATE, and only the
                 # DATE is dropped for it -- never the name.

@@ -127,3 +127,61 @@ def test_the_exemption_is_documented_and_still_applies() -> None:
         assert any(where == name for where, _, _ in fetch_calls()), (
             f"{name} is exempted but fetches nothing -- drop the exemption"
         )
+
+
+# ---------------------------------------------------------------------------
+# The REFERENCE carries its own ``priv``, separately from what it points at.
+# ---------------------------------------------------------------------------
+
+
+def test_every_reference_is_gated_before_it_is_followed() -> None:
+    """⛔ Bounded, not enumerated -- because enumerating is what failed before.
+
+    Gramps records ``priv`` on the **reference** as well as on the object: the
+    frozen schema checklist in ``core/_specified_containers.py`` carries
+    ``childref``, ``eventref`` and ``personref`` entries for it. So a public
+    person joined to a public event by a PRIVATE ``EventRef`` was returned in
+    full -- the flag on the join was never read.
+
+    ⚠️ **A review pass found three of the six instances.** That is the exact
+    signature ``_public``'s own docstring describes: *"a third instance was then
+    found by audit rather than by review, which is the signature of a rule that
+    is enumerated rather than bounded."* Fixing the three that were reported
+    would have left three live and this test unwritten.
+
+    So the rule is structural. Any name whose ``.ref`` is dereferenced in a
+    function must ALSO have been handed to ``_public`` somewhere in that same
+    function. A seventh reference site inherits the bound by being written.
+    """
+    tree = ast.parse(ACCESSOR.read_text(encoding="utf-8"), filename=str(ACCESSOR))
+
+    offenders: list[str] = []
+    for function in ast.walk(tree):
+        if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+
+        # Every name handed to _public() anywhere in this function.
+        gated = {
+            argument.id
+            for node in ast.walk(function)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_public"
+            for argument in node.args
+            if isinstance(argument, ast.Name)
+        }
+
+        # Every name whose .ref is read in this function.
+        for node in ast.walk(function):
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr == "ref"
+                and isinstance(node.value, ast.Name)
+                and node.value.id not in gated
+            ):
+                offenders.append(f"{function.name}: {node.value.id}.ref on line {node.lineno}")
+
+    assert offenders == [], (
+        "a reference is followed without its OWN privacy flag being read, so a "
+        "record joined by a private reference reaches the wire: " + "; ".join(offenders)
+    )
