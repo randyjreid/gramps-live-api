@@ -590,11 +590,17 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
             # household" with no statement of what would be put in it.
             if node.local_id in families_by_id:
                 joining = [named_node(c) for c in (entry.get("children") or [])]
+                # ⛔ This line speaks about CHILDREN and nothing else. Saying
+                # "nothing would be added to this family" was a claim about the
+                # whole operation, and it was false: a citation or a note whose
+                # attach_to names the family IS committed onto it -- ``family``
+                # is in the writer's commit table -- and ``attached_to`` renders
+                # exactly that, three lines below, contradicting it.
                 out.extend(
                     _wrap(
                         "adding as children: " + ", ".join(joining)
                         if joining
-                        else "no children named -- nothing would be added to this family",
+                        else "no children named for this family",
                         "      + ",
                     )
                 )

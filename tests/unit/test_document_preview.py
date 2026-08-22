@@ -401,3 +401,35 @@ def test_caller_preview_no_longer_claims_families_are_always_new() -> None:
         "caller_preview still claims every family is created new:\n" + rendered
     )
     assert "already in the tree" in rendered
+
+
+CITATION_ONLY_FAMILY_GRAPH = dict(
+    people=[node("pn", given="Wilhelmina", surname="Newcomer", gender="female")],
+    source=node("s1", title="Parish register"),
+    families=[node("f1", gramps_id="F0100")],
+    citations=[node("c1", source="s1", page="12", attach_to=["f1"])],
+)
+
+
+def test_a_citation_only_family_attachment_is_not_called_a_no_op() -> None:
+    """⛔ The preview said nothing would be added, then rendered what would.
+
+    ``family`` is in the writer's commit table, so a citation whose ``attach_to``
+    names a family IS committed onto it. The line claiming otherwise was a
+    statement about the whole operation when it only knew about children — and
+    ``attached_to`` renders the citation immediately below, so the approval text
+    contradicted itself on the same screen.
+    """
+    rendered = document.preview(
+        document.parse(CITATION_ONLY_FAMILY_GRAPH), ATTACHED_FAMILY_RESOLUTION
+    )
+
+    assert "nothing would be added" not in rendered, (
+        "the preview calls a real citation attachment a no-op:\n" + rendered
+    )
+    assert "no children named" in rendered, (
+        "it should still say the family gains no CHILDREN -- that part was true"
+    )
+    assert "Parish register" in rendered or "c1" in rendered or "Citation" in rendered, (
+        "and the citation that IS being attached must appear:\n" + rendered
+    )
