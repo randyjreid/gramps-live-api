@@ -93,6 +93,48 @@ def tree_status() -> status.TreeStatus:
     )
 
 
+def _public(obj: typing.Any) -> typing.Any:
+    """``obj``, or ``None`` if the tree marks it private. ⛔ EVERY fetch goes through this.
+
+    ⭐ **The bound is on the whole reachable graph, not on the object asked for.**
+    Two leaks of one class got through review as separate patches -- a public
+    person leaking a PRIVATE birth event's date, and a public event leaking a
+    PRIVATE place's name -- because the criterion asked *is the thing being
+    returned private?* and the leaks were in what it **pointed at**. A third
+    instance was then found by audit rather than by review, which is the
+    signature of a rule that is enumerated rather than bounded.
+
+    ⚠️ **A helper alone would not bound it**, because the next read route is
+    written by somebody who has to remember. ``tests/unit/test_accessor_privacy_gate.py``
+    reads THIS FILE and asserts that every ``get_*_from_handle`` and
+    ``get_*_from_gramps_id`` call is wrapped here -- the same shape as the
+    thread-boundary test, which discovers accessor helpers by reading the source
+    instead of trusting a list. **A new route inherits the bound by being
+    written, not by being remembered.**
+
+    ⛔ **``None`` carries TWO facts and a direct target must tell them apart.**
+    *Absent* and *present but private* are different answers, and collapsing them
+    is ruling 1's second enforcement point broken. Adding this gate DID break it
+    -- ``list_events`` on a private person started answering 200/empty instead of
+    403 -- so a route with a direct target keeps the ungated fetch beside the
+    gated one purely to distinguish, and reads only from the gated one.
+
+    ⚠️ **A gate that answers two questions with one value is a gate that will be
+    got wrong again**, which is why it is written down here rather than left to
+    each call site to remember.
+    """
+    if obj is None:
+        return None
+    try:
+        if obj.get_privacy():
+            return None
+    except AttributeError:
+        # Not everything Gramps returns carries the flag. A thing that cannot be
+        # private cannot be leaked by being private.
+        return obj
+    return obj
+
+
 def _person_names(person: typing.Any) -> list[str]:
     """Every spelling of a person's name the tree holds -- primary AND alternates.
 
@@ -120,7 +162,7 @@ def _person_display(person: typing.Any, database: typing.Any) -> str:
     try:
         birth = person.get_birth_ref()
         if birth is not None:
-            event = database.get_event_from_handle(birth.ref)
+            event = _public(database.get_event_from_handle(birth.ref))
             # ⛔ The EVENT's own flag, not just the person's. A public person
             # whose birth event is marked private was leaking that event's date
             # through the person's display -- private text reached the wire via
@@ -139,10 +181,29 @@ def _person_display(person: typing.Any, database: typing.Any) -> str:
 def find_people(term: str) -> reads.Found:
     """People whose name contains ``term``, private ones excluded and uncounted.
 
-    ⚠️ **Measured before it was written**: a full walk of the owner's 2,933-person
-    tree with deserialisation costs **~48 ms**, well inside the ~200 ms the GTK
-    loop can absorb in one callback, so this needs no chunking. R8's accepted
-    risk 4 is respected by the measurement rather than by hope.
+    ⭐ **Measured live, and ACCEPTED at the measured cost.** A full walk of the
+    owner's 2,933-person tree through this route takes **343-402 ms**. An earlier
+    proxy said ~48 ms; that was raw sqlite plus ``json.loads`` and Gramps' own
+    ``Person`` construction is roughly seven times it. **The proxy was wrong and
+    the live number is the one that counts.**
+
+    ⛔ **It is not optimised, and the ~200 ms figure it exceeds has been
+    withdrawn.** That threshold came from R8's general caution about blocking the
+    GTK loop, not from how this route is used: a handful of searches per
+    document, driven by an agent, while the owner is reading a chat window and
+    not looking at Gramps.
+
+    ⛔ **The fast alternatives are refused on correctness, not on effort.** The
+    indexed ``given_name``/``surname`` columns read all 2,933 rows in ~7 ms but
+    hold no alternate names -- which is the entire reason this walk exists. And a
+    hybrid that queried the index first and fell back to the walk only on an
+    empty result would stop after finding three primary-name matches and silently
+    miss a fourth carrying the name only as an alternate: **the ``Kuenkele``
+    failure wearing a performance costume.**
+
+    **If a third-of-a-second hitch turns out to annoy the owner while he is
+    working in Gramps, that is the use-derived trigger to chunk this across
+    callbacks. Not before.**
     """
     wanted = reads.require_term(term)
     if _DBSTATE is None:
@@ -210,11 +271,16 @@ def find_citation(source_gramps_id: str, page: str = "") -> reads.Found:
     if _DBSTATE is None:
         return reads.Found()
     database = _DBSTATE.db
-    source = database.get_source_from_gramps_id(wanted)
+    # ⚠️ ``_public`` returns None for TWO different facts -- absent, and present
+    # but private -- and a direct target must tell them apart. Collapsing them is
+    # ruling 1's second enforcement point broken, so the raw fetch is kept to
+    # distinguish, and only the gated one is ever read from.
+    raw = database.get_source_from_gramps_id(wanted)
+    source = _public(raw)
+    if raw is not None and source is None:
+        raise reads.TargetIsPrivate(f"source {wanted} is marked private in this tree")
     if source is None:
         return reads.Found()
-    if source.get_privacy():
-        raise reads.TargetIsPrivate(f"source {wanted} is marked private in this tree")
     handle = source.get_handle()
     narrow = str(page or "").strip()
     rows = []
@@ -245,22 +311,25 @@ def list_events(person_gramps_id: str) -> reads.Found:
     if _DBSTATE is None:
         return reads.Found()
     database = _DBSTATE.db
-    person = database.get_person_from_gramps_id(wanted)
-    if person is None:
-        return reads.Found()
-    if person.get_privacy():
+    # ⚠️ Same as ``find_citation``: absent and private are different answers and
+    # the gate cannot carry the difference on its own.
+    raw = database.get_person_from_gramps_id(wanted)
+    person = _public(raw)
+    if raw is not None and person is None:
         raise reads.TargetIsPrivate(
             f"{wanted} is marked private in this tree, so their events cannot be listed"
         )
+    if person is None:
+        return reads.Found()
     rows = []
     for ref in person.get_event_ref_list():
-        event = database.get_event_from_handle(ref.ref)
+        event = _public(database.get_event_from_handle(ref.ref))
         if event is None:
             continue
         date = event.get_date_object()
         place = ""
         if event.get_place_handle():
-            found = database.get_place_from_handle(event.get_place_handle())
+            found = _public(database.get_place_from_handle(event.get_place_handle()))
             # ⛔ The PLACE's own flag too. A public event referencing a private
             # place was putting that place's name on the wire -- the same bypass
             # as the birth date above, one relation further out.
@@ -301,7 +370,12 @@ def resolve_nodes(graph: dict[str, typing.Any]) -> document.Resolution:
     database = _DBSTATE.db
     found: list[document.Resolved] = []
     for request in document.requested(parsed):
-        obj = _by_gramps_id(database, request.kind, request.gramps_id)
+        raw = _by_gramps_id(database, request.kind, request.gramps_id)
+        # ⛔ The gate, here too. ``/resolve`` used to answer found=True for a
+        # private record, which confirmed its existence to the agent -- the same
+        # class as the two display leaks, on the WRITE path rather than a read.
+        obj = _public(raw)
+        private = raw is not None and obj is None
         found.append(
             document.Resolved(
                 local_id=request.local_id,
@@ -309,6 +383,7 @@ def resolve_nodes(graph: dict[str, typing.Any]) -> document.Resolution:
                 kind=request.kind,
                 found=obj is not None,
                 display=_display_of(database, request.kind, obj) if obj is not None else "",
+                private=private,
             )
         )
     return document.Resolution(nodes=tuple(found))
@@ -345,7 +420,7 @@ def _display_of(database: typing.Any, kind: str, obj: typing.Any) -> str:
             )
             birth = obj.get_birth_ref()
             if birth is not None:
-                event = database.get_event_from_handle(birth.ref)
+                event = _public(database.get_event_from_handle(birth.ref))
                 date = event.get_date_object()
                 if date is not None and not date.is_empty():
                     shown += f"  (b. {date.get_year() or date})"

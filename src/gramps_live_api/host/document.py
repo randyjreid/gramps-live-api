@@ -131,6 +131,13 @@ class Resolved:
     kind: str
     found: bool
     display: str = ""
+    private: bool = False
+    """⛔ The record exists and the tree marks it private.
+
+    ⚠️ **A third state, not a flavour of ``found``.** Reporting a private record
+    as absent would leave the caller unable to tell *no such person* from *that
+    person is private*, which is ruling 1's second enforcement point; reporting
+    it as found would confirm its existence to the agent, which was the leak."""
 
 
 @dataclass(frozen=True)
@@ -141,7 +148,12 @@ class Resolution:
 
     @property
     def missing(self) -> tuple[Resolved, ...]:
-        return tuple(node for node in self.nodes if not node.found)
+        return tuple(node for node in self.nodes if not node.found and not node.private)
+
+    @property
+    def refused(self) -> tuple[Resolved, ...]:
+        """Nodes naming a record the tree marks private. Refused BY NAME."""
+        return tuple(node for node in self.nodes if node.private)
 
     def by_local_id(self) -> dict[str, Resolved]:
         return {node.local_id: node for node in self.nodes}
