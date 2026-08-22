@@ -244,6 +244,9 @@ def parse(body: Any) -> Graph:
         raise GraphInvalid("'source' must be an object")
 
     known: set[str] = set()
+    kind_of: dict[str, str] = {}
+    """Which kind each local id names, so an edge can be checked for TYPE and not
+    merely for existence."""
     for group, items in (
         ("people", people),
         ("places", places),
@@ -260,6 +263,7 @@ def parse(body: Any) -> Graph:
             if local in known:
                 raise GraphInvalid(f"the local id {local!r} is used more than once")
             known.add(local)
+            kind_of[local] = {"people": "person", "places": "place"}.get(group, group[:-1])
     if source is not None:
         # ⛔ Held to the SAME rule as every other node group. A source carrying a
         # ``gramps_id`` but no ``id`` used to be accepted, and a non-string id
@@ -276,26 +280,47 @@ def parse(body: Any) -> Graph:
         if source_id in known:
             raise GraphInvalid(f"the local id {source_id!r} is used more than once")
         known.add(source_id)
+        kind_of[source_id] = "source"
 
-    def check(where: str, referenced: Any) -> None:
+    def check(where: str, referenced: Any, *, must_be: str | None = None) -> None:
+        """A reference must exist, and where the writer needs one kind, BE it.
+
+        ⛔ **Existence alone is not enough**, and the gap was not theoretical: an
+        event naming a PERSON id as its ``place`` passed validation, and the
+        writer then stored that person's handle in ``Event.place_handle``. Gramps
+        would hold an event pointing at a person as though it were a place --
+        silent structural corruption that no dialog could show, because the
+        preview renders the graph's intent rather than the writer's mistake.
+        """
         if referenced is None:
             return
         if not isinstance(referenced, str) or referenced not in known:
             raise GraphInvalid(f"{where} refers to {referenced!r}, which is not in this graph")
+        if must_be is not None and kind_of.get(referenced) != must_be:
+            raise GraphInvalid(
+                f"{where} refers to {referenced!r}, which is a "
+                f"{kind_of.get(referenced)} and not a {must_be}"
+            )
 
     for event in events:
-        check(f"event {event.get('id')!r}'s place", event.get("place"))
+        check(f"event {event.get('id')!r}'s place", event.get("place"), must_be="place")
         for person in event.get("people") or []:
-            check(f"event {event.get('id')!r}", person)
+            check(f"event {event.get('id')!r}", person, must_be="person")
     for citation in citations:
-        check(f"citation {citation.get('id')!r}'s source", citation.get("source"))
+        check(
+            f"citation {citation.get('id')!r}'s source",
+            citation.get("source"),
+            must_be="source",
+        )
         for target in citation.get("attach_to") or []:
+            # ⚠️ Unconstrained on purpose: a citation may support a person, an
+            # event, a place or a family, and the writer handles each.
             check(f"citation {citation.get('id')!r}", target)
     for family in families:
         for parent in family.get("parents") or []:
-            check(f"family {family.get('id')!r}'s parent", parent)
+            check(f"family {family.get('id')!r}'s parent", parent, must_be="person")
         for child in family.get("children") or []:
-            check(f"family {family.get('id')!r}'s child", child)
+            check(f"family {family.get('id')!r}'s child", child, must_be="person")
     for note in notes:
         for target in note.get("attach_to") or []:
             check("a note", target)

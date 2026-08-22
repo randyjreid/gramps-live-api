@@ -688,6 +688,21 @@ class Tools:
         if settings.copy_path is None:
             raise config.ConfigError("no copy is configured")
         copy = apply.authorise(settings.copy_path)
+
+        # ⛔ The id is CALLER-CONTROLLED and is joined into a path. Without this
+        # an absolute or ``../``-shaped id let approve_document read, claim and
+        # UNLINK an arbitrary reachable .json -- and dispatch it for approval if
+        # it happened to hold a "graph", which is a write path opened by a file
+        # this server never minted.
+        #
+        # ⚠️ The same rule ``proposals.Store`` already applies to its own ids.
+        # It was not applied here because this store was written beside that one
+        # rather than through it, which is exactly how a rail gets left off.
+        if not proposals._ID.fullmatch(proposal_id):
+            raise proposals.ProposalNotFound(
+                f"{proposal_id!r} is not the name of a document proposal"
+            )
+
         directory = os.path.join(proposals.store_directory(copy.tree_dir), "documents")
         path = os.path.join(directory, proposal_id + ".json")
 
@@ -703,7 +718,16 @@ class Tools:
         # not supply any part of what the dialog will show.
         graph = record["graph"]
 
-        port, token = self._host_address()
+        # ⚠️ Host discovery is INSIDE the guarded section. It raises when Gramps
+        # is closed or the port file is gone, and raising outside meant the claim
+        # was consumed for ever with no dialog ever scheduled -- a proposal spent
+        # on nothing.
+        try:
+            port, token = self._host_address()
+        except ToolRefusal:
+            unclaim()
+            raise
+
         request = urllib.request.Request(
             f"http://127.0.0.1:{port}/document",
             data=json.dumps(graph).encode("utf-8"),

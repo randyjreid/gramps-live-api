@@ -282,3 +282,47 @@ def test_an_attached_source_is_not_also_listed_as_created() -> None:
     assert "Source" not in rendered.split("CREATING NEW")[-1], (
         "the attached source was also listed under CREATING NEW"
     )
+
+
+def test_a_reference_must_be_the_right_kind_of_node() -> None:
+    """⛔ Existence is not enough, and the gap was structural corruption.
+
+    An event naming a PERSON id as its ``place`` used to pass, and the writer
+    then put that person's handle in ``Event.place_handle`` — Gramps holding an
+    event that points at a person as though it were a place. No dialog could
+    show it, because the preview renders the graph's intent rather than the
+    writer's mistake.
+    """
+    with pytest.raises(document.GraphInvalid) as refusal:
+        document.parse(
+            {
+                "people": [node("p1", given="A", surname="B")],
+                "events": [node("e1", type="Birth", place="p1", people=["p1"])],
+            }
+        )
+    assert "not a place" in str(refusal.value)
+
+
+def test_a_family_member_must_be_a_person() -> None:
+    with pytest.raises(document.GraphInvalid):
+        document.parse(
+            {
+                "people": [node("p1", given="A", surname="B")],
+                "places": [node("l1", title="Somewhere")],
+                "families": [node("f1", parents=["l1"], children=["p1"])],
+            }
+        )
+
+
+def test_a_citation_may_support_any_kind_of_node() -> None:
+    """⚠️ Deliberately unconstrained: the writer handles all four."""
+    graph = document.parse(
+        {
+            "people": [node("p1", given="A", surname="B")],
+            "places": [node("l1", title="Somewhere")],
+            "events": [node("e1", type="Birth", place="l1", people=["p1"])],
+            "source": node("s1", title="A register"),
+            "citations": [node("c1", source="s1", attach_to=["p1", "e1", "l1"])],
+        }
+    )
+    assert len(graph.citations) == 1

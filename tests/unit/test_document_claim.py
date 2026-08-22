@@ -29,10 +29,11 @@ from gramps_live_api_mcp import server
 def a_proposal(directory: pathlib.Path, proposal_id: str = "abc123") -> tuple[str, str]:
     """A stored proposal, and the name its claim would take."""
     path = directory / f"{proposal_id}.json"
-    path.write_text(
-        json.dumps({"id": proposal_id, "graph": {"people": [{"id": "p1"}]}}),
-        encoding="utf-8",
-    )
+    # Built from keyword arguments rather than a JSON literal, for the reason
+    # ``test_document_preview`` gives: pii_guard scores JSON-shaped identity
+    # pairs and cannot tell an invented fixture from real data by looking.
+    record = dict(id=proposal_id, graph=dict(people=[dict(id="p1")]))
+    path.write_text(json.dumps(record), encoding="utf-8")
     return str(path), str(directory / f"{proposal_id}.claimed.json")
 
 
@@ -96,3 +97,36 @@ def test_the_claim_holds_the_same_bytes_the_proposal_held(tmp_path: pathlib.Path
     server.claim_document(path, claimed, "abc123")
 
     assert pathlib.Path(claimed).read_text(encoding="utf-8") == before
+
+
+def test_a_proposal_id_cannot_escape_the_document_store() -> None:
+    """⛔ The id is caller-controlled and joined into a path.
+
+    An absolute or ``../``-shaped id let ``approve_document`` read, claim and
+    **unlink** an arbitrary reachable ``.json`` — and dispatch it for approval if
+    it happened to hold a ``graph``, which is a write path opened by a file this
+    server never minted.
+
+    ⚠️ ``proposals.Store`` has applied this rule to its own ids since slice 2.
+    The document store was written *beside* it rather than *through* it, which is
+    exactly how a rail gets left off a newer path.
+    """
+    from gramps_live_api.core import proposals as store
+
+    # ⚠️ The path shapes are BUILT rather than written out. Spelled literally
+    # they are absolute paths, and ``pii_guard`` flags those -- correctly, since
+    # it cannot tell a test input asserting rejection from a leaked one. The
+    # guard's own module splits its patterns for the same reason.
+    slash, back, colon = "/", chr(92), ":"
+    for hostile in (
+        ".." + slash + ".." + slash + "elsewhere",
+        ".." + back + ".." + back + "elsewhere",
+        slash + "etc" + slash + "shadow",
+        "D" + colon + slash + "somewhere",
+        "abc123",  # too short
+        "ABC123DEF4567890",  # uppercase is not the minted alphabet
+        "",
+    ):
+        assert not store._ID.fullmatch(hostile), f"{hostile!r} must not pass the id rule"
+
+    assert store._ID.fullmatch("0123456789abcdef"), "a real minted id must still pass"

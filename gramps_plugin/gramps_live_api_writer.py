@@ -145,14 +145,29 @@ def _event_type(name):
 
 
 def _event_role(name):
+    """The role to write. ⛔ **What the dialog showed is what gets written.**
+
+    ⚠️ **This silently fell back to PRIMARY**, and rendering the role in the
+    dialog turned that from invisible into a lie: the owner read *as Godparent*
+    and an ``EventRef`` with role PRIMARY was written. A preview that does not
+    match the write is the defect the preview exists to prevent, and making the
+    role visible is what exposed it.
+
+    An unrecognised role now becomes a **CUSTOM** role carrying the document's
+    own word -- the same discipline ``_event_type`` uses -- so the string the
+    owner approved is the string Gramps stores.
+    """
     from gramps.gen.lib import EventRoleType
 
-    key = (name or "PRIMARY").strip().upper().replace(" ", "_")
+    wanted = (name or "").strip()
+    if not wanted:
+        return EventRoleType(EventRoleType.PRIMARY)
+    key = wanted.upper().replace(" ", "_")
     if hasattr(EventRoleType, key):
         value = getattr(EventRoleType, key)
         if isinstance(value, int):
             return EventRoleType(value)
-    return EventRoleType(EventRoleType.PRIMARY)
+    return EventRoleType((EventRoleType.CUSTOM, wanted))
 
 
 _BY_GRAMPS_ID = {

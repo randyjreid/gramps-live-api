@@ -120,9 +120,16 @@ def _person_display(person: typing.Any, database: typing.Any) -> str:
     try:
         birth = person.get_birth_ref()
         if birth is not None:
-            date = database.get_event_from_handle(birth.ref).get_date_object()
-            if date is not None and not date.is_empty():
-                shown += f"  (b. {date.get_year() or date})"
+            event = database.get_event_from_handle(birth.ref)
+            # ⛔ The EVENT's own flag, not just the person's. A public person
+            # whose birth event is marked private was leaking that event's date
+            # through the person's display -- private text reached the wire via
+            # a public related record, which is the `priv` bound bypassed rather
+            # than enforced.
+            if event is not None and not event.get_privacy():
+                date = event.get_date_object()
+                if date is not None and not date.is_empty():
+                    shown += f"  (b. {date.get_year() or date})"
     except Exception:
         pass
     return shown
@@ -254,7 +261,10 @@ def list_events(person_gramps_id: str) -> reads.Found:
         place = ""
         if event.get_place_handle():
             found = database.get_place_from_handle(event.get_place_handle())
-            if found is not None:
+            # ⛔ The PLACE's own flag too. A public event referencing a private
+            # place was putting that place's name on the wire -- the same bypass
+            # as the birth date above, one relation further out.
+            if found is not None and not found.get_privacy():
                 place = found.get_name().get_value() or found.get_title() or ""
         shown = " ".join(
             part for part in (str(event.get_type()), str(date) if date else "", place) if part
