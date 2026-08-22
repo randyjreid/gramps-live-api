@@ -274,8 +274,39 @@ def last_resort_log_path(environ, platform):
     return os.path.join(base, DIRECTORY_NAME, LOG_FILE)
 
 
+def _inside_gramps():
+    """Whether this module is really executing inside a Gramps process.
+
+    ⛔ **``host.log`` is the ONLY place a genuinely failed start is visible.**
+    ``load_on_reg`` swallows exceptions and the all-in-one build has no console
+    -- R8's accepted risk 2 -- so a line in that file has to mean something
+    happened to the real host.
+
+    ⚠️ **It stopped meaning that.** The unit suite calls ``load_on_reg(None)`` to
+    assert the hook never raises, which is exactly right; the hook then fails at
+    ``from gi.repository import GLib`` and reported it to the PRODUCTION log.
+    Sixty-eight such tracebacks accumulated against twenty-five real lines --
+    **and a reader came one message from reporting the host down because of
+    them.** A log that cries wolf is the same defect as a guard that fires on
+    every route literal: it trains the reader to skip the one that matters.
+
+    ``gramps`` is in ``sys.modules`` whenever Gramps' own code is running, and
+    is not importable at all in this project's environment, so the check costs
+    nothing and cannot be satisfied by accident. A failure that IS inside Gramps
+    still reports, because Gramps got far enough to exec this file.
+    """
+    return "gramps" in sys.modules
+
+
 def _last_resort_note(detail):
-    """One ERROR line, written with nothing but built-ins. Silent if even that fails."""
+    """One ERROR line, written with nothing but built-ins. Silent if even that fails.
+
+    ⛔ Refuses outside Gramps -- see ``_inside_gramps``. The traceback still
+    reaches stderr through ``load_on_reg``, which is where a test or a probe
+    should be reading it from anyway.
+    """
+    if not _inside_gramps():
+        return
     try:
         path = last_resort_log_path(os.environ, sys.platform)
         os.makedirs(os.path.dirname(path), exist_ok=True)
