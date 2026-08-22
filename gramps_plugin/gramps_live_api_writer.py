@@ -197,6 +197,23 @@ def _existing(database, kind, spec):
     return obj.get_handle()
 
 
+def _unique(handles):
+    """The same handles, first occurrence order kept, duplicates dropped.
+
+    Order matters and a set does not keep it. Children are written in the
+    order the document listed them, which is usually the order they were
+    recorded on the page.
+    """
+    seen = set()
+    out = []
+    for handle in handles:
+        if handle in seen:
+            continue
+        seen.add(handle)
+        out.append(handle)
+    return out
+
+
 def write(dbstate, graph):
     """Write the whole graph in ONE transaction. Returns a one-line summary.
 
@@ -346,8 +363,14 @@ def write(dbstate, graph):
 
         # --- families --------------------------------------------------------
         for spec in graph.get("families") or []:
-            parents = [handles[p] for p in (spec.get("parents") or []) if p in handles]
-            children = [handles[c] for c in (spec.get("children") or []) if c in handles]
+            parents = _unique([handles[p] for p in (spec.get("parents") or []) if p in handles])
+            # ⛔ De-duplicated HERE, once, so both branches below get it. A graph
+            # may name the same child twice -- ``children: ["p1", "p1"]`` is a
+            # valid proposal, and two local ids can resolve to one handle -- and
+            # every loop below appends per entry. Left alone that writes two
+            # ChildRefs and two parent-family handles for one child, which is a
+            # malformed record Gramps' own Check and Repair has to clean up.
+            children = _unique([handles[c] for c in (spec.get("children") or []) if c in handles])
 
             # ⭐ An EXISTING family is added to, never rebuilt. Its recorded
             # parents are left exactly as they are -- nothing already in the tree

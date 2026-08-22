@@ -100,7 +100,7 @@ supplied.
 cited across many documents, and twelve copies of it is the same defect as twelve
 copies of a person."""
 
-IGNORED_WHEN_ATTACHING = ("given", "surname", "gender", "title", "author", "pubinfo")
+IGNORED_WHEN_ATTACHING = ("given", "surname", "gender", "title", "author", "pubinfo", "parents")
 """Fields that describe an object, and are therefore NOT applied to one that
 already exists.
 
@@ -517,6 +517,7 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
     resolved = (resolution or Resolution()).by_local_id()
     people_by_id = {p.get("id"): p for p in graph.people}
     places_by_id = {p.get("id"): p for p in graph.places}
+    families_by_id = {f.get("id"): f for f in graph.families}
     source_id = graph.source.get("id") if graph.source else None
 
     shown_events: set[int] = set()
@@ -580,9 +581,23 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
             entry = (
                 people_by_id.get(node.local_id)
                 or places_by_id.get(node.local_id)
+                or families_by_id.get(node.local_id)
                 or (graph.source if graph.source and source_id == node.local_id else {})
                 or {}
             )
+            # ⭐ An existing family is ADDED TO, and this is the line that says
+            # what the addition is. Without it the owner approved "attach to this
+            # household" with no statement of what would be put in it.
+            if node.local_id in families_by_id:
+                joining = [named_node(c) for c in (entry.get("children") or [])]
+                out.extend(
+                    _wrap(
+                        "adding as children: " + ", ".join(joining)
+                        if joining
+                        else "no children named -- nothing would be added to this family",
+                        "      + ",
+                    )
+                )
             dropped = dropped_fields(entry)
             if dropped:
                 out.extend(
@@ -599,8 +614,14 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
     creating_people = [p for p in graph.people if p.get("id") not in resolved]
     creating_places = [p for p in graph.places if p.get("id") not in resolved]
     creating_source = graph.source if graph.source and source_id not in resolved else None
+    # ⛔ Families split like everything else. Rendering ALL of them here said
+    # "creating a new household" for a family the writer was going to APPEND
+    # CHILDREN TO -- and the same family was listed under ATTACHING TO EXISTING
+    # at the same time, so the dialog described two different operations at once
+    # and neither was the one that would run.
+    creating_families = [f for f in graph.families if f.get("id") not in resolved]
 
-    if creating_people or creating_places or creating_source or graph.families:
+    if creating_people or creating_places or creating_source or creating_families:
         out.append("CREATING NEW")
         out.append("")
         if creating_source:
@@ -619,7 +640,7 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
         for place in creating_places:
             out.append("  Place   " + str(place.get("title") or "?"))
             out.extend(attached_to(place.get("id"), "      "))
-        for family in graph.families:
+        for family in creating_families:
             parents = " + ".join(named_node(x) for x in (family.get("parents") or []))
             children = ", ".join(named_node(c) for c in (family.get("children") or []))
             out.append("  Family  " + (parents or "(no parents named)"))
@@ -794,11 +815,22 @@ def caller_preview(graph: Graph) -> str:
     for label, items in (
         ("events", graph.events),
         ("citations", graph.citations),
-        ("families", graph.families),
         ("notes", graph.notes),
     ):
         if items:
             out.append(f"  {len(items)} {label} (always created new)")
+    # ⛔ Families are NOT always created new any more, and saying so here was a
+    # false statement to the caller about what its own proposal would do. One
+    # carrying a gramps_id is added to instead.
+    joining = [f for f in graph.families if f.get("gramps_id")]
+    new_families = [f for f in graph.families if not f.get("gramps_id")]
+    if new_families:
+        out.append(f"  {len(new_families)} families (created new)")
+    if joining:
+        out.append(
+            f"  {len(joining)} families (adding children to a family already in the tree; "
+            "its recorded parents are not changed)"
+        )
     return "\n".join(out).rstrip()
 
 

@@ -352,7 +352,15 @@ def _family_display(database: typing.Any, family: typing.Any) -> str:
         if person is not None:
             parts.append(_person_display(person, database))
     shown = " + ".join(parts) or "(no parents recorded)"
-    children = len(family.get_child_ref_list())
+    # ⛔ Counted through the gate, exactly like the parents above. A raw
+    # ``len(get_child_ref_list())`` on a PUBLIC family reports its private
+    # children too -- "[3 children]" where two are public announces that a
+    # hidden one exists. That is the leak by arithmetic ``reads.bound`` is built
+    # to prevent, arriving through a display string instead of through a count.
+    children = 0
+    for ref in family.get_child_ref_list():
+        if _public(database.get_person_from_handle(ref.ref)) is not None:
+            children += 1
     return shown + (f"  [{children} children]" if children else "")
 
 
@@ -443,10 +451,18 @@ def list_notes(gramps_id: str, kind: str = "person") -> reads.Found:
     all** -- they were reachable only by reading an export by hand.
     """
     wanted = reads.require_term(gramps_id)
+    asked = str(kind or "person")
+    if asked not in NOTE_KINDS:
+        # ⛔ Refuse rather than default to "person". Silently retargeting means a
+        # misspelt kind answers about a different object entirely, and "no
+        # notes" is a result a caller acts on.
+        raise reads.UnknownKind(
+            f"{asked!r} is not a kind of record this can look up. "
+            "Use one of: " + ", ".join(NOTE_KINDS)
+        )
     if _DBSTATE is None:
         return reads.Found()
     database = _DBSTATE.db
-    asked = kind if kind in ("person", "place", "source", "family") else "person"
     existed, obj = _by_gramps_id(database, asked, wanted)
     if existed and obj is None:
         raise reads.TargetIsPrivate(f"{wanted} is marked private in this tree")
@@ -555,6 +571,18 @@ def resolve_nodes(graph: dict[str, typing.Any]) -> document.Resolution:
     return document.Resolution(nodes=tuple(found))
 
 
+NOTE_KINDS = ("person", "place", "source", "family")
+"""Every kind ``_by_gramps_id`` can look up, and therefore every kind a read may
+name.
+
+⚠️ **This is a second list of something the code below already spells**, which is
+precisely the shape that produced the counter bug this branch also fixes -- two
+tallies with nothing making them agree. It is not derived here because deriving
+it at import time would mean parsing our own source to answer a constant. So it
+is **pinned by test instead**: ``tests/unit/test_accessor_reads.py`` reads
+``_by_gramps_id``'s branches and fails if the two ever disagree."""
+
+
 def _by_gramps_id(database: typing.Any, kind: str, gramps_id: str) -> tuple[bool, typing.Any]:
     """``(it exists, the GATED object)`` for a Gramps ID. ⛔ Never creates anything.
 
@@ -634,6 +662,14 @@ def _display_of(database: typing.Any, kind: str, obj: typing.Any) -> str:
             title = str(obj.get_title() or "(untitled)")
             author = str(obj.get_author() or "")
             return f"{title} -- {author}" if author else title
+        if kind == "family":
+            # ⛔ Without this branch a resolved family fell through to "(could
+            # not read its name)" while ``preview`` ALSO listed it under CREATING
+            # NEW -- so the dialog described creating a household that the writer
+            # was going to append children to. **The owner would have approved a
+            # different operation from the one that runs**, which is R3's whole
+            # criterion. ``document.preview`` is what renders this.
+            return _family_display(database, obj)
     except Exception:
         # A display string is not worth failing a lookup over. The id resolved;
         # that is the load-bearing fact.

@@ -106,6 +106,7 @@ and the refusal is a 400 rather than an empty list, so a caller cannot mistake
 
 SEARCH_TERM_REQUIRED = "search-term-required"
 TARGET_IS_PRIVATE = "target-is-private"
+UNKNOWN_KIND = "unknown-kind"
 
 ORIGIN_REJECTED = "origin-rejected"
 UNAUTHORISED = "unauthorised"
@@ -270,6 +271,15 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
             self._respond(
                 HTTPStatus.BAD_REQUEST,
                 {"ok": False, "error": SEARCH_TERM_REQUIRED, "detail": str(refusal)},
+            )
+            return
+        except reads.UnknownKind as refusal:
+            # ⛔ 400 and not an empty 200. The caller asked about a kind of record
+            # this cannot look up, and answering "no notes" would be a wrong
+            # answer to a question that was never understood.
+            self._respond(
+                HTTPStatus.BAD_REQUEST,
+                {"ok": False, "error": UNKNOWN_KIND, "detail": str(refusal)},
             )
             return
         except reads.TargetIsPrivate as refusal:

@@ -92,3 +92,64 @@ def test_the_writer_no_longer_keeps_a_second_tally() -> None:
         "a second hand-maintained tally is back in the writer; the summary must "
         "derive from what was actually created"
     )
+
+
+# ---------------------------------------------------------------------------
+# Round 1: a child named twice was written twice.
+# ---------------------------------------------------------------------------
+
+
+def _writer_module():
+    """The writer, imported by path.
+
+    ⭐ **It imports on an ordinary machine**, because every ``gramps`` and ``gi``
+    import in it is inside a function. Only ``write`` itself needs Gramps; the
+    helpers around it are ordinary Python and are worth testing here rather than
+    only inside a running Gramps.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("_writer_under_test", WRITER)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_a_child_named_twice_is_written_once() -> None:
+    """⛔ ``children: ["p1", "p1"]`` wrote two ChildRefs and two parent handles.
+
+    Two local ids can also resolve to one handle, so this is not only a
+    malformed-proposal case. The result is a record whose child appears twice --
+    something Gramps' own Check and Repair exists to clean up, produced by us.
+    """
+    unique = _writer_module()._unique
+
+    assert unique(["h1", "h1"]) == ["h1"]
+    assert unique(["h1", "h2", "h1"]) == ["h1", "h2"]
+
+
+def test_the_order_the_document_gave_is_kept() -> None:
+    """⚠️ A set would deduplicate and lose the order children were recorded in."""
+    unique = _writer_module()._unique
+
+    assert unique(["h3", "h1", "h2"]) == ["h3", "h1", "h2"]
+    assert unique([]) == []
+
+
+def test_both_family_branches_get_the_deduplicated_children() -> None:
+    """⛔ The structural half: neither branch may re-derive its own list.
+
+    The attach branch and the create branch both append per entry, so the fix
+    has to be upstream of the split. A second ``children =`` inside the loop
+    would restore the defect in one branch while the other stayed correct.
+    """
+    body = WRITER.read_text(encoding="utf-8")
+
+    assert re.search(r"children = _unique\(", body), (
+        "the family loop no longer deduplicates its children"
+    )
+    assert len(re.findall(r"^\s+children = ", body, re.MULTILINE)) == 1, (
+        "there is more than one place that builds the children list; the "
+        "deduplication has to be the only one"
+    )

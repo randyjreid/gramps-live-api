@@ -59,6 +59,18 @@ class SearchTermRequired(ReadRefused):
     """
 
 
+class UnknownKind(ReadRefused):
+    """A read named a kind of record this cannot look up.
+
+    ⚠️ **Refused rather than defaulted.** Quietly falling back to *person* turns
+    a misspelled ``kind`` into a lookup of a DIFFERENT object: ask for the notes
+    on source ``S0013`` with the kind misspelt and the answer describes whatever
+    person happens to carry that id, or reports none at all -- and *no notes* is
+    exactly what a caller acts on. **A wrong answer is worse than a refusal**,
+    because only one of them is visible.
+    """
+
+
 class TargetIsPrivate(ReadRefused):
     """The record carries Gramps' own ``priv`` flag, so it cannot be a target.
 
