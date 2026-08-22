@@ -93,6 +93,10 @@ READ_ROUTES = {
     "/find/source": ("source", ("q",)),
     "/find/citation": ("citation", ("source", "page")),
     "/find/events": ("events", ("gramps_id",)),
+    "/find/families": ("families", ("gramps_id",)),
+    "/find/family-events": ("family_events", ("gramps_id",)),
+    "/find/notes": ("notes", ("gramps_id", "kind")),
+    "/find/associations": ("associations", ("gramps_id",)),
 }
 """⭐ Five live reads, and every one of them carries R3's precondition P2.
 

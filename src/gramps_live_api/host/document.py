@@ -81,14 +81,20 @@ def blessing_of(tree_dir: str | None) -> Blessing:
     return Blessing(blessed=True, message=tree_dir)
 
 
-ATTACHABLE = ("people", "places", "source")
+ATTACHABLE = ("people", "places", "source", "families")
 """⭐ The three node kinds that may carry a ``gramps_id`` and mean *this one*.
 
 **Events are deliberately absent**: their handles are invisible in the Gramps UI,
 so nobody could supply one and a field nobody can fill is a field that only ever
-holds a mistake. Citations, families and notes are always created -- a document
-asserting a relationship is asserting a NEW claim about it, even between people
-who already exist.
+holds a mistake. Citations and notes are always created -- a document asserting a
+fact is asserting a NEW claim about it, even about people who already exist.
+
+⭐ **Families joined this list, and that is OQ-3 closed.** A family is not a claim
+the way a citation is -- it is a record of a couple, and a tree holds one per
+couple. Creating a second for a couple who already have one is the duplicate
+problem in its most confusing form, because Gramps then shows the children split
+across two households. A family Gramps ID is visible in the UI, so it can be
+supplied.
 
 ⭐ **Sources belong here as much as people do.** The same parish register gets
 cited across many documents, and twelve copies of it is the same defect as twelve
@@ -220,6 +226,9 @@ def requested(graph: Graph) -> tuple[Requested, ...]:
     for entry in graph.places:
         if entry.get("gramps_id"):
             out.append(Requested(str(entry["id"]), str(entry["gramps_id"]), "place"))
+    for entry in graph.families:
+        if entry.get("gramps_id"):
+            out.append(Requested(str(entry["id"]), str(entry["gramps_id"]), "family"))
     if graph.source and graph.source.get("gramps_id"):
         out.append(
             Requested(
@@ -391,7 +400,6 @@ def parse(body: Any) -> Graph:
     for group, one, items in (
         ("events", "event", events),
         ("citations", "citation", citations),
-        ("families", "family", families),
     ):
         for item in items:
             if item.get("gramps_id"):
@@ -792,6 +800,28 @@ def caller_preview(graph: Graph) -> str:
         if items:
             out.append(f"  {len(items)} {label} (always created new)")
     return "\n".join(out).rstrip()
+
+
+CREATABLE = ("people", "events", "places", "families", "citations", "notes", "sources")
+"""Every kind ``writer.write`` can create. ⛔ **One list, and the summary derives
+from it**, because two tallies drift and one cannot."""
+
+
+def summarise_created(created: dict[str, list[str]]) -> str:
+    """What a write actually made, from the record of what it made.
+
+    ⛔ **Derived, never hand-maintained.** The writer used to keep a second
+    ``counts`` dict beside the record of created objects -- and that dict had six
+    keys where the record had seven. **A source was written and the log line said
+    zero sources**, which is worse than cosmetic: that line had already been used
+    as evidence for what a write did.
+
+    ⚠️ **A diagnostic that under-reports reads as evidence of absence.** So the
+    second tally is deleted rather than corrected: a kind that is created is a
+    kind that is counted, by construction.
+    """
+    parts = [f"{len(created.get(kind) or ())} {kind}" for kind in CREATABLE if created.get(kind)]
+    return ", ".join(parts) or "nothing"
 
 
 def summary(graph: Graph) -> str:

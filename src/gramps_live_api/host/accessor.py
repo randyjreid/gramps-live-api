@@ -342,6 +342,172 @@ def list_events(person_gramps_id: str) -> reads.Found:
     return reads.bound(rows)
 
 
+def _family_display(database: typing.Any, family: typing.Any) -> str:
+    """A family as the owner recognises it: the couple, and how many children."""
+    parts = []
+    for handle in (family.get_father_handle(), family.get_mother_handle()):
+        if not handle:
+            continue
+        person = _public(database.get_person_from_handle(handle))
+        if person is not None:
+            parts.append(_person_display(person, database))
+    shown = " + ".join(parts) or "(no parents recorded)"
+    children = len(family.get_child_ref_list())
+    return shown + (f"  [{children} children]" if children else "")
+
+
+@mainthread.on_main_thread
+def find_families(person_gramps_id: str) -> reads.Found:
+    """The families one person belongs to, as spouse or as child.
+
+    ⭐ **This is what closes the gap that a Marriage License exposed.** A marriage
+    belongs to a FAMILY, and ``list_events`` takes a person -- so the state of a
+    family-level record could not be determined at all, and the same wall stands
+    in front of every household census.
+
+    ⛔ **Refused BY NAME if the person is private**, and a private family is
+    dropped from the listing rather than reported -- ruling 1's two enforcement
+    points, as everywhere else.
+    """
+    wanted = reads.require_term(person_gramps_id)
+    if _DBSTATE is None:
+        return reads.Found()
+    database = _DBSTATE.db
+    existed, person = _by_gramps_id(database, "person", wanted)
+    if existed and person is None:
+        raise reads.TargetIsPrivate(
+            f"{wanted} is marked private in this tree, so their families cannot be listed"
+        )
+    if person is None:
+        return reads.Found()
+
+    rows = []
+    seen = set()
+    for handle in [
+        *person.get_family_handle_list(),
+        *person.get_parent_family_handle_list(),
+    ]:
+        if handle in seen:
+            continue
+        seen.add(handle)
+        raw = database.get_family_from_handle(handle)
+        family = _public(raw)
+        if family is None:
+            continue
+        rows.append((False, reads.Match(family.get_gramps_id(), _family_display(database, family))))
+    return reads.bound(rows)
+
+
+@mainthread.on_main_thread
+def list_family_events(family_gramps_id: str) -> reads.Found:
+    """A family's own events -- marriage, and anything else recorded on the couple.
+
+    ⚠️ **Marriages are not on either person.** Asking a person for their events
+    and concluding there is no marriage is how a second marriage record gets
+    entered for a couple who already have one.
+    """
+    wanted = reads.require_term(family_gramps_id)
+    if _DBSTATE is None:
+        return reads.Found()
+    database = _DBSTATE.db
+    existed, family = _by_gramps_id(database, "family", wanted)
+    if existed and family is None:
+        raise reads.TargetIsPrivate(f"family {wanted} is marked private in this tree")
+    if family is None:
+        return reads.Found()
+
+    rows = []
+    for ref in family.get_event_ref_list():
+        raw = database.get_event_from_handle(ref.ref)
+        event = _public(raw)
+        if event is None:
+            continue
+        date = event.get_date_object()
+        place = ""
+        if event.get_place_handle():
+            found = _public(database.get_place_from_handle(event.get_place_handle()))
+            if found is not None:
+                place = found.get_name().get_value() or found.get_title() or ""
+        shown = " ".join(
+            part for part in (str(event.get_type()), str(date) if date else "", place) if part
+        )
+        rows.append((False, reads.Match(event.get_gramps_id(), shown)))
+    return reads.bound(rows)
+
+
+@mainthread.on_main_thread
+def list_notes(gramps_id: str, kind: str = "person") -> reads.Found:
+    """The notes attached to one record, so a manual cleanup can name them.
+
+    ⚠️ **Written because the note IDs for a cleanup could not be produced at
+    all** -- they were reachable only by reading an export by hand.
+    """
+    wanted = reads.require_term(gramps_id)
+    if _DBSTATE is None:
+        return reads.Found()
+    database = _DBSTATE.db
+    asked = kind if kind in ("person", "place", "source", "family") else "person"
+    existed, obj = _by_gramps_id(database, asked, wanted)
+    if existed and obj is None:
+        raise reads.TargetIsPrivate(f"{wanted} is marked private in this tree")
+    if obj is None:
+        return reads.Found()
+
+    rows = []
+    for handle in obj.get_note_list():
+        raw = database.get_note_from_handle(handle)
+        note = _public(raw)
+        if note is None:
+            continue
+        text = " ".join((note.get() or "").split())
+        rows.append(
+            (
+                False,
+                reads.Match(note.get_gramps_id(), text[:200] + ("..." if len(text) > 200 else "")),
+            )
+        )
+    return reads.bound(rows)
+
+
+@mainthread.on_main_thread
+def list_associations(person_gramps_id: str) -> reads.Found:
+    """A person's associations -- godparents and the like. ⛔ READ ONLY.
+
+    ⚠️ **Stored as ``personref`` with a relationship string**, and findable until
+    now only by grepping an export. Exposing them prevents entering a godparent
+    who is already recorded; ⛔ **writing them is a vocabulary change and has no
+    use-derived trigger**, so this reads and nothing more.
+    """
+    wanted = reads.require_term(person_gramps_id)
+    if _DBSTATE is None:
+        return reads.Found()
+    database = _DBSTATE.db
+    existed, person = _by_gramps_id(database, "person", wanted)
+    if existed and person is None:
+        raise reads.TargetIsPrivate(
+            f"{wanted} is marked private in this tree, so their associations cannot be listed"
+        )
+    if person is None:
+        return reads.Found()
+
+    rows = []
+    for ref in person.get_person_ref_list():
+        raw = database.get_person_from_handle(ref.ref)
+        other = _public(raw)
+        if other is None:
+            continue
+        relation = ref.get_relation() or "(unspecified)"
+        rows.append(
+            (
+                False,
+                reads.Match(
+                    other.get_gramps_id(), f"{relation}: {_person_display(other, database)}"
+                ),
+            )
+        )
+    return reads.bound(rows)
+
+
 @mainthread.on_main_thread
 def resolve_nodes(graph: dict[str, typing.Any]) -> document.Resolution:
     """Look up every node that says it already exists, and read its name from the TREE.
@@ -370,12 +536,12 @@ def resolve_nodes(graph: dict[str, typing.Any]) -> document.Resolution:
     database = _DBSTATE.db
     found: list[document.Resolved] = []
     for request in document.requested(parsed):
-        raw = _by_gramps_id(database, request.kind, request.gramps_id)
-        # ⛔ The gate, here too. ``/resolve`` used to answer found=True for a
-        # private record, which confirmed its existence to the agent -- the same
-        # class as the two display leaks, on the WRITE path rather than a read.
-        obj = _public(raw)
-        private = raw is not None and obj is None
+        # ⛔ The gate lives inside the fetch now, so nothing ungated arrives here.
+        # ``/resolve`` used to answer found=True for a private record, which
+        # confirmed its existence to the agent -- the same class as the display
+        # leaks, on the WRITE path rather than a read.
+        existed, obj = _by_gramps_id(database, request.kind, request.gramps_id)
+        private = existed and obj is None
         found.append(
             document.Resolved(
                 local_id=request.local_id,
@@ -389,19 +555,39 @@ def resolve_nodes(graph: dict[str, typing.Any]) -> document.Resolution:
     return document.Resolution(nodes=tuple(found))
 
 
-def _by_gramps_id(database: typing.Any, kind: str, gramps_id: str) -> typing.Any:
-    """The object that Gramps ID names, or ``None``. ⛔ Never creates anything."""
-    getter = {
-        "person": "get_person_from_gramps_id",
-        "place": "get_place_from_gramps_id",
-        "source": "get_source_from_gramps_id",
-    }.get(kind)
-    if getter is None:
-        return None
+def _by_gramps_id(database: typing.Any, kind: str, gramps_id: str) -> tuple[bool, typing.Any]:
+    """``(it exists, the GATED object)`` for a Gramps ID. ⛔ Never creates anything.
+
+    ⭐ **No raw object leaves this function**, and that is the point of the return
+    shape. It used to hand one back and rely on ``resolve_nodes`` to gate it --
+    issue #103's first bullet, where a future edit to the caller would remove the
+    protection and nothing would fire.
+
+    The boolean carries the one fact the caller needs that the gated object
+    cannot: **present-but-private** looks exactly like **absent** once gated, and
+    ruling 1 requires those two to stay distinguishable.
+
+    ⚠️ **Explicit branches rather than a ``getattr`` dispatch**, also deliberate:
+    the dispatch was invisible to ``tests/unit/test_accessor_privacy_gate.py``,
+    whose pattern needs a call whose callee is syntactically an attribute.
+    Spelled out, every fetch here is one the guard can see.
+    """
     try:
-        return getattr(database, getter)(gramps_id)
+        if kind == "person":
+            obj = database.get_person_from_gramps_id(gramps_id)
+            return obj is not None, _public(obj)
+        if kind == "place":
+            obj = database.get_place_from_gramps_id(gramps_id)
+            return obj is not None, _public(obj)
+        if kind == "source":
+            obj = database.get_source_from_gramps_id(gramps_id)
+            return obj is not None, _public(obj)
+        if kind == "family":
+            obj = database.get_family_from_gramps_id(gramps_id)
+            return obj is not None, _public(obj)
     except Exception:
-        return None
+        return False, None
+    return False, None
 
 
 def _display_of(database: typing.Any, kind: str, obj: typing.Any) -> str:

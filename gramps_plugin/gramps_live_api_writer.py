@@ -174,6 +174,7 @@ _BY_GRAMPS_ID = {
     "person": "get_person_from_gramps_id",
     "place": "get_place_from_gramps_id",
     "source": "get_source_from_gramps_id",
+    "family": "get_family_from_gramps_id",
 }
 
 
@@ -224,13 +225,12 @@ def write(dbstate, graph):
     database = dbstate.db
     handles = {}
     kinds = {}
-    counts = {"people": 0, "events": 0, "places": 0, "families": 0, "citations": 0, "notes": 0}
     # ⭐ What was created, by Gramps ID -- which is what somebody types into
     # Gramps to find it again, and therefore what a journal record is for.
     created = {
         k: [] for k in ("people", "events", "places", "families", "citations", "notes", "sources")
     }
-    attached = {k: [] for k in ("people", "places", "sources")}
+    attached = {k: [] for k in ("people", "places", "sources", "families")}
 
     def note_created(kind, handle_, getter):
         try:
@@ -279,7 +279,6 @@ def write(dbstate, graph):
             note_created("places", handle, "get_place_from_handle")
             handles[spec["id"]] = handle
             kinds[spec["id"]] = "place"
-            counts["places"] += 1
 
         # --- people ----------------------------------------------------------
         for spec in graph.get("people") or []:
@@ -305,7 +304,6 @@ def write(dbstate, graph):
             note_created("people", handle, "get_person_from_handle")
             handles[spec["id"]] = handle
             kinds[spec["id"]] = "person"
-            counts["people"] += 1
 
         # --- events, and the people they happened to -------------------------
         for spec in graph.get("events") or []:
@@ -323,7 +321,6 @@ def write(dbstate, graph):
             note_created("events", event_handle, "get_event_from_handle")
             handles[spec["id"]] = event_handle
             kinds[spec["id"]] = "event"
-            counts["events"] += 1
 
             role = _event_role(spec.get("role"))
             for person_local in spec.get("people") or []:
@@ -351,6 +348,36 @@ def write(dbstate, graph):
         for spec in graph.get("families") or []:
             parents = [handles[p] for p in (spec.get("parents") or []) if p in handles]
             children = [handles[c] for c in (spec.get("children") or []) if c in handles]
+
+            # ⭐ An EXISTING family is added to, never rebuilt. Its recorded
+            # parents are left exactly as they are -- nothing already in the tree
+            # is modified -- and only children the graph names that it does not
+            # already hold are appended.
+            existing = _existing(database, "family", spec)
+            if existing is not None:
+                handles[spec["id"]] = existing
+                kinds[spec["id"]] = "family"
+                attached["families"].append(str(spec.get("gramps_id")))
+                family = database.get_family_from_handle(existing)
+                known = {ref.ref for ref in family.get_child_ref_list()}
+                added = 0
+                for child in children:
+                    if child in known:
+                        continue
+                    child_ref = ChildRef()
+                    child_ref.ref = child
+                    family.add_child_ref(child_ref)
+                    added += 1
+                if added:
+                    database.commit_family(family, trans)
+                    for child in children:
+                        if child in known:
+                            continue
+                        person = database.get_person_from_handle(child)
+                        person.add_parent_family_handle(existing)
+                        database.commit_person(person, trans)
+                continue
+
             if not parents and not children:
                 continue
             family = Family()
@@ -378,7 +405,6 @@ def write(dbstate, graph):
             note_created("families", family_handle, "get_family_from_handle")
             handles[spec["id"]] = family_handle
             kinds[spec["id"]] = "family"
-            counts["families"] += 1
 
             # Both sides of every link are written explicitly. A family holding
             # handles that do not point back fails Gramps' own Check and Repair.
@@ -404,7 +430,6 @@ def write(dbstate, graph):
             note_created("citations", citation_handle, "get_citation_from_handle")
             handles[spec["id"]] = citation_handle
             kinds[spec["id"]] = "citation"
-            counts["citations"] += 1
             for local in spec.get("attach_to") or []:
                 _attach(database, trans, handles, kinds, local, "citation", citation_handle)
 
@@ -415,12 +440,24 @@ def write(dbstate, graph):
             note.set_type(NoteType(NoteType.TRANSCRIPT))
             note_handle = database.add_note(note, trans)
             note_created("notes", note_handle, "get_note_from_handle")
-            counts["notes"] += 1
             for local in spec.get("attach_to") or []:
                 _attach(database, trans, handles, kinds, local, "note", note_handle)
 
-    summary = ", ".join(f"{value} {label}" for label, value in counts.items() if value) or "nothing"
-    return {"summary": summary, "created": created, "attached": attached}
+    # ⛔ No summary is computed here, and that is not an omission.
+    #
+    # ⚠️ Summarising meant importing the package, and a plugin file that reaches
+    # into it IS host code by the rule in ``tests/fixtures/host_sources.py`` --
+    # at which point this file may not touch ``.db`` at all, which is its entire
+    # job. The boundary test caught it immediately.
+    #
+    # ⚠️ **And that rule is a SUBSTRING SEARCH of the file's text**, so the first
+    # wording of this very comment -- which named the package in full --
+    # classified this file as host code and failed the boundary test on a
+    # comment. Named obliquely here on purpose.
+    #
+    # So the caller summarises. It already imports ``document``, it is already
+    # host code, and it never touches the database.
+    return {"created": created, "attached": attached}
 
 
 _COMMIT = {

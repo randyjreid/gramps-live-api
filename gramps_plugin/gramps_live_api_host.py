@@ -180,7 +180,10 @@ def _present(dbstate, uistate, graph):
 
         approved = document.preview(parsed, resolution)
         result = writer.write(dbstate, graph)
-        summary = result["summary"]
+        # ⛔ Summarised HERE, from what the write actually created. The writer
+        # cannot do it: importing the host package would make it host code and
+        # forbid it the database access it exists for.
+        summary = document.summarise_created(result["created"])
         note("INFO", "document: wrote " + summary)
 
         # ⛔ Journal it. Gramps' own undo is a process-local list discarded on
