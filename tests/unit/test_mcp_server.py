@@ -781,3 +781,74 @@ def test_the_entry_point_module_calls_serve() -> None:
     import gramps_live_api_mcp.__main__ as entry
 
     assert entry.serve is mcp_server.serve
+
+
+# ---------------------------------------------------------------------------
+# Round 3: one tool advertised a capability another tool denied.
+# ---------------------------------------------------------------------------
+
+
+def test_every_attachable_kind_is_advertised_as_attachable() -> None:
+    """⛔ ``find_families`` said pass a family ID; ``propose_document`` said families
+    are always created new.
+
+    A model follows the schema of the tool it is calling, so it discarded the ID
+    and created the second household — **the exact duplicate the lookup was
+    added to prevent**, produced by the interface describing itself two ways.
+
+    ⚠️ **Bounded, not spot-fixed.** The list comes from ``document.ATTACHABLE``,
+    so a fifth attachable kind that nobody advertises fails here rather than
+    silently becoming unreachable through its own documented interface.
+    """
+    from gramps_live_api.host import document
+
+    description = mcp_server.PROPOSE_DOCUMENT_DESCRIPTION
+    shape = description.split("SHAPE.", 1)[1]
+
+    unadvertised = []
+    for kind in document.ATTACHABLE:
+        collection = "source:" if kind == "source" else f"{kind}:"
+        line = next(
+            (row for row in shape.splitlines() if row.strip().startswith(collection)),
+            None,
+        )
+        if line is None or "gramps_id?" not in line:
+            unadvertised.append(kind)
+
+    assert unadvertised == [], (
+        "these kinds accept a gramps_id and the proposal description does not say "
+        f"so, so a caller cannot reach the feature: {unadvertised}"
+    )
+
+
+def test_the_proposal_description_does_not_deny_family_attachment() -> None:
+    """⛔ The prose half. The shape line and the sentence must agree."""
+    description = mcp_server.PROPOSE_DOCUMENT_DESCRIPTION
+
+    assert "families and notes are always created new" not in description, (
+        "the description still tells the caller families cannot be attached to"
+    )
+    assert "find_families" in description, (
+        "the proposal description should point at the lookup that prevents the duplicate"
+    )
+
+
+def test_the_family_event_gap_is_stated_rather_than_implied() -> None:
+    """⛔ A read that finds a gap the write path cannot fill must say so.
+
+    ``list_family_events`` exists because concluding *no marriage* from a
+    person's events is how a duplicate marriage gets entered. But an event can
+    only be attached to PEOPLE, so a marriage proposed in response lands on the
+    spouses and this lookup still reports none — the check comes back empty
+    forever and the workflow never terminates.
+
+    Filed as its own capability. Until then the description says it plainly, so
+    a model reports the gap to the owner instead of writing a wrong record.
+    """
+    for description in (
+        mcp_server.PROPOSE_DOCUMENT_DESCRIPTION,
+        mcp_server.LIST_FAMILY_EVENTS_DESCRIPTION,
+    ):
+        assert "cannot" in description.lower() and "family" in description.lower(), (
+            "the family-event limit is not stated where a caller will read it"
+        )

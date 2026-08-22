@@ -229,7 +229,11 @@ LIST_FAMILY_EVENTS_DESCRIPTION = (
     "The events recorded on a FAMILY rather than on a person -- a marriage is "
     "one of these. Asking a person for their events and concluding there is no "
     "marriage is how a second marriage record gets entered for a couple who "
-    "already have one. Use find_families first to get the family Gramps ID."
+    "already have one. Use find_families first to get the family Gramps ID. "
+    "READ ONLY, and the gap it finds cannot be filled through propose_document: "
+    "an event can only be attached to PEOPLE, so a marriage proposed here would "
+    "land on the spouses and this would still report none. Tell the owner "
+    "instead."
 )
 
 LIST_NOTES_DESCRIPTION = (
@@ -258,7 +262,7 @@ happens, so you never need a handle.
   events:    [{"id","type","date","place":<place id>,"people":[<person ids>],"role"}]
   source:     {"id","gramps_id?","title","author","pubinfo"}
   citations: [{"id","source":<source id>,"page","attach_to":[<any ids>]}]
-  families:  [{"id","parents":[<person ids>],"children":[<person ids>]}]
+  families:  [{"id","gramps_id?","parents":[<person ids>],"children":[<person ids>]}]
   notes:     [{"text","attach_to":[<any ids>]}]
 
 *** IF A PERSON IS ALREADY IN THE TREE, LOOK THEM UP WITH list_people FIRST AND
@@ -268,9 +272,23 @@ wrong. The same goes for the SOURCE: if you have already cited this parish
 register or this census, pass its Gramps ID rather than making a second copy of
 it.
 
-gramps_id works on people, places and the source only. Events, citations,
-families and notes are always created new -- a document asserting a fact is
-asserting a new claim about it, even between people who already exist.
+gramps_id works on people, places, the source AND families. Events, citations
+and notes are always created new -- a document asserting a fact is asserting a
+new claim about it, even between people who already exist.
+
+*** FOR A FAMILY, CALL find_families FIRST AND PASS ITS GRAMPS ID. *** A tree
+holds one family per couple, and creating a second splits their children across
+two households. A family with a gramps_id is ADDED TO: the children you name
+join it, its recorded parents are left exactly as they are, and any parents you
+name here are ignored.
+
+*** AN EVENT CANNOT YET BE ATTACHED TO A FAMILY. *** events[].people names
+PEOPLE, and that is the only place an event can land. So a marriage you propose
+is written onto the two spouses rather than onto their family, and
+list_family_events will still report none afterwards. If find_families and
+list_family_events show a couple has no marriage record, SAY SO TO THE OWNER and
+let him add it in Gramps -- do not propose one expecting it to land on the
+family, because it will not, and the check will keep coming back empty.
 
 A node with a gramps_id is ATTACHED TO, never modified. Its given/surname/gender
 are ignored: nothing already in the tree is changed, ever. If the document
