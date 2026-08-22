@@ -92,6 +92,56 @@ on every platform in the matrix. Its value is part of the published Win32 API.
 """
 
 
+def claim_document(path: str, claimed: str, proposal_id: str) -> dict[str, Any]:
+    """Take a document proposal exactly once, and return what it held.
+
+    ⛔ **``O_CREAT | O_EXCL`` is the lock, and it fails on an existing target on
+    EVERY platform.** That matters for what the test proves rather than for what
+    the host does -- the host is Windows-only, CI is Linux on three interpreters,
+    and a fix whose test passes for a different reason than the fix works is a
+    fix with no coverage.
+
+    ⚠️ **The previous spelling was ``os.rename`` and its comment was wrong.** It
+    said the rename fails because the destination exists, which is true on
+    Windows and false on POSIX. What actually refused the second call on both was
+    that the SOURCE had been consumed -- so the protection was real and the
+    stated reason was not, and under two genuinely concurrent calls POSIX would
+    have silently replaced the claim and opened two dialogs.
+
+    Raises ``ProposalNotFound`` if there is nothing to claim and
+    ``ProposalError`` if somebody already claimed it.
+    """
+    try:
+        with open(path, encoding="utf-8") as handle:
+            body = handle.read()
+    except OSError:
+        if os.path.exists(claimed):
+            raise proposals.ProposalError(
+                f"document proposal {proposal_id!r} has already been dispatched. "
+                "Propose it again if you need to show it once more."
+            ) from None
+        raise proposals.ProposalNotFound(f"no document proposal called {proposal_id!r}") from None
+
+    try:
+        descriptor = os.open(claimed, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        raise proposals.ProposalError(
+            f"document proposal {proposal_id!r} has already been dispatched. "
+            "Propose it again if you need to show it once more."
+        ) from None
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(body)
+
+    # ⚠️ The original goes only AFTER the claim exists. A crash between the two
+    # leaves both, and the claim is what a second call trips over -- which is the
+    # safe direction: refusing a proposal twice costs a re-propose, dispatching
+    # one twice writes the graph twice.
+    with contextlib.suppress(OSError):
+        os.unlink(path)
+
+    return dict(json.loads(body))
+
+
 class ToolRefusal(Exception):
     """This call is refused. Nothing has been written."""
 
@@ -641,35 +691,13 @@ class Tools:
         directory = os.path.join(proposals.store_directory(copy.tree_dir), "documents")
         path = os.path.join(directory, proposal_id + ".json")
 
-        # ⛔ CLAIM IT, atomically, before anything is shown. ``os.rename`` onto a
-        # name that already exists fails on Windows, so the rename IS the lock:
-        # a second call finds nothing to claim and is refused.
-        #
-        # ⚠️ Without this, calling approve_document twice with one id opened two
-        # writable dialogs, and confirming both inserted the whole graph twice --
-        # which is exactly what an uncertain or retried MCP call produces. The
-        # note flow has claim/consume semantics for this reason; the document
-        # flow was missing them.
         claimed = os.path.join(directory, proposal_id + ".claimed.json")
-        try:
-            os.rename(path, claimed)
-        except OSError:
-            if os.path.exists(claimed):
-                raise proposals.ProposalError(
-                    f"document proposal {proposal_id!r} has already been dispatched. "
-                    "Propose it again if you need to show it once more."
-                ) from None
-            raise proposals.ProposalNotFound(
-                f"no document proposal called {proposal_id!r}"
-            ) from None
+        record = claim_document(path, claimed, proposal_id)
 
         def unclaim() -> None:
             """Put it back. ⚠️ ONLY when the host never showed the dialog."""
             with contextlib.suppress(OSError):
-                os.rename(claimed, path)
-
-        with open(claimed, encoding="utf-8") as handle:
-            record = json.load(handle)
+                os.replace(claimed, path)
 
         # ⛔ From the stored record. The argument named WHICH proposal; it did
         # not supply any part of what the dialog will show.
