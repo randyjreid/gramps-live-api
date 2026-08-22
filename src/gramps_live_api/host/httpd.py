@@ -64,6 +64,17 @@ already here and already separates the query from the path, so the ID arrives
 parsed; a path segment would mean this file grew path parsing -- surface the
 route does not need and the one place a traversal-shaped input could matter."""
 
+RESOLVE_ROUTE = "/resolve"
+"""⭐ A KEYED lookup of every ``gramps_id`` a graph names, before anything else.
+
+⚠️ **Added because validating ids through the name searches was unreliable, and
+unreliable in the direction that matters.** ``/find/place`` matches on a place's
+name, so a perfectly valid ``P0123`` did not match and was reported missing;
+``/find/events`` answers the same empty result for *no such person* and for *a
+person with no events*, so a nonexistent person passed. A search is not an
+existence check, and using one as though it were made the attach-to-existing
+flow fail in both directions at once."""
+
 DOCUMENT_ROUTE = "/document"
 """⭐ The only route that writes, and it does not write on this thread.
 
@@ -115,6 +126,13 @@ class Context:
     keeps the boundary where the accessor's rules can see it."""
 
     note: Callable[[str, str], None]
+
+    resolve: Callable[[dict[str, Any]], document.Resolution]
+    """⛔ A keyed existence check, not a search. See ``RESOLVE_ROUTE``.
+
+    ⚠️ **The display strings are deliberately NOT put on the wire here.** This
+    answers *does this id exist*; who it names is the dialog's business, and a
+    caller that could read the name would be a caller that could echo it back."""
 
     read: Callable[..., reads.Found]
     """One live read of the open tree, marshalled. ⛔ Returns plain data, never
@@ -292,7 +310,12 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
             )
             return
 
-        if urlsplit(self.path).path != DOCUMENT_ROUTE:
+        route = urlsplit(self.path).path
+        if route == RESOLVE_ROUTE:
+            self._resolve()
+            return
+
+        if route != DOCUMENT_ROUTE:
             self._respond(HTTPStatus.NOT_FOUND, {"ok": False, "error": NO_SUCH_ROUTE})
             return
 
@@ -335,6 +358,50 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
         # ⭐ 202, not 200, and not a result. The dialog is up; what the human does
         # with it is between them and Gramps.
         self._respond(HTTPStatus.ACCEPTED, {"ok": True, "shown": True})
+
+    def _resolve(self) -> None:
+        """Look up every ``gramps_id`` in a graph. ⛔ Writes nothing, shows nothing."""
+        body = self._body()
+        if body is None:
+            return
+        try:
+            graph = document.parse(body)
+        except document.GraphInvalid as refusal:
+            self._respond(
+                HTTPStatus.BAD_REQUEST,
+                {"ok": False, "error": GRAPH_INVALID, "detail": str(refusal)},
+            )
+            return
+        try:
+            resolution = self.context.resolve(graph.as_dict())
+        except mainthread.MainThreadTimeout:
+            self._respond(
+                HTTPStatus.SERVICE_UNAVAILABLE, {"ok": False, "error": MAIN_THREAD_TIMEOUT}
+            )
+            return
+        except Exception as failure:
+            self.context.note(log.ERROR, f"{RESOLVE_ROUTE} failed: {failure!r}")
+            self._respond(
+                HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": TREE_READ_FAILED}
+            )
+            return
+
+        self._respond(
+            HTTPStatus.OK,
+            {
+                "ok": True,
+                "nodes": [
+                    {
+                        "id": node.local_id,
+                        "gramps_id": node.gramps_id,
+                        "kind": node.kind,
+                        "found": node.found,
+                    }
+                    for node in resolution.nodes
+                ],
+                "missing": [node.gramps_id for node in resolution.missing],
+            },
+        )
 
     def _body(self) -> bytes | None:
         """The request body, or answer for the two ways reading it fails."""

@@ -112,6 +112,7 @@ def start(
         # costs ~48 ms, inside what one callback may take -- so R8's accepted
         # risk 4 is respected by measurement rather than by hope.
         read=functools.partial(_read, marshal),
+        resolve=functools.partial(_resolve, marshal),
     )
 
     server = httpd.build(context)
@@ -251,6 +252,11 @@ _READS = {
     "citation": "find_citation",
     "events": "list_events",
 }
+
+
+def _resolve(marshal: mainthread.Marshal, graph: dict[str, Any]) -> document.Resolution:
+    """Every ``gramps_id`` in the graph, looked up by key on the main thread."""
+    return marshal.call(functools.partial(accessor.resolve_nodes, graph))
 
 
 def _read(marshal: mainthread.Marshal, which: str, first: str, second: str = "") -> reads.Found:

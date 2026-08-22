@@ -42,6 +42,7 @@ on a runner that has never seen Gramps or an MCP client.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
@@ -579,30 +580,17 @@ class Tools:
         """
         parsed = document.parse(graph)
 
-        # ⭐ Validate every gramps_id against the LIVE tree, here, so a wrong id
-        # is caught while the caller can still fix it -- rather than at the
-        # write, after a proposal has been stored and an approval attempted.
-        # ⚠️ Against the host, NOT the export: the export is a snapshot and a
-        # record added since it was taken is invisible in it.
-        unresolved: list[str] = []
-        for request in document.requested(parsed):
-            route = {"person": "/find/events", "place": "/find/place", "source": "/find/source"}
-            try:
-                if request.kind == "person":
-                    self._host("/find/events", gramps_id=request.gramps_id)
-                else:
-                    answer = self._host(route[request.kind], q=request.gramps_id)
-                    rows = answer.get("results")
-                    found = rows if isinstance(rows, list) else []
-                    ids = [str(row.get("gramps_id")) for row in found if isinstance(row, dict)]
-                    if request.gramps_id not in ids:
-                        unresolved.append(request.gramps_id)
-            except ToolRefusal as refusal:
-                unresolved.append(f"{request.gramps_id} ({refusal})")
-        if unresolved:
+        # ⭐ Validate every gramps_id against the LIVE tree by KEYED lookup.
+        # ⚠️ This used the name searches and that was wrong in both directions:
+        # /find/place matches a place's NAME, so a valid P0123 did not match and
+        # was reported missing, while /find/events answers the same empty result
+        # for "no such person" and for "a person with no events", so a
+        # nonexistent person passed. **A search is not an existence check.**
+        missing = self._resolve_ids(parsed)
+        if missing:
             raise ToolRefusal(
-                "these Gramps IDs could not be confirmed in the open tree: "
-                + ", ".join(unresolved)
+                "these Gramps IDs are not in the open tree: "
+                + ", ".join(missing)
                 + ". Look them up with find_people / find_place / find_source, or "
                 "leave gramps_id out to create a new record."
             )
@@ -631,7 +619,6 @@ class Tools:
             "proposal_id": proposal_id,
             "summary": document.summary(parsed),
             "preview": document.caller_preview(parsed),
-            "unresolved": unresolved,
         }
 
     def approve_document(self, proposal_id: str) -> dict[str, object]:
@@ -651,26 +638,47 @@ class Tools:
         if settings.copy_path is None:
             raise config.ConfigError("no copy is configured")
         copy = apply.authorise(settings.copy_path)
-        path = os.path.join(
-            proposals.store_directory(copy.tree_dir), "documents", proposal_id + ".json"
-        )
-        if not os.path.exists(path):
-            raise proposals.ProposalNotFound(f"no document proposal called {proposal_id!r}")
-        with open(path, encoding="utf-8") as handle:
+        directory = os.path.join(proposals.store_directory(copy.tree_dir), "documents")
+        path = os.path.join(directory, proposal_id + ".json")
+
+        # ⛔ CLAIM IT, atomically, before anything is shown. ``os.rename`` onto a
+        # name that already exists fails on Windows, so the rename IS the lock:
+        # a second call finds nothing to claim and is refused.
+        #
+        # ⚠️ Without this, calling approve_document twice with one id opened two
+        # writable dialogs, and confirming both inserted the whole graph twice --
+        # which is exactly what an uncertain or retried MCP call produces. The
+        # note flow has claim/consume semantics for this reason; the document
+        # flow was missing them.
+        claimed = os.path.join(directory, proposal_id + ".claimed.json")
+        try:
+            os.rename(path, claimed)
+        except OSError:
+            if os.path.exists(claimed):
+                raise proposals.ProposalError(
+                    f"document proposal {proposal_id!r} has already been dispatched. "
+                    "Propose it again if you need to show it once more."
+                ) from None
+            raise proposals.ProposalNotFound(
+                f"no document proposal called {proposal_id!r}"
+            ) from None
+
+        def unclaim() -> None:
+            """Put it back. ⚠️ ONLY when the host never showed the dialog."""
+            with contextlib.suppress(OSError):
+                os.rename(claimed, path)
+
+        with open(claimed, encoding="utf-8") as handle:
             record = json.load(handle)
 
         # ⛔ From the stored record. The argument named WHICH proposal; it did
         # not supply any part of what the dialog will show.
         graph = record["graph"]
 
-        directory = paths.state_directory(self._environ)
-        port = (directory / "port").read_text(encoding="utf-8").strip()
-        token = (directory / "token").read_text(encoding="utf-8").strip()
-
-        body = json.dumps(graph).encode("utf-8")
+        port, token = self._host_address()
         request = urllib.request.Request(
             f"http://127.0.0.1:{port}/document",
-            data=body,
+            data=json.dumps(graph).encode("utf-8"),
             method="POST",
             headers={
                 "Authorization": "Bearer " + token,
@@ -682,13 +690,21 @@ class Tools:
                 answer = json.loads(response.read().decode("utf-8"))
                 status = response.status
         except urllib.error.HTTPError as refusal:
+            # The host refused before showing anything, so the proposal is still
+            # unspent and goes back.
+            unclaim()
             detail = refusal.read().decode("utf-8", "replace")
             return {"shown": False, "status": refusal.code, "detail": detail}
         except OSError as failure:
+            unclaim()
             return {
                 "shown": False,
-                "detail": (f"the Gramps host is not answering -- is Gramps open? ({failure})"),
+                "detail": f"the Gramps host is not answering -- is Gramps open? ({failure})",
             }
+
+        if not answer.get("shown"):
+            unclaim()
+            return {"shown": False, "status": status}
 
         return {"shown": bool(answer.get("shown")), "status": status}
 
@@ -701,14 +717,7 @@ class Tools:
         row were entered that were already in the tree, and nothing in the tool
         could say so; these reads exist so that question has an answer.
         """
-        directory = paths.state_directory(self._environ)
-        try:
-            port = (directory / "port").read_text(encoding="utf-8").strip()
-            token = (directory / "token").read_text(encoding="utf-8").strip()
-        except OSError:
-            raise ToolRefusal(
-                "the Gramps host is not running -- open Gramps on the blessed copy"
-            ) from None
+        port, token = self._host_address()
         request = urllib.request.Request(
             f"http://127.0.0.1:{port}{path}?" + urllib.parse.urlencode(query),
             headers={"Authorization": "Bearer " + token},
@@ -722,6 +731,46 @@ class Tools:
             raise ToolRefusal(str(detail.get("detail") or detail.get("error") or refusal)) from None
         except OSError as failure:
             raise ToolRefusal(f"the Gramps host is not answering: {failure}") from None
+
+    def _resolve_ids(self, parsed: document.Graph) -> list[str]:
+        """The Gramps IDs in ``parsed`` that the OPEN tree does not hold."""
+        if not document.requested(parsed):
+            return []
+        answer = self._post("/resolve", parsed.as_dict())
+        rows = answer.get("missing")
+        return [str(x) for x in rows] if isinstance(rows, list) else []
+
+    def _post(self, path: str, payload: dict[str, object]) -> dict[str, object]:
+        """A POST to the host, answered as JSON."""
+        port, token = self._host_address()
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}{path}",
+            data=json.dumps(payload).encode("utf-8"),
+            method="POST",
+            headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return dict(json.loads(response.read().decode("utf-8")))
+        except urllib.error.HTTPError as refusal:
+            body = refusal.read().decode("utf-8", "replace")
+            detail = json.loads(body or "{}")
+            raise ToolRefusal(str(detail.get("detail") or detail.get("error") or refusal)) from None
+        except OSError as failure:
+            raise ToolRefusal(f"the Gramps host is not answering: {failure}") from None
+
+    def _host_address(self) -> tuple[str, str]:
+        """Where the host is listening, and the token it minted."""
+        directory = paths.state_directory(self._environ)
+        try:
+            return (
+                (directory / "port").read_text(encoding="utf-8").strip(),
+                (directory / "token").read_text(encoding="utf-8").strip(),
+            )
+        except OSError:
+            raise ToolRefusal(
+                "the Gramps host is not running -- open Gramps on the blessed copy"
+            ) from None
 
     def find_people(self, name: str) -> dict[str, object]:
         """People in the OPEN tree whose name contains ``name``, alternates included."""

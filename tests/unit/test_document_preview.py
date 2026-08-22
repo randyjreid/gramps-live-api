@@ -19,6 +19,8 @@ from __future__ import annotations
 import json
 import pathlib
 
+import pytest
+
 from gramps_live_api.host import document
 
 EVENT_NOTE = "NOTE ON THE EVENT -- must appear."
@@ -205,3 +207,78 @@ def test_a3_the_journal_names_every_object_created(tmp_path) -> None:
     # The graph as asked for, and the text the human actually approved.
     assert written["graph"]["people"][0]["gramps_id"] == "I0024"
     assert EVENT_NOTE in written["approved_preview"]
+
+
+# ---------------------------------------------------------------------------
+# Round 1 findings — both were A1 violations the criterion did not catch
+# ---------------------------------------------------------------------------
+
+
+def test_a_non_default_event_role_is_rendered() -> None:
+    """⛔ ``role`` is APPLIED by the writer, so it must be shown.
+
+    ``writer.write`` puts it on every ``EventRef`` with ``set_role``. Leaving it
+    out let the owner approve an input value that would be written without
+    seeing it -- R3's criterion broken in the way A1 exists to catch, and missed
+    because the role is invisible in the summary and only appears in the writer.
+    """
+    graph = document.parse(
+        {
+            "people": [node("p1", given="Anna", surname="Witness")],
+            "events": [node("e1", type="Marriage", date="1868", people=["p1"], role="Witness")],
+        }
+    )
+    assert "as Witness" in document.preview(graph)
+
+
+def test_the_default_role_is_not_repeated_on_every_line() -> None:
+    """A preview that says *Primary* everywhere teaches the reader to skip it."""
+    graph = document.parse(
+        {
+            "people": [node("p1", given="Anna", surname="Principal")],
+            "events": [node("e1", type="Birth", date="1868", people=["p1"], role="Primary")],
+        }
+    )
+    assert "as Primary" not in document.preview(graph)
+
+
+def test_a_source_needs_a_local_id_like_every_other_node() -> None:
+    """⛔ A source with a ``gramps_id`` and no ``id`` was rendered TWICE.
+
+    ``requested`` invented a local id while ``preview`` kept the original, so the
+    same source appeared under both ATTACHING TO EXISTING and CREATING NEW while
+    the writer only ever attached. A preview describing two operations when one
+    will run is the defect A1 exists to prevent.
+    """
+    with pytest.raises(document.GraphInvalid):
+        document.parse(
+            {
+                "people": [node("p1", given="A", surname="B")],
+                "source": {"gramps_id": "S0010"},
+            }
+        )
+    with pytest.raises(document.GraphInvalid):
+        document.parse(
+            {
+                "people": [node("p1", given="A", surname="B")],
+                "source": {"id": 7, "gramps_id": "S0010"},
+            }
+        )
+
+
+def test_an_attached_source_is_not_also_listed_as_created() -> None:
+    """The same defect, asserted on the rendering rather than on the refusal."""
+    graph = document.parse(
+        {
+            "people": [node("p1", given="A", surname="B")],
+            "source": node("s1", gramps_id="S0010"),
+        }
+    )
+    resolution = document.Resolution(
+        nodes=(document.Resolved("s1", "S0010", "source", True, "Parish register"),)
+    )
+    rendered = document.preview(graph, resolution)
+    assert "ATTACHING TO EXISTING" in rendered
+    assert "Source" not in rendered.split("CREATING NEW")[-1], (
+        "the attached source was also listed under CREATING NEW"
+    )

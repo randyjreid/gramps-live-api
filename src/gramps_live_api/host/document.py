@@ -260,8 +260,19 @@ def parse(body: Any) -> Graph:
             if local in known:
                 raise GraphInvalid(f"the local id {local!r} is used more than once")
             known.add(local)
-    if source is not None and source.get("id"):
-        source_id = source["id"]
+    if source is not None:
+        # ⛔ Held to the SAME rule as every other node group. A source carrying a
+        # ``gramps_id`` but no ``id`` used to be accepted, and a non-string id
+        # too: ``requested`` then invented or stringified a local id while
+        # ``preview`` kept the original, so the same source was rendered under
+        # BOTH headings -- attaching to one that exists and creating a new one --
+        # while the writer only ever attached. A preview that describes two
+        # operations when one will run is the defect A1 exists to prevent.
+        source_id = source.get("id")
+        if not source_id:
+            raise GraphInvalid("the source needs an 'id', like every other node")
+        if not isinstance(source_id, str):
+            raise GraphInvalid(f"the source id {source_id!r} must be a string")
         if source_id in known:
             raise GraphInvalid(f"the local id {source_id!r} is used more than once")
         known.add(source_id)
@@ -369,6 +380,30 @@ def _wrap(text: str, indent: str) -> list[str]:
     return out
 
 
+def _event_line(event: dict[str, Any], named: Any) -> str:
+    """One event as the dialog shows it. ⛔ **Including its role.**
+
+    ⚠️ **``role`` is an input the writer APPLIES** -- ``set_role`` puts it on
+    every ``EventRef`` the event produces -- so leaving it out of the preview let
+    the owner approve a value that would be written without seeing it. That is
+    R3's ruled criterion broken in exactly the way A1 exists to catch, and it was
+    missed because the role is invisible in the summary and only appears deep in
+    the writer.
+
+    The default is not shown, because a preview that repeats *Primary* on every
+    line teaches the reader to skip the field that matters.
+    """
+    bits = [str(event.get("type") or "Event")]
+    if event.get("date"):
+        bits.append(str(event["date"]))
+    if event.get("place"):
+        bits.append("at " + named(event["place"]))
+    role = str(event.get("role") or "").strip()
+    if role and role.casefold() != "primary":
+        bits.append(f"as {role}")
+    return ", ".join(bits)
+
+
 def preview(graph: Graph, resolution: Resolution | None = None) -> str:
     """Everything that would be written, in plain readable text.
 
@@ -416,12 +451,7 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
             if local_id not in (event.get("people") or []):
                 continue
             shown_events.add(index)
-            bits = [str(event.get("type") or "Event")]
-            if event.get("date"):
-                bits.append(str(event["date"]))
-            if event.get("place"):
-                bits.append("at " + named_node(event["place"]))
-            out.extend(_wrap("+ " + ", ".join(bits), indent))
+            out.extend(_wrap("+ " + _event_line(event, named_node), indent))
         for index, citation in enumerate(graph.citations):
             if local_id not in (citation.get("attach_to") or []):
                 continue
@@ -512,12 +542,7 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
     for index, event in enumerate(graph.events):
         if index in shown_events:
             continue
-        bits = [str(event.get("type") or "Event")]
-        if event.get("date"):
-            bits.append(str(event["date"]))
-        if event.get("place"):
-            bits.append("at " + named_node(event["place"]))
-        leftovers.extend(_wrap("Event     " + ", ".join(bits), "  "))
+        leftovers.extend(_wrap("Event     " + _event_line(event, named_node), "  "))
         leftovers.extend(attached_to(event.get("id"), "      "))
     for index, citation in enumerate(graph.citations):
         if index in shown_citations:
