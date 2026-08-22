@@ -132,9 +132,15 @@ def test_the_last_resort_log_agrees_with_the_real_one(
 def test_the_last_resort_note_writes_a_line_nothing_else_would_have(
     plugin: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """R8's accepted risk 2 at its worst: the package was never importable."""
+    """R8's accepted risk 2 at its worst: the package was never importable.
+
+    ⚠️ ``gramps`` is put in ``sys.modules`` because that is the premise: this
+    failure happens INSIDE Gramps. The note refuses to write outside one, so
+    without this the test would assert against a file nothing wrote.
+    """
     monkeypatch.setenv("APPDATA", str(tmp_path))
     monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setitem(sys.modules, "gramps", ModuleType("gramps"))
 
     plugin._last_resort_note("ModuleNotFoundError: no module named gramps_live_api")
 
@@ -197,3 +203,53 @@ def test_the_apply_plugin_is_not_swept_in() -> None:
     swept: list[Any] = [path for path in plugin_sources() if "apply" in path.name]
 
     assert swept == []
+
+
+def test_a_run_outside_gramps_never_touches_the_production_log(
+    plugin: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⛔ The suite was filling the one file a real failure is visible in.
+
+    ``load_on_reg(None)`` is a correct test — the hook must never raise — and it
+    fails at ``from gi.repository import GLib``, which is not a fault but proof
+    that this is not Gramps. It reported that to the **production** log anyway:
+    **68 tracebacks against 25 real lines**, and a reader came one message from
+    declaring the host down because of them.
+
+    ⚠️ **A log that cries wolf is the same defect as a guard that fires on every
+    route literal.** It trains the reader to skip the line that matters, and
+    ``host.log`` is the ONLY place a genuinely failed start appears — R8's
+    accepted risk 2.
+    """
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.delitem(sys.modules, "gramps", raising=False)
+
+    plugin.load_on_reg(None)
+    plugin.load_on_reg(None, None, None)
+    plugin._last_resort_note("this must not be written")
+
+    written = paths.log_path(paths.state_directory({"APPDATA": str(tmp_path)}, platform="win32"))
+    assert not written.exists(), (
+        "a run outside Gramps wrote to the host log: " + written.read_text(encoding="utf-8")[:400]
+    )
+
+
+def test_the_hook_still_reports_when_it_really_is_gramps(
+    plugin: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⚠️ The other direction, and the one that matters more.
+
+    A guard that silenced real failures too would be worse than the noise it
+    removed — the failure would go from buried to invisible.
+    """
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setitem(sys.modules, "gramps", ModuleType("gramps"))
+
+    plugin.load_on_reg(None)
+
+    written = paths.log_path(paths.state_directory({"APPDATA": str(tmp_path)}, platform="win32"))
+    assert written.exists() and "ERROR" in written.read_text(encoding="utf-8"), (
+        "a genuine failure inside Gramps was silenced -- buried is bad, invisible is worse"
+    )

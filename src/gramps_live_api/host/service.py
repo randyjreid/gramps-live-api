@@ -247,6 +247,10 @@ _READS = {
     "source": "find_source",
     "citation": "find_citation",
     "events": "list_events",
+    "families": "find_families",
+    "family_events": "list_family_events",
+    "notes": "list_notes",
+    "associations": "list_associations",
 }
 
 
@@ -262,7 +266,9 @@ def _read(marshal: mainthread.Marshal, which: str, first: str, second: str = "")
     same shape the boundary keeps for ``/health`` and ``/person``.
     """
     helper: Callable[..., reads.Found] = getattr(accessor, _READS[which])
-    if which == "citation":
+    # ⚠️ Two routes take a second argument -- the citation's page, and the note
+    # lookup's record kind. Everything else takes one.
+    if which in ("citation", "notes"):
         return marshal.call(functools.partial(helper, first, second))
     return marshal.call(functools.partial(helper, first))
 

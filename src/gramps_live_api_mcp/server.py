@@ -71,6 +71,10 @@ TOOL_NAMES = frozenset(
         "find_source",
         "find_citation",
         "list_events",
+        "find_families",
+        "list_family_events",
+        "list_notes",
+        "list_associations",
     }
 )
 """The whole surface, and the tests assert the server's own answer equals this.
@@ -213,6 +217,36 @@ LIST_EVENTS_DESCRIPTION = (
     "duplicating it. Refused by name if that person is marked private."
 )
 
+FIND_FAMILIES_DESCRIPTION = (
+    "The families one person belongs to, as spouse or as child, with their "
+    "Gramps IDs. ASK THIS BEFORE PROPOSING A FAMILY: a tree holds one family per "
+    "couple, and creating a second splits their children across two households. "
+    "Pass the family Gramps ID as gramps_id on a families node to add to the one "
+    "that already exists."
+)
+
+LIST_FAMILY_EVENTS_DESCRIPTION = (
+    "The events recorded on a FAMILY rather than on a person -- a marriage is "
+    "one of these. Asking a person for their events and concluding there is no "
+    "marriage is how a second marriage record gets entered for a couple who "
+    "already have one. Use find_families first to get the family Gramps ID. "
+    "READ ONLY, and the gap it finds cannot be filled through propose_document: "
+    "an event can only be attached to PEOPLE, so a marriage proposed here would "
+    "land on the spouses and this would still report none. Tell the owner "
+    "instead."
+)
+
+LIST_NOTES_DESCRIPTION = (
+    "The notes attached to one record, with their Gramps IDs, so they can be "
+    "named for a manual cleanup. kind is person, place, source or family."
+)
+
+LIST_ASSOCIATIONS_DESCRIPTION = (
+    "A person's recorded associations -- godparents and similar -- with the "
+    "relationship as the tree spells it. READ ONLY: associations cannot be "
+    "proposed. Use it to avoid proposing somebody who is already recorded."
+)
+
 PROPOSE_DOCUMENT_DESCRIPTION = """\
 Propose everything a genealogical document says about people, as ONE graph.
 
@@ -228,7 +262,7 @@ happens, so you never need a handle.
   events:    [{"id","type","date","place":<place id>,"people":[<person ids>],"role"}]
   source:     {"id","gramps_id?","title","author","pubinfo"}
   citations: [{"id","source":<source id>,"page","attach_to":[<any ids>]}]
-  families:  [{"id","parents":[<person ids>],"children":[<person ids>]}]
+  families:  [{"id","gramps_id?","parents":[<person ids>],"children":[<person ids>]}]
   notes:     [{"text","attach_to":[<any ids>]}]
 
 *** IF A PERSON IS ALREADY IN THE TREE, LOOK THEM UP WITH list_people FIRST AND
@@ -238,9 +272,23 @@ wrong. The same goes for the SOURCE: if you have already cited this parish
 register or this census, pass its Gramps ID rather than making a second copy of
 it.
 
-gramps_id works on people, places and the source only. Events, citations,
-families and notes are always created new -- a document asserting a fact is
-asserting a new claim about it, even between people who already exist.
+gramps_id works on people, places, the source AND families. Events, citations
+and notes are always created new -- a document asserting a fact is asserting a
+new claim about it, even between people who already exist.
+
+*** FOR A FAMILY, CALL find_families FIRST AND PASS ITS GRAMPS ID. *** A tree
+holds one family per couple, and creating a second splits their children across
+two households. A family with a gramps_id is ADDED TO: the children you name
+join it, its recorded parents are left exactly as they are, and any parents you
+name here are ignored.
+
+*** AN EVENT CANNOT YET BE ATTACHED TO A FAMILY. *** events[].people names
+PEOPLE, and that is the only place an event can land. So a marriage you propose
+is written onto the two spouses rather than onto their family, and
+list_family_events will still report none afterwards. If find_families and
+list_family_events show a couple has no marriage record, SAY SO TO THE OWNER and
+let him add it in Gramps -- do not propose one expecting it to land on the
+family, because it will not, and the check will keep coming back empty.
 
 A node with a gramps_id is ATTACHED TO, never modified. Its given/surname/gender
 are ignored: nothing already in the tree is changed, ever. If the document
@@ -790,6 +838,18 @@ class Tools:
     def list_events(self, gramps_id: str) -> dict[str, object]:
         return self._host("/find/events", gramps_id=gramps_id)
 
+    def find_families(self, gramps_id: str) -> dict[str, object]:
+        return self._host("/find/families", gramps_id=gramps_id)
+
+    def list_family_events(self, gramps_id: str) -> dict[str, object]:
+        return self._host("/find/family-events", gramps_id=gramps_id)
+
+    def list_notes(self, gramps_id: str, kind: str = "person") -> dict[str, object]:
+        return self._host("/find/notes", gramps_id=gramps_id, kind=kind)
+
+    def list_associations(self, gramps_id: str) -> dict[str, object]:
+        return self._host("/find/associations", gramps_id=gramps_id)
+
     def _store(self) -> proposals.Store:
         """The store inside the blessed copy. **The blessing is the permission.**
 
@@ -847,6 +907,22 @@ def build_server(tools: Tools) -> MCPServer:
     @server.tool(name="list_events", description=LIST_EVENTS_DESCRIPTION)
     def list_events(gramps_id: str) -> dict[str, object]:
         return tools.list_events(gramps_id)
+
+    @server.tool(name="find_families", description=FIND_FAMILIES_DESCRIPTION)
+    def find_families(gramps_id: str) -> dict[str, object]:
+        return tools.find_families(gramps_id)
+
+    @server.tool(name="list_family_events", description=LIST_FAMILY_EVENTS_DESCRIPTION)
+    def list_family_events(gramps_id: str) -> dict[str, object]:
+        return tools.list_family_events(gramps_id)
+
+    @server.tool(name="list_notes", description=LIST_NOTES_DESCRIPTION)
+    def list_notes(gramps_id: str, kind: str = "person") -> dict[str, object]:
+        return tools.list_notes(gramps_id, kind)
+
+    @server.tool(name="list_associations", description=LIST_ASSOCIATIONS_DESCRIPTION)
+    def list_associations(gramps_id: str) -> dict[str, object]:
+        return tools.list_associations(gramps_id)
 
     @server.tool(name="propose_document", description=PROPOSE_DOCUMENT_DESCRIPTION)
     def propose_document(graph: dict[str, object]) -> dict[str, object]:

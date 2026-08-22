@@ -135,6 +135,42 @@ def _public(obj: typing.Any) -> typing.Any:
     return obj
 
 
+WITHHELD = "(name withheld)"
+"""What a private name renders as.
+
+⛔ **The person may be public while their NAME is not** -- the frozen checklist
+records ``name/priv`` beside ``person/priv``. There is no way to show a name that
+is marked private, so the identity check the display exists for degrades to *you
+cannot confirm this, so do not proceed*. That is the correct failure: the owner
+cancels. ⚠️ It is NOT the same as the private-birth-date case, where hiding the
+date must never cost the name -- here the name itself is the private thing."""
+
+
+def _name_spellings(name: typing.Any) -> list[str]:
+    """Every spelling inside one ``Name``, or nothing if that name is private.
+
+    ⛔ **This is the INDEXING half, and it is the subtler leak.** The search
+    corpus was built from the primary name and every alternate, ungated -- so a
+    private alternate spelling was *searchable*. The name itself never reached
+    the wire, which is exactly what made it hard to see: **the route became an
+    oracle for a name marked private**, and nothing on the wire looked wrong.
+    """
+    if _public(name) is None:
+        return []
+    out = [name.get_first_name(), name.get_surname()]
+    for surname in name.get_surname_list() or []:
+        out.append(surname.get_surname())
+    return [part for part in out if part]
+
+
+def _name_shown(name: typing.Any) -> str:
+    """One ``Name`` as the owner reads it, or ``WITHHELD``. ⛔ The RENDERING half."""
+    if _public(name) is None:
+        return WITHHELD
+    parts = [part for part in (name.get_surname(), name.get_first_name()) if part]
+    return ", ".join(parts) or "(no name)"
+
+
 def _person_names(person: typing.Any) -> list[str]:
     """Every spelling of a person's name the tree holds -- primary AND alternates.
 
@@ -149,19 +185,18 @@ def _person_names(person: typing.Any) -> list[str]:
     for name in [person.get_primary_name(), *person.get_alternate_names()]:
         if name is None:
             continue
-        out.append(name.get_first_name())
-        for surname in name.get_surname_list() or []:
-            out.append(surname.get_surname())
-        out.append(name.get_surname())
-    return [part for part in out if part]
+        out.extend(_name_spellings(name))
+    return out
 
 
 def _person_display(person: typing.Any, database: typing.Any) -> str:
-    name = person.get_primary_name()
-    shown = ", ".join(p for p in (name.get_surname(), name.get_first_name()) if p) or "(no name)"
+    shown = _name_shown(person.get_primary_name())
     try:
         birth = person.get_birth_ref()
-        if birth is not None:
+        # ⛔ The REFERENCE carries its own ``priv``, separately from the event
+        # it points at. A public person joined to a public event by a PRIVATE
+        # EventRef was leaking the date the reference was marked to hide.
+        if birth is not None and _public(birth) is not None:
             event = _public(database.get_event_from_handle(birth.ref))
             # ⛔ The EVENT's own flag, not just the person's. A public person
             # whose birth event is marked private was leaking that event's date
@@ -323,6 +358,8 @@ def list_events(person_gramps_id: str) -> reads.Found:
         return reads.Found()
     rows = []
     for ref in person.get_event_ref_list():
+        if _public(ref) is None:
+            continue
         event = _public(database.get_event_from_handle(ref.ref))
         if event is None:
             continue
@@ -339,6 +376,221 @@ def list_events(person_gramps_id: str) -> reads.Found:
             part for part in (str(event.get_type()), str(date) if date else "", place) if part
         )
         rows.append((bool(event.get_privacy()), reads.Match(event.get_gramps_id(), shown)))
+    return reads.bound(rows)
+
+
+def _family_display(database: typing.Any, family: typing.Any) -> str:
+    """A family as the owner recognises it: the couple, and how many children."""
+    parts = []
+    for handle in (family.get_father_handle(), family.get_mother_handle()):
+        if not handle:
+            continue
+        person = _public(database.get_person_from_handle(handle))
+        if person is not None:
+            parts.append(_person_display(person, database))
+    shown = " + ".join(parts) or "(no parents recorded)"
+    # ⛔ Counted through the gate, exactly like the parents above. A raw
+    # ``len(get_child_ref_list())`` on a PUBLIC family reports its private
+    # children too -- "[3 children]" where two are public announces that a
+    # hidden one exists. That is the leak by arithmetic ``reads.bound`` is built
+    # to prevent, arriving through a display string instead of through a count.
+    children = 0
+    for ref in family.get_child_ref_list():
+        if _public(ref) is None:
+            continue
+        if _public(database.get_person_from_handle(ref.ref)) is not None:
+            children += 1
+    return shown + (f"  [{children} children]" if children else "")
+
+
+def _membership_is_public(family: typing.Any, person_handle: typing.Any) -> bool:
+    """Whether this person's membership of this family may be shown at all.
+
+    ⛔ **The backlink carries no reference, which is why this is needed.**
+    ``get_parent_family_handle_list()`` returns HANDLES, so the ``ChildRef``
+    marked private lives on the FAMILY's side and nothing on the person's side
+    points at it. Walking from the child therefore reached a public family with
+    public parents and returned it, publishing the one fact that was marked
+    private: **that this child belongs to this household.**
+
+    ⚠️ **The reference gate does not cover this, and the difference is worth
+    stating.** ``test_every_reference_is_gated_before_it_is_followed`` bounds
+    dereferences of a ``.ref``; there is no ``.ref`` on this path. A rule about
+    how references are followed cannot see a leak that follows a bare handle.
+
+    Returns True when the person is not a child of this family -- a spouse link
+    is two handle slots on the family and carries no privacy flag of its own.
+    """
+    for ref in family.get_child_ref_list():
+        if ref.ref == person_handle:
+            return _public(ref) is not None
+    return True
+
+
+@mainthread.on_main_thread
+def find_families(person_gramps_id: str) -> reads.Found:
+    """The families one person belongs to, as spouse or as child.
+
+    ⭐ **This is what closes the gap that a Marriage License exposed.** A marriage
+    belongs to a FAMILY, and ``list_events`` takes a person -- so the state of a
+    family-level record could not be determined at all, and the same wall stands
+    in front of every household census.
+
+    ⛔ **Refused BY NAME if the person is private**, and a private family is
+    dropped from the listing rather than reported -- ruling 1's two enforcement
+    points, as everywhere else.
+    """
+    wanted = reads.require_term(person_gramps_id)
+    if _DBSTATE is None:
+        return reads.Found()
+    database = _DBSTATE.db
+    existed, person = _by_gramps_id(database, "person", wanted)
+    if existed and person is None:
+        raise reads.TargetIsPrivate(
+            f"{wanted} is marked private in this tree, so their families cannot be listed"
+        )
+    if person is None:
+        return reads.Found()
+
+    rows = []
+    seen = set()
+    for handle in [
+        *person.get_family_handle_list(),
+        *person.get_parent_family_handle_list(),
+    ]:
+        if handle in seen:
+            continue
+        seen.add(handle)
+        raw = database.get_family_from_handle(handle)
+        family = _public(raw)
+        if family is None:
+            continue
+        # ⛔ The MEMBERSHIP can be private while both ends are public.
+        if not _membership_is_public(family, person.get_handle()):
+            continue
+        rows.append((False, reads.Match(family.get_gramps_id(), _family_display(database, family))))
+    return reads.bound(rows)
+
+
+@mainthread.on_main_thread
+def list_family_events(family_gramps_id: str) -> reads.Found:
+    """A family's own events -- marriage, and anything else recorded on the couple.
+
+    ⚠️ **Marriages are not on either person.** Asking a person for their events
+    and concluding there is no marriage is how a second marriage record gets
+    entered for a couple who already have one.
+    """
+    wanted = reads.require_term(family_gramps_id)
+    if _DBSTATE is None:
+        return reads.Found()
+    database = _DBSTATE.db
+    existed, family = _by_gramps_id(database, "family", wanted)
+    if existed and family is None:
+        raise reads.TargetIsPrivate(f"family {wanted} is marked private in this tree")
+    if family is None:
+        return reads.Found()
+
+    rows = []
+    for ref in family.get_event_ref_list():
+        if _public(ref) is None:
+            continue
+        raw = database.get_event_from_handle(ref.ref)
+        event = _public(raw)
+        if event is None:
+            continue
+        date = event.get_date_object()
+        place = ""
+        if event.get_place_handle():
+            found = _public(database.get_place_from_handle(event.get_place_handle()))
+            if found is not None:
+                place = found.get_name().get_value() or found.get_title() or ""
+        shown = " ".join(
+            part for part in (str(event.get_type()), str(date) if date else "", place) if part
+        )
+        rows.append((False, reads.Match(event.get_gramps_id(), shown)))
+    return reads.bound(rows)
+
+
+@mainthread.on_main_thread
+def list_notes(gramps_id: str, kind: str = "person") -> reads.Found:
+    """The notes attached to one record, so a manual cleanup can name them.
+
+    ⚠️ **Written because the note IDs for a cleanup could not be produced at
+    all** -- they were reachable only by reading an export by hand.
+    """
+    wanted = reads.require_term(gramps_id)
+    asked = str(kind or "person")
+    if asked not in NOTE_KINDS:
+        # ⛔ Refuse rather than default to "person". Silently retargeting means a
+        # misspelt kind answers about a different object entirely, and "no
+        # notes" is a result a caller acts on.
+        raise reads.UnknownKind(
+            f"{asked!r} is not a kind of record this can look up. "
+            "Use one of: " + ", ".join(NOTE_KINDS)
+        )
+    if _DBSTATE is None:
+        return reads.Found()
+    database = _DBSTATE.db
+    existed, obj = _by_gramps_id(database, asked, wanted)
+    if existed and obj is None:
+        raise reads.TargetIsPrivate(f"{wanted} is marked private in this tree")
+    if obj is None:
+        return reads.Found()
+
+    rows = []
+    for handle in obj.get_note_list():
+        raw = database.get_note_from_handle(handle)
+        note = _public(raw)
+        if note is None:
+            continue
+        text = " ".join((note.get() or "").split())
+        rows.append(
+            (
+                False,
+                reads.Match(note.get_gramps_id(), text[:200] + ("..." if len(text) > 200 else "")),
+            )
+        )
+    return reads.bound(rows)
+
+
+@mainthread.on_main_thread
+def list_associations(person_gramps_id: str) -> reads.Found:
+    """A person's associations -- godparents and the like. ⛔ READ ONLY.
+
+    ⚠️ **Stored as ``personref`` with a relationship string**, and findable until
+    now only by grepping an export. Exposing them prevents entering a godparent
+    who is already recorded; ⛔ **writing them is a vocabulary change and has no
+    use-derived trigger**, so this reads and nothing more.
+    """
+    wanted = reads.require_term(person_gramps_id)
+    if _DBSTATE is None:
+        return reads.Found()
+    database = _DBSTATE.db
+    existed, person = _by_gramps_id(database, "person", wanted)
+    if existed and person is None:
+        raise reads.TargetIsPrivate(
+            f"{wanted} is marked private in this tree, so their associations cannot be listed"
+        )
+    if person is None:
+        return reads.Found()
+
+    rows = []
+    for ref in person.get_person_ref_list():
+        if _public(ref) is None:
+            continue
+        raw = database.get_person_from_handle(ref.ref)
+        other = _public(raw)
+        if other is None:
+            continue
+        relation = ref.get_relation() or "(unspecified)"
+        rows.append(
+            (
+                False,
+                reads.Match(
+                    other.get_gramps_id(), f"{relation}: {_person_display(other, database)}"
+                ),
+            )
+        )
     return reads.bound(rows)
 
 
@@ -370,12 +622,12 @@ def resolve_nodes(graph: dict[str, typing.Any]) -> document.Resolution:
     database = _DBSTATE.db
     found: list[document.Resolved] = []
     for request in document.requested(parsed):
-        raw = _by_gramps_id(database, request.kind, request.gramps_id)
-        # ⛔ The gate, here too. ``/resolve`` used to answer found=True for a
-        # private record, which confirmed its existence to the agent -- the same
-        # class as the two display leaks, on the WRITE path rather than a read.
-        obj = _public(raw)
-        private = raw is not None and obj is None
+        # ⛔ The gate lives inside the fetch now, so nothing ungated arrives here.
+        # ``/resolve`` used to answer found=True for a private record, which
+        # confirmed its existence to the agent -- the same class as the display
+        # leaks, on the WRITE path rather than a read.
+        existed, obj = _by_gramps_id(database, request.kind, request.gramps_id)
+        private = existed and obj is None
         found.append(
             document.Resolved(
                 local_id=request.local_id,
@@ -389,19 +641,51 @@ def resolve_nodes(graph: dict[str, typing.Any]) -> document.Resolution:
     return document.Resolution(nodes=tuple(found))
 
 
-def _by_gramps_id(database: typing.Any, kind: str, gramps_id: str) -> typing.Any:
-    """The object that Gramps ID names, or ``None``. ⛔ Never creates anything."""
-    getter = {
-        "person": "get_person_from_gramps_id",
-        "place": "get_place_from_gramps_id",
-        "source": "get_source_from_gramps_id",
-    }.get(kind)
-    if getter is None:
-        return None
+NOTE_KINDS = ("person", "place", "source", "family")
+"""Every kind ``_by_gramps_id`` can look up, and therefore every kind a read may
+name.
+
+⚠️ **This is a second list of something the code below already spells**, which is
+precisely the shape that produced the counter bug this branch also fixes -- two
+tallies with nothing making them agree. It is not derived here because deriving
+it at import time would mean parsing our own source to answer a constant. So it
+is **pinned by test instead**: ``tests/unit/test_accessor_reads.py`` reads
+``_by_gramps_id``'s branches and fails if the two ever disagree."""
+
+
+def _by_gramps_id(database: typing.Any, kind: str, gramps_id: str) -> tuple[bool, typing.Any]:
+    """``(it exists, the GATED object)`` for a Gramps ID. ⛔ Never creates anything.
+
+    ⭐ **No raw object leaves this function**, and that is the point of the return
+    shape. It used to hand one back and rely on ``resolve_nodes`` to gate it --
+    issue #103's first bullet, where a future edit to the caller would remove the
+    protection and nothing would fire.
+
+    The boolean carries the one fact the caller needs that the gated object
+    cannot: **present-but-private** looks exactly like **absent** once gated, and
+    ruling 1 requires those two to stay distinguishable.
+
+    ⚠️ **Explicit branches rather than a ``getattr`` dispatch**, also deliberate:
+    the dispatch was invisible to ``tests/unit/test_accessor_privacy_gate.py``,
+    whose pattern needs a call whose callee is syntactically an attribute.
+    Spelled out, every fetch here is one the guard can see.
+    """
     try:
-        return getattr(database, getter)(gramps_id)
+        if kind == "person":
+            obj = database.get_person_from_gramps_id(gramps_id)
+            return obj is not None, _public(obj)
+        if kind == "place":
+            obj = database.get_place_from_gramps_id(gramps_id)
+            return obj is not None, _public(obj)
+        if kind == "source":
+            obj = database.get_source_from_gramps_id(gramps_id)
+            return obj is not None, _public(obj)
+        if kind == "family":
+            obj = database.get_family_from_gramps_id(gramps_id)
+            return obj is not None, _public(obj)
     except Exception:
-        return None
+        return False, None
+    return False, None
 
 
 def _display_of(database: typing.Any, kind: str, obj: typing.Any) -> str:
@@ -413,13 +697,9 @@ def _display_of(database: typing.Any, kind: str, obj: typing.Any) -> str:
     """
     try:
         if kind == "person":
-            name = obj.get_primary_name()
-            shown = (
-                ", ".join(part for part in (name.get_surname(), name.get_first_name()) if part)
-                or "(no name)"
-            )
+            shown = _name_shown(obj.get_primary_name())
             birth = obj.get_birth_ref()
-            if birth is not None:
+            if birth is not None and _public(birth) is not None:
                 event = _public(database.get_event_from_handle(birth.ref))
                 # ⛔ ``None`` here means the birth event is PRIVATE, and only the
                 # DATE is dropped for it -- never the name.
@@ -448,6 +728,14 @@ def _display_of(database: typing.Any, kind: str, obj: typing.Any) -> str:
             title = str(obj.get_title() or "(untitled)")
             author = str(obj.get_author() or "")
             return f"{title} -- {author}" if author else title
+        if kind == "family":
+            # ⛔ Without this branch a resolved family fell through to "(could
+            # not read its name)" while ``preview`` ALSO listed it under CREATING
+            # NEW -- so the dialog described creating a household that the writer
+            # was going to append children to. **The owner would have approved a
+            # different operation from the one that runs**, which is R3's whole
+            # criterion. ``document.preview`` is what renders this.
+            return _family_display(database, obj)
     except Exception:
         # A display string is not worth failing a lookup over. The id resolved;
         # that is the load-bearing fact.

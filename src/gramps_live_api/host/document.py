@@ -81,20 +81,26 @@ def blessing_of(tree_dir: str | None) -> Blessing:
     return Blessing(blessed=True, message=tree_dir)
 
 
-ATTACHABLE = ("people", "places", "source")
+ATTACHABLE = ("people", "places", "source", "families")
 """⭐ The three node kinds that may carry a ``gramps_id`` and mean *this one*.
 
 **Events are deliberately absent**: their handles are invisible in the Gramps UI,
 so nobody could supply one and a field nobody can fill is a field that only ever
-holds a mistake. Citations, families and notes are always created -- a document
-asserting a relationship is asserting a NEW claim about it, even between people
-who already exist.
+holds a mistake. Citations and notes are always created -- a document asserting a
+fact is asserting a NEW claim about it, even about people who already exist.
+
+⭐ **Families joined this list, and that is OQ-3 closed.** A family is not a claim
+the way a citation is -- it is a record of a couple, and a tree holds one per
+couple. Creating a second for a couple who already have one is the duplicate
+problem in its most confusing form, because Gramps then shows the children split
+across two households. A family Gramps ID is visible in the UI, so it can be
+supplied.
 
 ⭐ **Sources belong here as much as people do.** The same parish register gets
 cited across many documents, and twelve copies of it is the same defect as twelve
 copies of a person."""
 
-IGNORED_WHEN_ATTACHING = ("given", "surname", "gender", "title", "author", "pubinfo")
+IGNORED_WHEN_ATTACHING = ("given", "surname", "gender", "title", "author", "pubinfo", "parents")
 """Fields that describe an object, and are therefore NOT applied to one that
 already exists.
 
@@ -220,6 +226,9 @@ def requested(graph: Graph) -> tuple[Requested, ...]:
     for entry in graph.places:
         if entry.get("gramps_id"):
             out.append(Requested(str(entry["id"]), str(entry["gramps_id"]), "place"))
+    for entry in graph.families:
+        if entry.get("gramps_id"):
+            out.append(Requested(str(entry["id"]), str(entry["gramps_id"]), "family"))
     if graph.source and graph.source.get("gramps_id"):
         out.append(
             Requested(
@@ -391,7 +400,6 @@ def parse(body: Any) -> Graph:
     for group, one, items in (
         ("events", "event", events),
         ("citations", "citation", citations),
-        ("families", "family", families),
     ):
         for item in items:
             if item.get("gramps_id"):
@@ -509,6 +517,7 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
     resolved = (resolution or Resolution()).by_local_id()
     people_by_id = {p.get("id"): p for p in graph.people}
     places_by_id = {p.get("id"): p for p in graph.places}
+    families_by_id = {f.get("id"): f for f in graph.families}
     source_id = graph.source.get("id") if graph.source else None
 
     shown_events: set[int] = set()
@@ -572,9 +581,53 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
             entry = (
                 people_by_id.get(node.local_id)
                 or places_by_id.get(node.local_id)
+                or families_by_id.get(node.local_id)
                 or (graph.source if graph.source and source_id == node.local_id else {})
                 or {}
             )
+            # ⭐ An existing family is ADDED TO, and this is the line that says
+            # what the addition is. Without it the owner approved "attach to this
+            # household" with no statement of what would be put in it.
+            if node.local_id in families_by_id:
+                # ⛔ De-duplicated, because the WRITER de-duplicates. A graph may
+                # name the same child twice, and two local ids may name the same
+                # gramps_id -- the writer passes the resolved handles through
+                # ``_unique`` and adds one ChildRef, so rendering the person
+                # twice makes the owner approve, and the journal record, an
+                # addition that never happens.
+                #
+                # ⚠️ Keyed on the resolved gramps_id where there is one, which is
+                # as close to the writer's handle-level identity as a renderer
+                # that never touches the database can get. Two distinct NEW
+                # people become two distinct records anyway, so the local id is
+                # the right key for them.
+                seen_children: set[Any] = set()
+                joining = []
+                for child in entry.get("children") or []:
+                    resolved_child = resolved.get(child)
+                    key = (
+                        resolved_child.gramps_id
+                        if resolved_child is not None and resolved_child.found
+                        else child
+                    )
+                    if key in seen_children:
+                        continue
+                    seen_children.add(key)
+                    joining.append(named_node(child))
+                # ⛔ This line speaks about CHILDREN and nothing else. Saying
+                # "nothing would be added to this family" was a claim about the
+                # whole operation, and it was false: a citation or a note whose
+                # attach_to names the family IS committed onto it -- ``family``
+                # is in the writer's commit table -- and ``attached_to`` renders
+                # exactly that, three lines below, contradicting it.
+                out.extend(
+                    _wrap(
+                        "adding as children: " + ", ".join(joining)
+                        if joining
+                        else "no children named for this family",
+                        "      + ",
+                    )
+                )
             dropped = dropped_fields(entry)
             if dropped:
                 out.extend(
@@ -591,8 +644,14 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
     creating_people = [p for p in graph.people if p.get("id") not in resolved]
     creating_places = [p for p in graph.places if p.get("id") not in resolved]
     creating_source = graph.source if graph.source and source_id not in resolved else None
+    # ⛔ Families split like everything else. Rendering ALL of them here said
+    # "creating a new household" for a family the writer was going to APPEND
+    # CHILDREN TO -- and the same family was listed under ATTACHING TO EXISTING
+    # at the same time, so the dialog described two different operations at once
+    # and neither was the one that would run.
+    creating_families = [f for f in graph.families if f.get("id") not in resolved]
 
-    if creating_people or creating_places or creating_source or graph.families:
+    if creating_people or creating_places or creating_source or creating_families:
         out.append("CREATING NEW")
         out.append("")
         if creating_source:
@@ -611,7 +670,7 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
         for place in creating_places:
             out.append("  Place   " + str(place.get("title") or "?"))
             out.extend(attached_to(place.get("id"), "      "))
-        for family in graph.families:
+        for family in creating_families:
             parents = " + ".join(named_node(x) for x in (family.get("parents") or []))
             children = ", ".join(named_node(c) for c in (family.get("children") or []))
             out.append("  Family  " + (parents or "(no parents named)"))
@@ -786,12 +845,45 @@ def caller_preview(graph: Graph) -> str:
     for label, items in (
         ("events", graph.events),
         ("citations", graph.citations),
-        ("families", graph.families),
         ("notes", graph.notes),
     ):
         if items:
             out.append(f"  {len(items)} {label} (always created new)")
+    # ⛔ Families are NOT always created new any more, and saying so here was a
+    # false statement to the caller about what its own proposal would do. One
+    # carrying a gramps_id is added to instead.
+    joining = [f for f in graph.families if f.get("gramps_id")]
+    new_families = [f for f in graph.families if not f.get("gramps_id")]
+    if new_families:
+        out.append(f"  {len(new_families)} families (created new)")
+    if joining:
+        out.append(
+            f"  {len(joining)} families (adding children to a family already in the tree; "
+            "its recorded parents are not changed)"
+        )
     return "\n".join(out).rstrip()
+
+
+CREATABLE = ("people", "events", "places", "families", "citations", "notes", "sources")
+"""Every kind ``writer.write`` can create. ⛔ **One list, and the summary derives
+from it**, because two tallies drift and one cannot."""
+
+
+def summarise_created(created: dict[str, list[str]]) -> str:
+    """What a write actually made, from the record of what it made.
+
+    ⛔ **Derived, never hand-maintained.** The writer used to keep a second
+    ``counts`` dict beside the record of created objects -- and that dict had six
+    keys where the record had seven. **A source was written and the log line said
+    zero sources**, which is worse than cosmetic: that line had already been used
+    as evidence for what a write did.
+
+    ⚠️ **A diagnostic that under-reports reads as evidence of absence.** So the
+    second tally is deleted rather than corrected: a kind that is created is a
+    kind that is counted, by construction.
+    """
+    parts = [f"{len(created.get(kind) or ())} {kind}" for kind in CREATABLE if created.get(kind)]
+    return ", ".join(parts) or "nothing"
 
 
 def summary(graph: Graph) -> str:

@@ -1527,6 +1527,40 @@ Enforced by `tests/integration/test_repository_hygiene.py`.
 
 Nothing else is covered by either exception.
 
+## Working against a running Gramps
+
+⛔ **Deleting a plugin's source does not unhook a callback a running Gramps has already
+connected.** `database-changed` handlers survive removal of the file that registered them until the
+process restarts. **Disarming requires a Gramps restart, or an explicit disconnect.**
+
+**Observed 2026-08-22.** A throwaway probe was copied into the plugin directory to exercise the
+family attach-to-existing write path. Gramps was restarted, the probe armed, and no tree was open,
+so it did not run. The probe's files were then deleted and it was **reported as disarmed**. It was
+not: the running Gramps still held the connected handler, so the probe fired unattended the next
+time a tree was opened and **wrote to it with no dialog.**
+
+The damage was contained -- blessed copy only, every value invented, and the probe re-checked the
+sentinel before writing -- and its six checks passed. ⚠️ **But the safeguard that had been described
+was not the safeguard that was in place**, which is the part worth remembering. *"I removed the
+files"* is a statement about the disk. It is never a statement about what a live Gramps is still
+running.
+
+⚠️ **This is not probe-specific.** `gramps_live_api_host.py` connects to the same signal in
+`load_on_reg`. Any reasoning of the form *"that code is gone, so it cannot run"* is wrong for the
+lifetime of the process that loaded it.
+
+**So, for anything that writes:**
+
+- disarm by **restarting Gramps**, not by deleting files;
+- prefer a probe that requires something a restart clears -- the in-memory `_DONE` guard the
+  existing probes use is what stopped this one running twice;
+- and treat the window between *"I deleted it"* and *"Gramps restarted"* as **armed**.
+
+⭐ **Recorded because the session that caused it reported it, unprompted and before it was asked
+about.** No review round and no reviewer found this; the record should not read as though one did,
+because the lesson then becomes *"reviewers catch this"* rather than *"say what you actually
+verified."*
+
 ## Commits
 
 Conventional commits (`feat:`, `fix:`, `test:`, `chore:`, `docs:`). The commit message says what

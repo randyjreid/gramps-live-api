@@ -326,3 +326,159 @@ def test_a_citation_may_support_any_kind_of_node() -> None:
         }
     )
     assert len(graph.citations) == 1
+
+
+# ---------------------------------------------------------------------------
+# Round 1's blocking finding: an attached family described as a new one.
+# ---------------------------------------------------------------------------
+
+ATTACHED_FAMILY_GRAPH = dict(
+    people=[node("pn", given="Wilhelmina", surname="Newcomer", gender="female")],
+    families=[node("f1", gramps_id="F0100", parents=["pn"], children=["pn"])],
+)
+
+ATTACHED_FAMILY_RESOLUTION = document.Resolution(
+    nodes=(
+        document.Resolved(
+            "f1", "F0100", "family", True, "Kettleby, Bartholomew + Kettleby, Susanna  [2 children]"
+        ),
+    )
+)
+
+
+def test_an_attached_family_is_not_described_as_a_new_one() -> None:
+    """⛔ The owner must not be asked to approve a different operation.
+
+    The writer APPENDS CHILDREN to a family that already exists. The preview
+    listed every family under ``CREATING NEW`` regardless -- so the dialog
+    described creating a household, and the write modified one. That is R3's
+    criterion, which is that no byte reaches the tree that was not rendered to
+    the human, failing on the description rather than on the bytes.
+    """
+    rendered = document.preview(document.parse(ATTACHED_FAMILY_GRAPH), ATTACHED_FAMILY_RESOLUTION)
+
+    creating = rendered.split("CREATING NEW", 1)
+    if len(creating) > 1:
+        assert "F0100" not in creating[1], (
+            "the family being ATTACHED TO is listed under CREATING NEW:\n" + rendered
+        )
+        assert "Kettleby" not in creating[1]
+
+    assert "ATTACHING TO EXISTING" in rendered
+    attaching = rendered.split("ATTACHING TO EXISTING", 1)[1].split("CREATING NEW", 1)[0]
+    assert "F0100" in attaching, "the attached family is not under ATTACHING TO EXISTING"
+    assert "Kettleby, Bartholomew" in attaching, (
+        "the household the owner is attaching to is unnamed, so he cannot notice "
+        "it is the wrong one"
+    )
+
+
+def test_the_preview_says_what_is_being_added_to_the_family() -> None:
+    """⛔ *Attach to this family* is not an operation until it says what joins it."""
+    rendered = document.preview(document.parse(ATTACHED_FAMILY_GRAPH), ATTACHED_FAMILY_RESOLUTION)
+
+    assert "adding as children" in rendered, (
+        "the preview names the family but never says what would be put in it:\n" + rendered
+    )
+    assert "Newcomer" in rendered
+
+
+def test_the_document_parents_are_reported_as_not_applied() -> None:
+    """⛔ Attaching never rewrites recorded parents, and must say so."""
+    rendered = document.preview(document.parse(ATTACHED_FAMILY_GRAPH), ATTACHED_FAMILY_RESOLUTION)
+
+    assert "parents" in rendered and "NOT applied" in rendered, (
+        "the graph gave parents for an existing family and the preview did not "
+        "say they would be ignored:\n" + rendered
+    )
+
+
+def test_caller_preview_no_longer_claims_families_are_always_new() -> None:
+    """⛔ It told the caller its own proposal would do something it would not."""
+    rendered = document.caller_preview(document.parse(ATTACHED_FAMILY_GRAPH))
+
+    assert "always created new" not in rendered, (
+        "caller_preview still claims every family is created new:\n" + rendered
+    )
+    assert "already in the tree" in rendered
+
+
+CITATION_ONLY_FAMILY_GRAPH = dict(
+    people=[node("pn", given="Wilhelmina", surname="Newcomer", gender="female")],
+    source=node("s1", title="Parish register"),
+    families=[node("f1", gramps_id="F0100")],
+    citations=[node("c1", source="s1", page="12", attach_to=["f1"])],
+)
+
+
+def test_a_citation_only_family_attachment_is_not_called_a_no_op() -> None:
+    """⛔ The preview said nothing would be added, then rendered what would.
+
+    ``family`` is in the writer's commit table, so a citation whose ``attach_to``
+    names a family IS committed onto it. The line claiming otherwise was a
+    statement about the whole operation when it only knew about children — and
+    ``attached_to`` renders the citation immediately below, so the approval text
+    contradicted itself on the same screen.
+    """
+    rendered = document.preview(
+        document.parse(CITATION_ONLY_FAMILY_GRAPH), ATTACHED_FAMILY_RESOLUTION
+    )
+
+    assert "nothing would be added" not in rendered, (
+        "the preview calls a real citation attachment a no-op:\n" + rendered
+    )
+    assert "no children named" in rendered, (
+        "it should still say the family gains no CHILDREN -- that part was true"
+    )
+    assert "Parish register" in rendered or "c1" in rendered or "Citation" in rendered, (
+        "and the citation that IS being attached must appear:\n" + rendered
+    )
+
+
+DUPLICATE_CHILD_GRAPH = dict(
+    people=[
+        node("pn", given="Wilhelmina", surname="Newcomer", gender="female"),
+        node("pa", gramps_id="I0500"),
+        node("pb", gramps_id="I0500"),
+    ],
+    families=[node("f1", gramps_id="F0100", children=["pn", "pn", "pa", "pb"])],
+)
+
+DUPLICATE_CHILD_RESOLUTION = document.Resolution(
+    nodes=(
+        document.Resolved(
+            "f1", "F0100", "family", True, "Kettleby, Bartholomew + Kettleby, Susanna"
+        ),
+        document.Resolved("pa", "I0500", "person", True, "Kettleby, Tobias"),
+        document.Resolved("pb", "I0500", "person", True, "Kettleby, Tobias"),
+    )
+)
+
+
+def test_a_child_named_twice_is_previewed_once() -> None:
+    """⛔ The preview promised two additions the writer would never make.
+
+    The writer passes resolved handles through ``_unique`` and adds one
+    ``ChildRef``. Rendering the person twice makes the owner approve — and the
+    journal record — an addition that does not happen.
+    """
+    rendered = document.preview(document.parse(DUPLICATE_CHILD_GRAPH), DUPLICATE_CHILD_RESOLUTION)
+    line = next(row for row in rendered.splitlines() if "adding as children" in row)
+
+    assert line.count("Wilhelmina") == 1, f"the same local id was rendered twice: {line!r}"
+
+
+def test_two_local_ids_naming_one_person_are_previewed_once() -> None:
+    """⛔ The subtler half: distinct local ids, one Gramps ID, one person.
+
+    ⚠️ ``document.preview`` never touches the database, so handle identity is not
+    available to it — but the resolved ``gramps_id`` is, and that is the same
+    fact by another name.
+    """
+    rendered = document.preview(document.parse(DUPLICATE_CHILD_GRAPH), DUPLICATE_CHILD_RESOLUTION)
+    attaching = rendered.split("ATTACHING TO EXISTING", 1)[1].split("CREATING NEW", 1)[0]
+    line = next(row for row in attaching.splitlines() if "adding as children" in row)
+
+    assert line.count("I0500") == 1, (
+        f"one person reached by two local ids was rendered twice: {line!r}"
+    )
