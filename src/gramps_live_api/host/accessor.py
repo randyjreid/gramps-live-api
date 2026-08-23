@@ -1254,6 +1254,36 @@ def _change_stamp(obj: typing.Any) -> int | None:
     return None
 
 
+def _iso_for_any_interpreter(raw: str) -> str:
+    """An ISO string ``fromisoformat`` accepts on **3.10 as well as 3.12**.
+
+    ⛔ **``fromisoformat``'s definition comes from the INTERPRETER, not from
+    ISO 8601**, and this project's floor is 3.10 while its gates run on the
+    developer's 3.12. **3.11 widened it to full ISO; 3.10 accepts only what
+    ``isoformat()`` emits** -- no ``Z``, and a fractional second of exactly three
+    or six digits.
+
+    ⚠️ **Measured, not supposed:** ``2026-08-01T12:00:00.5`` parsed locally and
+    returned ``None`` on CI's 3.10 legs, failing four jobs. That is this
+    project's recorded failure shape -- *a check whose answer varies with where
+    it runs, silently, because every test passes on the machine that wrote them.*
+
+    So the input is normalised here rather than delegated: ``Z`` becomes an
+    explicit offset, and a fractional second is padded or truncated to six
+    digits. **The behaviour is then the interpreter's only where they agree.**
+    """
+    import re
+
+    text = str(raw).strip()
+    if text.endswith(("Z", "z")):
+        text = text[:-1] + "+00:00"
+
+    def six_digits(match: re.Match[str]) -> str:
+        return "." + (match.group(1) + "000000")[:6]
+
+    return re.sub(r"\.(\d+)", six_digits, text, count=1)
+
+
 def _as_epoch(text: str) -> int | None:
     """An ISO date or date-time as a unix timestamp, or ``None``.
 
@@ -1273,7 +1303,7 @@ def _as_epoch(text: str) -> int | None:
     # rejected by the code that documents it.** The same shape as every other
     # enumeration in this project: a list of spellings standing in for a format.
     try:
-        parsed = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        parsed = datetime.datetime.fromisoformat(_iso_for_any_interpreter(raw))
     except ValueError:
         parsed = None
     if parsed is not None:
