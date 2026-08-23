@@ -332,7 +332,14 @@ def parse(body: Any) -> Graph:
             if local in known:
                 raise GraphInvalid(f"the local id {local!r} is used more than once")
             known.add(local)
-            kind_of[local] = {"people": "person", "places": "place"}.get(group, group[:-1])
+            # ⚠️ ``group[:-1]`` is a naive singulariser and it was wrong for
+            # families -- it produced "familie". Nothing referenced a family
+            # until events gained one, so the bug sat here unreachable: a rule
+            # whose definition comes from the SPELLING rather than from the
+            # vocabulary, right up until a new spelling arrives.
+            kind_of[local] = {"people": "person", "places": "place", "families": "family"}.get(
+                group, group[:-1]
+            )
     if source is not None:
         # ⛔ Held to the SAME rule as every other node group. A source carrying a
         # ``gramps_id`` but no ``id`` used to be accepted, and a non-string id
@@ -375,6 +382,8 @@ def parse(body: Any) -> Graph:
         check(f"event {event.get('id')!r}'s place", event.get("place"), must_be="place")
         for person in event.get("people") or []:
             check(f"event {event.get('id')!r}", person, must_be="person")
+        # ⭐ A marriage belongs to a FAMILY, and until now nothing could say so.
+        check(f"event {event.get('id')!r}'s family", event.get("family"), must_be="family")
     for citation in citations:
         check(
             f"citation {citation.get('id')!r}'s source",
@@ -494,6 +503,12 @@ def _event_line(event: dict[str, Any], named: Any) -> str:
     role = str(event.get("role") or "").strip()
     if role and role.casefold() != "primary":
         bits.append(f"as {role}")
+    # ⛔ The household the event JOINS, named. R3's criterion is that no byte
+    # reaches the tree unrendered, and a marriage attaching to a family the owner
+    # never saw named is that criterion failing -- the write is small, this line
+    # is the reason the slice exists.
+    if event.get("family"):
+        bits.append("on the family " + named(event["family"]))
     return ", ".join(bits)
 
 
@@ -529,6 +544,16 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
         node = resolved.get(local_id)
         if node is not None and node.found:
             return f"{node.gramps_id}  {node.display}"
+        # ⭐ A family the graph is CREATING has no name of its own and no
+        # gramps_id to look up, so it is named by the couple it joins -- "the
+        # household on the line above", which is how the owner will read it.
+        # ⚠️ Without this a marriage rendered as "on the family f1", and a local
+        # id is not something anybody can recognise or refuse.
+        family = families_by_id.get(local_id)
+        if family is not None:
+            parents = [named_node(x) for x in (family.get("parents") or [])]
+            return " + ".join(parents) if parents else "the family being created"
+
         entry = people_by_id.get(local_id) or places_by_id.get(local_id) or {}
         if entry.get("title"):
             return str(entry["title"])
@@ -542,7 +567,11 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
         """Every event, citation and note that names ``local_id``, in full."""
         out: list[str] = []
         for index, event in enumerate(graph.events):
-            if local_id not in (event.get("people") or []):
+            # ⭐ An event reaches a node through its PEOPLE or through its FAMILY.
+            # Matching only people left a marriage rendered in the leftovers
+            # section rather than under the household it joins -- present, which
+            # is what R3 requires, but not where the owner is looking for it.
+            if local_id not in (event.get("people") or []) and event.get("family") != local_id:
                 continue
             shown_events.add(index)
             out.extend(_wrap("+ " + _event_line(event, named_node), indent))

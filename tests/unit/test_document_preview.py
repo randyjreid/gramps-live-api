@@ -482,3 +482,87 @@ def test_two_local_ids_naming_one_person_are_previewed_once() -> None:
     assert line.count("I0500") == 1, (
         f"one person reached by two local ids was rendered twice: {line!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# #105: an event that belongs to a family, and the preview that must name it.
+# ---------------------------------------------------------------------------
+
+FAMILY_EVENT_GRAPH = dict(
+    people=[
+        node("p1", given="Herbert", surname="Invented", gender="male"),
+        node("p2", given="Louise", surname="Madeup", gender="female"),
+    ],
+    families=[node("f1", parents=["p1", "p2"])],
+    events=[node("e1", type="Marriage", date="1946-12-14", family="f1")],
+)
+
+
+def test_a_family_event_names_the_household_it_joins() -> None:
+    """⛔ R3's criterion is that no byte reaches the tree unrendered.
+
+    **A marriage attaching to a household the owner never saw named is that
+    criterion failing.** The write is a few lines; this is the reason the slice
+    exists.
+    """
+    rendered = document.preview(document.parse(FAMILY_EVENT_GRAPH))
+
+    assert "Marriage" in rendered
+    assert "Herbert Invented + Louise Madeup" in rendered, (
+        "the household the marriage joins is not named:\n" + rendered
+    )
+    assert "f1" not in rendered, (
+        "the family is rendered as a LOCAL ID, which nobody can recognise or refuse"
+    )
+
+
+def test_a_family_event_renders_under_that_family() -> None:
+    """⚠️ Present is not the same as findable.
+
+    Matching events only by their ``people`` left the marriage in the leftovers
+    section -- rendered in full, so R3 held, but not where the owner looks.
+    """
+    rendered = document.preview(document.parse(FAMILY_EVENT_GRAPH))
+    family_line = next(
+        index for index, row in enumerate(rendered.splitlines()) if row.strip().startswith("Family")
+    )
+    following = "\n".join(rendered.splitlines()[family_line : family_line + 4])
+
+    assert "Marriage" in following, (
+        "the marriage does not appear under the family it joins:\n" + rendered
+    )
+
+
+def test_an_event_may_not_name_a_family_that_is_not_one() -> None:
+    """⛔ Same reference discipline as ``place`` and ``people``."""
+    for bad, why in (("nope", "not in this graph"), ("p1", "not a family")):
+        with pytest.raises(document.GraphInvalid) as invalid:
+            document.parse(
+                dict(
+                    people=[node("p1", given="Herbert", surname="Invented")],
+                    events=[node("e1", type="Marriage", family=bad)],
+                )
+            )
+        assert why in str(invalid.value), f"{bad!r}: {invalid.value}"
+
+
+def test_the_singulariser_names_a_family_a_family() -> None:
+    """⚠️ A latent bug that only a new reference could reach.
+
+    ``kind_of`` derived its singular by chopping the last letter, so ``families``
+    became ``familie``. Nothing referenced a family until events gained one --
+    **a rule whose definition came from the SPELLING rather than the vocabulary**,
+    unreachable right up until a new spelling arrived.
+    """
+    with pytest.raises(document.GraphInvalid) as invalid:
+        document.parse(
+            dict(
+                people=[node("p1", given="Herbert", surname="Invented")],
+                events=[node("e1", type="Marriage", family="p1")],
+            )
+        )
+
+    assert "familie" not in str(invalid.value), (
+        f"the error message calls a family a 'familie': {invalid.value}"
+    )
+    assert "not a family" in str(invalid.value)
