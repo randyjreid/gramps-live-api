@@ -65,11 +65,26 @@ commits nothing. The preview renders that record.
 **What it buys.** One code path, so agreement is exact by construction — the strongest guarantee
 available.
 
-⛔ **What it costs, and why this is not recommended.** The dry run must execute **inside Gramps on the
-main thread, before the dialog opens** — so the preview can no longer be rendered by the MCP server
-for `propose_document`, which today renders it with no Gramps at all. ⚠️ **That breaks the approval
-binding**: slice 2's whole point is that the dialog renders from the server's stored record. A dry run
-also doubles the main-thread work R8 caps, for every proposal.
+⛔ **CORRECTED after review. An earlier draft rejected this option for a reason that does not exist**,
+and the correction matters because it changes the comparison the owner is deciding on.
+
+That draft said a dry run **breaks the approval binding**. It does not. `propose_document` stores the
+graph; `approve_document` reloads **the stored graph**; `_present` renders the dialog inside Gramps.
+⭐ **The server's `caller_preview` is explicitly not the approval surface** — the dialog has never
+rendered from anything an agent passes at approval time. **A dry run performed in `_present`, from the
+stored graph, preserves that guarantee exactly.**
+
+**What it actually costs, which is the only objection that survives:**
+
+- ⛔ **It doubles the main-thread work, per proposal.** Gramps' connection is thread-bound, so the
+  dry run cannot leave the main thread, and R8 caps what one callback may do.
+- ⚠️ **`caller_preview` would no longer be able to describe attachment decisions** — it runs on the
+  server with no Gramps, so it could still summarise the graph but not say *"this child is already a
+  member"*. That is a real reduction in what the proposing side can tell the model, and it is a cost
+  rather than a blocker: the **dialog** stays complete, and the dialog is the surface R3 governs.
+- **It needs the write path to already be asynchronous** to absorb the extra main-thread time
+  comfortably — which R7's backup plan (§1a) independently requires. ⭐ **If that lands first, this
+  option gets cheaper.**
 
 ### Option C — assert agreement in tests rather than in structure
 
@@ -87,9 +102,18 @@ failure the privacy tests already had to be rescued from once.
 
 ## ⭐ Recommendation: A, with C's tests as the check on it
 
-**Option A is the only one that removes the class without breaking the approval binding.** The Plan
-is plain data, so `document.py` keeps its no-Gramps promise and the MCP server can still render a
-preview from a stored record.
+⚠️ **Recommended on cost and reach, NOT because B is unsafe** — an earlier draft said B broke the
+approval binding, and that was wrong. **B is the stronger guarantee of the two** (one code path, so
+agreement is exact rather than merely structural) and the honest reason to prefer A is that it keeps
+`caller_preview` able to describe attachment decisions and does not add main-thread work per
+proposal.
+
+**A removes the class without either cost.** The Plan is plain data, so `document.py` keeps its
+no-Gramps promise, the MCP server can still render from a stored record, and nothing extra runs
+inside `GLib.idle_add`.
+
+⭐ **If R7's asynchronous write path lands first, reopen this comparison.** B's only real objection is
+main-thread cost, and that is exactly what R7 §1a removes.
 
 **And C is not an alternative to A — it is how A is verified.** The residual risk in A is
 `execute()` drifting from `Plan`; a property test that runs both against a fake tree and requires the
