@@ -196,3 +196,10 @@ def test_a_family_event_ref_carries_the_family_role() -> None:
     assert "EventRoleType.FAMILY" in attach, (
         "a family event ref does not carry the family role: " + attach[:400]
     )
+    # ⛔ And UNCONDITIONALLY. Honouring a supplied role here made two inputs
+    # render identically and write differently: ``_event_line`` suppresses an
+    # explicit "Primary", so role:"Primary" and no role produced the same
+    # approval text while writing a PRIMARY ref and a FAMILY ref.
+    assert "_event_role(role_name)" not in attach, (
+        "the supplied role reaches the FAMILY ref; it governs person refs only"
+    )

@@ -466,13 +466,15 @@ def write(dbstate, graph):
 
             ref = EventRef()
             ref.ref = event_handle
-            # ⛔ FAMILY, not PRIMARY. A family event ref carries the family role
-            # in Gramps' own vocabulary, and `_event_role` defaults to PRIMARY --
-            # which is what made the dialog say one thing and the tree record
-            # another once before.
-            ref.set_role(
-                _event_role(role_name) if role_name else EventRoleType(EventRoleType.FAMILY)
-            )
+            # ⛔ FAMILY, ALWAYS -- the supplied role governs PERSON refs only.
+            #
+            # ⚠️ Honouring it here made two inputs indistinguishable in the
+            # dialog and different in the tree: ``_event_line`` suppresses an
+            # explicit "Primary", so role:"Primary" and no role at all render
+            # identically while writing a PRIMARY ref and a FAMILY ref
+            # respectively. **The approved text and the write disagreeing, on a
+            # difference the owner could not have seen.**
+            ref.set_role(EventRoleType(EventRoleType.FAMILY))
             family = database.get_family_from_handle(family_handle)
             family.add_event_ref(ref)
             database.commit_family(family, trans)
