@@ -75,6 +75,9 @@ TOOL_NAMES = frozenset(
         "list_family_events",
         "list_notes",
         "list_associations",
+        "list_citations",
+        "find_orphans",
+        "tree_totals",
     }
 )
 """The whole surface, and the tests assert the server's own answer equals this.
@@ -245,6 +248,30 @@ LIST_ASSOCIATIONS_DESCRIPTION = (
     "A person's recorded associations -- godparents and similar -- with the "
     "relationship as the tree spells it. READ ONLY: associations cannot be "
     "proposed. Use it to avoid proposing somebody who is already recorded."
+)
+
+LIST_CITATIONS_DESCRIPTION = (
+    "What cites one record, and from which source. ASK THIS BEFORE ADDING A "
+    "CITATION: a record already carrying one does not need a second copy of "
+    "the same claim. It also answers the opposite question -- a record with "
+    "NO citation is a fact in the tree with nothing standing behind it. kind "
+    "is person, event, family, place or citation."
+)
+
+FIND_ORPHANS_DESCRIPTION = (
+    "Records of one kind that nothing in the tree references. A citation "
+    "attached to nothing still exists and still looks correct, and does no "
+    "work -- it cites nothing. Use it to find cleanup the owner should do by "
+    "hand. kind is citation, source, note, place or repository. READ ONLY: it "
+    "reports, it never deletes, and deletion is the owner's."
+)
+
+TREE_TOTALS_DESCRIPTION = (
+    "How many people, families, events, places, sources, citations, notes, "
+    "repositories and media the open tree holds. Every other read needs a "
+    "search term, so this is the only way to ask how big the tree is -- "
+    "useful for confirming an import landed. Counts include private records, "
+    "because an aggregate over the whole tree names nobody."
 )
 
 PROPOSE_DOCUMENT_DESCRIPTION = """\
@@ -850,6 +877,15 @@ class Tools:
     def list_associations(self, gramps_id: str) -> dict[str, object]:
         return self._host("/find/associations", gramps_id=gramps_id)
 
+    def list_citations(self, gramps_id: str, kind: str = "person") -> dict[str, object]:
+        return self._host("/find/citations", gramps_id=gramps_id, kind=kind)
+
+    def find_orphans(self, kind: str) -> dict[str, object]:
+        return self._host("/find/orphans", kind=kind)
+
+    def tree_totals(self) -> dict[str, object]:
+        return self._host("/totals")
+
     def _store(self) -> proposals.Store:
         """The store inside the blessed copy. **The blessing is the permission.**
 
@@ -923,6 +959,18 @@ def build_server(tools: Tools) -> MCPServer:
     @server.tool(name="list_associations", description=LIST_ASSOCIATIONS_DESCRIPTION)
     def list_associations(gramps_id: str) -> dict[str, object]:
         return tools.list_associations(gramps_id)
+
+    @server.tool(name="list_citations", description=LIST_CITATIONS_DESCRIPTION)
+    def list_citations(gramps_id: str, kind: str = "person") -> dict[str, object]:
+        return tools.list_citations(gramps_id, kind)
+
+    @server.tool(name="find_orphans", description=FIND_ORPHANS_DESCRIPTION)
+    def find_orphans(kind: str) -> dict[str, object]:
+        return tools.find_orphans(kind)
+
+    @server.tool(name="tree_totals", description=TREE_TOTALS_DESCRIPTION)
+    def tree_totals() -> dict[str, object]:
+        return tools.tree_totals()
 
     @server.tool(name="propose_document", description=PROPOSE_DOCUMENT_DESCRIPTION)
     def propose_document(graph: dict[str, object]) -> dict[str, object]:

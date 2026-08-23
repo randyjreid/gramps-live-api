@@ -92,6 +92,7 @@ YIELDS_OBJECT: dict[str, tuple[str, ...]] = {
 YIELDS_HANDLE: dict[str, tuple[str, ...]] = {
     "family": ("get_family_handle_list", "get_parent_family_handle_list"),
     "note": ("get_note_list",),
+    "citation": ("get_citation_list",),
     "event": ("get_event_handles",),
     "person": ("get_person_handles",),
     "placeobj": ("get_place_handles", "get_placeref_list"),

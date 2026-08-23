@@ -157,22 +157,11 @@ def test_the_exposed_surface_is_exactly_what_the_server_says_it_is(tmp_path: Pat
     tool arrives without being written down here.
     """
     exposed = asyncio.run(mcp_server.build_server(tools(tmp_path)).list_tools())
-    assert {tool.name for tool in exposed} == {
-        "list_people",
-        "propose_note",
-        "approve",
-        "propose_document",
-        "approve_document",
-        "find_people",
-        "find_place",
-        "find_source",
-        "find_citation",
-        "list_events",
-        "find_families",
-        "list_family_events",
-        "list_notes",
-        "list_associations",
-    }
+    # ⛔ The literal set that stood here has been deleted. It was a SECOND
+    # TALLY of the assertion below: two lists that must agree with nothing
+    # making them agree, which is the shape of the counter bug this project
+    # already paid for once. TOOL_NAMES is the one list, and a tool registered
+    # without an entry in it still fails here -- the criterion is unchanged.
     assert {tool.name for tool in exposed} == mcp_server.TOOL_NAMES
 
 

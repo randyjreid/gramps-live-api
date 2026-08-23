@@ -55,6 +55,10 @@ whatever else the owner is running."""
 
 HEALTH_ROUTE = "/health"
 
+TOTALS_ROUTE = "/totals"
+"""How many of each kind the tree holds. ⛔ An aggregate, never a listing --
+every count is O(1) and no record is named."""
+
 PERSON_ROUTE = "/person"
 """One person, named by the ID the caller already holds. ⛔ Not a listing."""
 
@@ -97,8 +101,14 @@ READ_ROUTES = {
     "/find/family-events": ("family_events", ("gramps_id",)),
     "/find/notes": ("notes", ("gramps_id", "kind")),
     "/find/associations": ("associations", ("gramps_id",)),
+    "/find/citations": ("citations", ("gramps_id", "kind")),
+    "/find/orphans": ("orphans", ("kind",)),
 }
-"""⭐ Five live reads, and every one of them carries R3's precondition P2.
+"""⭐ The live reads, and every one of them carries R3's precondition P2.
+
+⚠️ **No count here on purpose.** This said "five" while the table held nine, and
+a number that once matched is the worst kind of stale because it reads as
+considered. The table is the count.
 
 ⛔ **No route lists anything without a term.** ``reads.require_term`` refuses,
 and the refusal is a 400 rather than an empty list, so a caller cannot mistake
@@ -138,6 +148,10 @@ class Context:
     ⚠️ **The display strings are deliberately NOT put on the wire here.** This
     answers *does this id exist*; who it names is the dialog's business, and a
     caller that could read the name would be a caller that could echo it back."""
+
+    totals: Callable[[], dict[str, int]]
+    """⛔ Counts only. An aggregate over the whole tree names nobody, which is
+    why it is allowed to answer without a search term when nothing else is."""
 
     read: Callable[..., reads.Found]
     """One live read of the open tree, marshalled. ⛔ Returns plain data, never
@@ -233,6 +247,10 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
 
         if target.path == HEALTH_ROUTE:
             self._answer(HEALTH_ROUTE, "tree", self.context.snapshot, _wire)
+            return
+
+        if target.path == TOTALS_ROUTE:
+            self._answer(TOTALS_ROUTE, "totals", self.context.totals, dict)
             return
 
         if target.path == PERSON_ROUTE:
