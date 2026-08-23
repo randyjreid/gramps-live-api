@@ -29,6 +29,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
+from gramps_live_api.host import paths
+
 MAX_GRAPH_BYTES = 512 * 1024
 """A document's findings, not a tree import. Large enough for a dense census
 page with forty people on it; small enough that a runaway caller cannot hand the
@@ -853,6 +855,9 @@ def journal_record(
     tree_dir: str,
     written_utc: str,
     approved_preview: str,
+    backup_path: str = "",
+    backup_utc: str = "",
+    totals_before: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """What was written, in enough detail to reverse it by hand.
 
@@ -863,6 +868,17 @@ def journal_record(
     ``attached`` records the existing objects that gained something -- reversing
     those means removing a reference rather than deleting a record, and the two
     are different jobs.
+
+    ⭐ **The backup is named HERE, and that is R4's precondition 4** -- *the
+    backup's age relative to the write is visible without archaeology*. Asking
+    *which copy predates this write* is then reading one field, rather than
+    comparing file times and hoping.
+
+    ⛔ **``totals_before`` exists because the restore procedure asks for it.** The
+    owner is told to reopen Gramps after replacing the file and check the counts;
+    without the counts recorded at backup time there is nothing to check against,
+    and that step could not be performed. ``accessor.tree_totals()`` produces them
+    in O(1), so this is a field to store rather than a walk to add.
     """
     return {
         "record": JOURNAL_FORMAT,
@@ -872,24 +888,64 @@ def journal_record(
         "attached_to_existing": {kind: list(ids) for kind, ids in attached.items() if ids},
         "graph": graph.as_dict(),
         "approved_preview": approved_preview,
+        "backup": {
+            "path": backup_path,
+            "taken_utc": backup_utc,
+            "totals_before": totals_before or {},
+        },
     }
 
 
-def write_journal(tree_dir: str, record: dict[str, Any], *, stem: str) -> str:
+def write_journal(tree_dir: str, record: dict[str, Any], *, stem: str) -> tuple[str, str]:
     """Put the record in the tree's own undo directory and return where it landed.
 
     ⚠️ **``fsync`` before returning**, for the reason ``core/apply`` gives: "the
     record was written" must not mean "the record is in a buffer" while the
     database change reaches the disk.
+
+    ⛔ **And the DIRECTORY is synced too, where the platform allows it.** Syncing
+    only the file leaves the directory entry itself unflushed on POSIX, so a
+    power loss after the database commit can preserve the tree change and lose
+    the record naming its backup -- *the file was durable and its name was not.*
+    ⚠️ Windows cannot open a directory for ``fsync``; ``directory_synced`` in the
+    returned record says which happened rather than letting a platform silently
+    stand in for a guarantee.
     """
     directory = os.path.join(tree_dir, UNDO_DIRECTORY)
-    os.makedirs(directory, exist_ok=True)
+    # ⛔ Creating and flushing are one decision -- see ``paths.create_directory``.
+    created_levels = paths.create_directory(directory)
     path = os.path.join(directory, stem + ".json")
-    with open(path, "w", encoding="utf-8") as handle:
+
+    # ⛔ **Written beside the target and MOVED into place, never opened over it.**
+    #
+    # ⚠️ Completion re-uses the intent's stem deliberately -- the completed record
+    # must replace the intent, not sit beside it as a second file. But ``open(...,
+    # "w")`` TRUNCATES FIRST: for the whole span between that truncation and the
+    # fsync below, the only durable link between the committed database change and
+    # its backup was a zero-length file. A crash there loses the mapping A4 exists
+    # to keep, and loses it *after* the write has already landed.
+    #
+    # ⭐ ``os.replace`` is atomic on both POSIX and Windows, so at every instant the
+    # name holds either the intact intent or the intact completion -- the same bound
+    # the backup's own publication uses, for the same reason.
+    partial = path + ".partial"
+    # ⛔ Owner-only, for the same reason the backup copy is. ⚠️ The bot named the
+    # backup; this file is the SAME exposure in a second place -- it carries the
+    # approved preview, which is the names and dates the owner just read on
+    # screen. Fixing only the site that was named is the enumeration this project
+    # keeps paying for, so the rule is *anything this code creates that holds
+    # tree data is owner-only*.
+    paths.create_file_owner_only(partial)
+    with open(partial, "w", encoding="utf-8") as handle:
         json.dump(record, handle, ensure_ascii=False, indent=2, sort_keys=True)
         handle.flush()
         os.fsync(handle.fileno())
-    return path
+    os.replace(partial, path)
+    # ⛔ The result is RETURNED, not discarded. An earlier version called this
+    # and threw the answer away, so ``write_journal`` reported a durable record
+    # on every Windows write -- a check performed and then ignored, which is
+    # exactly the same defect as not performing it.
+    return path, paths.durable_directory(created_levels)
 
 
 def caller_preview(graph: Graph) -> str:

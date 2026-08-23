@@ -186,7 +186,18 @@ def test_a3_the_journal_names_every_object_created(tmp_path) -> None:
         written_utc="2026-08-22T00:00:00+00:00",
         approved_preview=document.preview(graph, _resolution()),
     )
-    path = document.write_journal(str(tmp_path), record, stem="20260822T000000Z-document")
+    path, verdict = document.write_journal(str(tmp_path), record, stem="20260822T000000Z-document")
+
+    # ⛔ The directory verdict is a tri-state the CALLER must read, so the test
+    # asserts it is one of the three rather than merely truthy -- a boolean here
+    # was reported and then ignored for a whole round.
+    from gramps_live_api.host import paths
+
+    assert verdict in {paths.SYNCED, paths.UNSUPPORTED, paths.FAILED}
+    assert verdict != paths.FAILED, "a temp directory must be flushable or unsupported"
+    assert not list((tmp_path / document.UNDO_DIRECTORY).glob("*.partial")), (
+        "the journal is moved into place, and leaves no partial behind"
+    )
 
     assert (tmp_path / document.UNDO_DIRECTORY).is_dir()
     written = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
@@ -482,6 +493,55 @@ def test_two_local_ids_naming_one_person_are_previewed_once() -> None:
     assert line.count("I0500") == 1, (
         f"one person reached by two local ids was rendered twice: {line!r}"
     )
+
+
+def test_a_failed_completion_leaves_the_INTENT_intact(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⛔ The completion must replace the intent, never open over it.
+
+    The completed record deliberately re-uses the intent's stem -- it finishes
+    the file it started, rather than sitting beside it as a second record. But
+    ``open(path, "w")`` **truncates first**, and for the whole span between that
+    truncation and the fsync, the only durable link between a committed database
+    change and its backup is a zero-length file.
+
+    ⚠️ **And the truncation happens AFTER the write has landed.** The window is
+    small and what it costs is total: the tree has changed, and the record naming
+    the backup that precedes it is empty.
+
+    ⭐ ``os.replace`` is atomic on POSIX and Windows alike, so the name holds
+    either the intact intent or the intact completion at every instant.
+    """
+    from gramps_live_api.host import document
+
+    stem = "20260823T101500Z-abcd1234-document"
+    intent, _verdict = document.write_journal(
+        str(tmp_path),
+        {"backup_path": "backups/before.sqlite", "write_confirmed": False},
+        stem=stem,
+    )
+    before = pathlib.Path(intent).read_text(encoding="utf-8")
+    assert "before.sqlite" in before
+
+    real_dump = json.dump
+
+    def fails_partway(obj, handle, **kwargs):  # noqa: ANN001, ANN003, ANN202
+        handle.write('{"created": {"people": ["I90')
+        raise OSError("the disk filled while completing the record")
+
+    monkeypatch.setattr(json, "dump", fails_partway)
+    with pytest.raises(OSError, match="disk filled"):
+        document.write_journal(str(tmp_path), {"write_confirmed": True}, stem=stem)
+    monkeypatch.setattr(json, "dump", real_dump)
+
+    after = pathlib.Path(intent).read_text(encoding="utf-8")
+    assert after == before, (
+        "the completion TRUNCATED the intent it was meant to replace. The write "
+        "has already committed by this point, so the tree changed and the only "
+        "durable record of which backup precedes it is now a fragment."
+    )
+    assert json.loads(after)["backup_path"] == "backups/before.sqlite"
 
 
 # ---------------------------------------------------------------------------
