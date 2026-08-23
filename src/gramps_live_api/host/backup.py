@@ -115,11 +115,11 @@ def take(source: str, destination: str) -> Outcome:
             moved = _one_attempt(source, destination)
         except _OverBudget as refusal:
             last = str(refusal)
-            _discard(destination)
+            discard(destination)
             continue
         except Exception as failure:  # noqa: BLE001 -- reported, never swallowed
             last = f"{type(failure).__name__}: {failure}"
-            _discard(destination)
+            discard(destination)
             continue
         return Outcome(
             ok=True,
@@ -157,14 +157,32 @@ def _one_attempt(source: str, destination: str) -> int:
     deadline = time.monotonic() + SECONDS_PER_ATTEMPT
     moved = 0
     budget = 0
+    this_pass = 0
+    before_this_pass = 0
 
     # ⛔ Read-only, and opened HERE so it belongs to the calling thread.
     with contextlib.closing(sqlite3.connect(f"file:{source}?mode=ro", uri=True)) as reader:
         budget = _page_count(reader) * PAGE_BUDGET_MULTIPLE
 
         def progress(status: int, remaining: int, total: int) -> None:
-            nonlocal moved
-            moved = total - remaining if total >= remaining else moved + PAGES_PER_STEP
+            """⛔ Pages ACCUMULATE across restarts, and that is the whole point.
+
+            ⚠️ **Taking ``total - remaining`` alone made the budget dead code.**
+            SQLite restarts the copy when the source is written during it, and
+            that figure describes progress *in the current pass* -- so for a
+            fixed-size database it never rose above one page count and could
+            never reach a four-times budget. **The bound advertised as catching
+            the write-induced restart pattern could not catch it.**
+
+            A pass whose progress has gone *backwards* is a restart, so the
+            previous pass's work is banked before counting the new one.
+            """
+            nonlocal moved, this_pass, before_this_pass
+            progressed = max(0, total - remaining)
+            if progressed < this_pass:
+                before_this_pass += this_pass
+            this_pass = progressed
+            moved = before_this_pass + this_pass
             if budget and moved > budget:
                 raise _OverBudget(
                     f"the copy moved {moved} pages against a budget of {budget}, "
@@ -187,7 +205,7 @@ def _page_count(connection: sqlite3.Connection) -> int:
         return 0
 
 
-def _discard(path: str) -> None:
+def discard(path: str) -> None:
     """Remove a failed copy.
 
     ⛔ **A truncated file must never be mistaken for a backup**, which is the one
@@ -209,13 +227,21 @@ def verify(path: str) -> bool:
         return False
 
 
-def prune(directory: str, keep: int = RETAIN) -> list[str]:
+def prune(directory: str, keep: int | None = None) -> list[str]:
     """Drop all but the newest ``keep`` backups. Returns what was removed.
 
     ⛔ **Called only AFTER a successful backup**, so a failed one can never
     destroy the last good copy. ⚠️ Ordered by NAME rather than mtime, because the
     names begin with a UTC timestamp and a copied file's mtime is not its age.
+
+    ⚠️ **``keep`` defaults to ``None`` and resolves to ``RETAIN`` HERE, not in the
+    signature.** A default bound at definition time cannot be changed by setting
+    the module constant -- so the retention limit would have been unadjustable in
+    practice, and a test that set ``RETAIN`` would have passed while proving
+    nothing.
     """
+    if keep is None:
+        keep = RETAIN
     try:
         names = sorted(n for n in os.listdir(directory) if n.endswith(".sqlite"))
     except OSError:

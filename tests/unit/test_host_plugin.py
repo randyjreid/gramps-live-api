@@ -417,3 +417,125 @@ def test_the_tree_name_is_read_from_a_file_never_the_database(
 
     assert plugin._tree_name(str(tmp_path)) == "RandyReid-Testing"
     assert plugin._tree_name(str(tmp_path / "absent")) == "tree"
+
+
+def test_the_backup_must_be_of_the_tree_that_gets_written(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ A backup of a DIFFERENT tree is not a backup.
+
+    Switch from blessed tree A to blessed tree B while the worker is copying and
+    a check that asks only *is this blessed* passes: the write lands in B while
+    the copy on disk is of A. **Recoverable-after is then false while every
+    individual check reads green** -- the guarantee gone, and nothing saying so.
+    """
+    from gramps_live_api.host import backup, document
+
+    writer = _Writer(say_yes=True)
+    _install_writer(monkeypatch, writer)
+    # The tree open NOW is B; the backup was taken of A.
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path / "B")))
+
+    taken = backup.Outcome(ok=True, path=str(tmp_path / "b.sqlite"), message="ok", taken_utc="t")
+
+    result = plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph={},
+        parsed=None,
+        resolution=None,
+        taken=taken,
+        totals={},
+        note=lambda level, message: None,
+        backed_up_tree=str(tmp_path / "A"),
+    )
+
+    assert writer.wrote == [], "the write went to a tree the backup does not cover"
+    assert writer.confirmed == [], "the owner was asked about a write that must not happen"
+    assert result is False
+    title, body = writer.told[-1]
+    assert "tree changed" in title
+    assert "backup is of" in body
+
+
+def test_the_tree_is_rechecked_after_the_owner_confirms(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⚠️ ``confirm`` spins a NESTED GTK main loop, so arbitrary time passes inside it.
+
+    The tree can be closed or swapped while the owner reads the dialog, which is
+    exactly the window the pre-dialog check cannot see.
+    """
+    from gramps_live_api.host import backup, document
+
+    tree_a = str(tmp_path / "A")
+    seen = {"calls": 0}
+
+    def blessing_that_changes():
+        seen["calls"] += 1
+        # Same tree before the dialog; a different one after it.
+        return document.Blessing(True, tree_a if seen["calls"] == 1 else str(tmp_path / "B"))
+
+    writer = _Writer(say_yes=True)
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", blessing_that_changes)
+
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+    result = plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph=graph,
+        parsed=document.parse(graph),
+        resolution=document.Resolution(),
+        taken=backup.Outcome(ok=True, path=str(tmp_path / "b.sqlite"), message="ok"),
+        totals={},
+        note=lambda level, message: None,
+        backed_up_tree=tree_a,
+    )
+
+    assert seen["calls"] >= 2, "the blessing was not re-checked after confirmation"
+    assert writer.confirmed, "the dialog should have been shown -- the tree was fine before it"
+    assert writer.wrote == [], "the tree changed while the dialog was open and the write proceeded"
+    assert result is False
+
+
+def test_a_cancelled_preview_still_prunes(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ Every cancellation has already produced a verified backup.
+
+    The copy must finish BEFORE the dialog opens, so declining costs a full copy
+    -- roughly 24 MB on the measured tree. With pruning only on the success path,
+    repeated declines grow the directory past its documented bound.
+    """
+    from gramps_live_api.host import backup, document
+
+    directory = tmp_path / "backups" / "T"
+    directory.mkdir(parents=True)
+    for n in range(5):
+        (directory / f"2026-08-2{n}T000000Z-T.sqlite").write_text("x", encoding="utf-8")
+    newest = directory / "2026-08-24T000000Z-T.sqlite"
+
+    writer = _Writer(say_yes=False)
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+    monkeypatch.setattr(backup, "RETAIN", 2)
+
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+    result = plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph=graph,
+        parsed=document.parse(graph),
+        resolution=document.Resolution(),
+        taken=backup.Outcome(ok=True, path=str(newest), message="ok"),
+        totals={},
+        note=lambda level, message: None,
+        backed_up_tree=str(tmp_path),
+    )
+
+    assert result is False
+    assert writer.wrote == [], "cancelling must not write"
+    assert len(list(directory.iterdir())) == 2, (
+        "declining the preview left the backup directory unpruned"
+    )

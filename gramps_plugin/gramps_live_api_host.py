@@ -196,7 +196,15 @@ def _present(dbstate, uistate, graph):
             totals=totals,
             note=note,
             resume=lambda taken: _write_after_backup(
-                dbstate, uistate, graph, parsed, resolution, taken, totals, note
+                dbstate,
+                uistate,
+                graph,
+                parsed,
+                resolution,
+                taken,
+                totals,
+                note,
+                backed_up_tree=outcome.message,
             ),
         )
         # ⛔ AND RETURN. The GTK loop is free while the copy runs.
@@ -239,6 +247,11 @@ def _start_backup(tree_dir, totals, note, resume):
         try:
             taken = backup.take(source, destination)
             if taken.ok and not backup.verify(taken.path):
+                # ⛔ Delete it. A file that failed integrity_check sitting in the
+                # backup directory LOOKS like a backup, and retention pruning
+                # would count it as one -- so the owner could be left with a
+                # directory of copies where the newest is corrupt.
+                backup.discard(taken.path)
                 taken = backup.Outcome(
                     ok=False,
                     path=None,
@@ -250,9 +263,23 @@ def _start_backup(tree_dir, totals, note, resume):
             taken = backup.Outcome(
                 ok=False, path=None, message="the backup raised: " + traceback.format_exc()
             )
-        from gi.repository import GLib
 
-        GLib.idle_add(resume, taken)
+        # ⛔ The marshalling back is inside its own guard, and that is the point.
+        # An exception raised HERE dies with the worker thread: no dialog, no
+        # message, and an approved write that simply never happens. **A silent
+        # nothing is the worst outcome available to this code** -- the owner
+        # approved something and would be left watching for a result that is not
+        # coming. So a failure to get back onto the main thread is written down.
+        try:
+            from gi.repository import GLib
+
+            GLib.idle_add(resume, taken)
+        except Exception:
+            note(
+                "ERROR",
+                "document: THE BACKUP FINISHED AND COULD NOT REACH THE MAIN "
+                "THREAD, so nothing was written and no dialog was shown: " + traceback.format_exc(),
+            )
 
     note("INFO", "document: taking a backup before writing")
     threading.Thread(target=run, name="gramps-live-api-backup", daemon=True).start()
@@ -267,7 +294,50 @@ def _tree_name(tree_dir):
         return "tree"
 
 
-def _write_after_backup(dbstate, uistate, graph, parsed, resolution, taken, totals, note):
+def _same_blessed_tree(backed_up_tree, note, writer, uistate):
+    """The blessing, re-checked and required to name the tree that was backed up.
+
+    Returns the blessing, or ``None`` after telling the owner why not.
+
+    ⛔ **A backup of a different tree is not a backup.** R4's guarantee is
+    *recoverable-after*, and it is only true if the copy on disk is of the tree
+    that is about to change.
+    """
+    from gramps_live_api.host import accessor
+
+    outcome = accessor.blessing()
+    if not outcome.blessed:
+        note("ERROR", "document: refused at write time: " + outcome.message)
+        writer.tell(uistate, "Nothing was written", outcome.message)
+        return None
+    if backed_up_tree and outcome.message != backed_up_tree:
+        message = (
+            "the open tree changed after the backup was taken. The backup is of "
+            + str(backed_up_tree)
+            + " and the tree now open is "
+            + str(outcome.message)
+            + ". Nothing was written."
+        )
+        note("ERROR", "document: refused -- " + message)
+        writer.tell(uistate, "Nothing was written -- the tree changed", message)
+        return None
+    return outcome
+
+
+def _prune_quietly(taken, note):
+    """Drop old backups. Never fatal -- the write's outcome does not depend on it."""
+    from gramps_live_api.host import backup
+
+    try:
+        if taken.path:
+            backup.prune(os.path.dirname(taken.path))
+    except Exception:
+        note("ERROR", "document: pruning old backups failed: " + traceback.format_exc())
+
+
+def _write_after_backup(
+    dbstate, uistate, graph, parsed, resolution, taken, totals, note, backed_up_tree=None
+):
     """Back on the MAIN THREAD, with the backup's verdict. Show, then write.
 
     ⛔ **Refuse-to-arm, in the ruling's own words:** *if the backup cannot be
@@ -281,7 +351,7 @@ def _write_after_backup(dbstate, uistate, graph, parsed, resolution, taken, tota
     """
     import gramps_live_api_writer as writer
 
-    from gramps_live_api.host import accessor, backup, document
+    from gramps_live_api.host import document
 
     try:
         if not taken.ok:
@@ -300,17 +370,34 @@ def _write_after_backup(dbstate, uistate, graph, parsed, resolution, taken, tota
             f"({taken.pages} pages, attempt {taken.attempts}): {taken.path}",
         )
 
-        # ⛔ The blessing AGAIN. The first check and this moment are separated by
-        # real time -- and now by a worker as well -- so a tree can have closed or
-        # been swapped in between.
-        outcome = accessor.blessing()
-        if not outcome.blessed:
-            note("ERROR", "document: refused at write time: " + outcome.message)
-            writer.tell(uistate, "Nothing was written", outcome.message)
+        # ⛔ The blessing AGAIN -- and it must be the SAME TREE, not merely a
+        # blessed one.
+        #
+        # ⚠️ **Checking only "is this blessed" reopened the hole the backup
+        # exists to close.** Switch from blessed tree A to blessed tree B while
+        # the worker is copying and the check passes, the write lands in B, and
+        # the backup on disk is of A. **Recoverable-after is then false while
+        # every individual check reads as green** -- the guarantee gone, and
+        # nothing saying so.
+        outcome = _same_blessed_tree(backed_up_tree, note, writer, uistate)
+        if outcome is None:
             return False
 
         if not writer.confirm(uistate, document.preview(parsed, resolution)):
             note("INFO", "document: the owner said no. Nothing was written.")
+            # ⛔ Prune on the way out. The backup had to finish BEFORE the dialog
+            # opened, so every cancellation has already written a verified copy
+            # -- roughly 24 MB on the measured tree. Without this the only prune
+            # call sits on the success path, and repeated previews the owner
+            # declines grow the directory past its documented bound.
+            _prune_quietly(taken, note)
+            return False
+
+        # ⛔ And AGAIN after the dialog. ``confirm`` spins a nested GTK main loop,
+        # so arbitrary real time passes inside that call and the tree can be
+        # closed or swapped while the owner is reading.
+        outcome = _same_blessed_tree(backed_up_tree, note, writer, uistate)
+        if outcome is None:
             return False
 
         approved = document.preview(parsed, resolution)
@@ -365,10 +452,7 @@ def _write_after_backup(dbstate, uistate, graph, parsed, resolution, taken, tota
 
         # ⛔ Pruned only AFTER a success, so a failed backup can never destroy the
         # last good copy.
-        try:
-            backup.prune(os.path.dirname(taken.path))
-        except Exception:
-            note("ERROR", "document: pruning old backups failed: " + traceback.format_exc())
+        _prune_quietly(taken, note)
 
         # ⛔ FALSE, always. This is a ``GLib.idle_add`` callback, and a TRUTHY
         # return reschedules it -- which would run the whole write again.

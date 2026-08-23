@@ -213,3 +213,58 @@ def test_verify_rejects_something_that_is_not_a_database(tmp_path: Path) -> None
 
     assert not backup.verify(str(rubbish))
     assert not backup.verify(str(tmp_path / "absent.sqlite"))
+
+
+def test_pages_accumulate_across_restarts(tmp_path: Path, monkeypatch) -> None:
+    """⛔ The budget was dead code, and this is the proof it no longer is.
+
+    SQLite restarts the copy when the source is written during it. Taking
+    ``total - remaining`` alone describes progress **in the current pass**, so on
+    a fixed-size database it never rose above one page count -- and a four-times
+    budget could never be reached. **The bound advertised as catching the
+    write-induced restart pattern could not catch it.**
+
+    Driving the progress callback directly is deliberate: making real SQLite
+    restart on demand is timing-dependent, and a flaky test of a safety bound is
+    worse than none.
+    """
+    seen: list[int] = []
+
+    def fake_backup(target, *, pages, progress):  # noqa: ANN001, ANN202
+        # One clean pass over 100 pages, then a RESTART, then another 100.
+        for remaining in (60, 20, 0):
+            progress(0, remaining, 100)
+        for remaining in (80, 40, 0):
+            progress(0, remaining, 100)
+        seen.append(1)
+
+    real_connect = sqlite3.connect
+
+    class _Reader:
+        def execute(self, statement):  # noqa: ANN001, ANN202
+            assert "page_count" in statement
+            return self
+
+        def fetchone(self):  # noqa: ANN202
+            return (100,)
+
+        def backup(self, target, *, pages, progress):  # noqa: ANN001, ANN202
+            return fake_backup(target, pages=pages, progress=progress)
+
+        def close(self):  # noqa: ANN202
+            return None
+
+    def connect(target, *args, **kwargs):  # noqa: ANN001, ANN202
+        if isinstance(target, str) and target.startswith("file:"):
+            return _Reader()
+        return real_connect(target, *args, **kwargs)
+
+    monkeypatch.setattr(backup.sqlite3, "connect", connect)
+
+    moved = backup._one_attempt("ignored", str(tmp_path / "c.sqlite"))
+
+    assert seen, "the fake backup never ran"
+    assert moved == 200, (
+        "pages did not accumulate across the restart, so a budget expressed as a "
+        f"multiple of the page count can never fire: got {moved}"
+    )
