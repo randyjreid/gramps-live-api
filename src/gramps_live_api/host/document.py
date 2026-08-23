@@ -399,6 +399,22 @@ def parse(body: Any) -> Graph:
             check(f"event {event.get('id')!r}", person, must_be="person")
         # ⭐ A marriage belongs to a FAMILY, and until now nothing could say so.
         check(f"event {event.get('id')!r}'s family", event.get("family"), must_be="family")
+        # ⛔ A role with nobody to carry it is a role that gets discarded.
+        #
+        # ⚠️ The FAMILY reference's role is fixed at ``FAMILY`` -- it must be, or
+        # two inputs render identically and write differently -- so a role on an
+        # event with no ``people`` reaches nothing at all. The preview promised
+        # "as Witness" and the writer applied it nowhere: **the approved account
+        # and the write disagreeing for the third time on this branch**, which is
+        # what #106 is filed about.
+        role = str(event.get("role") or "").strip()
+        if role and role.casefold() != "primary" and not (event.get("people") or []):
+            raise GraphInvalid(
+                f"event {event.get('id')!r} gives the role {role!r} but names no "
+                "people, so nothing would carry it -- a family's own reference "
+                "always uses the family role. Name the people it applies to, or "
+                "leave the role out."
+            )
     for citation in citations:
         check(
             f"citation {citation.get('id')!r}'s source",

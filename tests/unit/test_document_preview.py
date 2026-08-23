@@ -617,3 +617,60 @@ def test_the_family_shapes_that_DO_get_written_are_still_accepted() -> None:
         (children_only, "children only"),
     ):
         assert document.parse(graph) is not None, f"{label} was refused"
+
+
+def test_a_role_with_nobody_to_carry_it_is_refused() -> None:
+    """⛔ The preview promised ``as Witness`` and the writer applied it nowhere.
+
+    The FAMILY reference's role is fixed at ``FAMILY`` -- it must be, or
+    ``role:"Primary"`` and no role render identically while writing differently.
+    So a role on an event that names no ``people`` reaches nothing at all.
+
+    ⚠️ **Third time on this branch that the approved account and the write
+    disagreed**, which is what #106 is filed about.
+    """
+    with pytest.raises(document.GraphInvalid) as invalid:
+        document.parse(
+            dict(
+                people=[
+                    node("p1", given="Herbert", surname="Invented", gender="male"),
+                    node("p2", given="Louise", surname="Madeup", gender="female"),
+                ],
+                families=[node("f1", parents=["p1", "p2"])],
+                events=[node("e1", type="Marriage", family="f1", role="Witness")],
+            )
+        )
+
+    assert "nothing would carry it" in str(invalid.value)
+
+
+def test_a_role_WITH_people_is_still_accepted() -> None:
+    """⚠️ A refusal that also refuses correct graphs is worse than the defect."""
+    with_people = dict(
+        people=[
+            node("p1", given="Herbert", surname="Invented", gender="male"),
+            node("p2", given="Louise", surname="Madeup", gender="female"),
+        ],
+        families=[node("f1", parents=["p1", "p2"])],
+        events=[node("e1", type="Marriage", family="f1", people=["p1"], role="Witness")],
+    )
+    no_role = dict(
+        people=[
+            node("p1", given="Herbert", surname="Invented", gender="male"),
+            node("p2", given="Louise", surname="Madeup", gender="female"),
+        ],
+        families=[node("f1", parents=["p1", "p2"])],
+        events=[node("e1", type="Marriage", family="f1")],
+    )
+    primary_only = dict(
+        people=[node("p1", given="Herbert", surname="Invented")],
+        families=[node("f1", children=["p1"])],
+        events=[node("e1", type="Marriage", family="f1", role="Primary")],
+    )
+
+    for graph, label in (
+        (with_people, "a role with people to carry it"),
+        (no_role, "a family event with no role"),
+        (primary_only, "an explicit Primary, which the preview suppresses anyway"),
+    ):
+        assert document.parse(graph) is not None, f"{label} was refused"
