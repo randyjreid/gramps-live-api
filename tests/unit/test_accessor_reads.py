@@ -392,11 +392,24 @@ def test_an_unsupported_note_kind_is_refused_not_retargeted(bound_tree: None) ->
     assert accessor.list_notes("I0041", kind="person").matches == ()
 
 
-def test_note_kinds_matches_what_the_lookup_actually_supports() -> None:
-    """⛔ The anti-drift pin. ``NOTE_KINDS`` is a second list of these.
+def test_every_advertised_kind_list_matches_the_lookup() -> None:
+    """⛔ ONE pin for every ``*_KINDS`` constant, not one per constant.
 
-    Same shape as the counter bug this branch fixes: two lists, nothing making
-    them agree. This reads ``_by_gramps_id``'s own branches.
+    ``NOTE_KINDS`` had a pin. ``CITED_KINDS`` was then written **without** one and
+    immediately drifted: it advertised ``event`` and ``citation`` while
+    ``_by_gramps_id`` had no branch for either, so ``list_citations(kind="event")``
+    returned a **successful empty result** -- and a caller reading *no citations*
+    adds the duplicate the tool exists to prevent. **A false negative is worse
+    than an error, because only one of them is visible.**
+
+    ⚠️ **The lesson did not transfer because the pin was written for ONE
+    constant.** This one discovers them, so a third list cannot repeat it.
+
+    ⚠️ **And it asserts two one-way relations rather than equality.** The previous
+    pin required ``NOTE_KINDS`` to EQUAL the lookup's branches, so widening the
+    lookup for citations broke a test about notes. The honest relations are:
+    everything advertised is supported (here), and everything supported is
+    advertised by something (below).
     """
     import ast
     import inspect
@@ -412,18 +425,28 @@ def test_note_kinds_matches_what_the_lookup_actually_supports() -> None:
         and isinstance(node.comparators[0], ast.Constant)
         and isinstance(node.comparators[0].value, str)
     }
-
     assert spelled, "found no kind branches -- has _by_gramps_id been reshaped?"
-    assert spelled == set(accessor.NOTE_KINDS), (
-        "NOTE_KINDS and _by_gramps_id disagree about what can be looked up: "
-        f"only in the code {sorted(spelled - set(accessor.NOTE_KINDS))}, "
-        f"only in the constant {sorted(set(accessor.NOTE_KINDS) - spelled)}"
+
+    advertised = {
+        name: set(getattr(accessor, name))
+        for name in dir(accessor)
+        if name.endswith("_KINDS") and name != "ORPHAN_KINDS"
+    }
+    assert advertised, "no *_KINDS constants found -- has the naming changed?"
+
+    for name, kinds in sorted(advertised.items()):
+        unsupported = sorted(kinds - spelled)
+        assert unsupported == [], (
+            f"{name} advertises kinds _by_gramps_id cannot look up, so a caller "
+            f"naming one gets a successful EMPTY answer: {unsupported}"
+        )
+
+    every = set().union(*(set(getattr(accessor, n)) for n in dir(accessor) if n.endswith("_KINDS")))
+    unreachable = sorted(spelled - every)
+    assert unreachable == [], (
+        "_by_gramps_id can look these up and no route offers them, so the "
+        f"branches are unreachable: {unreachable}"
     )
-
-
-# --------------------------------------------------------------------------
-# Round 2. The REFERENCE carries its own priv, separately from its target.
-# --------------------------------------------------------------------------
 
 
 @dataclass

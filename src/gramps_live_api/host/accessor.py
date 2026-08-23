@@ -683,6 +683,12 @@ def _by_gramps_id(database: typing.Any, kind: str, gramps_id: str) -> tuple[bool
         if kind == "family":
             obj = database.get_family_from_gramps_id(gramps_id)
             return obj is not None, _public(obj)
+        if kind == "event":
+            obj = database.get_event_from_gramps_id(gramps_id)
+            return obj is not None, _public(obj)
+        if kind == "citation":
+            obj = database.get_citation_from_gramps_id(gramps_id)
+            return obj is not None, _public(obj)
     except Exception:
         return False, None
     return False, None
@@ -960,7 +966,15 @@ def _looks_like_a_connection(obj: typing.Any) -> bool:
 
 
 CITED_KINDS = ("person", "event", "family", "place", "citation")
-"""What ``list_citations`` will look up. ⛔ Pinned against ``_by_gramps_id`` by test."""
+"""What ``list_citations`` will look up.
+
+⛔ **Pinned against ``_by_gramps_id``'s branches by test**, like ``NOTE_KINDS``.
+⚠️ **It was not, at first, and the omission cost exactly what the pin exists to
+prevent:** this advertised ``event`` and ``citation`` while the lookup had no
+branch for either, so asking *is this event cited?* returned a **successful empty
+result** -- and a caller reading *no citations* adds the duplicate this tool
+exists to prevent. **A false negative here is worse than an error**, because only
+one of them is visible."""
 
 
 @mainthread.on_main_thread
