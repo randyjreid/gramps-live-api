@@ -1527,6 +1527,53 @@ Enforced by `tests/integration/test_repository_hygiene.py`.
 
 Nothing else is covered by either exception.
 
+## ⛔ Read every gate by its EXIT CODE
+
+**Run `python scripts/gate.py`.** It exists because the gates here were being read
+wrong rather than run wrong, and a habit cannot be checked while a script can.
+
+⛔ **Never pipe a gate to `tail`, `head` or `grep`. Never decide from its output.**
+
+**The instance that forced this, 2026-08-23.** Every local gate in a long session ran
+`ruff check . | tail -1`. Ruff prints `Found 1 error.` and *then* a note about unsafe
+fixes -- so `tail -1` showed the note and hid the error. **Every "ruff clean" reported
+that session was read that way**, and CI caught a `B007` the local gate had been
+silently passing over.
+
+⚠️ **This is this project's most common defect class**, and the gate reading was only
+its latest instance. All of these are the same shape -- *a check reporting success for
+a reason unrelated to the property it names*:
+
+| the check | what it actually measured |
+| --- | --- |
+| the write summary's `wrote` line | a hand-kept counter, not what was created -- a source written, reported as none |
+| `host.log` | 68 tracebacks from test runs, against 25 real lines |
+| `changed_since`'s first version | `except AttributeError: continue` -- the full walk's cost and an empty answer, reported as *nothing changed* |
+| a PR watcher | baselined after the verdict landed, so it waited forever for a second one |
+| a bot 👍 | arrived on a commit whose CI was red on four jobs |
+| three "PASS" branch results | measured on a fourth branch, because the checkout had been refused and nothing checked |
+| a commit | pushed after a test command that had reported two failures, because the commit ran unconditionally |
+
+**Three rules follow, and each is mechanical rather than a matter of care:**
+
+1. **Exit codes.** Abort on the first failure and read return codes, as `scripts/gate.py` does.
+2. ⛔ **A commit must never run unconditionally after a test command.** Chain on
+   success (`&&`) or run them as separate deliberate steps.
+3. ⛔ **A refused `git checkout` must abort whatever depended on it.** A measurement
+   that names a branch it did not check out is worse than no measurement, because it
+   reads as evidence.
+
+⚠️ **A gate step that cannot fail is not a gate step.** A draft of this script ended
+its `pii_guard` line with `|| true` -- inside the script whose entire purpose is
+that a gate must be able to fail. That is left recorded in the file because writing it
+was the natural thing to do, which is what makes this class hard.
+
+⭐ **Recorded because the sessions that caused these reported them, unprompted and
+before being asked.** No review round and no reviewer found the gate-reading defect;
+CI found one instance of its consequence. **A record reading as though a reviewer
+caught it would teach that reviewers catch this** -- they do not, because a gate
+reporting success looks exactly like a gate that passed.
+
 ## Working against a running Gramps
 
 ⛔ **Deleting a plugin's source does not unhook a callback a running Gramps has already
