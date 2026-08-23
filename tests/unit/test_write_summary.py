@@ -171,7 +171,7 @@ def test_a_family_event_is_attached_after_the_families_exist() -> None:
     assert "pending_family_events" in body, "family events are not deferred at all"
     events_at = body.index("# --- events")
     families_at = body.index("# --- families")
-    attach_at = body.index("for event_handle, family_local, role_name in pending_family_events")
+    attach_at = body.index("for event_handle, family_local in pending_family_events")
 
     assert events_at < families_at < attach_at, (
         "the family-event attachment does not run after the families are created"
@@ -188,9 +188,7 @@ def test_a_family_event_ref_carries_the_family_role() -> None:
     event ref carries Gramps' own family role.
     """
     body = WRITER.read_text(encoding="utf-8")
-    attach = body[
-        body.index("for event_handle, family_local, role_name in pending_family_events") :
-    ]
+    attach = body[body.index("for event_handle, family_local in pending_family_events") :]
     attach = attach[: attach.index("# --- citations")]
 
     assert "EventRoleType.FAMILY" in attach, (
@@ -200,6 +198,18 @@ def test_a_family_event_ref_carries_the_family_role() -> None:
     # render identically and write differently: ``_event_line`` suppresses an
     # explicit "Primary", so role:"Primary" and no role produced the same
     # approval text while writing a PRIMARY ref and a FAMILY ref.
-    assert "_event_role(role_name)" not in attach, (
+    # ⛔ Compared against CODE, not against the whole slice. An earlier version of
+    # this assertion matched the word "role" anywhere in the text and tripped on
+    # the explanatory comment above the fix -- **a test failing on prose**, which
+    # is the same passes-or-fails-for-an-unrelated-reason class the tests in this
+    # repository keep having to be rescued from.
+    code = "\n".join(line for line in attach.splitlines() if not line.strip().startswith("#"))
+
+    assert "_event_role" not in code, (
         "the supplied role reaches the FAMILY ref; it governs person refs only"
+    )
+    # ⛔ And it is not carried to this point at all. An unused value in the
+    # pending record is one a later edit can start honouring again by accident.
+    assert "role_name" not in code, (
+        "the pending record still carries a role that nothing here may use"
     )
