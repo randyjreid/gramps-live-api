@@ -457,3 +457,39 @@ def test_the_owner_can_still_tell_which_tree_a_folder_holds(tmp_path: Path) -> N
     backup.note_which_tree(destination, "Renamed Tree", str(tmp_path / "t"))
     assert "Renamed Tree" in marker.read_text(encoding="utf-8")
     assert marker.parent == Path(destination).parent
+
+
+def test_a_BACKWARD_CLOCK_cannot_delete_the_copy_just_taken(tmp_path: Path) -> None:
+    """⛔ Name order was standing in for creation order. They differ.
+
+    An NTP correction, a restored VM snapshot or a dual-boot clock can stamp a
+    copy taken NOW with a name that sorts first. With ``RETAIN`` copies already
+    present it lands in the removal set and is deleted **immediately after the
+    database write** -- leaving a journal record, written moments earlier and
+    already fsynced, pointing at a file that no longer exists.
+
+    ⚠️ **A comment in the caller asserted this could not happen**, on the grounds
+    that the newest stamp always sorts last. That is a claim about the clock, not
+    about the code. Protecting the copy by NAME removes the dependence entirely
+    rather than assuming a better-behaved clock.
+    """
+    for n in range(1, 6):
+        (tmp_path / f"2026-08-2{n}T000000Z-T.sqlite").write_text("older", encoding="utf-8")
+
+    # The clock jumped backwards, so this run's copy sorts FIRST.
+    just_taken = tmp_path / "2020-01-01T000000Z-T.sqlite"
+    just_taken.write_text("the copy the journal already points at", encoding="utf-8")
+
+    removed = backup.prune(str(tmp_path), keep=3, protect=str(just_taken))
+
+    assert just_taken.exists(), (
+        "the backup taken by THIS run was pruned away because a backward clock "
+        "made it sort oldest -- the journal record written moments earlier now "
+        "points at nothing, which is recoverable-after defeated at the instant "
+        "it is needed"
+    )
+    assert str(just_taken) not in removed
+    # ⭐ And retention still does its job on everything else.
+    assert len(list(tmp_path.glob("*.sqlite"))) == 4, (
+        "protecting one copy must not stop the bound applying to the rest"
+    )

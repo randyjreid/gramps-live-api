@@ -405,12 +405,30 @@ def verify(path: str) -> bool:
         return False
 
 
-def prune(directory: str, keep: int | None = None) -> list[str]:
+def prune(directory: str, keep: int | None = None, protect: str | None = None) -> list[str]:
     """Drop all but the newest ``keep`` backups. Returns what was removed.
 
-    ⛔ **Called only AFTER a successful backup**, so a failed one can never
-    destroy the last good copy. ⚠️ Ordered by NAME rather than mtime, because the
-    names begin with a UTC timestamp and a copied file's mtime is not its age.
+    ⛔ **``protect`` is never removed, whatever the ordering says.** It names the
+    copy this run just took -- the one the journal record already points at.
+
+    ⚠️ **Ordering by name was standing in for ordering by creation, and those are
+    the same thing only while the clock moves forward.** An NTP correction, a
+    restored VM snapshot or a dual-boot clock can make a copy taken NOW sort
+    first; with ``RETAIN`` copies already present it then lands in the removal
+    set and is deleted **immediately after the database write**, leaving a fresh
+    journal record pointing at a file that no longer exists.
+
+    ⚠️⚠️ A comment in the caller previously asserted this could not happen --
+    *"retention keeps the newest by name and this one carries the newest stamp"*.
+    That is the claim being falsified here, and it is the third time on this
+    branch that a comment asserted a property its code did not have.
+
+    ⭐ Protecting it by NAME rather than by ordering removes the dependence on
+    the clock entirely, instead of assuming a better-behaved one.
+
+    ⚠️ Names are still the ordering used to choose WHICH old copies go, because a
+    copied file's mtime is not its age. That proxy is acceptable for choosing
+    among old copies and was not acceptable for protecting the current one.
 
     ⚠️ **``keep`` defaults to ``None`` and resolves to ``RETAIN`` HERE, not in the
     signature.** A default bound at definition time cannot be changed by setting
@@ -424,9 +442,13 @@ def prune(directory: str, keep: int | None = None) -> list[str]:
         names = sorted(n for n in os.listdir(directory) if n.endswith(".sqlite"))
     except OSError:
         return []
+    guarded = os.path.abspath(protect) if protect else None
     removed = []
     for name in names[: max(0, len(names) - keep)]:
         target = os.path.join(directory, name)
+        # ⛔ Never the copy this run just took, regardless of how it sorts.
+        if guarded and os.path.abspath(target) == guarded:
+            continue
         with contextlib.suppress(OSError):
             os.remove(target)
             removed.append(target)

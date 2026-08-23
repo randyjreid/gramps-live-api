@@ -481,7 +481,8 @@ def _prune_quietly(taken, note):
 
     try:
         if taken.path:
-            backup.prune(os.path.dirname(taken.path))
+            # ⛔ The copy just taken is named, not inferred from ordering.
+            backup.prune(os.path.dirname(taken.path), protect=taken.path)
     except Exception:
         note("ERROR", "document: pruning old backups failed: " + traceback.format_exc())
 
@@ -746,8 +747,10 @@ def _write_after_backup(
             # folder would grow without bound during the one situation in which
             # these backups matter most.
             #
-            # ⭐ It cannot remove the copy just taken: retention keeps the newest
-            # by name and this one carries the newest stamp.
+            # ⭐ It cannot remove the copy just taken -- because that copy is
+            # named to ``prune`` explicitly. ⚠️ This comment previously said the
+            # newest stamp made it safe, which was a claim about the clock rather
+            # than about the code, and false whenever the clock moves backward.
             _prune_quietly(taken, note)
 
 
