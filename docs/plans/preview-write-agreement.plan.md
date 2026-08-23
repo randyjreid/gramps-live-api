@@ -62,8 +62,15 @@ which is much smaller but not zero.
 `write(dbstate, graph, dry_run=True)` performs every decision, records what it *would* do, and
 commits nothing. The preview renders that record.
 
-**What it buys.** One code path, so agreement is exact by construction — the strongest guarantee
-available.
+**What it buys.** One code path, so the dry run and the write share every decision.
+
+⛔ **CORRECTED: "exact by construction" was too strong.** The dry run happens before `confirm`, whose
+modal dialog spins a nested GTK loop — and R8 establishes that other `GLib.idle_add` callbacks run
+during that loop. `_document` schedules approvals without serialisation, so **a second approval can
+write while the first dialog is open**, and the first write then sees different membership or
+resolution facts than its own dry run did. ⚠️ **B needs serialisation, a post-approval re-check, or
+execution of the recorded operations before it can claim exactness** — which makes it a larger build
+than "one code path" suggests.
 
 ⛔ **CORRECTED after review. An earlier draft rejected this option for a reason that does not exist**,
 and the correction matters because it changes the comparison the owner is deciding on.
@@ -116,18 +123,25 @@ review have removed three of the reasons originally given for preferring A: that
 approval binding (it does not), that B costs `caller_preview` an ability it has (it has not), and
 that R7 would make B cheaper (it would not).
 
-**What actually survives as a difference:**
+**What actually survives as a difference — and it is less than any earlier draft claimed:**
 
-- ⛔ **B runs the dry run on the GTK main thread, per proposal**, because Gramps' connection is
-  thread-bound. A's `Plan` is plain data, so `document.py` keeps its no-Gramps promise and nothing
-  extra runs inside `GLib.idle_add`.
-- ⭐ **B is the stronger guarantee** — one code path, so agreement is exact rather than structural.
-  A's residual risk is `execute()` drifting from `Plan`.
+- ⛔ **A is NOT free of main-thread work either.** `plan()` needs live tree facts — which children a
+  family already holds, which ids resolve — and every such read must be marshalled through
+  `GLib.idle_add`, exactly as `_document` already does. **Only the Plan's construction, after those
+  facts are materialised, leaves the main thread.** So the comparison is A's fact-gathering against
+  B's dry run, not "extra work" against "none".
+- ⛔ **B is NOT exact by construction**, for the nested-loop reason above.
 
-**So: A on cost, B on strength, and the choice is a judgement about which matters more here.** ⚠️ **A
-is still recommended, but on one argument rather than four**, and the owner should know the margin
-narrowed under scrutiny rather than read a confident recommendation that three rounds have hollowed
-out.
+⚠️ **So the recommendation is now weak, and saying otherwise would be dishonest.** Across three
+review rounds, **every one of the four original reasons for preferring A has been removed**: the
+approval-binding claim, the `caller_preview` cost, the R7 asynchrony, and now the zero-main-thread
+-cost claim. What is left is two options with real costs on both sides and no clear winner on the
+axes this plan chose.
+
+⭐ **That is a result, not a failure of the plan.** The honest conclusion is that **the choice between
+A and B is a judgement the owner has to make on grounds this document has not established** — and
+that a build proceeding on either needs its own measurement of the main-thread cost first, because
+that number is now the only thing separating them and nobody has taken it.
 
 **And C is not an alternative to A — it is how A is verified.** The residual risk in A is
 `execute()` drifting from `Plan`; a property test that runs both against a fake tree and requires the
