@@ -67,10 +67,6 @@ RETAIN = 20
 the trade being made explicitly rather than discovered later."""
 
 
-class BackupRefused(Exception):
-    """The copy could not be taken. ⛔ The write must not proceed."""
-
-
 @dataclass(frozen=True)
 class Outcome:
     """What happened, in terms the owner can be told."""
@@ -150,7 +146,28 @@ def _uri(path: str) -> str:
     """
     from urllib.parse import quote
 
-    return "file:" + quote(str(path).replace("\\", "/"), safe="/:") + "?mode=ro"
+    slashed = quote(str(path).replace("\\", "/"), safe="/:")
+
+    # ⛔ **An EMPTY authority, always.** ``file:`` + ``//NAS/share/...`` parses
+    # ``NAS`` as the URI's authority and SQLite rejects it outright -- *invalid
+    # uri authority: NAS* -- so a tree on a network share refuses EVERY write,
+    # reported to the owner as a copy failure it is not. Measured, not reasoned:
+    # the error is reproducible with no share present, because it happens during
+    # URI parsing and never reaches the network.
+    #
+    # ⭐ Prefixing ``file:`` + two slashes to a path that already begins with a
+    # slash leaves the authority EMPTY and the rest intact -- a UNC path keeps
+    # its own leading pair, a drive path gains one and reaches the canonical
+    # three-slash drive form. ⚠️ The shapes are described rather than written out
+    # because the repository's own guard reads a literal one as a real path, and
+    # the guard is right to.
+    #
+    # ⚠️ **What is verified and what is not.** That the URI now PARSES is
+    # verified here and in the tests. That SQLite then resolves a real share is
+    # NOT -- there is no UNC share on this machine to try it against.
+    if not slashed.startswith("/"):
+        slashed = "/" + slashed
+    return "file://" + slashed + "?mode=ro"
 
 
 def take(source: str, destination: str) -> Outcome:
@@ -163,7 +180,10 @@ def take(source: str, destination: str) -> Outcome:
     caller has to tell the owner either way.
     """
     started = time.monotonic()
-    os.makedirs(os.path.dirname(destination), exist_ok=True)
+    # ⛔ Creating and flushing are ONE decision: the levels this run creates are
+    # exactly the levels it is responsible for making durable, and only the
+    # creating call can know which those are.
+    created_levels = paths.create_directory(os.path.dirname(destination))
 
     # ⛔ Copied under a name RETENTION DOES NOT COUNT, then published by rename.
     #
@@ -197,7 +217,7 @@ def take(source: str, destination: str) -> Outcome:
             discard(partial)
             continue
         try:
-            entry_durable = _publish(partial, destination)
+            entry_durable = _publish(partial, destination, created_levels)
         except OSError as failure:
             last = f"the copy could not be published: {failure}"
             discard(partial)
@@ -228,7 +248,7 @@ class _TookTooLong(Exception):
     """A single attempt ran past its wall clock. ⛔ There is no page budget."""
 
 
-def _publish(partial: str, destination: str) -> str:
+def _publish(partial: str, destination: str, levels: list[str]) -> str:
     """Make the finished copy visible under its final name. Returns
     ``paths.SYNCED``, ``paths.UNSUPPORTED`` or ``paths.FAILED`` for the DIRECTORY
     ENTRY.
@@ -264,10 +284,12 @@ def _publish(partial: str, destination: str) -> str:
     # visible. What is NOT established on Windows is that the new directory entry
     # survives a power loss, and the caller is told which it got rather than
     # being allowed to believe the stronger one.
-    # ⛔ The whole created path, not just the leaf. A tree's FIRST backup creates
-    # both ``backups/`` and ``backups/<tree>/``, and syncing only the leaf leaves
-    # the entry for that leaf unflushed in its own parent.
-    return paths.durable_directory(os.path.dirname(destination))
+    # ⛔ The levels THIS RUN created, passed in from the call that created them.
+    # A tree's first backup creates both ``backups/`` and ``backups/<tree>/``, and
+    # syncing only the leaf leaves the entry for that leaf unflushed in its own
+    # parent. ⚠️ It is passed rather than recomputed because after the fact there
+    # is no way to tell which levels were new.
+    return paths.durable_directory(levels)
 
 
 def _one_attempt(source: str, destination: str) -> int:
@@ -369,4 +391,24 @@ def prune(directory: str, keep: int | None = None) -> list[str]:
         with contextlib.suppress(OSError):
             os.remove(target)
             removed.append(target)
+
+    # ⛔ Sweep abandoned partials, which NOTHING else can reach.
+    #
+    # ⚠️ A process killed mid-copy leaves ``<name>.sqlite.partial`` at up to the
+    # full size of the tree. ``discard`` never runs -- the process is gone -- and
+    # retention never matches it, because retention counts ``.sqlite`` and
+    # ``.sqlite.partial`` does not end in that. So repeated crashes accumulate
+    # 24 MB orphans without bound while RETAIN reports the folder as bounded.
+    #
+    # ⭐ Only ones older than an attempt can be, so a copy running right now in
+    # another process is never removed.
+    cutoff = time.time() - (SECONDS_PER_ATTEMPT * 4)
+    for name in os.listdir(directory):
+        if not name.endswith(".partial"):
+            continue
+        target = os.path.join(directory, name)
+        with contextlib.suppress(OSError):
+            if os.path.getmtime(target) < cutoff:
+                os.remove(target)
+                removed.append(target)
     return removed

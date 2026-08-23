@@ -812,7 +812,8 @@ def write_journal(tree_dir: str, record: dict[str, Any], *, stem: str) -> tuple[
     stand in for a guarantee.
     """
     directory = os.path.join(tree_dir, UNDO_DIRECTORY)
-    os.makedirs(directory, exist_ok=True)
+    # ⛔ Creating and flushing are one decision -- see ``paths.create_directory``.
+    created_levels = paths.create_directory(directory)
     path = os.path.join(directory, stem + ".json")
 
     # ⛔ **Written beside the target and MOVED into place, never opened over it.**
@@ -837,7 +838,7 @@ def write_journal(tree_dir: str, record: dict[str, Any], *, stem: str) -> tuple[
     # and threw the answer away, so ``write_journal`` reported a durable record
     # on every Windows write -- a check performed and then ignored, which is
     # exactly the same defect as not performing it.
-    return path, paths.durable_directory(directory)
+    return path, paths.durable_directory(created_levels)
 
 
 def caller_preview(graph: Graph) -> str:

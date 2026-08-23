@@ -838,17 +838,11 @@ def test_EVERY_pre_write_exit_discards_the_backup_not_just_cancellation(
         "the intent could not be recorded so nothing was written, and the backup was KEPT"
     )
 
-    # 3. an exception anywhere in the write path. ⚠️ The one no enumeration can
-    #    ever cover, which is the whole argument for a lifecycle bound.
-    def explodes(writer: Any) -> None:
-        def boom(dbstate: Any, graph: Any) -> dict[str, Any]:
-            raise RuntimeError("the transaction did not open")
-
-        writer.write = boom  # type: ignore[method-assign]
-
-    assert not run_one("exploded", explodes).exists(), (
-        "the write raised, so the tree is unchanged, and the backup was KEPT"
-    )
+    # 3. ⛔ **NOT an exception from ``writer.write``.** An earlier version of this
+    #    test asserted that a raise there meant the tree was unchanged and the
+    #    backup should be discarded. **That premise is false**, and asserting it
+    #    made the test enforce the defect -- see the test below, which is what
+    #    this case became.
 
 
 def test_a_committed_write_KEEPS_its_backup(
@@ -889,4 +883,65 @@ def test_a_committed_write_KEEPS_its_backup(
     assert copy.exists(), (
         "the write COMMITTED and its backup was discarded -- the tree changed "
         "and the only way back was deleted"
+    )
+
+
+def test_a_raise_AFTER_the_commit_must_not_delete_the_backup(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ The blocking finding, and the one an earlier test asserted backwards.
+
+    ⚠️ **``writer.write`` returning is not the same claim as the transaction
+    committing**, and the gap between them is real code in the shipped Gramps
+    6.0.8. ``dbapi.transaction_commit`` runs ``self.dbapi.commit()`` -- the SQLite
+    COMMIT -- and only THEN emits signals, commits the undo database and calls
+    ``_after_commit``, which invokes ``undo_callback``, ``redo_callback`` and
+    ``undo_history_callback`` **unguarded**; the live UI sets all three to update
+    the Edit menu.
+
+    ⭐ So an exception can leave ``write()`` with **the tree durably changed**. A
+    flag set after the call reads False there, and the ``finally`` then deletes
+    the only recovery point of a write that already landed -- **R4's guarantee
+    destroyed by the machinery built to maintain it.**
+
+    The question is not *did it commit*, which cannot be known from out here. It
+    is *do we know for certain nothing was attempted*, and the answer is keep on
+    unknown: the worst case is one retention slot spent on a backup for a write
+    that failed early.
+    """
+    from gramps_live_api.host import backup, document
+
+    directory = tmp_path / "post_commit"
+    directory.mkdir(parents=True)
+    copy = directory / "2026-08-24T000000Z-T.sqlite"
+    copy.write_text("the only way back from a write that DID land", encoding="utf-8")
+
+    writer = _Writer(say_yes=True)
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+
+    def commits_then_raises(dbstate: Any, graph: Any) -> dict[str, Any]:
+        # The transaction has committed by this point; what fails afterwards is
+        # Gramps' own post-commit callback, outside anything this plugin owns.
+        raise RuntimeError("undo_history_callback failed after dbapi.commit()")
+
+    writer.write = commits_then_raises  # type: ignore[method-assign]
+
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+    plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph=graph,
+        parsed=document.parse(graph),
+        resolution=document.Resolution(),
+        taken=backup.Outcome(ok=True, path=str(copy), message="ok"),
+        totals={},
+        note=lambda level, message: None,
+        backed_up_tree=str(tmp_path),
+    )
+
+    assert copy.exists(), (
+        "the write raised AFTER the database committed, and the backup was "
+        "DELETED. The tree has changed and the only way back is gone -- and the "
+        "intent record on disk still points at the deleted file."
     )

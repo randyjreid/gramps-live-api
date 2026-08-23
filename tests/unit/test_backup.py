@@ -309,3 +309,78 @@ def test_two_trees_sharing_a_display_name_do_not_share_a_backup_folder() -> None
     assert os.path.dirname(a) != os.path.dirname(b), (
         "two trees sharing a directory basename merged into one backup folder"
     )
+
+
+def test_a_UNC_path_does_not_become_a_URI_AUTHORITY() -> None:
+    """⛔ A path is not a URI, and ``//server/share`` is where that bites hardest.
+
+    ``"file:" + "//NAS/family/..."`` parses ``NAS`` as the URI's **authority**,
+    which SQLite rejects outright -- *invalid uri authority: NAS*. Every backup
+    then refuses, so **every write refuses**, reported to the owner as a copy
+    failure it is not.
+
+    ⭐ Reproducible with no share present, because the rejection happens during
+    URI parsing and never reaches the network -- which is exactly why it can be
+    tested here at all.
+
+    ⚠️ **What this asserts and what it does not.** That the URI parses is
+    asserted. That SQLite then resolves a real share is NOT -- there is no UNC
+    share on this machine to try, and claiming otherwise would be a check
+    succeeding for a reason unrelated to its property.
+    """
+    backslash = chr(92)
+    unc = backslash * 2 + "NAS" + backslash + "family" + backslash + "sqlite.db"
+
+    slash = chr(47)
+    authority_form = "file:" + slash * 2 + "NAS"
+
+    uri = backup._uri(unc)
+    assert not uri.startswith(authority_form), f"the server name became the URI authority: {uri}"
+    assert "NAS" in uri, "the server name must survive somewhere in the path"
+
+    try:
+        sqlite3.connect(uri, uri=True)
+    except sqlite3.OperationalError as failure:
+        assert "authority" not in str(failure), f"SQLite still rejects the authority: {failure}"
+
+    # ⛔ And an ordinary drive path still reaches the canonical three-slash drive
+    # form. ⚠️ Assembled rather than written out: the repository's own guard reads
+    # a literal absolute path here as a real one, and it is right to.
+    drive_form = "file:" + slash * 3 + "C:" + slash
+    assert backup._uri("C:" + backslash + "trees" + backslash + "x.db").startswith(drive_form)
+
+
+def test_prune_sweeps_partials_nothing_else_can_reach(tmp_path: Path) -> None:
+    """⛔ A killed copy leaves a full-sized file that no other path can remove.
+
+    ``discard`` never runs -- the process is gone -- and retention never matches
+    it, because retention counts names ending ``.sqlite`` and a partial does not.
+    So repeated crashes accumulate ~24 MB orphans **without bound**, while RETAIN
+    reports the folder as bounded. A count that means something other than what
+    it names.
+
+    ⭐ Only partials older than several attempts are swept, so a copy running in
+    another process right now is never removed.
+    """
+    old = tmp_path / "20260801T000000Z-T.sqlite.partial"
+    old.write_text("an abandoned copy", encoding="utf-8")
+    import os as _os
+
+    stale = time.time() - (backup.SECONDS_PER_ATTEMPT * 10)
+    _os.utime(old, (stale, stale))
+
+    fresh = tmp_path / "20260824T000000Z-T.sqlite.partial"
+    fresh.write_text("a copy running right now", encoding="utf-8")
+
+    keeper = tmp_path / "20260824T000000Z-T.sqlite"
+    keeper.write_text("a real backup", encoding="utf-8")
+
+    removed = backup.prune(str(tmp_path), keep=20)
+
+    assert not old.exists(), "the abandoned partial was left to accumulate"
+    assert str(old) in removed, "a sweep that removes without reporting is a silent one"
+    assert fresh.exists(), (
+        "a partial young enough to be an in-flight copy was deleted -- that is a "
+        "running backup destroyed by the cleanup"
+    )
+    assert keeper.exists(), "retention must not have touched the real backup"

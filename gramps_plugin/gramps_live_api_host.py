@@ -271,13 +271,15 @@ def _present(dbstate, uistate, graph):
             )
             return
 
-        note(
-            "INFO",
-            f"document: backup ok in {taken.seconds:.3f} s "
-            f"({taken.pages} pages, attempt {taken.attempts}, "
-            f"directory {taken.directory_synced}): {taken.path}",
-        )
-
+        # ⛔ **Nothing between a live backup and the function that owns its
+        # lifecycle.** The "backup ok" line is logged inside ``_write_after_backup``,
+        # within the try whose ``finally`` discards -- not here.
+        #
+        # ⚠️ Any statement in this interval is outside every discard path: it
+        # would leak an ok backup with no discard, consuming a retention slot per
+        # occurrence, which is the exact eviction the bound was built to end.
+        # Today nothing here can realistically raise, and *today* is not a
+        # property -- a later edit inherits the gap silently.
         return _write_after_backup(
             dbstate,
             uistate,
@@ -495,12 +497,26 @@ def _write_after_backup(
     then reports "the backup failed, nothing was written" has already spent the
     owner's attention on a decision that could not be honoured.
     """
-    import gramps_live_api_writer as writer
-
-    from gramps_live_api.host import document
-
-    # ⛔ **The backup is PROVISIONAL until the transaction commits**, and this
-    # flag is the whole of what says so.
+    # ⛔ **The backup is provisional until the write is ATTEMPTED**, and this flag
+    # is the whole of what says so.
+    #
+    # ⛔⛔ **It says "attempted", not "committed", and the difference is the whole
+    # finding.** A previous version set it AFTER ``writer.write`` returned, which
+    # reads as "the transaction committed" and is not the same claim. In the
+    # shipped Gramps 6.0.8, ``dbapi.transaction_commit`` runs ``self.dbapi.commit()``
+    # -- the SQLite COMMIT -- and only THEN emits signals, commits the undo
+    # database, and calls ``_after_commit``, which invokes ``undo_callback``,
+    # ``redo_callback`` and ``undo_history_callback`` **unguarded** (the real UI
+    # sets these to update the Edit menu). An exception in any of them leaves
+    # ``write()`` with **the tree durably changed** -- and the old flag still
+    # False, so the ``finally`` deleted the only recovery point of a write that
+    # had already landed. **R4's guarantee destroyed by the machinery built to
+    # maintain it**, and the test asserting it encoded the false premise.
+    #
+    # ⭐ So the question is not *did it commit* -- which cannot be known from out
+    # here -- but *do we know for certain that nothing was attempted*. Keep on
+    # unknown. The worst case is one retention slot spent on a backup for a write
+    # that failed early; the other way round costs the guarantee.
     #
     # ⚠️ Discarding it used to be one enumerated branch -- the owner pressing
     # Cancel. Every OTHER pre-write exit leaked it: the tree closed or swapped
@@ -513,12 +529,17 @@ def _write_after_backup(
     # ⭐ The second instance of an enumerated rule standing in for a bound, in
     # this same file, this same week. Bounded rather than patched: *committed or
     # discarded*, decided in one place, with no branch able to forget.
-    committed = False
+    write_attempted = False
 
     try:
+        # ⛔ Inside the try, so even an import failure reaches the ``finally``.
+        import gramps_live_api_writer as writer
+
+        from gramps_live_api.host import document, paths
+
         if not taken.ok:
             note("ERROR", "document: REFUSED TO ARM -- " + taken.message)
-            # ⛔ No discard call here -- ``committed`` is False, so the
+            # ⛔ No discard call here -- ``write_attempted`` is False, so the
             # ``finally`` at the end of this function covers this branch
             # along with every other pre-write exit.
             writer.tell(
@@ -529,6 +550,10 @@ def _write_after_backup(
             )
             return False
 
+        # ⛔ Logged HERE and only here. ⚠️ It used to be logged by ``_present``
+        # as well, so every approved write produced TWO identical lines and any
+        # count of them in ``host.log`` read double -- a reader trusting a
+        # miscounting diagnostic is this project's most expensive habit.
         note(
             "INFO",
             f"document: backup ok in {taken.seconds:.3f} s "
@@ -570,8 +595,8 @@ def _write_after_backup(
             # ⭐ Counting only backups that precede a real write is what makes
             # retention a bound on RECOVERY POINTS rather than on files.
             #
-            # ⛔ No ``_discard_quietly`` call here any more -- ``committed`` is
-            # still False, so the ``finally`` below does it for this branch and
+            # ⛔ No ``_discard_quietly`` call here any more -- ``write_attempted``
+            # is still False, so the ``finally`` below does it for this branch and
             # for every other pre-write exit alike.
             return False
 
@@ -611,12 +636,12 @@ def _write_after_backup(
             )
             return False
 
+        # ⛔ **BEFORE the call, not after it.** Once control enters ``write`` the
+        # tree may change, and from out here there is no way to learn whether it
+        # did. Everything above this line is a genuine pre-write exit; nothing
+        # below it is.
+        write_attempted = True
         result = writer.write(dbstate, graph)
-
-        # ⛔ **HERE, and nowhere earlier.** The transaction has returned, so the
-        # tree has changed and the backup is now the only way back. Everything
-        # above this line is a pre-write exit and discards.
-        committed = True
         # ⛔ Summarised HERE, from what the write actually created. The writer
         # cannot do it: importing the host package would make it host code and
         # forbid it the database access it exists for.
@@ -635,7 +660,7 @@ def _write_after_backup(
             import datetime
 
             written_utc = datetime.datetime.now(datetime.timezone.utc)
-            journal, _verdict = document.write_journal(
+            journal, completion_verdict = document.write_journal(
                 outcome.message,
                 document.journal_record(
                     parsed,
@@ -653,7 +678,20 @@ def _write_after_backup(
                 # record -- the completion must finish the file it started.
                 stem=os.path.basename(intent)[: -len(".json")],
             )
-            note("INFO", "document: journalled to " + journal)
+            # ⛔ Read, not discarded -- the round-3 finding one line-fix away at
+            # a second call site. ⚠️ It does NOT refuse: the write has already
+            # committed, so refusing is not available and what is at risk is the
+            # ids list, not the backup mapping, which was made durable before the
+            # transaction. It is recorded so the log says which happened.
+            note("INFO", f"document: journalled ({completion_verdict}) to {journal}")
+            if completion_verdict == paths.FAILED:
+                note(
+                    "ERROR",
+                    "document: the completed record's directory entry was not "
+                    "flushed. The backup mapping written before the write is "
+                    "unaffected; the list of created ids may not survive a power "
+                    "loss.",
+                )
         except Exception:
             # ⚠️ A failed completion must not un-write the tree, and must not be
             # silent. ⭐ Unlike before, the backup mapping is ALREADY on disk --
@@ -691,7 +729,7 @@ def _write_after_backup(
     finally:
         # ⛔ Every path out of this function passes here. A backup that did not
         # end up protecting a write is removed; one that did is never touched.
-        if not committed:
+        if not write_attempted:
             _discard_quietly(taken, note)
 
 
