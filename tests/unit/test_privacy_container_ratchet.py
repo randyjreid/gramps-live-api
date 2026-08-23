@@ -61,7 +61,6 @@ ACCESSOR = (
 )
 
 GATE = "_public"
-BOUND = "bound"
 PRIVACY = "get_privacy"
 
 
@@ -139,6 +138,24 @@ def _gated_names(function) -> set[str]:
     correct code is a guard somebody switches off.
     """
     names: set[str] = set()
+
+    # ⛔ A ``get_privacy()`` whose RESULT IS THROWN AWAY is not a gate. Crediting
+    # any invocation let a route call ``url.get_privacy()`` on its own line and
+    # then return private content with this test green -- the guard failing open,
+    # which is worse than no guard.
+    discarded = {
+        id(node.value)
+        for node in ast.walk(function)
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+    }
+    # ⚠️ **What this does NOT detect, stated rather than left to be found.** A
+    # flag that is read and USED but reaches nothing -- ``if x.get_privacy():
+    # pass`` -- still counts. An earlier version of this fix also required the
+    # function to call ``reads.bound``, which is tighter and WRONG: it reported
+    # ``person_status`` as ungated, whose entire job is to answer whether a
+    # person is private and which the sibling gate test already exempts by name.
+    # The reported hole was the DISCARDED read, and that is what is closed here.
+
     for node in ast.walk(function):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == GATE:
             names.update(arg.id for arg in node.args if isinstance(arg, ast.Name))
@@ -147,38 +164,84 @@ def _gated_names(function) -> set[str]:
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == PRIVACY
             and isinstance(node.func.value, ast.Name)
+            and id(node) not in discarded
         ):
             names.add(node.func.value.id)
     return names
 
 
-def _receivers_of(function, getters: set[str]) -> list[tuple[str, int]]:
-    """``(name, line)`` for each variable that receives one of ``getters``' results.
+def _getter_sites(
+    function, getters: set[str], delegates: dict[str, set[int]] | None = None
+) -> list[tuple[str, str | None, int]]:
+    """Every call to one of ``getters``, classified by how its result is handled.
 
-    Covers the two shapes the accessor actually uses: a ``for`` loop over the
-    call, and an assignment from it.
+    ``("wrapped", None, line)``
+        the call sits directly inside ``_public(...)`` -- ``_public(db.get_event_
+        from_handle(h))`` -- so it is gated at the call site and there is no
+        variable to check.
+    ``("receiver", name, line)``
+        the result is assigned to, or iterated into, ``name``.
+    ``("opaque", None, line)``
+        neither. ⛔ **Fails closed.** ``person.get_url_list()[0].get_path()``
+        materialises a container through a shape this cannot follow, and a check
+        that verified nothing must not answer *fine*.
     """
-    out: list[tuple[str, int]] = []
+    sites: list[tuple[str, str | None, int]] = []
 
-    def is_target_call(node) -> bool:
+    def is_getter(node) -> bool:
         return (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr in getters
         )
 
+    # ⭐ A getter is gated AT THE CALL SITE when it sits inside ``_public(...)``
+    # or inside a helper already PROVEN to gate that argument position --
+    # ``_name_shown(person.get_primary_name())``. Recognising only ``_public``
+    # reported nine correctly-gated call sites as unverified, and a guard that
+    # fails on correct code is a guard somebody switches off.
+    proven = delegates or {}
+    wrapped: set[int] = set()
     for node in ast.walk(function):
-        if (
-            isinstance(node, ast.For)
-            and isinstance(node.target, ast.Name)
-            and any(is_target_call(inner) for inner in ast.walk(node.iter))
-        ):
-            out.append((node.target.id, node.lineno))
-        if isinstance(node, ast.Assign) and is_target_call(node.value):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    out.append((target.id, node.lineno))
-    return out
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+            continue
+        if node.func.id == GATE:
+            positions = set(range(len(node.args)))
+        else:
+            positions = proven.get(node.func.id, set())
+        for index, argument in enumerate(node.args):
+            if index not in positions:
+                continue
+            for inner in ast.walk(argument):
+                if is_getter(inner):
+                    wrapped.add(id(inner))
+
+    accounted: set[int] = set()
+    for node in ast.walk(function):
+        target_name = None
+        if isinstance(node, ast.For) and isinstance(node.target, ast.Name):
+            found = [n for n in ast.walk(node.iter) if is_getter(n)]
+            target_name = node.target.id if found else None
+            for call in found:
+                accounted.add(id(call))
+                sites.append(("receiver", target_name, node.lineno))
+        elif isinstance(node, ast.Assign):
+            found = [n for n in ast.walk(node.value) if is_getter(n)]
+            names = [tgt.id for tgt in node.targets if isinstance(tgt, ast.Name)]
+            for call in found:
+                accounted.add(id(call))
+                if id(call) in wrapped:
+                    sites.append(("wrapped", None, node.lineno))
+                elif names:
+                    sites.append(("receiver", names[0], node.lineno))
+                else:
+                    sites.append(("opaque", None, node.lineno))
+
+    for node in ast.walk(function):
+        if is_getter(node) and id(node) not in accounted:
+            kind = "wrapped" if id(node) in wrapped else "opaque"
+            sites.append((kind, None, node.lineno))
+    return sites
 
 
 def _names_handed_to_a_gating_helper(function, delegates: dict[str, set[int]]) -> set[str]:
@@ -239,8 +302,18 @@ def test_every_reachable_priv_container_is_gated() -> None:
                 continue
             materialised = True
             gated = _gated_names(function) | _names_handed_to_a_gating_helper(function, delegates)
-            for name, line in _receivers_of(function, object_getters):
-                if name not in gated:
+            for kind, name, line in _getter_sites(function, object_getters, delegates):
+                if kind == "wrapped":
+                    continue
+                if kind == "opaque":
+                    # ⛔ FAIL CLOSED -- see ``_getter_sites``. A shape this
+                    # cannot follow is not a shape it may bless.
+                    offenders.append(
+                        f"{container}: {function.name} reaches it on line {line} "
+                        "through a shape with no checkable receiver, so nothing "
+                        "was verified"
+                    )
+                elif name not in gated:
                     offenders.append(
                         f"{container}: {function.name} takes {name!r} from a "
                         f"{container} getter on line {line} and never gates it"
