@@ -385,13 +385,39 @@ def parse(body: Any) -> Graph:
     # otherwise. Refusing here is the honest end of it, and it also closes the
     # older case where an empty family node silently wrote nothing at all.
     for family in families:
-        if family.get("gramps_id") or family.get("parents") or family.get("children"):
+        # ⛔ Members that are USABLE, not merely present.
+        #
+        # ⚠️ Testing the lists for truthiness left the refusal bypassable by a
+        # single JSON null: ``parents: [null]`` is a non-empty list, so the check
+        # passed -- and the writer then drops the null, skips the now-empty
+        # family, and any event targeting it orphans, with the preview having
+        # promised both. **A guard defeated by a value the writer silently
+        # discards.**
+        members = [
+            member
+            for member in list(family.get("parents") or []) + list(family.get("children") or [])
+            if str(member or "").strip()
+        ]
+        if family.get("gramps_id") or members:
             continue
         raise GraphInvalid(
             f"family {family.get('id')!r} names no parents, no children and no "
             "gramps_id, so nothing would be written for it. Give it somebody, or "
             "leave it out."
         )
+
+    # ⛔ And a null MEMBER is refused outright rather than quietly dropped.
+    # Anything the writer discards without saying so is something the preview can
+    # promise and the write can skip, which is the whole of #106.
+    for family in families:
+        for slot in ("parents", "children"):
+            for member in family.get(slot) or []:
+                if not str(member or "").strip():
+                    raise GraphInvalid(
+                        f"family {family.get('id')!r} lists an empty {slot[:-1]}, "
+                        "which would be silently dropped. Name somebody, or "
+                        "shorten the list."
+                    )
 
     for event in events:
         check(f"event {event.get('id')!r}'s place", event.get("place"), must_be="place")

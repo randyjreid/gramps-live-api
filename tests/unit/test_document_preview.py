@@ -674,3 +674,49 @@ def test_a_role_WITH_people_is_still_accepted() -> None:
         (primary_only, "an explicit Primary, which the preview suppresses anyway"),
     ):
         assert document.parse(graph) is not None, f"{label} was refused"
+
+
+def test_a_family_whose_members_are_only_nulls_is_refused() -> None:
+    """⛔ The earlier refusal was bypassable by one JSON null.
+
+    ``parents: [null]`` is a **non-empty list**, so a truthiness check passed --
+    and the writer then drops the null, skips the now-empty family, and any event
+    targeting it orphans, with the preview having promised both. **A guard
+    defeated by a value the writer silently discards.**
+    """
+    for slot in ("parents", "children"):
+        with pytest.raises(document.GraphInvalid) as invalid:
+            document.parse(
+                dict(
+                    people=[node("p1", given="Herbert", surname="Invented")],
+                    families=[node("f1", **{slot: [None]})],
+                    events=[node("e1", type="Marriage", family="f1")],
+                )
+            )
+        assert "silently dropped" in str(invalid.value) or "nothing would be written" in str(
+            invalid.value
+        ), f"{slot}: {invalid.value}"
+
+
+def test_an_empty_string_member_is_refused_too() -> None:
+    """⚠️ Same hole, different spelling -- and the writer drops both alike."""
+    with pytest.raises(document.GraphInvalid):
+        document.parse(
+            dict(
+                people=[node("p1", given="Herbert", surname="Invented")],
+                families=[node("f1", children=["p1", "  "])],
+            )
+        )
+
+
+def test_real_members_are_still_accepted() -> None:
+    """⚠️ A refusal that also refuses correct graphs is worse than the defect."""
+    good = dict(
+        people=[
+            node("p1", given="Herbert", surname="Invented", gender="male"),
+            node("p2", given="Louise", surname="Madeup", gender="female"),
+        ],
+        families=[node("f1", parents=["p1", "p2"], children=[])],
+        events=[node("e1", type="Marriage", family="f1")],
+    )
+    assert document.parse(good) is not None
