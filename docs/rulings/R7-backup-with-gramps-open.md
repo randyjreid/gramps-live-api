@@ -201,6 +201,92 @@ is worse than the defect it prevents.
 reorder it, and a second modal stacked on the dialog the owner is reading is
 worse than the refusal it announces.
 
+## ⭐ What serialising approvals left standing — 2026-08-23
+
+**The bound held, and that is a measured result rather than a hope.** The round
+that followed it was asked specifically whether two approvals could still
+interleave, and answered that the guard *"appears to bound re-entrancy through
+both confirmation and informational modal loops"*. **No fifth consequence of
+unserialised approvals was found.** Four rounds of one defect ended when it was
+bounded instead of patched a fourth time.
+
+**What the round found instead was a different question entirely**, and the
+difference is worth recording because it is what tells you a loop has closed:
+every finding was about the backup's **lifecycle** and its **durability**, not
+about concurrency. The design stopped being the subject.
+
+### A backup is PROVISIONAL until the transaction commits
+
+**Discarding it was one enumerated branch — the owner pressing Cancel.** Every
+other pre-write exit kept the copy: the tree closing or swapping inside
+`confirm`'s nested loop, the intent record refusing to write, the directory
+entry failing to flush, and any exception at all.
+
+⚠️ **Each kept copy is a snapshot of a tree nobody changed, and it is not merely
+wasteful — it is corrosive.** `RETAIN` counts **files**. Every abandoned preview
+pushes a real, journal-linked, pre-write backup one place closer to the edge of
+the window. **Enough declined previews and every recovery point that could undo
+a real write has been evicted by copies that protect nothing** — while the
+directory looks healthily full, which is the shape of this project's most
+expensive defect class.
+
+⭐ **So the rule is *committed or discarded*, decided in one place.** A flag set
+only when the writer returns, and a `finally` that discards otherwise. **The
+second instance of an enumerated rule standing in for a bound, in one file, in
+one week** — bounded rather than patched, and both halves tested: an exit that
+leaks fails, and so does a committed write whose backup was removed.
+
+### The completion must replace the intent, never open over it
+
+The completed record re-uses the intent's stem deliberately — it finishes the
+file it started rather than sitting beside it as a second record. But
+`open(path, "w")` **truncates first**, and ⚠️ **that truncation happens after the
+database has already committed.** For the span between it and the `fsync`, the
+tree has changed and the only durable link to the backup that precedes it is a
+zero-length file. `os.replace` is atomic on POSIX and Windows alike, so the name
+holds either the intact intent or the intact completion at every instant — the
+same bound the backup's own publication already used, for the same reason.
+
+### ⛔ A verdict nobody reads is worth what not measuring it is worth
+
+The previous round added `directory_synced` to the backup outcome and a
+directory sync to the journal writer — **and then read neither result.** A fact
+measured, reported honestly, and ignored. **That is class 3 committed while
+fixing class 3**, which is the most instructive thing in this whole loop: the
+instrument and the defect were the same shape.
+
+Both are now read, and the backup's verdict is read **once, inside
+`_take_backup`**, where both callers already pass — not at each call site, which
+would have been the enumeration again.
+
+### The Windows trade, stated as a trade
+
+⚠️ **Windows cannot fsync a directory at all.** So the verdict is three-valued,
+not two:
+
+| verdict | what it means | what happens |
+|---|---|---|
+| `synced` | the entry was flushed | proceed |
+| `unsupported` | the platform cannot do it | **proceed, and record it** |
+| `failed` | a platform that can do it did not | **refuse the write** |
+
+**Refusing on `unsupported` would refuse every write on the owner's only
+platform.** That is not a durability guarantee; it is an outage wearing one.
+Proceeding while recording which of the three happened is what keeps the claim
+falsifiable — the alternative, letting a platform silently stand in for a
+guarantee, is exactly what a boolean here did.
+
+⭐ **The falsifier, recorded so it can be exercised rather than argued:** if the
+owner would rather a write be refused outright on a platform that cannot make
+its directory entry durable, this is wrong and it is a one-line change. It is a
+product call about an acceptable failure mode, not a correctness question, and
+it was decided rather than asked because refusing every write on Windows could
+not have been what the ruling meant.
+
+**And the flush covers every level this run may have created**, not just the
+leaf: a tree's first backup creates both `backups/` and `backups/<tree>/`, and
+syncing only the inner one leaves its own entry unflushed in the outer.
+
 ## What this settles that was open
 
 **Slice 3's deleted deliverable now has a mechanism.** R8 removed the spawned-CLI writer and left
