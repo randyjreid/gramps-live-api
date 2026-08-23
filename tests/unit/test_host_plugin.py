@@ -945,3 +945,62 @@ def test_a_raise_AFTER_the_commit_must_not_delete_the_backup(
         "DELETED. The tree has changed and the only way back is gone -- and the "
         "intent record on disk still points at the deleted file."
     )
+
+
+def test_a_backup_KEPT_after_a_raise_is_still_pruned(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ Kept implies pruned -- one fix opening a gap in a neighbouring bound.
+
+    Pruning sat on the success path, which was correct while *kept* and
+    *succeeded* named the same set of runs. **They stopped naming the same set
+    the moment a backup was kept after a raise**, which is precisely what the
+    post-commit fix introduced.
+
+    ⚠️ So a persistent failure in Gramps' post-commit callbacks adds a full copy
+    of the tree on **every retry** -- and the owner, having been told the
+    document could not be written, retries. ``RETAIN`` would bound nothing during
+    the one situation in which these backups matter most.
+    """
+    from gramps_live_api.host import backup, document
+
+    directory = tmp_path / "kept_and_pruned"
+    directory.mkdir(parents=True)
+    # Nine older copies plus the one this run took.
+    for n in range(1, 10):
+        (directory / f"2026-08-0{n}T000000Z-T.sqlite").write_text("old", encoding="utf-8")
+    taken = directory / "2026-08-24T000000Z-T.sqlite"
+    taken.write_text("this run's copy", encoding="utf-8")
+
+    writer = _Writer(say_yes=True)
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+    monkeypatch.setattr(backup, "RETAIN", 3)
+
+    def commits_then_raises(dbstate: Any, graph: Any) -> dict[str, Any]:
+        raise RuntimeError("undo_history_callback failed after dbapi.commit()")
+
+    writer.write = commits_then_raises  # type: ignore[method-assign]
+
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+    plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph=graph,
+        parsed=document.parse(graph),
+        resolution=document.Resolution(),
+        taken=backup.Outcome(ok=True, path=str(taken), message="ok"),
+        totals={},
+        note=lambda level, message: None,
+        backed_up_tree=str(tmp_path),
+    )
+
+    survivors = sorted(p.name for p in directory.glob("*.sqlite"))
+    assert taken.exists(), (
+        "the write may have committed, so this copy is the only way back and "
+        "pruning must never be what removes it"
+    )
+    assert len(survivors) == 3, (
+        f"the backup was kept after a raise and never pruned, so RETAIN bounds "
+        f"nothing on the retry path: {survivors}"
+    )

@@ -105,10 +105,21 @@ def destination_for(directory: str, tree_name: str, stamp: str, tree_dir: str = 
     first's recovery points **and leave its journal records pointing at files
     that no longer exist.**
 
-    ⭐ The display name is kept in the folder name because the owner has to
-    recognise it under stress; the directory's own identity is what makes it
-    unique. Gramps names each tree directory with an opaque id, which is exactly
-    the stable identity wanted here.
+    ⛔ **The folder is the identity ALONE.** Gramps names each tree directory with
+    an opaque id, which is exactly the stable identity wanted here.
+
+    ⚠️ **An earlier version was ``{display}-{identity}``, and the paragraph right
+    above this one claimed that renaming a tree could no longer split its
+    retention. It could.** The digest was stable and the prefix was not, so
+    renaming sent later backups to a NEW directory, and ``prune`` -- which is
+    given one directory -- never saw the old one again. One tree's recovery
+    points scattered across as many folders as it had ever had names, each
+    separately under the bound and the whole never under it. **The docstring
+    asserted the property the code did not have**, which is the most expensive
+    kind of comment.
+
+    ⭐ The owner still has to recognise it under stress, so the display name goes
+    in a marker file INSIDE the folder, where changing it renames nothing.
     """
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in tree_name) or "tree"
 
@@ -121,8 +132,9 @@ def destination_for(directory: str, tree_name: str, stamp: str, tree_dir: str = 
     # absolute path cannot change under either.
     if tree_dir:
         absolute = os.path.normcase(os.path.abspath(os.path.normpath(tree_dir)))
-        identity = hashlib.sha256(absolute.encode("utf-8")).hexdigest()[:12]
-        folder = f"{safe}-{identity}"
+        # ⛔ The digest and NOTHING mutable. A folder name that carries the
+        # display name is a folder name that changes when the display name does.
+        folder = hashlib.sha256(absolute.encode("utf-8")).hexdigest()[:12]
     else:
         folder = safe
 
@@ -132,6 +144,27 @@ def destination_for(directory: str, tree_name: str, stamp: str, tree_dir: str = 
     # operations, so they get different identities rather than a finer clock.
     unique = uuid.uuid4().hex[:8]
     return os.path.join(directory, folder, f"{stamp}-{unique}-{safe}.sqlite")
+
+
+TREE_MARKER = "which-tree.txt"
+"""Names the tree a backup folder belongs to, for a human reading the directory.
+
+⛔ **Inside the folder, never in its name.** The folder is keyed on an opaque
+digest so that renaming a tree cannot scatter its recovery points; this file is
+how the owner tells one opaque folder from another under stress. Rewriting it
+costs nothing and renames nothing."""
+
+
+def note_which_tree(destination: str, tree_name: str, tree_dir: str) -> None:
+    """Record which tree a backup folder holds. ⛔ Never fatal -- it is a label.
+
+    ⚠️ Refreshed on every backup, so it reflects the tree's CURRENT display name
+    rather than whatever it was called the first time. That is the whole point of
+    keeping it out of the folder name.
+    """
+    marker = os.path.join(os.path.dirname(destination), TREE_MARKER)
+    with contextlib.suppress(OSError), open(marker, "w", encoding="utf-8") as handle:
+        handle.write(tree_name + "\n" + tree_dir + "\n")
 
 
 def _uri(path: str) -> str:

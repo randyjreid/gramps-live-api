@@ -293,11 +293,20 @@ def test_two_trees_sharing_a_display_name_do_not_share_a_backup_folder() -> None
     assert os.path.dirname(live) != os.path.dirname(copy), (
         "a tree and its copy share a backup folder, so pruning one deletes the other's"
     )
-    # ⭐ The display name survives, because the owner has to recognise the folder
-    # under stress. The identity beside it is a digest of the FULL path, so the
-    # assertion is about the PROPERTY -- distinct trees, distinct folders -- and
-    # not about the shape of the key, which is free to change.
-    assert "RandyReid" in os.path.dirname(live)
+    # ⛔ **This assertion was changed, deliberately, and here is why.**
+    #
+    # ⚠️ It used to read ``assert "RandyReid" in os.path.dirname(live)`` -- under
+    # a comment insisting it tested the PROPERTY and not the shape of the key.
+    # It tested the shape. And the shape was wrong: a folder named
+    # ``{display}-{digest}`` moves when the display name moves, so renaming a
+    # tree sent later backups to a new directory that ``prune`` -- given ONE
+    # directory -- never saw again. The retention bound was defeated by the very
+    # readability this line was protecting.
+    #
+    # ⭐ The requirement it stood for is real and is now met by a marker file
+    # INSIDE the folder; see the rename and marker tests below. What is asserted
+    # here is the property this test is actually named for.
+    assert os.path.dirname(live) != os.path.dirname(copy)
 
     # ⛔ Two trees whose directories share a BASENAME under different roots must
     # also not merge. Keying on the basename alone would have passed the first
@@ -384,3 +393,67 @@ def test_prune_sweeps_partials_nothing_else_can_reach(tmp_path: Path) -> None:
         "running backup destroyed by the cleanup"
     )
     assert keeper.exists(), "retention must not have touched the real backup"
+
+
+def test_renaming_a_tree_does_not_scatter_its_retention(tmp_path: Path) -> None:
+    """⛔ The folder is the tree's stable identity and NOTHING mutable.
+
+    ⚠️ The folder used to be ``{display}-{digest}``, and the docstring above it
+    claimed that renaming could no longer split a tree's retention. **It could.**
+    The digest was stable and the prefix was not, so a rename sent later backups
+    to a new directory -- and ``prune`` is given ONE directory, so it never saw
+    the old one again. One tree's recovery points scattered across as many
+    folders as it had ever had names, each separately inside ``RETAIN`` and the
+    whole never inside it.
+
+    ⭐ **The docstring asserted the property the code did not have**, which is why
+    this is asserted here instead.
+    """
+    tree_dir = str(tmp_path / "grampsdb" / "abcd1234")
+
+    before = backup.destination_for(
+        str(tmp_path / "b"), "Family Tree", "20260823T000000Z", tree_dir=tree_dir
+    )
+    after = backup.destination_for(
+        str(tmp_path / "b"), "Renamed Tree", "20260824T000000Z", tree_dir=tree_dir
+    )
+
+    assert Path(before).parent == Path(after).parent, (
+        "renaming the tree moved its backups to a new folder, so prune will "
+        "never consider the old one again and the retention bound is defeated"
+    )
+
+    # ⛔ And two DIFFERENT trees still get different folders -- the property the
+    # digest was introduced for must survive the fix to the prefix.
+    other = backup.destination_for(
+        str(tmp_path / "b"),
+        "Family Tree",
+        "20260823T000000Z",
+        tree_dir=str(tmp_path / "grampsdb" / "ffff9999"),
+    )
+    assert Path(before).parent != Path(other).parent, (
+        "two distinct trees share a folder -- pruning one would delete the other's recovery points"
+    )
+
+
+def test_the_owner_can_still_tell_which_tree_a_folder_holds(tmp_path: Path) -> None:
+    """⛔ Recognisable under stress, without putting a mutable name in the path.
+
+    The ruling requires the owner be able to recognise the folder; correctness
+    requires the folder name never change. The marker file satisfies both, and
+    is refreshed each backup so it reflects the CURRENT name.
+    """
+    destination = backup.destination_for(
+        str(tmp_path / "b"), "Family Tree", "20260823T000000Z", tree_dir=str(tmp_path / "t")
+    )
+    Path(destination).parent.mkdir(parents=True, exist_ok=True)
+
+    backup.note_which_tree(destination, "Family Tree", str(tmp_path / "t"))
+    marker = Path(destination).parent / backup.TREE_MARKER
+    assert marker.exists(), "an opaque folder with nothing naming its tree"
+    assert "Family Tree" in marker.read_text(encoding="utf-8")
+
+    # ⭐ Renaming rewrites the label and moves nothing.
+    backup.note_which_tree(destination, "Renamed Tree", str(tmp_path / "t"))
+    assert "Renamed Tree" in marker.read_text(encoding="utf-8")
+    assert marker.parent == Path(destination).parent

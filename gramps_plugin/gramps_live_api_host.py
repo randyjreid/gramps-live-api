@@ -330,6 +330,9 @@ def _take_backup(tree_dir, note):
         )
         note("INFO", "document: taking a backup before writing")
         outcome = backup.take(os.path.join(tree_dir, "sqlite.db"), destination)
+        # ⛔ The folder is an opaque digest so a rename cannot scatter retention;
+        # this is how a human tells one folder from another under stress.
+        backup.note_which_tree(destination, _tree_name(tree_dir), tree_dir)
 
         # ⛔ The directory verdict is READ, and read HERE -- once, where both
         # callers already go -- rather than checked at each call site.
@@ -709,9 +712,8 @@ def _write_after_backup(
             + "\n\nEdit > Undo in Gramps also works, until Gramps closes.",
         )
 
-        # ⛔ Pruned only AFTER a success, so a failed backup can never destroy the
-        # last good copy.
-        _prune_quietly(taken, note)
+        # ⛔ No prune call here -- the ``finally`` prunes whenever the backup was
+        # KEPT, which is a strictly larger set than "the write succeeded".
 
         # ⛔ FALSE, always. This value becomes ``_present``'s, and ``_present`` is
         # reached from a ``GLib.idle_add`` callback where a TRUTHY return
@@ -727,10 +729,26 @@ def _write_after_backup(
             pass
         return False
     finally:
-        # ⛔ Every path out of this function passes here. A backup that did not
-        # end up protecting a write is removed; one that did is never touched.
+        # ⛔ Every path out of this function passes here. A backup is removed only
+        # when the write was NEVER ATTEMPTED -- never merely because it did not
+        # visibly succeed.
         if not write_attempted:
             _discard_quietly(taken, note)
+        else:
+            # ⛔ **Kept implies pruned.** Pruning sat on the success path only,
+            # which was correct while "kept" and "succeeded" named the same set.
+            # They stopped naming the same set the moment a backup was kept after
+            # a raise -- one fix opening a gap in a neighbouring bound.
+            #
+            # ⚠️ Otherwise a persistent post-commit callback failure, exactly the
+            # one this file now documents, adds a full copy on **every retry** --
+            # and the owner, told the document could not be written, retries. The
+            # folder would grow without bound during the one situation in which
+            # these backups matter most.
+            #
+            # ⭐ It cannot remove the copy just taken: retention keeps the newest
+            # by name and this one carries the newest stamp.
+            _prune_quietly(taken, note)
 
 
 def _put_the_package_on_the_path():
