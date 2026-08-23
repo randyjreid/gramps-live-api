@@ -720,3 +720,50 @@ def test_real_members_are_still_accepted() -> None:
         events=[node("e1", type="Marriage", family="f1")],
     )
     assert document.parse(good) is not None
+
+
+def test_a_null_entry_is_refused_in_EVERY_local_id_list() -> None:
+    """⛔ Fixing this per-list did not fix it, twice.
+
+    ``parents``/``children`` were hardened after one round; the very next round
+    found the identical bypass in an event's ``people``. ``[null]`` is a
+    non-empty list, ``check`` treats a null as absent, and the writer drops it at
+    ``handles.get(None)`` -- so the preview promises and the write skips.
+
+    ⚠️ **The rule is applied to the vocabulary now**, not to whichever list a
+    reviewer last pointed at.
+    """
+    person = node("p1", given="Herbert", surname="Invented")
+    cases = {
+        "event people": dict(
+            people=[person],
+            families=[node("f1", children=["p1"])],
+            events=[node("e1", type="Marriage", family="f1", people=[None], role="Witness")],
+        ),
+        "citation attach_to": dict(
+            people=[person],
+            source=node("s1", title="A register"),
+            citations=[node("c1", source="s1", attach_to=[None])],
+        ),
+        "note attach_to": dict(people=[person], notes=[dict(text="x", attach_to=[None])]),
+        "family parents": dict(people=[person], families=[node("f1", parents=[None])]),
+        "family children blank": dict(people=[person], families=[node("f1", children=["  "])]),
+    }
+    for label, graph in cases.items():
+        with pytest.raises(
+            document.GraphInvalid, match="(silently dropped|nothing would be written)"
+        ):
+            document.parse(graph)
+            pytest.fail(f"{label} was accepted")
+
+
+def test_a_role_carried_only_by_a_null_person_is_refused() -> None:
+    """⛔ The role check counted list LENGTH, so one null satisfied it."""
+    with pytest.raises(document.GraphInvalid):
+        document.parse(
+            dict(
+                people=[node("p1", given="Herbert", surname="Invented")],
+                families=[node("f1", children=["p1"])],
+                events=[node("e1", type="Marriage", family="f1", people=[None], role="Witness")],
+            )
+        )

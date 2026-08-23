@@ -406,18 +406,31 @@ def parse(body: Any) -> Graph:
             "leave it out."
         )
 
-    # ⛔ And a null MEMBER is refused outright rather than quietly dropped.
-    # Anything the writer discards without saying so is something the preview can
-    # promise and the write can skip, which is the whole of #106.
-    for family in families:
-        for slot in ("parents", "children"):
-            for member in family.get(slot) or []:
-                if not str(member or "").strip():
-                    raise GraphInvalid(
-                        f"family {family.get('id')!r} lists an empty {slot[:-1]}, "
-                        "which would be silently dropped. Name somebody, or "
-                        "shorten the list."
-                    )
+    # ⛔ A null or blank entry is refused in EVERY list of local ids, not just
+    # the one a reviewer last pointed at.
+    #
+    # ⚠️ **Fixing this per-list did not fix it.** ``parents``/``children`` were
+    # hardened first; the very next round found the identical bypass in an
+    # event's ``people`` -- ``[null]`` is a non-empty list, ``check`` treats a
+    # null as absent, and the writer drops it at ``handles.get(None)``.
+    # **Anything the writer discards without saying so is something the preview
+    # can promise and the write can skip**, which is the whole of #106, so the
+    # rule is applied to the vocabulary rather than to the instance.
+    for holder, slots, what in (
+        (families, ("parents", "children"), "family"),
+        (events, ("people",), "event"),
+        (citations, ("attach_to",), "citation"),
+        (notes, ("attach_to",), "note"),
+    ):
+        for entry in holder:
+            for slot in slots:
+                for member in entry.get(slot) or []:
+                    if not str(member or "").strip():
+                        raise GraphInvalid(
+                            f"{what} {entry.get('id')!r} lists an empty entry in "
+                            f"{slot!r}, which would be silently dropped. Name "
+                            "something, or shorten the list."
+                        )
 
     for event in events:
         check(f"event {event.get('id')!r}'s place", event.get("place"), must_be="place")
@@ -434,7 +447,8 @@ def parse(body: Any) -> Graph:
         # and the write disagreeing for the third time on this branch**, which is
         # what #106 is filed about.
         role = str(event.get("role") or "").strip()
-        if role and role.casefold() != "primary" and not (event.get("people") or []):
+        carriers = [who for who in (event.get("people") or []) if str(who or "").strip()]
+        if role and role.casefold() != "primary" and not carriers:
             raise GraphInvalid(
                 f"event {event.get('id')!r} gives the role {role!r} but names no "
                 "people, so nothing would carry it -- a family's own reference "
