@@ -566,3 +566,54 @@ def test_the_singulariser_names_a_family_a_family() -> None:
         f"the error message calls a family a 'familie': {invalid.value}"
     )
     assert "not a family" in str(invalid.value)
+
+
+def test_a_family_nothing_would_create_is_refused() -> None:
+    """⛔ The preview promised a family the writer skips, so the event orphaned.
+
+    The writer skips a family with no parents and no children at
+    ``if not parents and not children``. ``parse`` accepted it, the preview said
+    the family would be created and the marriage attached, and the write produced
+    **an event attached to nothing** -- the approved account and the write
+    disagreeing again, in the #106 class.
+
+    ⭐ Refusing here also closes the older, quieter case: an empty family node
+    used to render as a promise and write nothing at all, event or no event.
+    """
+    with pytest.raises(document.GraphInvalid) as invalid:
+        document.parse(
+            dict(
+                people=[node("p1", given="Herbert", surname="Invented")],
+                families=[node("f1")],
+                events=[node("e1", type="Marriage", family="f1")],
+            )
+        )
+
+    assert "nothing would be written for it" in str(invalid.value)
+
+
+def test_the_family_shapes_that_DO_get_written_are_still_accepted() -> None:
+    """⚠️ A refusal that also refuses correct graphs is worse than the defect."""
+    parents_only = dict(
+        people=[
+            node("p1", given="Herbert", surname="Invented", gender="male"),
+            node("p2", given="Louise", surname="Madeup", gender="female"),
+        ],
+        families=[node("f1", parents=["p1", "p2"])],
+        events=[node("e1", type="Marriage", family="f1")],
+    )
+    attaching = dict(
+        people=[node("p1", given="Herbert", surname="Invented")],
+        families=[node("f1", gramps_id="F0003", children=["p1"])],
+    )
+    children_only = dict(
+        people=[node("p1", given="Herbert", surname="Invented")],
+        families=[node("f1", children=["p1"])],
+    )
+
+    for graph, label in (
+        (parents_only, "parents only"),
+        (attaching, "attaching by gramps_id"),
+        (children_only, "children only"),
+    ):
+        assert document.parse(graph) is not None, f"{label} was refused"

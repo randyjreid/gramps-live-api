@@ -378,6 +378,21 @@ def parse(body: Any) -> Graph:
                 f"{kind_of.get(referenced)} and not a {must_be}"
             )
 
+    # ⛔ A family that names nobody and no gramps_id is never written -- the
+    # writer skips it at ``if not parents and not children`` -- while the preview
+    # promises to create it. **That divergence produced an ORPHAN EVENT**: the
+    # marriage was created, the family was not, and the approved text said
+    # otherwise. Refusing here is the honest end of it, and it also closes the
+    # older case where an empty family node silently wrote nothing at all.
+    for family in families:
+        if family.get("gramps_id") or family.get("parents") or family.get("children"):
+            continue
+        raise GraphInvalid(
+            f"family {family.get('id')!r} names no parents, no children and no "
+            "gramps_id, so nothing would be written for it. Give it somebody, or "
+            "leave it out."
+        )
+
     for event in events:
         check(f"event {event.get('id')!r}'s place", event.get("place"), must_be="place")
         for person in event.get("people") or []:
