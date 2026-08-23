@@ -29,6 +29,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
+from gramps_live_api.host import paths
+
 MAX_GRAPH_BYTES = 512 * 1024
 """A document's findings, not a tree import. Large enough for a dense census
 page with forty people on it; small enough that a runaway caller cannot hand the
@@ -794,7 +796,7 @@ def journal_record(
     }
 
 
-def write_journal(tree_dir: str, record: dict[str, Any], *, stem: str) -> str:
+def write_journal(tree_dir: str, record: dict[str, Any], *, stem: str) -> tuple[str, str]:
     """Put the record in the tree's own undo directory and return where it landed.
 
     ⚠️ **``fsync`` before returning**, for the reason ``core/apply`` gives: "the
@@ -812,37 +814,30 @@ def write_journal(tree_dir: str, record: dict[str, Any], *, stem: str) -> str:
     directory = os.path.join(tree_dir, UNDO_DIRECTORY)
     os.makedirs(directory, exist_ok=True)
     path = os.path.join(directory, stem + ".json")
-    with open(path, "w", encoding="utf-8") as handle:
+
+    # ⛔ **Written beside the target and MOVED into place, never opened over it.**
+    #
+    # ⚠️ Completion re-uses the intent's stem deliberately -- the completed record
+    # must replace the intent, not sit beside it as a second file. But ``open(...,
+    # "w")`` TRUNCATES FIRST: for the whole span between that truncation and the
+    # fsync below, the only durable link between the committed database change and
+    # its backup was a zero-length file. A crash there loses the mapping A4 exists
+    # to keep, and loses it *after* the write has already landed.
+    #
+    # ⭐ ``os.replace`` is atomic on both POSIX and Windows, so at every instant the
+    # name holds either the intact intent or the intact completion -- the same bound
+    # the backup's own publication uses, for the same reason.
+    partial = path + ".partial"
+    with open(partial, "w", encoding="utf-8") as handle:
         json.dump(record, handle, ensure_ascii=False, indent=2, sort_keys=True)
         handle.flush()
         os.fsync(handle.fileno())
-    sync_directory(directory)
-    return path
-
-
-def sync_directory(directory: str) -> bool:
-    """Flush a directory entry. ``False`` where the platform cannot.
-
-    ⛔ **Returns what actually happened.** An earlier version of the equivalent
-    code in ``backup._publish`` treated every failure as *unsupported platform*
-    and reported success -- and **Windows always took that path**, so durability
-    was unverified on the only platform this runs on. That is a check succeeding
-    for a reason unrelated to the property it names, inside the durability
-    guarantee itself.
-    """
-    try:
-        handle = os.open(directory, os.O_RDONLY)
-    except OSError:
-        # ⚠️ Windows cannot open a directory as a file descriptor at all. That is
-        # a KNOWN LIMIT rather than a failure, and it is reported as one.
-        return False
-    try:
-        os.fsync(handle)
-        return True
-    except OSError:
-        return False
-    finally:
-        os.close(handle)
+    os.replace(partial, path)
+    # ⛔ The result is RETURNED, not discarded. An earlier version called this
+    # and threw the answer away, so ``write_journal`` reported a durable record
+    # on every Windows write -- a check performed and then ignored, which is
+    # exactly the same defect as not performing it.
+    return path, paths.durable_directory(directory)
 
 
 def caller_preview(graph: Graph) -> str:

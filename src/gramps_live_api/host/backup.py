@@ -31,6 +31,8 @@ import time
 import uuid
 from dataclasses import dataclass
 
+from gramps_live_api.host import paths
+
 PAGES_PER_STEP = 1024
 """How many pages one internal copy step moves.
 
@@ -79,13 +81,14 @@ class Outcome:
     pages: int = 0
     attempts: int = 0
     seconds: float = 0.0
-    directory_synced: bool = False
-    """Whether the backup's DIRECTORY ENTRY was flushed, not merely its contents.
+    directory_synced: str = ""
+    """``SYNCED``, ``UNSUPPORTED`` or ``FAILED`` for the backup's DIRECTORY ENTRY.
 
-    ⛔ **Reported rather than assumed.** ``os.replace`` is atomic everywhere, so
-    the file is never half visible -- but on Windows the new directory entry
-    cannot be fsynced, and pretending otherwise made the durability guarantee
-    unverifiable on the only platform this runs on."""
+    ⛔ **Three answers, and the caller must READ it.** An earlier version added
+    this field as a boolean and then never looked at it -- reporting a fact and
+    ignoring it, which is the same defect as not measuring it. ``os.replace`` is
+    atomic everywhere so the file is never half visible; what varies is whether
+    the new directory entry survives a power loss."""
 
     taken_utc: str = ""
     """When the copy completed, ISO-8601 UTC.
@@ -225,28 +228,10 @@ class _TookTooLong(Exception):
     """A single attempt ran past its wall clock. ⛔ There is no page budget."""
 
 
-def _sync_directory(directory: str) -> bool:
-    """Flush a directory entry. ⛔ ``False`` where the platform cannot do it.
-
-    Windows cannot open a directory as a file descriptor, so this is a **known
-    limit reported as one** rather than a failure quietly reported as success.
-    """
-    try:
-        handle = os.open(directory, os.O_RDONLY)
-    except OSError:
-        return False
-    try:
-        os.fsync(handle)
-        return True
-    except OSError:
-        return False
-    finally:
-        os.close(handle)
-
-
-def _publish(partial: str, destination: str) -> bool:
-    """Make the finished copy visible under its final name. Returns whether the
-    DIRECTORY ENTRY was made durable.
+def _publish(partial: str, destination: str) -> str:
+    """Make the finished copy visible under its final name. Returns
+    ``paths.SYNCED``, ``paths.UNSUPPORTED`` or ``paths.FAILED`` for the DIRECTORY
+    ENTRY.
 
     ⛔ **fsync THEN rename.** A rename is atomic, but it can be reordered ahead of
     the data on a crash -- which would publish a name whose contents are not
@@ -279,7 +264,10 @@ def _publish(partial: str, destination: str) -> bool:
     # visible. What is NOT established on Windows is that the new directory entry
     # survives a power loss, and the caller is told which it got rather than
     # being allowed to believe the stronger one.
-    return _sync_directory(os.path.dirname(destination))
+    # ⛔ The whole created path, not just the leaf. A tree's FIRST backup creates
+    # both ``backups/`` and ``backups/<tree>/``, and syncing only the leaf leaves
+    # the entry for that leaf unflushed in its own parent.
+    return paths.durable_directory(os.path.dirname(destination))
 
 
 def _one_attempt(source: str, destination: str) -> int:

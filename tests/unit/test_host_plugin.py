@@ -763,3 +763,130 @@ def test_the_intent_and_its_completion_share_one_file(
     written = json.loads(records[0].read_text(encoding="utf-8"))
     assert written.get("written_utc"), "the record was never completed"
     assert written["backup"]["path"].endswith("b.sqlite")
+
+
+def test_EVERY_pre_write_exit_discards_the_backup_not_just_cancellation(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ The second instance of an enumerated rule standing in for a bound.
+
+    Cancellation was one branch, and it was the only one that discarded. Every
+    OTHER pre-write exit left the copy on disk: the tree closed or swapped inside
+    ``confirm``'s nested loop, the intent record refusing to write, the directory
+    entry failing to flush, and any exception at all.
+
+    ⚠️ **Each leaked copy is a snapshot of a tree nobody changed**, and because
+    ``RETAIN`` counts FILES, each one evicts a real journal-linked pre-write
+    backup. Enough abandoned previews and every recovery point that could undo a
+    real write is gone -- while the directory looks healthily full.
+
+    ⭐ So the bound is *committed or discarded*, and this test walks the exits one
+    at a time rather than trusting the one that was already covered.
+    """
+    from gramps_live_api.host import backup, document
+
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+
+    def run_one(name: str, arrange) -> Path:  # noqa: ANN001
+        directory = tmp_path / name
+        directory.mkdir(parents=True)
+        copy = directory / "2026-08-24T000000Z-T.sqlite"
+        copy.write_text("a backup of a tree nobody changed", encoding="utf-8")
+
+        writer = _Writer(say_yes=True)
+        _install_writer(monkeypatch, writer)
+        monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+        arrange(writer)
+
+        plugin._write_after_backup(
+            dbstate=None,
+            uistate=None,
+            graph=graph,
+            parsed=document.parse(graph),
+            resolution=document.Resolution(),
+            taken=backup.Outcome(ok=True, path=str(copy), message="ok"),
+            totals={},
+            note=lambda level, message: None,
+            backed_up_tree=str(tmp_path),
+        )
+        assert writer.wrote == [], f"{name}: nothing may be written on this path"
+        return copy
+
+    # 1. the tree is swapped while the owner reads the dialog -- the nested GTK
+    #    loop inside ``confirm`` is real time, and this is the exit that made the
+    #    second blessing check earn its keep.
+    def swapped(writer: Any) -> None:
+        def confirm(uistate: Any, text: str) -> bool:
+            monkeypatch.setattr(
+                accessor, "blessing", lambda: document.Blessing(True, str(tmp_path / "elsewhere"))
+            )
+            return True
+
+        writer.confirm = confirm  # type: ignore[method-assign]
+
+    assert not run_one("swapped", swapped).exists(), (
+        "the tree changed inside the dialog, no write happened, and the backup "
+        "was KEPT -- it protects nothing and consumes a retention slot"
+    )
+
+    # 2. the intent record refuses. The write is correctly refused; the backup it
+    #    was taken for is then equally pointless.
+    def intent_refuses(writer: Any) -> None:
+        monkeypatch.setattr(plugin, "_record_intent", lambda *a, **k: None)
+
+    assert not run_one("intent", intent_refuses).exists(), (
+        "the intent could not be recorded so nothing was written, and the backup was KEPT"
+    )
+
+    # 3. an exception anywhere in the write path. ⚠️ The one no enumeration can
+    #    ever cover, which is the whole argument for a lifecycle bound.
+    def explodes(writer: Any) -> None:
+        def boom(dbstate: Any, graph: Any) -> dict[str, Any]:
+            raise RuntimeError("the transaction did not open")
+
+        writer.write = boom  # type: ignore[method-assign]
+
+    assert not run_one("exploded", explodes).exists(), (
+        "the write raised, so the tree is unchanged, and the backup was KEPT"
+    )
+
+
+def test_a_committed_write_KEEPS_its_backup(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ The other half of the bound, and the half that matters more.
+
+    ⚠️ A discard rule with no matching keep rule is one refactor away from
+    deleting the recovery point of a write that DID happen -- which is R4's
+    guarantee destroyed by the machinery meant to maintain it.
+    """
+    from gramps_live_api.host import backup, document
+
+    directory = tmp_path / "kept"
+    directory.mkdir(parents=True)
+    copy = directory / "2026-08-24T000000Z-T.sqlite"
+    copy.write_text("the only way back", encoding="utf-8")
+
+    writer = _Writer(say_yes=True)
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+    monkeypatch.setattr(backup, "RETAIN", 20)
+
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+    plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph=graph,
+        parsed=document.parse(graph),
+        resolution=document.Resolution(),
+        taken=backup.Outcome(ok=True, path=str(copy), message="ok"),
+        totals={},
+        note=lambda level, message: None,
+        backed_up_tree=str(tmp_path),
+    )
+
+    assert writer.wrote, "this path must actually write"
+    assert copy.exists(), (
+        "the write COMMITTED and its backup was discarded -- the tree changed "
+        "and the only way back was deleted"
+    )

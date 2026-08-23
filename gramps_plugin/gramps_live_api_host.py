@@ -258,6 +258,11 @@ def _present(dbstate, uistate, graph):
             # "the backup failed" would already have spent his attention on a
             # decision that could not be honoured.
             note("ERROR", "document: REFUSED TO ARM -- " + taken.message)
+            # ⛔ Discard here too. A refusal is a pre-write exit like any other,
+            # and a partially-successful backup -- copied, but with a directory
+            # entry that could not be flushed -- has a path on disk that would
+            # otherwise survive to consume a retention slot, evicting a real one.
+            _discard_quietly(taken, note)
             writer.tell(
                 uistate,
                 "Nothing was written -- no backup",
@@ -269,7 +274,8 @@ def _present(dbstate, uistate, graph):
         note(
             "INFO",
             f"document: backup ok in {taken.seconds:.3f} s "
-            f"({taken.pages} pages, attempt {taken.attempts}): {taken.path}",
+            f"({taken.pages} pages, attempt {taken.attempts}, "
+            f"directory {taken.directory_synced}): {taken.path}",
         )
 
         return _write_after_backup(
@@ -321,7 +327,39 @@ def _take_backup(tree_dir, note):
             directory, _tree_name(tree_dir), stamp, tree_dir=tree_dir
         )
         note("INFO", "document: taking a backup before writing")
-        return backup.take(os.path.join(tree_dir, "sqlite.db"), destination)
+        outcome = backup.take(os.path.join(tree_dir, "sqlite.db"), destination)
+
+        # ⛔ The directory verdict is READ, and read HERE -- once, where both
+        # callers already go -- rather than checked at each call site.
+        #
+        # ⚠️ An earlier version added ``directory_synced`` and then never looked
+        # at it: a fact measured, reported, and ignored, which is worth exactly
+        # as much as never measuring it. Checking it at the two call sites would
+        # have been the enumeration this project keeps paying for; folding it
+        # into ``ok`` means the refuse-to-arm path that already exists handles
+        # it, and a third call site cannot forget.
+        #
+        # ⭐ **FAILED refuses. UNSUPPORTED proceeds and is recorded.** Windows
+        # cannot fsync a directory at all, so refusing on ``unsupported`` would
+        # refuse every write on the owner's only platform -- that is not a
+        # durability guarantee, it is an outage. A genuine ``OSError`` from a
+        # platform that CAN do it is a real failure and refuses.
+        if outcome.ok and outcome.directory_synced == paths.FAILED:
+            return backup.Outcome(
+                ok=False,
+                path=outcome.path,
+                message=(
+                    "the backup was copied but its directory entry could not be "
+                    "flushed, so a power loss could lose the backup while keeping "
+                    "the change"
+                ),
+                pages=outcome.pages,
+                attempts=outcome.attempts,
+                seconds=outcome.seconds,
+                directory_synced=outcome.directory_synced,
+                taken_utc=outcome.taken_utc,
+            )
+        return outcome
     except Exception:
         return backup.Outcome(
             ok=False, path=None, message="the backup raised: " + traceback.format_exc()
@@ -346,6 +384,8 @@ def _record_intent(document, outcome, parsed, approved, taken, totals, note):
     """
     import datetime
 
+    from gramps_live_api.host import paths
+
     try:
         stamped = datetime.datetime.now(datetime.timezone.utc)
         record = document.journal_record(
@@ -360,7 +400,7 @@ def _record_intent(document, outcome, parsed, approved, taken, totals, note):
             totals_before=totals,
         )
         record["write_confirmed"] = False
-        path = document.write_journal(
+        path, verdict = document.write_journal(
             outcome.message,
             record,
             # ⛔ A collision-free suffix, the SAME bound the backup's filename
@@ -371,6 +411,11 @@ def _record_intent(document, outcome, parsed, approved, taken, totals, note):
             # location, same defect: bound rather than patched.
             stem=stamped.strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8] + "-document",
         )
+        # ⛔ The journal's OWN directory verdict, read for the same reason. An
+        # earlier version called ``sync_directory`` and discarded the answer.
+        if verdict == paths.FAILED:
+            note("ERROR", "document: the journal's directory entry could not be flushed")
+            return None
         note("INFO", "document: backup recorded before writing: " + path)
         return path
     except Exception:
@@ -420,9 +465,9 @@ def _discard_quietly(taken, note):
     try:
         if taken.path:
             backup.discard(taken.path)
-            note("INFO", "document: discarded the backup for a cancelled preview")
+            note("INFO", "document: discarded a backup that preceded no write")
     except Exception:
-        note("ERROR", "document: could not discard the cancelled backup: " + traceback.format_exc())
+        note("ERROR", "document: could not discard the backup: " + traceback.format_exc())
 
 
 def _prune_quietly(taken, note):
@@ -454,9 +499,28 @@ def _write_after_backup(
 
     from gramps_live_api.host import document
 
+    # ⛔ **The backup is PROVISIONAL until the transaction commits**, and this
+    # flag is the whole of what says so.
+    #
+    # ⚠️ Discarding it used to be one enumerated branch -- the owner pressing
+    # Cancel. Every OTHER pre-write exit leaked it: the tree closed or swapped
+    # inside ``confirm``'s nested loop, the intent record refusing to write, and
+    # any exception at all. Each leaked copy is a snapshot of a tree nobody
+    # changed, and because ``RETAIN`` counts FILES, each one pushes a real
+    # journal-linked pre-write backup out of the window. **Enough abandoned
+    # previews silently evict every recovery point that could undo a real write.**
+    #
+    # ⭐ The second instance of an enumerated rule standing in for a bound, in
+    # this same file, this same week. Bounded rather than patched: *committed or
+    # discarded*, decided in one place, with no branch able to forget.
+    committed = False
+
     try:
         if not taken.ok:
             note("ERROR", "document: REFUSED TO ARM -- " + taken.message)
+            # ⛔ No discard call here -- ``committed`` is False, so the
+            # ``finally`` at the end of this function covers this branch
+            # along with every other pre-write exit.
             writer.tell(
                 uistate,
                 "Nothing was written -- no backup",
@@ -468,7 +532,8 @@ def _write_after_backup(
         note(
             "INFO",
             f"document: backup ok in {taken.seconds:.3f} s "
-            f"({taken.pages} pages, attempt {taken.attempts}): {taken.path}",
+            f"({taken.pages} pages, attempt {taken.attempts}, "
+            f"directory {taken.directory_synced}): {taken.path}",
         )
 
         # ⛔ The blessing AGAIN -- and it must be the SAME TREE, not merely a
@@ -504,7 +569,10 @@ def _write_after_backup(
             #
             # ⭐ Counting only backups that precede a real write is what makes
             # retention a bound on RECOVERY POINTS rather than on files.
-            _discard_quietly(taken, note)
+            #
+            # ⛔ No ``_discard_quietly`` call here any more -- ``committed`` is
+            # still False, so the ``finally`` below does it for this branch and
+            # for every other pre-write exit alike.
             return False
 
         # ⛔ And AGAIN after the dialog -- **this is the one that earns its
@@ -544,6 +612,11 @@ def _write_after_backup(
             return False
 
         result = writer.write(dbstate, graph)
+
+        # ⛔ **HERE, and nowhere earlier.** The transaction has returned, so the
+        # tree has changed and the backup is now the only way back. Everything
+        # above this line is a pre-write exit and discards.
+        committed = True
         # ⛔ Summarised HERE, from what the write actually created. The writer
         # cannot do it: importing the host package would make it host code and
         # forbid it the database access it exists for.
@@ -562,7 +635,7 @@ def _write_after_backup(
             import datetime
 
             written_utc = datetime.datetime.now(datetime.timezone.utc)
-            journal = document.write_journal(
+            journal, _verdict = document.write_journal(
                 outcome.message,
                 document.journal_record(
                     parsed,
@@ -615,6 +688,11 @@ def _write_after_backup(
         except Exception:
             pass
         return False
+    finally:
+        # ⛔ Every path out of this function passes here. A backup that did not
+        # end up protecting a write is removed; one that did is never touched.
+        if not committed:
+            _discard_quietly(taken, note)
 
 
 def _put_the_package_on_the_path():
