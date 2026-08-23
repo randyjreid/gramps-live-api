@@ -26,6 +26,7 @@ Usage::
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -103,15 +104,44 @@ def main() -> int:
     # which is what a commit publishes -- so it gates a first commit exactly as
     # well as a later one. Without ``--range`` is not a weaker scan; it is the
     # same scan without the extra history blobs a range adds.
-    base = "origin/main"
+    # ⛔ **An UNRESOLVABLE baseline REFUSES. It does not quietly scan less.**
+    #
+    # ⚠️ The previous version treated "no committed range" and "no baseline at
+    # all" as the same case and ran the index-only scan for both. They are not the
+    # same case. With a resolvable baseline and an empty range, the index IS
+    # everything this branch adds, so index-only is complete. **With no baseline,
+    # the range is unknown** -- and a branch that ADDS a file with personal data
+    # and DELETES it again ends at a clean tip, passes an index-only scan, and
+    # publishes the blob anyway. That is precisely what ``--range`` exists to
+    # catch.
+    #
+    # ⚠️⚠️ **And the earlier fix made this worse rather than merely leaving it.**
+    # The skip it replaced at least printed SKIPPED; the replacement printed
+    # ``ok``, so coverage narrowed while the report got more confident. **A
+    # regression that reads as an improvement is the worst shape this class
+    # takes.**
+    #
+    # ⭐ ``GRAMPS_LIVE_API_GATE_BASE`` exists so that a refusal is not a dead end:
+    # a clone whose canonical remote is ``upstream`` names it and carries on. A
+    # gate nobody can satisfy gets worked around, and a gate worked around is not
+    # a gate.
+    base = os.environ.get("GRAMPS_LIVE_API_GATE_BASE", "origin/main")
+    if not git("rev-parse", "--verify", base):
+        print(f"  {'pii_guard':<28}FAILED -- cannot resolve the baseline {base!r}")
+        print(f"    The history scan needs a baseline, and {base!r} does not resolve here.")
+        print("    Scanning only the index would miss a branch that adds personal data")
+        print("    and deletes it again, which still publishes the blob.")
+        print("    Fetch it (git fetch origin main), or name the right one:")
+        print("        GRAMPS_LIVE_API_GATE_BASE=upstream/main python scripts/gate.py")
+        raise SystemExit(2)
+
     scope: list[str] = []
-    if git("rev-parse", "--verify", base) and git("rev-list", "--count", f"{base}..HEAD") not in (
-        "",
-        "0",
-    ):
-        scope = ["--range", f"{base}..HEAD"]
+    if git("rev-list", "--count", f"{base}..HEAD") in ("", "0"):
+        # Nothing committed on top of the baseline, so the index is the whole of
+        # what this branch adds and the range would cover nothing.
+        print(f"  {'pii_guard':<28}(nothing committed on top of {base} -- index only)")
     else:
-        print(f"  {'pii_guard':<28}(no committed range yet -- tracked content only)")
+        scope = ["--range", f"{base}..HEAD"]
     run("pii_guard", python, "-m", "gramps_live_api.core.pii_guard", *scope, ".")
 
     print("  ALL GATES PASS (exit 0)")

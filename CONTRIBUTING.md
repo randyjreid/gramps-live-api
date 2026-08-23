@@ -1585,6 +1585,7 @@ considered* — which is exactly what made them expensive.
 | *"Basename plus display name is two weak keys… A digest of the absolute path cannot change under either"* — the retention docstring, on renames splitting a tree's backups | the folder was `{display}-{digest}`, so a **rename moved it**. `prune` is handed one directory and never saw the old one again; a tree's recovery points scattered across as many folders as it had ever had names, each separately inside `RETAIN` and the whole never inside it |
 | *"the caller is told which it got rather than being allowed to believe the stronger one"* — on `directory_synced` | the caller **never read it**. A fact measured, reported, and ignored, which is worth exactly what not measuring it is worth |
 | *"It cannot remove the copy just taken: retention keeps the newest by name and this one carries the newest stamp"* | a claim about **the clock**, not about the code. A backward clock — NTP correction, restored snapshot, dual boot — makes this run's copy sort first, so it is deleted immediately after the database write and the journal record points at nothing |
+| *"Copy `source` to `destination`. ⛔ **Call this ON the worker thread.**"* — `backup.take` | the worker was **removed** and the copy is synchronous on the GTK main thread. ⚠️ **The worst of the four, because it is an INSTRUCTION rather than an observation** — a reader following it would put the copy back on a worker and reintroduce all three defects the reversal removed, believing they were doing what the file asked |
 
 ⭐ **The diagnosis, which is the part worth keeping: the reassurance gets written at
 the moment you are least able to check it.** A comment explaining why something is
@@ -1608,9 +1609,39 @@ survived multiple review rounds; the reviewer read the assurance and moved on.
    forward, this platform supports that, this list cannot be empty. Those are claims
    about the world, and the code cannot make them true.
 
-⭐ **Recorded because the session that wrote all three reported them, unprompted.** No
+⭐ **Recorded because the session that wrote all four reported them, unprompted.** No
 gate can catch this class: a comment has no exit code. Only a reviewer reading the
-code *against* the comment finds it, which is why all three cost a round.
+code *against* the comment finds it, which is why each of them cost a round.
+
+### ⚠️ The same class outside the code, in a shell command
+
+**A check is a claim too, and the same day produced one.** A session verified that
+Gramps was closed before switching branches — a standing rule, because the plugin
+junction points straight at `gramps_plugin/` in the working tree — using:
+
+```
+Get-Process gramps,python -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like "*gramps*" }
+```
+
+**The process is `grampsw.exe`.** `Get-Process gramps` does not match it,
+`-ErrorAction SilentlyContinue` swallowed the resulting error, and the empty
+result read as *"no Gramps process running."* Two branch switches followed, across
+**576 lines of difference in exactly those plugin files**, with Gramps live. It was
+luck rather than design that nothing ran in the window.
+
+⛔ **Two rules, both mechanical:**
+
+1. **Match processes by pattern, never by a name list you typed from memory.**
+   `Get-Process | Where-Object { $_.ProcessName -like "*gramps*" }`.
+2. ⚠️ **"No rows returned" and "the query was wrong" are different answers, and
+   `SilentlyContinue` turns the second into the first.** Any check whose safe
+   answer is the empty set must be able to distinguish them.
+
+⭐ **And the better fix is not a better check.** The rule exists because the
+junction points at the working tree, so the answer is to stop moving the working
+tree: `git worktree add ../elsewhere <branch>` gives a separate directory Gramps
+never sees. **That removes the need for the check rather than repairing it** — the
+same move as deleting the page budget instead of writing a fourth version of it.
 
 ### The round count, corrected in the same spirit
 
