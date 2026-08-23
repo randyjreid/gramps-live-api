@@ -1100,3 +1100,28 @@ def test_nothing_changed_is_an_answer_not_a_refusal() -> None:
 
     assert found.matches == (), "nothing changed since the cutoff"
     assert found.matched == 0
+
+
+def test_the_iso_date_times_the_tool_advertises_are_accepted() -> None:
+    """⛔ The documented input was rejected by the code that documents it.
+
+    ``changed_since`` says *an ISO date or date-time*, and three hand-written
+    ``strptime`` formats are not ISO -- so ``2026-08-01T12:00:00Z``, an offset,
+    and fractional seconds all came back as 400.
+    """
+    import datetime
+
+    naive = accessor._as_epoch("2026-08-01T12:00:00")
+    assert naive == int(datetime.datetime(2026, 8, 1, 12, 0, 0).timestamp()), (
+        "a naive input must stay LOCAL -- Gramps writes change from time.time()"
+    )
+
+    utc = accessor._as_epoch("2026-08-01T12:00:00Z")
+    offset = accessor._as_epoch("2026-08-01T14:00:00+02:00")
+    assert utc is not None and offset is not None
+    assert utc == offset, "the same instant expressed two ways gave two answers"
+
+    assert accessor._as_epoch("2026-08-01T12:00:00.123456") is not None
+    assert accessor._as_epoch("2026-08-01") is not None
+    assert accessor._as_epoch("2026/08/01") is not None
+    assert accessor._as_epoch("last Tuesday") is None

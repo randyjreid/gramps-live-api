@@ -1258,6 +1258,24 @@ def _as_epoch(text: str) -> int | None:
     import datetime
 
     raw = str(text).strip().replace("/", "-")
+
+    # ⛔ ``fromisoformat`` FIRST, because the tool advertises "an ISO date-time"
+    # and three hand-written formats are not ISO.
+    #
+    # ⚠️ A caller passing ``2026-08-01T12:00:00Z``, an offset like ``+02:00``, or
+    # fractional seconds was refused with a 400 -- **the documented input
+    # rejected by the code that documents it.** The same shape as every other
+    # enumeration in this project: a list of spellings standing in for a format.
+    try:
+        parsed = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        parsed = None
+    if parsed is not None:
+        # ⭐ A naive input stays LOCAL, which is the promise above: Gramps writes
+        # ``change`` from ``time.time()``, and an owner asking "since yesterday"
+        # means his yesterday. An input carrying an offset is honoured as given.
+        return int(parsed.timestamp())
+
     for shape in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
         try:
             return int(datetime.datetime.strptime(raw, shape).timestamp())
