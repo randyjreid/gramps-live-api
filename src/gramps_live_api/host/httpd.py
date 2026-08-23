@@ -103,6 +103,7 @@ READ_ROUTES = {
     "/find/associations": ("associations", ("gramps_id",)),
     "/find/citations": ("citations", ("gramps_id", "kind")),
     "/find/orphans": ("orphans", ("kind",)),
+    "/find/changed": ("changed", ("since", "kind")),
 }
 """⭐ The live reads, and every one of them carries R3's precondition P2.
 

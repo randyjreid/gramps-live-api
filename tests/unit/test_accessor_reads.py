@@ -915,3 +915,140 @@ def test_the_tree_totals_answer_a_question_no_search_could() -> None:
         "repositories",
         "media",
     }
+
+
+# --------------------------------------------------------------------------
+# changed_since -- and the swallow that made its first version answer nothing.
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class FakeChanged:
+    gramps_id: str
+    change: int = 0
+    private: bool = False
+    expose_getter: bool = True
+
+    def get_gramps_id(self) -> str:
+        return self.gramps_id
+
+    def get_privacy(self) -> bool:
+        return self.private
+
+    def get_title(self) -> str:
+        return "a record"
+
+    def __getattr__(self, name: str):  # noqa: ANN204
+        if name == "get_change":
+            if not object.__getattribute__(self, "expose_getter"):
+                raise AttributeError(name)
+            return lambda: object.__getattribute__(self, "change")
+        raise AttributeError(name)
+
+
+class TreeThatChanges:
+    def __init__(self, records: list[FakeChanged]) -> None:
+        self._records = records
+
+    def iter_sources(self):  # noqa: ANN201
+        return iter(self._records)
+
+    def iter_people(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_families(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_events(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_places(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_citations(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_notes(self):  # noqa: ANN201
+        return iter([])
+
+
+def test_records_changed_after_the_cutoff_are_returned() -> None:
+    old = FakeChanged("S0001", change=1_500_000_000)
+    recent = FakeChanged("S0002", change=1_787_483_523)
+    accessor.bind(FakeDbState(db=TreeThatChanges([old, recent])))
+    try:
+        found = accessor.changed_since("2026-08-01", kind="sources")
+    finally:
+        accessor.forget()
+
+    assert [m.gramps_id for m in found.matches] == ["S0002"]
+    assert "changed" in found.matches[0].display
+
+
+def test_a_private_record_is_never_reported_as_changed() -> None:
+    """⛔ P2 holds here too: not in the results, not in the count."""
+    accessor.bind(
+        FakeDbState(
+            db=TreeThatChanges(
+                [
+                    FakeChanged("S0002", change=1_787_483_523),
+                    FakeChanged("S0099", change=1_787_483_523, private=True),
+                ]
+            )
+        )
+    )
+    try:
+        found = accessor.changed_since("2026-08-01", kind="sources")
+    finally:
+        accessor.forget()
+
+    assert "S0099" not in {m.gramps_id for m in found.matches}
+    assert found.matched == len(found.matches), "the leak by arithmetic"
+
+
+def test_a_tree_whose_stamps_cannot_be_read_REFUSES_rather_than_reporting_none() -> None:
+    """⛔ The defect the first version shipped past, and it is the whole lesson.
+
+    It wrapped the read in ``except AttributeError: continue``, so using the
+    wrong accessor skipped every record and the route answered an empty result --
+    **the full walk's cost and none of its answer.** Measured live: 275 ms over
+    2,935 people, ``shown=0``, on a tree that had changed that morning.
+
+    ⚠️ *Nothing changed* is exactly the answer a caller acts on, so a silent
+    wrong one is worse than an error.
+    """
+    accessor.bind(
+        FakeDbState(
+            db=TreeThatChanges(
+                # ⚠️ Neither path yields a usable number: no getter, and the
+                # attribute holds something that is not a timestamp. That models
+                # the real failure -- an accessor whose answer cannot be used --
+                # rather than merely a missing method, which the fallback handles.
+                [
+                    FakeChanged("S0001", change="not-a-timestamp", expose_getter=False)  # type: ignore[arg-type]
+                    for _ in range(3)
+                ]
+            )
+        )
+    )
+    try:
+        with pytest.raises(reads.ReadRefused) as refusal:
+            accessor.changed_since("2020-01-01", kind="sources")
+    finally:
+        accessor.forget()
+
+    assert "change stamp" in str(refusal.value)
+    assert "Refusing rather than reporting none" in str(refusal.value)
+
+
+def test_an_unreadable_date_is_refused() -> None:
+    accessor.bind(FakeDbState(db=TreeThatChanges([])))
+    try:
+        with pytest.raises(reads.SearchTermRequired):
+            accessor.changed_since("last Tuesday", kind="sources")
+        with pytest.raises(reads.SearchTermRequired):
+            accessor.changed_since("")
+        with pytest.raises(reads.UnknownKind):
+            accessor.changed_since("2020-01-01", kind="peoples")
+    finally:
+        accessor.forget()

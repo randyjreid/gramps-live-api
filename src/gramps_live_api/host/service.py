@@ -254,9 +254,10 @@ _READS = {
     "associations": "list_associations",
     "citations": "list_citations",
     "orphans": "find_orphans",
+    "changed": "changed_since",
 }
 
-_TWO_ARGUMENT_READS = ("citation", "notes", "citations")
+_TWO_ARGUMENT_READS = ("citation", "notes", "citations", "changed")
 """⚠️ Which reads take a second query parameter. Named rather than inlined,
 because the list is checked in one place and read in another."""
 

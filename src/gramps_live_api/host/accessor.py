@@ -1132,3 +1132,135 @@ def tree_totals() -> dict[str, int]:
         "repositories": database.get_number_of_repositories(),
         "media": database.get_number_of_media(),
     }
+
+
+CHANGED_COLLECTIONS = ("people", "families", "events", "places", "sources", "citations", "notes")
+"""Which collections ``changed_since`` will walk.
+
+⚠️ **Named COLLECTIONS rather than KINDS deliberately.** ``NOTE_KINDS`` and
+``CITED_KINDS`` name things ``_by_gramps_id`` can look up, and a test pins them
+against its branches. These are collection names -- *people*, not *person* -- so
+that pin does not apply, and calling them kinds made the guard fail on correct
+code. **Renaming removes the exception instead of adding one**, which is how the
+next such list stays covered rather than carved out."""
+
+
+@mainthread.on_main_thread
+def changed_since(when: str, kind: str = "people") -> reads.Found:
+    """Records of one kind whose ``change`` stamp is at or after ``when``.
+
+    ⭐ **Use-derived:** every *"is this already entered?"* conclusion this month
+    came from diffing a stale export by hand, because nothing could answer *what
+    changed in this tree, and when*.
+
+    ⚠️ **One collection per call, and that is a cost decision.** The tree holds
+    17,822 walkable objects against 2,934 people. A call spanning every
+    collection would be the most expensive read in the host, inside the GTK main
+    thread, for a question usually asked about one kind at a time.
+
+    ``when`` is an ISO date or date-time, and it is also the required search
+    term -- so there is still no way to list everybody.
+    """
+    wanted = reads.require_term(when)
+    asked = str(kind or "people")
+    if asked not in CHANGED_COLLECTIONS:
+        raise reads.UnknownKind(
+            f"{asked!r} is not a collection this can walk. Use one of: "
+            + ", ".join(CHANGED_COLLECTIONS)
+        )
+    cutoff = _as_epoch(wanted)
+    if cutoff is None:
+        raise reads.SearchTermRequired(
+            f"{wanted!r} is not a date this can read. Use YYYY-MM-DD, or an ISO date-time."
+        )
+    if _DBSTATE is None:
+        return reads.Found()
+    database = _DBSTATE.db
+
+    iterators = {
+        "people": database.iter_people,
+        "families": database.iter_families,
+        "events": database.iter_events,
+        "places": database.iter_places,
+        "sources": database.iter_sources,
+        "citations": database.iter_citations,
+        "notes": database.iter_notes,
+    }
+    rows = []
+    unreadable = 0
+    for obj in iterators[asked]():
+        changed = _change_stamp(obj)
+        if changed is None:
+            unreadable += 1
+            continue
+        if changed < cutoff:
+            continue
+        visible = _public(obj)
+        if visible is None:
+            continue
+        rows.append(
+            (False, reads.Match(visible.get_gramps_id(), _changed_display(asked, visible, changed)))
+        )
+
+    # ⛔ If NOTHING could be read, say so instead of answering "nothing changed".
+    #
+    # ⚠️ This is the defect the first version shipped past. It wrapped the read in
+    # ``except AttributeError: continue``, so using the wrong accessor skipped
+    # every object and the route answered an empty result -- **the full walk's
+    # cost and none of its answer.** *Nothing changed* is exactly the answer a
+    # caller acts on, so a silent wrong one is worse than an error.
+    if unreadable and not rows:
+        raise reads.ReadRefused(
+            f"none of the {unreadable} {asked} in this tree exposed a change stamp, "
+            "so this cannot say what changed. Refusing rather than reporting none."
+        )
+    return reads.bound(rows)
+
+
+def _change_stamp(obj: typing.Any) -> int | None:
+    """When Gramps last changed this record, or ``None`` if it cannot be read.
+
+    ⛔ **``None`` and zero are different answers.** A record with no stamp is not
+    a record that never changed, and collapsing the two is how a walk reports
+    *nothing changed* about a tree that changed this morning.
+    """
+    getter = getattr(obj, "get_change", None)
+    if callable(getter):
+        try:
+            value = getter()
+        except Exception:
+            value = None
+        if isinstance(value, (int, float)) and value:
+            return int(value)
+    value = getattr(obj, "change", None)
+    if isinstance(value, (int, float)) and value:
+        return int(value)
+    return None
+
+
+def _as_epoch(text: str) -> int | None:
+    """An ISO date or date-time as a unix timestamp, or ``None``.
+
+    ⛔ Local time, not UTC: Gramps writes ``change`` from ``time.time()``, and an
+    owner asking *"since yesterday"* means his yesterday.
+    """
+    import datetime
+
+    raw = str(text).strip().replace("/", "-")
+    for shape in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return int(datetime.datetime.strptime(raw, shape).timestamp())
+        except ValueError:
+            continue
+    return None
+
+
+def _changed_display(kind: str, obj: typing.Any, changed: int) -> str:
+    """What changed and when, in a form the owner reads rather than decodes."""
+    import datetime
+
+    stamp = datetime.datetime.fromtimestamp(changed).strftime("%Y-%m-%d %H:%M")
+    if kind == "people":
+        return f"{_person_display(obj, _DBSTATE.db)}  [changed {stamp}]"
+    singular = kind[:-1] if kind.endswith("s") else kind
+    return f"{_orphan_display(singular, obj)}  [changed {stamp}]"
