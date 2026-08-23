@@ -683,6 +683,12 @@ def _by_gramps_id(database: typing.Any, kind: str, gramps_id: str) -> tuple[bool
         if kind == "family":
             obj = database.get_family_from_gramps_id(gramps_id)
             return obj is not None, _public(obj)
+        if kind == "event":
+            obj = database.get_event_from_gramps_id(gramps_id)
+            return obj is not None, _public(obj)
+        if kind == "citation":
+            obj = database.get_citation_from_gramps_id(gramps_id)
+            return obj is not None, _public(obj)
     except Exception:
         return False, None
     return False, None
@@ -957,3 +963,172 @@ def _looks_like_a_connection(obj: typing.Any) -> bool:
     if isinstance(obj, (str, bytes, bytearray, int, float, bool, type(None))):
         return False
     return all(callable(getattr(type(obj), name, None)) for name in _CONNECTION_METHODS)
+
+
+CITED_KINDS = ("person", "event", "family", "place", "citation")
+"""What ``list_citations`` will look up.
+
+⛔ **Pinned against ``_by_gramps_id``'s branches by test**, like ``NOTE_KINDS``.
+⚠️ **It was not, at first, and the omission cost exactly what the pin exists to
+prevent:** this advertised ``event`` and ``citation`` while the lookup had no
+branch for either, so asking *is this event cited?* returned a **successful empty
+result** -- and a caller reading *no citations* adds the duplicate this tool
+exists to prevent. **A false negative here is worse than an error**, because only
+one of them is visible."""
+
+
+@mainthread.on_main_thread
+def list_citations(gramps_id: str, kind: str = "person") -> reads.Found:
+    """What cites this record, and from which source.
+
+    ⭐ **Use-derived, and the trigger has a name: `C0012`.** A 1946 marriage
+    citation was attached to **nothing** -- source and citation both present, the
+    link absent -- so the record had been effectively uncited for as long as it
+    had existed. **It was found by reading an export by hand**, because no tool
+    could ask *is this cited?* of anything.
+
+    ⚠️ **The question this answers is not "does a citation exist".** It is
+    *does this record carry one*, which is the question whose wrong answer put a
+    fact in the tree with nothing standing behind it.
+    """
+    wanted = reads.require_term(gramps_id)
+    asked = str(kind or "person")
+    if asked not in CITED_KINDS:
+        raise reads.UnknownKind(
+            f"{asked!r} is not a kind of record that carries citations. "
+            "Use one of: " + ", ".join(CITED_KINDS)
+        )
+    if _DBSTATE is None:
+        return reads.Found()
+    database = _DBSTATE.db
+    existed, obj = _by_gramps_id(database, asked, wanted)
+    if existed and obj is None:
+        raise reads.TargetIsPrivate(f"{wanted} is marked private in this tree")
+    if obj is None:
+        return reads.Found()
+
+    rows = []
+    for handle in obj.get_citation_list():
+        raw = database.get_citation_from_handle(handle)
+        citation = _public(raw)
+        if citation is None:
+            continue
+        shown = citation.get_page() or "(no page)"
+        source_handle = citation.get_reference_handle()
+        if source_handle:
+            source = _public(database.get_source_from_handle(source_handle))
+            if source is not None:
+                shown = f"{source.get_title() or '(untitled)'} -- {shown}"
+        rows.append((False, reads.Match(citation.get_gramps_id(), shown)))
+    return reads.bound(rows)
+
+
+ORPHAN_KINDS = ("citation", "source", "note", "place", "repository")
+"""Kinds ``find_orphans`` will sweep.
+
+⛔ **Events and people are deliberately absent.** A person referenced by nothing
+is an ordinary isolated individual, not a defect, and 10,931 events would make
+the sweep the most expensive read in the host for the least meaningful answer."""
+
+
+@mainthread.on_main_thread
+def find_orphans(kind: str) -> reads.Found:
+    """Records of ``kind`` that nothing in the tree references.
+
+    ⭐ **Use-derived. `C0012` is what a citation orphan looks like** -- it existed,
+    it was correct, and it pointed at nothing, so it did no work. Eleven such
+    records were found by hand; one of them mattered.
+
+    ⚠️ **``kind`` IS the search term, and that is a deliberate reading of P2.**
+    The rule is that there is no *list everybody*, and this cannot list everybody:
+    a caller must name what they are looking for, the answer is by construction
+    the small set of things nothing points at, private records are excluded, and
+    ``RESULT_CAP`` still applies. **A caller cannot browse the tree with this.**
+
+    ⭐ **Backlinks, not a sweep.** ``find_backlink_handles`` reads Gramps' own
+    reference table, so this costs one indexed lookup per candidate rather than
+    a walk over everything that might point at it.
+    """
+    asked = reads.require_term(kind)
+    if asked not in ORPHAN_KINDS:
+        raise reads.UnknownKind(
+            f"{asked!r} is not a kind this can sweep for orphans. "
+            "Use one of: " + ", ".join(ORPHAN_KINDS)
+        )
+    if _DBSTATE is None:
+        return reads.Found()
+    database = _DBSTATE.db
+
+    iterators = {
+        "citation": database.iter_citations,
+        "source": database.iter_sources,
+        "note": database.iter_notes,
+        "place": database.iter_places,
+        "repository": database.iter_repositories,
+    }
+    rows = []
+    for obj in iterators[asked]():
+        visible = _public(obj)
+        if visible is None:
+            continue
+        try:
+            if any(True for _ in database.find_backlink_handles(visible.get_handle())):
+                continue
+        except Exception:
+            # ⛔ A backlink lookup that fails must not report an orphan. Saying
+            # "nothing points at this" because the question could not be asked
+            # would send the owner deleting a record that is in use.
+            continue
+        rows.append((False, reads.Match(visible.get_gramps_id(), _orphan_display(asked, visible))))
+    return reads.bound(rows)
+
+
+def _orphan_display(kind: str, obj: typing.Any) -> str:
+    """Enough to recognise the record, without reaching for a name it may not have."""
+    try:
+        if kind == "citation":
+            return obj.get_page() or "(no page)"
+        if kind == "source":
+            return obj.get_title() or "(untitled)"
+        if kind == "note":
+            return " ".join((obj.get() or "").split())[:120] or "(empty)"
+        if kind == "place":
+            return obj.get_name().get_value() or obj.get_title() or "(unnamed)"
+        if kind == "repository":
+            return obj.get_name() or "(unnamed)"
+    except Exception:
+        return "(could not read it)"
+    return ""
+
+
+@mainthread.on_main_thread
+def tree_totals() -> dict[str, int]:
+    """How many of each kind the tree holds. ⭐ Every count is O(1).
+
+    ⚠️ **``find_people`` requires a search term, so there was no way to ask how
+    big the tree is at all** -- and *"did that import land?"* is not a question a
+    search can answer.
+
+    ⛔ **These totals INCLUDE private records, deliberately.** P2's arithmetic
+    rule is about a listing: private people must be in neither the results nor
+    the matched count, because the difference between them would reveal that
+    somebody was withheld. **An aggregate over the whole tree reveals nobody** --
+    and a total that excluded private records would leak by moving when one was
+    marked. ``/health`` already reports the person count on the same reasoning.
+    """
+    if _DBSTATE is None:
+        return {}
+    database = _DBSTATE.db
+    if database is None or not database.is_open():
+        return {}
+    return {
+        "people": database.get_number_of_people(),
+        "families": database.get_number_of_families(),
+        "events": database.get_number_of_events(),
+        "places": database.get_number_of_places(),
+        "sources": database.get_number_of_sources(),
+        "citations": database.get_number_of_citations(),
+        "notes": database.get_number_of_notes(),
+        "repositories": database.get_number_of_repositories(),
+        "media": database.get_number_of_media(),
+    }

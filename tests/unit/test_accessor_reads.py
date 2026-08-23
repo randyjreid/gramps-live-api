@@ -392,11 +392,24 @@ def test_an_unsupported_note_kind_is_refused_not_retargeted(bound_tree: None) ->
     assert accessor.list_notes("I0041", kind="person").matches == ()
 
 
-def test_note_kinds_matches_what_the_lookup_actually_supports() -> None:
-    """⛔ The anti-drift pin. ``NOTE_KINDS`` is a second list of these.
+def test_every_advertised_kind_list_matches_the_lookup() -> None:
+    """⛔ ONE pin for every ``*_KINDS`` constant, not one per constant.
 
-    Same shape as the counter bug this branch fixes: two lists, nothing making
-    them agree. This reads ``_by_gramps_id``'s own branches.
+    ``NOTE_KINDS`` had a pin. ``CITED_KINDS`` was then written **without** one and
+    immediately drifted: it advertised ``event`` and ``citation`` while
+    ``_by_gramps_id`` had no branch for either, so ``list_citations(kind="event")``
+    returned a **successful empty result** -- and a caller reading *no citations*
+    adds the duplicate the tool exists to prevent. **A false negative is worse
+    than an error, because only one of them is visible.**
+
+    ⚠️ **The lesson did not transfer because the pin was written for ONE
+    constant.** This one discovers them, so a third list cannot repeat it.
+
+    ⚠️ **And it asserts two one-way relations rather than equality.** The previous
+    pin required ``NOTE_KINDS`` to EQUAL the lookup's branches, so widening the
+    lookup for citations broke a test about notes. The honest relations are:
+    everything advertised is supported (here), and everything supported is
+    advertised by something (below).
     """
     import ast
     import inspect
@@ -412,18 +425,28 @@ def test_note_kinds_matches_what_the_lookup_actually_supports() -> None:
         and isinstance(node.comparators[0], ast.Constant)
         and isinstance(node.comparators[0].value, str)
     }
-
     assert spelled, "found no kind branches -- has _by_gramps_id been reshaped?"
-    assert spelled == set(accessor.NOTE_KINDS), (
-        "NOTE_KINDS and _by_gramps_id disagree about what can be looked up: "
-        f"only in the code {sorted(spelled - set(accessor.NOTE_KINDS))}, "
-        f"only in the constant {sorted(set(accessor.NOTE_KINDS) - spelled)}"
+
+    advertised = {
+        name: set(getattr(accessor, name))
+        for name in dir(accessor)
+        if name.endswith("_KINDS") and name != "ORPHAN_KINDS"
+    }
+    assert advertised, "no *_KINDS constants found -- has the naming changed?"
+
+    for name, kinds in sorted(advertised.items()):
+        unsupported = sorted(kinds - spelled)
+        assert unsupported == [], (
+            f"{name} advertises kinds _by_gramps_id cannot look up, so a caller "
+            f"naming one gets a successful EMPTY answer: {unsupported}"
+        )
+
+    every = set().union(*(set(getattr(accessor, n)) for n in dir(accessor) if n.endswith("_KINDS")))
+    unreachable = sorted(spelled - every)
+    assert unreachable == [], (
+        "_by_gramps_id can look these up and no route offers them, so the "
+        f"branches are unreachable: {unreachable}"
     )
-
-
-# --------------------------------------------------------------------------
-# Round 2. The REFERENCE carries its own priv, separately from its target.
-# --------------------------------------------------------------------------
 
 
 @dataclass
@@ -664,3 +687,231 @@ def test_a_private_primary_name_is_withheld_not_rendered() -> None:
         "the owner must be told the name is withheld rather than shown nothing -- "
         f"he cannot confirm the identity, so he cancels; got {shown!r}"
     )
+
+
+# --------------------------------------------------------------------------
+# The three read tools. Two are use-derived; C0012 is the trigger.
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class FakeCitation:
+    gramps_id: str
+    page: str = ""
+    source: str | None = None
+    private: bool = False
+    handle: str = "h_cit"
+
+    def get_gramps_id(self) -> str:
+        return self.gramps_id
+
+    def get_privacy(self) -> bool:
+        return self.private
+
+    def get_page(self) -> str:
+        return self.page
+
+    def get_reference_handle(self) -> str | None:
+        return self.source
+
+    def get_handle(self) -> str:
+        return self.handle
+
+
+@dataclass
+class FakeSource:
+    gramps_id: str
+    title: str = ""
+    private: bool = False
+    handle: str = "h_src"
+
+    def get_gramps_id(self) -> str:
+        return self.gramps_id
+
+    def get_privacy(self) -> bool:
+        return self.private
+
+    def get_title(self) -> str:
+        return self.title
+
+    def get_handle(self) -> str:
+        return self.handle
+
+
+class TreeWithCitations:
+    """One cited person, one UNCITED citation -- the C0012 shape."""
+
+    def __init__(self) -> None:
+        self.source = FakeSource("S0001", "Marriage register, 1946")
+        self.attached = FakeCitation("C0001", "p. 44", source="h_src")
+        self.orphan = FakeCitation("C0012", "p. 91", source="h_src")
+        self.private_cit = FakeCitation("C0099", "p. 1", source="h_src", private=True)
+        self.orphan.handle = "h_orphan"
+        self.private_cit.handle = "h_private"
+        self.subject = person("I0600", "Wendell", "Ashgrove")
+        self.subject.get_citation_list = lambda: ["h_cit"]  # type: ignore[method-assign]
+        self._cits = {
+            "h_cit": self.attached,
+            "h_orphan": self.orphan,
+            "h_private": self.private_cit,
+        }
+        self.backlinks = {"h_cit": [("Person", "h_p")]}
+
+    def get_person_from_gramps_id(self, gramps_id: str):  # noqa: ANN201
+        return self.subject if gramps_id == "I0600" else None
+
+    def get_citation_from_handle(self, handle: str):  # noqa: ANN201
+        return self._cits.get(handle)
+
+    def get_source_from_handle(self, handle: str):  # noqa: ANN201
+        return self.source
+
+    def iter_citations(self):  # noqa: ANN201
+        return iter(self._cits.values())
+
+    def iter_sources(self):  # noqa: ANN201
+        return iter([self.source])
+
+    def iter_notes(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_places(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_repositories(self):  # noqa: ANN201
+        return iter([])
+
+    def find_backlink_handles(self, handle: str):  # noqa: ANN201
+        return iter(self.backlinks.get(handle, []))
+
+    def iter_people(self):  # noqa: ANN201
+        return iter([self.subject])
+
+
+def test_a_cited_record_reports_its_citation_and_source() -> None:
+    """⭐ The question no tool could ask: *is this record cited, and by what?*"""
+    accessor.bind(FakeDbState(db=TreeWithCitations()))
+    try:
+        found = accessor.list_citations("I0600", kind="person")
+    finally:
+        accessor.forget()
+
+    assert len(found.matches) == 1
+    assert found.matches[0].gramps_id == "C0001"
+    assert "Marriage register" in found.matches[0].display, (
+        "the citation without its source is half an answer -- the owner needs to "
+        f"know WHAT cites it: {found.matches[0].display!r}"
+    )
+
+
+def test_the_c0012_shape_is_found_as_an_orphan() -> None:
+    """⭐ A citation attached to nothing.
+
+    It existed, it was correct, and it pointed at nothing -- so it did no work,
+    and it was found only by reading an export by hand.
+    """
+    accessor.bind(FakeDbState(db=TreeWithCitations()))
+    try:
+        found = accessor.find_orphans("citation")
+    finally:
+        accessor.forget()
+
+    ids = {match.gramps_id for match in found.matches}
+    assert "C0012" in ids, f"the orphan was not found: {ids}"
+    assert "C0001" not in ids, "a citation that IS attached was reported as an orphan"
+
+
+def test_a_private_record_is_never_reported_as_an_orphan() -> None:
+    """⛔ P2 holds here too: not in the results, not in the count."""
+    accessor.bind(FakeDbState(db=TreeWithCitations()))
+    try:
+        found = accessor.find_orphans("citation")
+    finally:
+        accessor.forget()
+
+    assert "C0099" not in {m.gramps_id for m in found.matches}
+    assert found.matched == len(found.matches), "the leak by arithmetic"
+
+
+def test_a_failed_backlink_lookup_never_reports_an_orphan() -> None:
+    """⛔ *Nothing points at this* must never mean *the question failed*.
+
+    The owner acts on an orphan report by deleting. Reporting a record as
+    unreferenced because the lookup raised would send him deleting one that is
+    in use -- the worst possible direction for this tool to fail in.
+    """
+    tree = TreeWithCitations()
+
+    def explode(handle: str):  # noqa: ANN202
+        raise RuntimeError("the reference table is unavailable")
+
+    tree.find_backlink_handles = explode  # type: ignore[method-assign]
+    accessor.bind(FakeDbState(db=tree))
+    try:
+        found = accessor.find_orphans("citation")
+    finally:
+        accessor.forget()
+
+    assert found.matches == (), (
+        "a backlink lookup that FAILED was reported as 'referenced by nothing'"
+    )
+
+
+def test_orphan_and_citation_kinds_are_refused_when_unknown() -> None:
+    accessor.bind(FakeDbState(db=TreeWithCitations()))
+    try:
+        with pytest.raises(reads.UnknownKind):
+            accessor.find_orphans("peple")
+        with pytest.raises(reads.UnknownKind):
+            accessor.list_citations("I0600", kind="sorce")
+        with pytest.raises(reads.SearchTermRequired):
+            accessor.find_orphans("")
+    finally:
+        accessor.forget()
+
+
+class TreeThatCounts:
+    def __init__(self) -> None:
+        self._n = {
+            "people": 2934,
+            "families": 1586,
+            "events": 10931,
+            "places": 2256,
+            "sources": 14,
+            "citations": 17,
+            "notes": 66,
+            "repositories": 6,
+            "media": 12,
+        }
+
+    def is_open(self) -> bool:
+        return True
+
+    def __getattr__(self, name: str):  # noqa: ANN204
+        if name.startswith("get_number_of_"):
+            key = name[len("get_number_of_") :]
+            return lambda: self._n[key]
+        raise AttributeError(name)
+
+
+def test_the_tree_totals_answer_a_question_no_search_could() -> None:
+    """⚠️ ``find_people`` requires a term, so there was no way to ask how big the tree is."""
+    accessor.bind(FakeDbState(db=TreeThatCounts()))
+    try:
+        totals = accessor.tree_totals()
+    finally:
+        accessor.forget()
+
+    assert totals["people"] == 2934
+    assert totals["events"] == 10931
+    assert set(totals) == {
+        "people",
+        "families",
+        "events",
+        "places",
+        "sources",
+        "citations",
+        "notes",
+        "repositories",
+        "media",
+    }
