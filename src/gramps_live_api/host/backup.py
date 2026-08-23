@@ -32,18 +32,9 @@ from dataclasses import dataclass
 PAGES_PER_STEP = 1024
 """How many pages one internal copy step moves.
 
-⚠️ **This is the STEP SIZE and not the budget.** An earlier draft of the plan
-described it as though it were the budget, which made the page-budget criterion
-unimplementable: a progress callback that only counts steps has no count at which
-it fails. The budget is ``PAGE_BUDGET_MULTIPLE`` below."""
-
-PAGE_BUDGET_MULTIPLE = 4
-"""The copy may move this many times the source's own page count before failing.
-
-⭐ **Derived rather than picked.** A clean copy touches each page about once, so
-four times tolerates several restarts and still terminates. SQLite restarts the
-copy when the source is written during it, so a budget in *pages moved* is what
-catches a source being rewritten faster than it can be read."""
+⚠️ **A step size, and there is no page budget any more.** One was written three
+times and never once fired; see ``_one_attempt``. The only bound is a wall
+clock."""
 
 SECONDS_PER_ATTEMPT = 5.0
 """⭐ Also derived: the owner's real tree copies in **120 ms**, so five seconds is
@@ -90,10 +81,41 @@ class Outcome:
     rather than a forensic exercise over file times."""
 
 
-def destination_for(directory: str, tree_name: str, stamp: str) -> str:
-    """Where one backup lands. ⛔ Timestamp first, so lexical order is chronological."""
+def destination_for(directory: str, tree_name: str, stamp: str, tree_dir: str = "") -> str:
+    """Where one backup lands. ⛔ Timestamp first, so lexical order is chronological.
+
+    ⛔ **Keyed on the tree DIRECTORY, not its display name.** ``name.txt`` is not
+    unique: a working tree and a copy of it share one, which is the ordinary case
+    here -- ``RandyReid`` and its testing copy. Grouping by name alone put two
+    trees in one folder, so twenty backups of the second would prune away the
+    first's recovery points **and leave its journal records pointing at files
+    that no longer exist.**
+
+    ⭐ The display name is kept in the folder name because the owner has to
+    recognise it under stress; the directory's own identity is what makes it
+    unique. Gramps names each tree directory with an opaque id, which is exactly
+    the stable identity wanted here.
+    """
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in tree_name) or "tree"
-    return os.path.join(directory, safe, f"{stamp}-{safe}.sqlite")
+    identity = os.path.basename(os.path.normpath(tree_dir)) if tree_dir else ""
+    identity = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in identity)
+    folder = f"{safe}-{identity}" if identity else safe
+    return os.path.join(directory, folder, f"{stamp}-{safe}.sqlite")
+
+
+def _uri(path: str) -> str:
+    """A read-only SQLite URI for ``path``, with the path PERCENT-ENCODED.
+
+    ⛔ **A path is not a URI.** One containing ``?`` or ``#`` -- both legal in a
+    filename on Unix, and neither exotic in a genealogy folder -- is parsed as a
+    query string or a fragment, so the connection silently opens **a different
+    file**: the truncated prefix. That can refuse a valid tree, or worse,
+    successfully verify a copy of the wrong database while the intended tree is
+    written to.
+    """
+    from urllib.parse import quote
+
+    return "file:" + quote(str(path).replace("\\", "/"), safe="/:") + "?mode=ro"
 
 
 def take(source: str, destination: str) -> Outcome:
@@ -113,7 +135,7 @@ def take(source: str, destination: str) -> Outcome:
         moved = 0
         try:
             moved = _one_attempt(source, destination)
-        except _OverBudget as refusal:
+        except _TookTooLong as refusal:
             last = str(refusal)
             discard(destination)
             continue
@@ -142,67 +164,60 @@ def take(source: str, destination: str) -> Outcome:
     )
 
 
-class _OverBudget(Exception):
-    """A single attempt exceeded its page budget or its clock."""
+class _TookTooLong(Exception):
+    """A single attempt ran past its wall clock. ⛔ There is no page budget."""
 
 
 def _one_attempt(source: str, destination: str) -> int:
-    """One copy, bounded two ways. Returns the pages moved.
+    """One copy, bounded by a wall clock. Returns the pages moved in the last pass.
 
-    ⛔ **Both bounds are enforced from inside the progress callback**, because
-    ``Connection.backup()`` runs to completion in a single call -- ``pages`` sets
-    the step size and does **not** make it return partway. Raising from the
-    callback is the only way to stop it.
+    ⛔ **THE PAGE BUDGET IS DELETED, AND WAS NOT REPLACED IN KIND.** It was
+    rewritten three times and never once fired:
+
+    1. ``pages`` was the step SIZE, described as the budget;
+    2. ``total - remaining`` is per-pass, so it never accumulated;
+    3. a restart at exactly one chunk gives ``progressed == this_pass``, not
+       less, so the discarded pass was never banked.
+
+    ⚠️ **Each fix was correct about the previous defect and the mechanism still
+    could not fire**, because it was a PROXY: it inferred *this is taking too
+    long* from SQLite's restart bookkeeping, where ``total`` and ``remaining``
+    reset on every restart. **A quantity that resets cannot accumulate a bound.**
+
+    ⭐ **A wall clock says the thing directly** -- *do not hang the owner* -- in
+    one comparison against ``time.monotonic()``, and the refuse-to-arm path
+    already turns that into a refusal the owner sees.
+
+    ⚠️ **The trade, recorded rather than glossed: a clock cannot distinguish
+    SLOW from LIVELOCKED.** It does not need to. The outcome is identical -- the
+    write does not proceed and the owner is told -- and the measured real
+    workload restarts **zero** times: 24 MB, 113 ms, attempt 1, one page each.
+    The livelock was only ever produced by an artificial continuous writer
+    against a scratch copy.
+
+    ⛔ Enforced from inside the progress callback because ``Connection.backup()``
+    runs to completion in a single call: ``pages`` sets the step size and does
+    **not** make it return partway, so raising is the only way to stop it.
     """
     deadline = time.monotonic() + SECONDS_PER_ATTEMPT
     moved = 0
-    budget = 0
-    this_pass = 0
-    before_this_pass = 0
 
     # ⛔ Read-only, and opened HERE so it belongs to the calling thread.
-    with contextlib.closing(sqlite3.connect(f"file:{source}?mode=ro", uri=True)) as reader:
-        budget = _page_count(reader) * PAGE_BUDGET_MULTIPLE
+    with contextlib.closing(sqlite3.connect(_uri(source), uri=True)) as reader:
 
         def progress(status: int, remaining: int, total: int) -> None:
-            """⛔ Pages ACCUMULATE across restarts, and that is the whole point.
-
-            ⚠️ **Taking ``total - remaining`` alone made the budget dead code.**
-            SQLite restarts the copy when the source is written during it, and
-            that figure describes progress *in the current pass* -- so for a
-            fixed-size database it never rose above one page count and could
-            never reach a four-times budget. **The bound advertised as catching
-            the write-induced restart pattern could not catch it.**
-
-            A pass whose progress has gone *backwards* is a restart, so the
-            previous pass's work is banked before counting the new one.
-            """
-            nonlocal moved, this_pass, before_this_pass
-            progressed = max(0, total - remaining)
-            if progressed < this_pass:
-                before_this_pass += this_pass
-            this_pass = progressed
-            moved = before_this_pass + this_pass
-            if budget and moved > budget:
-                raise _OverBudget(
-                    f"the copy moved {moved} pages against a budget of {budget}, "
-                    "which means the tree is being written faster than it can be read"
-                )
+            nonlocal moved
+            moved = max(0, total - remaining)
             if time.monotonic() > deadline:
-                raise _OverBudget(f"the copy did not finish within {SECONDS_PER_ATTEMPT:g} s")
+                raise _TookTooLong(
+                    f"the copy did not finish within {SECONDS_PER_ATTEMPT:g} s. "
+                    "Either the tree is very large or it is being written to "
+                    "faster than it can be read."
+                )
 
         with contextlib.closing(sqlite3.connect(destination)) as writer:
             reader.backup(writer, pages=PAGES_PER_STEP, progress=progress)
     return moved
-
-
-def _page_count(connection: sqlite3.Connection) -> int:
-    """The source's own page count, for the budget. ``0`` if it cannot be read."""
-    try:
-        row = connection.execute("PRAGMA page_count").fetchone()
-        return int(row[0]) if row else 0
-    except Exception:
-        return 0
 
 
 def discard(path: str) -> None:
@@ -220,7 +235,7 @@ def discard(path: str) -> None:
 def verify(path: str) -> bool:
     """Whether the copy reads as a sound database. ⛔ A copy nobody checked is a hope."""
     try:
-        with contextlib.closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as taken:
+        with contextlib.closing(sqlite3.connect(_uri(path), uri=True)) as taken:
             row = taken.execute("PRAGMA integrity_check").fetchone()
             return bool(row) and row[0] == "ok"
     except Exception:

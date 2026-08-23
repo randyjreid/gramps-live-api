@@ -11,6 +11,7 @@ asserted.
 from __future__ import annotations
 
 import sqlite3
+import sys
 import threading
 import time
 from pathlib import Path
@@ -91,22 +92,40 @@ def test_the_clock_bound_fires_and_reports_why(tmp_path: Path, monkeypatch) -> N
     assert outcome.attempts == backup.ATTEMPTS, "both attempts should have been spent"
 
 
-def test_the_page_budget_is_a_real_limit(tmp_path: Path, monkeypatch) -> None:
-    """⛔ A3's page budget, and it has to be a NUMBER something can exceed.
+def test_the_clock_is_the_ONLY_bound_and_it_fires(tmp_path: Path, monkeypatch) -> None:
+    """⛔ The page budget is deleted. This is the test the demo could not be.
 
-    ⚠️ The plan first described ``PAGES_PER_STEP`` as though it were the budget.
-    It is the step size: a callback that only counts steps has no count at which
-    it fails, which made the criterion unimplementable.
+    A budget was written three times and **never once fired** -- and the
+    in-Gramps demo passed all five of its checks anyway, **because the budget
+    only failed under a continuously committing writer that no demo produced.**
+    Green evidence over a dead bound.
+
+    ⭐ So whatever replaces it needs a test that FIRES it. This one does: the
+    clock is driven negative and the refusal must appear, by that name, on the
+    owner-facing message.
     """
-    source = _tree(tmp_path / "sqlite.db", rows=4000)
-    monkeypatch.setattr(backup, "PAGE_BUDGET_MULTIPLE", 0.001)
-    monkeypatch.setattr(backup, "PAGES_PER_STEP", 1)
+    source = _tree(tmp_path / "sqlite.db", rows=1200)
+    monkeypatch.setattr(backup, "SECONDS_PER_ATTEMPT", -1.0)
 
     outcome = backup.take(str(source), str(tmp_path / "out" / "c.sqlite"))
 
     assert not outcome.ok
-    assert "budget" in outcome.message
-    assert "written faster than it can be read" in outcome.message
+    assert "did not finish within" in outcome.message
+    assert outcome.attempts == backup.ATTEMPTS, "both attempts should have been spent"
+    assert not (tmp_path / "out" / "c.sqlite").exists(), "a partial copy survived"
+
+
+def test_there_is_no_page_budget_left_to_get_wrong() -> None:
+    """⛔ Structural: the mechanism is gone, not merely bypassed.
+
+    Three rewrites of a bound that could not fire is a statement about the
+    approach. A fourth version would be the fourth attempt at a proxy that
+    infers *too long* from bookkeeping SQLite resets on every restart.
+    """
+    body = Path(backup.__file__).read_text(encoding="utf-8") if hasattr(backup, "__file__") else ""
+    assert "PAGE_BUDGET_MULTIPLE" not in body
+    assert "_page_count" not in body
+    assert "_OverBudget" not in body
 
 
 def test_a_missing_source_refuses_rather_than_raising(tmp_path: Path) -> None:
@@ -215,56 +234,66 @@ def test_verify_rejects_something_that_is_not_a_database(tmp_path: Path) -> None
     assert not backup.verify(str(tmp_path / "absent.sqlite"))
 
 
-def test_pages_accumulate_across_restarts(tmp_path: Path, monkeypatch) -> None:
-    """⛔ The budget was dead code, and this is the proof it no longer is.
+# ⛔ ``test_pages_accumulate_across_restarts`` was DELETED with the page budget it
+# served. Accumulating pages across restarts was only ever needed so a
+# page-count multiple could be exceeded; with the bound gone, the accounting it
+# tested has no consumer. **A test kept for a deleted mechanism is a test that
+# passes about nothing.**
 
-    SQLite restarts the copy when the source is written during it. Taking
-    ``total - remaining`` alone describes progress **in the current pass**, so on
-    a fixed-size database it never rose above one page count -- and a four-times
-    budget could never be reached. **The bound advertised as catching the
-    write-induced restart pattern could not catch it.**
 
-    Driving the progress callback directly is deliberate: making real SQLite
-    restart on demand is timing-dependent, and a flaky test of a safety bound is
-    worse than none.
+def test_a_path_with_uri_punctuation_is_not_silently_truncated(tmp_path: Path) -> None:
+    """⛔ A path is not a URI.
+
+    ``?`` and ``#`` are legal in a filename and not exotic in a genealogy folder.
+    Interpolated into ``file:{path}?mode=ro`` they are parsed as a query string
+    and a fragment, so the connection opens **a different file** -- the truncated
+    prefix. That can refuse a valid tree, or **verify a copy of the wrong
+    database** while the intended tree is written to.
     """
-    seen: list[int] = []
+    # ⚠️ ``?`` is legal in a filename on Unix and ILLEGAL on Windows, so the full
+    # case is only reachable on CI's Linux legs. ``#`` is legal on both, and it
+    # is the fragment half of the same defect -- so something real is tested
+    # everywhere and the whole of it is tested where it can be.
+    name = "why not#here" if sys.platform == "win32" else "why? not#here"
+    awkward = tmp_path / name
+    awkward.mkdir()
+    source = _tree(awkward / "sqlite.db", rows=300)
+    destination = tmp_path / "out" / "copy.sqlite"
 
-    def fake_backup(target, *, pages, progress):  # noqa: ANN001, ANN202
-        # One clean pass over 100 pages, then a RESTART, then another 100.
-        for remaining in (60, 20, 0):
-            progress(0, remaining, 100)
-        for remaining in (80, 40, 0):
-            progress(0, remaining, 100)
-        seen.append(1)
+    outcome = backup.take(str(source), str(destination))
 
-    real_connect = sqlite3.connect
+    assert outcome.ok, outcome.message
+    assert backup.verify(str(destination))
 
-    class _Reader:
-        def execute(self, statement):  # noqa: ANN001, ANN202
-            assert "page_count" in statement
-            return self
+    taken = sqlite3.connect(destination)
+    try:
+        assert taken.execute("select count(*) from person").fetchone()[0] == 300, (
+            "the copy does not hold the source's rows -- a different file was opened"
+        )
+    finally:
+        taken.close()
 
-        def fetchone(self):  # noqa: ANN202
-            return (100,)
 
-        def backup(self, target, *, pages, progress):  # noqa: ANN001, ANN202
-            return fake_backup(target, pages=pages, progress=progress)
+def test_two_trees_sharing_a_display_name_do_not_share_a_backup_folder() -> None:
+    """⛔ ``name.txt`` is not unique, and the ordinary case here is two copies.
 
-        def close(self):  # noqa: ANN202
-            return None
+    Grouping by display name alone put a tree and its copy in one folder, so
+    twenty backups of the second would prune away the first's recovery points
+    **and leave its journal records pointing at files that no longer exist.**
+    """
+    import os
 
-    def connect(target, *args, **kwargs):  # noqa: ANN001, ANN202
-        if isinstance(target, str) and target.startswith("file:"):
-            return _Reader()
-        return real_connect(target, *args, **kwargs)
-
-    monkeypatch.setattr(backup.sqlite3, "connect", connect)
-
-    moved = backup._one_attempt("ignored", str(tmp_path / "c.sqlite"))
-
-    assert seen, "the fake backup never ran"
-    assert moved == 200, (
-        "pages did not accumulate across the restart, so a budget expressed as a "
-        f"multiple of the page count can never fire: got {moved}"
+    live = backup.destination_for(
+        "/bk", "RandyReid", "20260823T000000Z", os.path.join("g", "6a77aa4a")
     )
+    copy = backup.destination_for(
+        "/bk", "RandyReid", "20260823T000000Z", os.path.join("g", "6a821852")
+    )
+
+    assert os.path.dirname(live) != os.path.dirname(copy), (
+        "a tree and its copy share a backup folder, so pruning one deletes the other's"
+    )
+    # ⭐ The display name survives in the folder, because the owner has to
+    # recognise it under stress; the directory id is what makes it unique.
+    assert "RandyReid" in os.path.dirname(live)
+    assert "6a77aa4a" in os.path.dirname(live)

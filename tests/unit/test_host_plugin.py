@@ -539,3 +539,92 @@ def test_a_cancelled_preview_still_prunes(
     assert len(list(directory.iterdir())) == 2, (
         "declining the preview left the backup directory unpruned"
     )
+
+
+def test_the_backup_mapping_is_durable_BEFORE_the_write(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ A committed write must never exist with no record of its backup.
+
+    The journal used to be written **after** the transaction with its failure
+    caught, so a disk, permission or serialisation error left a changed tree and
+    no durable link to the copy that precedes it. **That is A4 defeated
+    entirely** -- *recoverable-after* reduced to filesystem archaeology at the
+    exact moment it is needed.
+    """
+    from gramps_live_api.host import backup, document
+
+    writer = _Writer(say_yes=True)
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+
+    seen: list[str] = []
+    real_write_journal = document.write_journal
+
+    def recording(tree_dir, record, *, stem):  # noqa: ANN001, ANN202
+        seen.append("journal" if record.get("write_confirmed") is not False else "intent")
+        return real_write_journal(tree_dir, record, stem=stem)
+
+    monkeypatch.setattr(document, "write_journal", recording)
+    original_write = writer.write
+
+    def write_and_note(dbstate, graph):  # noqa: ANN001, ANN202
+        seen.append("write")
+        return original_write(dbstate, graph)
+
+    writer.write = write_and_note  # type: ignore[method-assign]
+
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+    plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph=graph,
+        parsed=document.parse(graph),
+        resolution=document.Resolution(),
+        taken=backup.Outcome(ok=True, path=str(tmp_path / "b.sqlite"), message="ok", taken_utc="t"),
+        totals={"people": 2934},
+        note=lambda level, message: None,
+        backed_up_tree=str(tmp_path),
+    )
+
+    assert seen and seen[0] == "intent", f"the backup was not recorded before the write: {seen}"
+    assert "write" in seen and seen.index("intent") < seen.index("write")
+
+
+def test_a_failure_to_record_the_backup_REFUSES_the_write(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ Refusing is the only honest answer.
+
+    Writing anyway would produce exactly the state A4 exists to prevent, and it
+    would do it knowingly.
+    """
+    from gramps_live_api.host import backup, document
+
+    writer = _Writer(say_yes=True)
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+
+    def refuse(*args: object, **kwargs: object) -> str:
+        raise OSError("the journal directory is not writable")
+
+    monkeypatch.setattr(document, "write_journal", refuse)
+
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+    result = plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph=graph,
+        parsed=document.parse(graph),
+        resolution=document.Resolution(),
+        taken=backup.Outcome(ok=True, path=str(tmp_path / "b.sqlite"), message="ok", taken_utc="t"),
+        totals={},
+        note=lambda level, message: None,
+        backed_up_tree=str(tmp_path),
+    )
+
+    assert writer.wrote == [], "the tree was written with no durable record of its backup"
+    assert result is False
+    title, body = writer.told[-1]
+    assert "Nothing was written" in title
+    assert "backup could not be recorded" in body

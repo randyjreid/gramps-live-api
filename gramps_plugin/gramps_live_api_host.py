@@ -240,7 +240,7 @@ def _start_backup(tree_dir, totals, note, resume):
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     tree_name = _tree_name(tree_dir)
     directory = os.path.join(paths.state_directory(os.environ), "backups")
-    destination = backup.destination_for(directory, tree_name, stamp)
+    destination = backup.destination_for(directory, tree_name, stamp, tree_dir=tree_dir)
     source = os.path.join(tree_dir, "sqlite.db")
 
     def run():
@@ -292,6 +292,39 @@ def _tree_name(tree_dir):
             return handle.read().strip() or "tree"
     except Exception:
         return "tree"
+
+
+def _record_intent(document, outcome, parsed, approved, taken, totals, note):
+    """Write the backup mapping BEFORE the transaction. ``None`` means refuse.
+
+    ⛔ **This is A4's durability**, and it is why it runs first: *the backup's age
+    relative to the write is visible without archaeology* is only true if the
+    link survives the write failing to be recorded.
+    """
+    import datetime
+
+    try:
+        stamped = datetime.datetime.now(datetime.timezone.utc)
+        record = document.journal_record(
+            parsed,
+            {},
+            {},
+            tree_dir=outcome.message,
+            written_utc="",
+            approved_preview=approved,
+            backup_path=taken.path or "",
+            backup_utc=taken.taken_utc,
+            totals_before=totals,
+        )
+        record["write_confirmed"] = False
+        path = document.write_journal(
+            outcome.message, record, stem=stamped.strftime("%Y%m%dT%H%M%SZ") + "-document"
+        )
+        note("INFO", "document: backup recorded before writing: " + path)
+        return path
+    except Exception:
+        note("ERROR", "document: could not record the backup: " + traceback.format_exc())
+        return None
 
 
 def _same_blessed_tree(backed_up_tree, note, writer, uistate):
@@ -401,6 +434,31 @@ def _write_after_backup(
             return False
 
         approved = document.preview(parsed, resolution)
+
+        # ⛔ THE BACKUP MAPPING IS WRITTEN BEFORE THE TRANSACTION, and a failure
+        # to write it REFUSES the write.
+        #
+        # ⚠️ The journal used to be written afterwards with its failure caught,
+        # so a disk, permission or serialisation error left **a committed write
+        # with no durable record of which backup precedes it** -- which is A4
+        # defeated entirely, and recoverable-after reduced to filesystem
+        # archaeology at the moment it is needed.
+        #
+        # ⭐ The intent record costs nothing if the write then fails: it names a
+        # backup and an approved preview, and says the write was not confirmed.
+        # A record of a write that did not happen is recoverable by reading it;
+        # a write with no record is not.
+        intent = _record_intent(document, outcome, parsed, approved, taken, totals, note)
+        if intent is None:
+            writer.tell(
+                uistate,
+                "Nothing was written",
+                "the backup could not be recorded, so the write was refused. "
+                "Without that record there would be no durable link between "
+                "your tree and the backup that precedes it.",
+            )
+            return False
+
         result = writer.write(dbstate, graph)
         # ⛔ Summarised HERE, from what the write actually created. The writer
         # cannot do it: importing the host package would make it host code and
@@ -413,7 +471,9 @@ def _write_after_backup(
         # Gramps quits -- which has already cost one manual cleanup.
         # ⚠️ AFTER the commit, deliberately: a record of a write that did not
         # happen is worse than no record, and the transaction has returned by here.
-        journal = "(not written)"
+        # ⭐ The same file, completed with what the write actually did. The
+        # mapping was already durable before the transaction; this adds the ids.
+        journal = intent
         try:
             import datetime
 
@@ -435,9 +495,10 @@ def _write_after_backup(
             )
             note("INFO", "document: journalled to " + journal)
         except Exception:
-            # ⚠️ A failed journal must not un-write the tree, and must not be
-            # silent either. The write happened; say where it is not recorded.
-            note("ERROR", "document: THE WRITE IS NOT JOURNALLED: " + traceback.format_exc())
+            # ⚠️ A failed completion must not un-write the tree, and must not be
+            # silent. ⭐ Unlike before, the backup mapping is ALREADY on disk --
+            # what is lost here is the list of ids, not the recovery path.
+            note("ERROR", "document: the journal was not completed: " + traceback.format_exc())
 
         writer.tell(
             uistate,
