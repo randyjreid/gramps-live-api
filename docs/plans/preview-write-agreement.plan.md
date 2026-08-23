@@ -116,7 +116,11 @@ failure the privacy tests already had to be rescued from once.
 
 ---
 
-## ⭐ Recommendation: A, with C's tests as the check on it
+## ⛔ No recommendation — the comparison, and what it does not settle
+
+⚠️ **An earlier revision claimed to withdraw the recommendation and left this heading saying
+"Recommendation: A".** A reader would reasonably have taken A as the selected design, which is the
+same defect this whole document is about: **the stated intent and the actual content disagreeing.**
 
 ⚠️ **The recommendation is now weaker than it was, and that is the honest position.** Two rounds of
 review have removed three of the reasons originally given for preferring A: that B breaks the
@@ -131,6 +135,11 @@ that R7 would make B cheaper (it would not).
   facts are materialised, leaves the main thread.** So the comparison is A's fact-gathering against
   B's dry run, not "extra work" against "none".
 - ⛔ **B is NOT exact by construction**, for the nested-loop reason above.
+- ⛔ **And A has the SAME race.** Its facts are gathered before the dialog too, so another approval
+  can add the child between `Plan` and `execute(Plan)`. Obeying the stale Plan appends a duplicate
+  reference; re-checking membership makes the write diverge from the approved preview. ⚠️ **A needs
+  serialisation, revalidation or conflict handling exactly as B does** — an earlier revision
+  attributed this race to B alone, which was wrong and flattered A.
 
 ⚠️ **So the recommendation is now weak, and saying otherwise would be dishonest.** Across three
 review rounds, **every one of the four original reasons for preferring A has been removed**: the
@@ -143,10 +152,11 @@ A and B is a judgement the owner has to make on grounds this document has not es
 that a build proceeding on either needs its own measurement of the main-thread cost first, because
 that number is now the only thing separating them and nobody has taken it.
 
-**And C is not an alternative to A — it is how A is verified.** The residual risk in A is
-`execute()` drifting from `Plan`; a property test that runs both against a fake tree and requires the
-Plan to match what execute actually did is exactly the check for that, and it is a *bounded* property
-because it compares two concrete outputs rather than quantifying over inputs.
+**C is not an alternative to either — it is how whichever is chosen gets verified.** A's residual
+risk is `execute()` drifting from `Plan`; B's is the dry run and the write observing different facts.
+⭐ **In both cases the check is the same shape**: run the two against a fake tree and require their
+outputs to match. That is a *bounded* property, because it compares two concrete outputs rather than
+quantifying over inputs.
 
 ⚠️ **What I am not recommending is doing this before it is worth it.** Two of the three findings are
 already fixed and the third is a P2. **The argument for A is not the three bugs — it is that the
