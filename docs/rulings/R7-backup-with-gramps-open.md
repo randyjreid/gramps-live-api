@@ -287,6 +287,40 @@ not have been what the ruling meant.
 leaf: a tree's first backup creates both `backups/` and `backups/<tree>/`, and
 syncing only the inner one leaves its own entry unflushed in the outer.
 
+## ⛔ There is no observable "committed" outside the writer — 2026-08-23
+
+**The backup's lifecycle rule was *committed or discarded*, and "committed" is
+not a fact this code can learn.** That is the sharpest thing the review rounds
+produced, and it survived two earlier rounds because the words sounded like a
+description of what the flag measured.
+
+**Read in the shipped Gramps 6.0.8, not reasoned about.** `dbapi.transaction_commit`
+runs `self.dbapi.commit()` — the SQLite COMMIT — and *then* emits object signals,
+commits the undo database, and calls `_after_commit`, which invokes
+`undo_callback`, `redo_callback` and `undo_history_callback` **unguarded**. The
+live UI sets all three, to update the Edit menu.
+
+So there is a real window in which **the tree has durably changed and the call
+has not returned.** A flag set after the call reads `False` throughout it.
+
+⚠️ **The consequence was the worst one available:** the `finally` deleted the
+only recovery point of a write that had already landed, leaving the intent
+record on disk pointing at a file that no longer exists. **R4's guarantee
+destroyed by the machinery built to maintain it** — and the test written
+alongside it asserted exactly that behaviour, so the suite enforced the defect.
+
+⭐ **The repair is to stop asking the unanswerable question.** Not *did it
+commit*, which cannot be known from out here, but *do we know for certain that
+nothing was attempted*. The flag is set **before** the call and named for what it
+measures. **Keep on unknown.** The costs are not symmetric: keeping a needless
+backup spends one retention slot, and discarding a needed one spends the
+guarantee.
+
+**This is the general shape of the same error three times on this page** — a
+proxy that is true for the wrong reason. `directory_synced` measured and never
+read; `unsupported` standing for *the open failed*; and now *returned* standing
+for *committed*. **Every one of them read as green.**
+
 ## What this settles that was open
 
 **Slice 3's deleted deliverable now has a mechanism.** R8 removed the spawned-CLI writer and left
