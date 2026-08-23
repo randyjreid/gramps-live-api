@@ -1241,10 +1241,15 @@ def _change_stamp(obj: typing.Any) -> int | None:
             value = getter()
         except Exception:
             value = None
-        if isinstance(value, (int, float)) and value:
+        # ⛔ ``is not None``, NOT truthiness. A stamp of 0 is a real stamp -- the
+        # Unix epoch -- and this function's whole point is that zero and None are
+        # different answers. Testing truthiness said the opposite of the
+        # docstring directly above it, and a collection whose public records all
+        # carried 0 would have produced a REFUSAL instead of an empty result.
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
             return int(value)
     value = getattr(obj, "change", None)
-    if isinstance(value, (int, float)) and value:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
         return int(value)
     return None
 
@@ -1256,6 +1261,7 @@ def _as_epoch(text: str) -> int | None:
     owner asking *"since yesterday"* means his yesterday.
     """
     import datetime
+    import math
 
     raw = str(text).strip().replace("/", "-")
 
@@ -1274,7 +1280,14 @@ def _as_epoch(text: str) -> int | None:
         # ⭐ A naive input stays LOCAL, which is the promise above: Gramps writes
         # ``change`` from ``time.time()``, and an owner asking "since yesterday"
         # means his yesterday. An input carrying an offset is honoured as given.
-        return int(parsed.timestamp())
+        #
+        # ⛔ CEIL, not int(). Gramps stamps are whole seconds, so truncating a
+        # fractional cutoff moves it BACKWARDS to the start of its second -- and
+        # a record changed at 12:00:00 was then reported for a cutoff of
+        # 12:00:00.5, which is not "at or after" the requested instant. Ceil and
+        # int agree on every whole-second input, so the ordinary case is
+        # unchanged.
+        return math.ceil(parsed.timestamp())
 
     for shape in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
         try:

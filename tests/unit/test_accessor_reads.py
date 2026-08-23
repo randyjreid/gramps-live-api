@@ -1125,3 +1125,35 @@ def test_the_iso_date_times_the_tool_advertises_are_accepted() -> None:
     assert accessor._as_epoch("2026-08-01") is not None
     assert accessor._as_epoch("2026/08/01") is not None
     assert accessor._as_epoch("last Tuesday") is None
+
+
+def test_a_change_stamp_of_zero_is_a_stamp_not_an_absence() -> None:
+    """⛔ Truthiness said the opposite of the docstring directly above it.
+
+    A stamp of 0 is the Unix epoch -- a real value. Treating it as unreadable
+    meant a collection whose public records all carried 0 produced a **refusal**
+    instead of the correct empty result.
+    """
+    assert accessor._change_stamp(FakeChanged("S0001", change=0)) == 0
+    assert accessor._change_stamp(FakeChanged("S0002", change=1_787_483_523)) == 1_787_483_523
+    assert (
+        accessor._change_stamp(FakeChanged("S0003", change="nonsense", expose_getter=False)) is None
+    )  # type: ignore[arg-type]
+
+
+def test_a_fractional_cutoff_does_not_reach_backwards() -> None:
+    """⛔ ``int()`` moved a fractional cutoff to the START of its second.
+
+    Gramps stamps whole seconds, so a record changed at ``12:00:00`` was reported
+    for a cutoff of ``12:00:00.5`` -- earlier than the instant asked for, which
+    is not *at or after*.
+    """
+    whole = accessor._as_epoch("2026-08-01T12:00:00")
+    fractional = accessor._as_epoch("2026-08-01T12:00:00.5")
+
+    assert whole is not None and fractional is not None
+    assert fractional == whole + 1, (
+        "a fractional cutoff must not include the second it falls inside"
+    )
+    # ⚠️ And the ordinary whole-second case is untouched.
+    assert accessor._as_epoch("2026-08-01T12:00:00") == whole
