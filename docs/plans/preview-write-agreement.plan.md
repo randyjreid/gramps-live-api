@@ -78,13 +78,22 @@ stored graph, preserves that guarantee exactly.**
 
 - ⛔ **It doubles the main-thread work, per proposal.** Gramps' connection is thread-bound, so the
   dry run cannot leave the main thread, and R8 caps what one callback may do.
-- ⚠️ **`caller_preview` would no longer be able to describe attachment decisions** — it runs on the
-  server with no Gramps, so it could still summarise the graph but not say *"this child is already a
-  member"*. That is a real reduction in what the proposing side can tell the model, and it is a cost
-  rather than a blocker: the **dialog** stays complete, and the dialog is the surface R3 governs.
-- **It needs the write path to already be asynchronous** to absorb the extra main-thread time
-  comfortably — which R7's backup plan (§1a) independently requires. ⭐ **If that lands first, this
-  option gets cheaper.**
+⛔ **CORRECTED after review. Two costs listed here were not real, and both of them were propping up
+the recommendation.**
+
+**It was claimed that B would cost `caller_preview` its ability to describe attachment decisions.**
+`caller_preview` cannot do that today: it renders the graph and describes every existing-family node
+as *adding children*, unconditionally. The membership check happens later, inside `writer.write`.
+⚠️ **So this is not a cost of B at all** — and worse, A only gains that ability by adding a
+proposal-time trip to Gramps, which B could equally use to run the dry run there. **The purported
+loss was a differentiator that does not exist.**
+
+**It was also claimed that R7 makes the write path asynchronous, so B would get cheaper once R7
+lands.** ⚠️ R7's ruling does no such thing: it moves *the backup* onto a worker through a second
+read-only connection. `writer.write` still runs inside `GLib.idle_add`, and R8 still requires it to.
+**The asynchrony belongs to the backup's own build, not to the write**, and conditioning a
+recommendation on it was conditioning it on a mechanism neither planned nor permitted by the cited
+ruling.
 
 ### Option C — assert agreement in tests rather than in structure
 
@@ -102,18 +111,23 @@ failure the privacy tests already had to be rescued from once.
 
 ## ⭐ Recommendation: A, with C's tests as the check on it
 
-⚠️ **Recommended on cost and reach, NOT because B is unsafe** — an earlier draft said B broke the
-approval binding, and that was wrong. **B is the stronger guarantee of the two** (one code path, so
-agreement is exact rather than merely structural) and the honest reason to prefer A is that it keeps
-`caller_preview` able to describe attachment decisions and does not add main-thread work per
-proposal.
+⚠️ **The recommendation is now weaker than it was, and that is the honest position.** Two rounds of
+review have removed three of the reasons originally given for preferring A: that B breaks the
+approval binding (it does not), that B costs `caller_preview` an ability it has (it has not), and
+that R7 would make B cheaper (it would not).
 
-**A removes the class without either cost.** The Plan is plain data, so `document.py` keeps its
-no-Gramps promise, the MCP server can still render from a stored record, and nothing extra runs
-inside `GLib.idle_add`.
+**What actually survives as a difference:**
 
-⭐ **If R7's asynchronous write path lands first, reopen this comparison.** B's only real objection is
-main-thread cost, and that is exactly what R7 §1a removes.
+- ⛔ **B runs the dry run on the GTK main thread, per proposal**, because Gramps' connection is
+  thread-bound. A's `Plan` is plain data, so `document.py` keeps its no-Gramps promise and nothing
+  extra runs inside `GLib.idle_add`.
+- ⭐ **B is the stronger guarantee** — one code path, so agreement is exact rather than structural.
+  A's residual risk is `execute()` drifting from `Plan`.
+
+**So: A on cost, B on strength, and the choice is a judgement about which matters more here.** ⚠️ **A
+is still recommended, but on one argument rather than four**, and the owner should know the margin
+narrowed under scrutiny rather than read a confident recommendation that three rounds have hollowed
+out.
 
 **And C is not an alternative to A — it is how A is verified.** The residual risk in A is
 `execute()` drifting from `Plan`; a property test that runs both against a fake tree and requires the
