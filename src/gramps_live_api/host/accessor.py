@@ -1187,16 +1187,23 @@ def changed_since(when: str, kind: str = "people") -> reads.Found:
         "notes": database.iter_notes,
     }
     rows = []
+    readable = 0
     unreadable = 0
     for obj in iterators[asked]():
-        changed = _change_stamp(obj)
+        # ⛔ GATED FIRST. A private record must not reach the stamp read at all:
+        # counting it as unreadable let it change the observable answer from an
+        # empty 200 to a refusal, so its existence was detectable through control
+        # flow -- private in the results and not in the counts, but leaking
+        # through the shape of the response instead.
+        visible = _public(obj)
+        if visible is None:
+            continue
+        changed = _change_stamp(visible)
         if changed is None:
             unreadable += 1
             continue
+        readable += 1
         if changed < cutoff:
-            continue
-        visible = _public(obj)
-        if visible is None:
             continue
         rows.append(
             (False, reads.Match(visible.get_gramps_id(), _changed_display(asked, visible, changed)))
@@ -1209,7 +1216,11 @@ def changed_since(when: str, kind: str = "people") -> reads.Found:
     # every object and the route answered an empty result -- **the full walk's
     # cost and none of its answer.** *Nothing changed* is exactly the answer a
     # caller acts on, so a silent wrong one is worse than an error.
-    if unreadable and not rows:
+    # ⚠️ Keyed on whether any stamp was READABLE, not on whether any row matched.
+    # "Nothing changed" is a real answer, and a partially readable collection
+    # whose readable records are all older than the cutoff was being refused for
+    # giving exactly the right one.
+    if unreadable and not readable:
         raise reads.ReadRefused(
             f"none of the {unreadable} {asked} in this tree exposed a change stamp, "
             "so this cannot say what changed. Refusing rather than reporting none."
@@ -1260,7 +1271,36 @@ def _changed_display(kind: str, obj: typing.Any, changed: int) -> str:
     import datetime
 
     stamp = datetime.datetime.fromtimestamp(changed).strftime("%Y-%m-%d %H:%M")
+    database = _DBSTATE.db if _DBSTATE is not None else None
     if kind == "people":
-        return f"{_person_display(obj, _DBSTATE.db)}  [changed {stamp}]"
-    singular = kind[:-1] if kind.endswith("s") else kind
+        return f"{_person_display(obj, database)}  [changed {stamp}]"
+    if kind == "families":
+        return f"{_family_display(database, obj)}  [changed {stamp}]"
+    if kind == "events":
+        return f"{_event_display(obj)}  [changed {stamp}]"
+    # ⛔ An explicit map, not ``kind[:-1]``. Chopping the last letter turns
+    # "families" into "familie", which no renderer answers to -- so every family
+    # came back as a bare timestamp with nothing to recognise it by. **The same
+    # naive singulariser had already been fixed once in ``document.py``**, and it
+    # was still here: a spelling rule standing in for a vocabulary.
+    singular = {
+        "places": "place",
+        "sources": "source",
+        "citations": "citation",
+        "notes": "note",
+    }.get(kind, kind)
     return f"{_orphan_display(singular, obj)}  [changed {stamp}]"
+
+
+def _event_display(event: typing.Any) -> str:
+    """An event as the owner recognises it: what it was, and when."""
+    try:
+        shown = str(event.get_type() or "Event")
+        date = event.get_date_object()
+        if date is not None and not date.is_empty():
+            shown += f" {date.get_year() or date}"
+        if event.get_description():
+            shown += f" -- {event.get_description()}"
+        return shown
+    except Exception:
+        return "(could not read the event)"

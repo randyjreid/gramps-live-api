@@ -1052,3 +1052,51 @@ def test_an_unreadable_date_is_refused() -> None:
             accessor.changed_since("2020-01-01", kind="peoples")
     finally:
         accessor.forget()
+
+
+def test_a_private_record_cannot_change_the_shape_of_the_answer() -> None:
+    """⛔ A private record must not reach the stamp read at all.
+
+    Counting it as unreadable let it turn an empty 200 into a refusal -- so its
+    existence was detectable through **control flow**: absent from the results
+    and the counts, and leaking through the shape of the response instead.
+    """
+    accessor.bind(
+        FakeDbState(
+            db=TreeThatChanges(
+                [
+                    FakeChanged("S0099", change="unreadable", private=True, expose_getter=False),  # type: ignore[arg-type]
+                    FakeChanged("S0001", change=1_500_000_000),
+                ]
+            )
+        )
+    )
+    try:
+        found = accessor.changed_since("2026-08-01", kind="sources")
+    finally:
+        accessor.forget()
+
+    assert found.matches == ()
+    assert found.matched == 0
+
+
+def test_nothing_changed_is_an_answer_not_a_refusal() -> None:
+    """⚠️ A partially readable collection whose readable records are all older
+    than the cutoff was refused for giving exactly the right answer."""
+    accessor.bind(
+        FakeDbState(
+            db=TreeThatChanges(
+                [
+                    FakeChanged("S0001", change=1_500_000_000),
+                    FakeChanged("S0002", change="unreadable", expose_getter=False),  # type: ignore[arg-type]
+                ]
+            )
+        )
+    )
+    try:
+        found = accessor.changed_since("2026-08-01", kind="sources")
+    finally:
+        accessor.forget()
+
+    assert found.matches == (), "nothing changed since the cutoff"
+    assert found.matched == 0

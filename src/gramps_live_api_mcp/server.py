@@ -78,6 +78,7 @@ TOOL_NAMES = frozenset(
         "list_citations",
         "find_orphans",
         "tree_totals",
+        "changed_since",
     }
 )
 """The whole surface, and the tests assert the server's own answer equals this.
@@ -272,6 +273,16 @@ TREE_TOTALS_DESCRIPTION = (
     "search term, so this is the only way to ask how big the tree is -- "
     "useful for confirming an import landed. Counts include private records, "
     "because an aggregate over the whole tree names nobody."
+)
+
+CHANGED_SINCE_DESCRIPTION = (
+    "What changed in the tree on or after a date, one collection at a time. "
+    "ASK THIS BEFORE CONCLUDING SOMETHING IS ALREADY ENTERED: the alternative "
+    "is diffing a stale export by hand, which is how a record gets entered "
+    "twice. since is a date like 2026-08-01; kind is people, families, "
+    "events, places, sources, citations or notes. One collection per call, "
+    "because a single sweep of all of them costs about three quarters of a "
+    "second inside the Gramps main loop."
 )
 
 PROPOSE_DOCUMENT_DESCRIPTION = """\
@@ -886,6 +897,9 @@ class Tools:
     def tree_totals(self) -> dict[str, object]:
         return self._host("/totals")
 
+    def changed_since(self, since: str, kind: str = "people") -> dict[str, object]:
+        return self._host("/find/changed", since=since, kind=kind)
+
     def _store(self) -> proposals.Store:
         """The store inside the blessed copy. **The blessing is the permission.**
 
@@ -971,6 +985,10 @@ def build_server(tools: Tools) -> MCPServer:
     @server.tool(name="tree_totals", description=TREE_TOTALS_DESCRIPTION)
     def tree_totals() -> dict[str, object]:
         return tools.tree_totals()
+
+    @server.tool(name="changed_since", description=CHANGED_SINCE_DESCRIPTION)
+    def changed_since(since: str, kind: str = "people") -> dict[str, object]:
+        return tools.changed_since(since, kind)
 
     @server.tool(name="propose_document", description=PROPOSE_DOCUMENT_DESCRIPTION)
     def propose_document(graph: dict[str, object]) -> dict[str, object]:
