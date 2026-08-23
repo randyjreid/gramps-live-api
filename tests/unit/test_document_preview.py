@@ -542,3 +542,288 @@ def test_a_failed_completion_leaves_the_INTENT_intact(
         "durable record of which backup precedes it is now a fragment."
     )
     assert json.loads(after)["backup_path"] == "backups/before.sqlite"
+
+
+# ---------------------------------------------------------------------------
+# #105: an event that belongs to a family, and the preview that must name it.
+# ---------------------------------------------------------------------------
+
+FAMILY_EVENT_GRAPH = dict(
+    people=[
+        node("p1", given="Herbert", surname="Invented", gender="male"),
+        node("p2", given="Louise", surname="Madeup", gender="female"),
+    ],
+    families=[node("f1", parents=["p1", "p2"])],
+    events=[node("e1", type="Marriage", date="1946-12-14", family="f1")],
+)
+
+
+def test_a_family_event_names_the_household_it_joins() -> None:
+    """⛔ R3's criterion is that no byte reaches the tree unrendered.
+
+    **A marriage attaching to a household the owner never saw named is that
+    criterion failing.** The write is a few lines; this is the reason the slice
+    exists.
+    """
+    rendered = document.preview(document.parse(FAMILY_EVENT_GRAPH))
+
+    assert "Marriage" in rendered
+    assert "Herbert Invented + Louise Madeup" in rendered, (
+        "the household the marriage joins is not named:\n" + rendered
+    )
+    assert "f1" not in rendered, (
+        "the family is rendered as a LOCAL ID, which nobody can recognise or refuse"
+    )
+
+
+def test_a_family_event_renders_under_that_family() -> None:
+    """⚠️ Present is not the same as findable.
+
+    Matching events only by their ``people`` left the marriage in the leftovers
+    section -- rendered in full, so R3 held, but not where the owner looks.
+    """
+    rendered = document.preview(document.parse(FAMILY_EVENT_GRAPH))
+    family_line = next(
+        index for index, row in enumerate(rendered.splitlines()) if row.strip().startswith("Family")
+    )
+    following = "\n".join(rendered.splitlines()[family_line : family_line + 4])
+
+    assert "Marriage" in following, (
+        "the marriage does not appear under the family it joins:\n" + rendered
+    )
+
+
+def test_an_event_may_not_name_a_family_that_is_not_one() -> None:
+    """⛔ Same reference discipline as ``place`` and ``people``."""
+    for bad, why in (("nope", "not in this graph"), ("p1", "not a family")):
+        with pytest.raises(document.GraphInvalid) as invalid:
+            document.parse(
+                dict(
+                    people=[node("p1", given="Herbert", surname="Invented")],
+                    events=[node("e1", type="Marriage", family=bad)],
+                )
+            )
+        assert why in str(invalid.value), f"{bad!r}: {invalid.value}"
+
+
+def test_the_singulariser_names_a_family_a_family() -> None:
+    """⚠️ A latent bug that only a new reference could reach.
+
+    ``kind_of`` derived its singular by chopping the last letter, so ``families``
+    became ``familie``. Nothing referenced a family until events gained one --
+    **a rule whose definition came from the SPELLING rather than the vocabulary**,
+    unreachable right up until a new spelling arrived.
+    """
+    with pytest.raises(document.GraphInvalid) as invalid:
+        document.parse(
+            dict(
+                people=[node("p1", given="Herbert", surname="Invented")],
+                events=[node("e1", type="Marriage", family="p1")],
+            )
+        )
+
+    assert "familie" not in str(invalid.value), (
+        f"the error message calls a family a 'familie': {invalid.value}"
+    )
+    assert "not a family" in str(invalid.value)
+
+
+def test_a_family_nothing_would_create_is_refused() -> None:
+    """⛔ The preview promised a family the writer skips, so the event orphaned.
+
+    The writer skips a family with no parents and no children at
+    ``if not parents and not children``. ``parse`` accepted it, the preview said
+    the family would be created and the marriage attached, and the write produced
+    **an event attached to nothing** -- the approved account and the write
+    disagreeing again, in the #106 class.
+
+    ⭐ Refusing here also closes the older, quieter case: an empty family node
+    used to render as a promise and write nothing at all, event or no event.
+    """
+    with pytest.raises(document.GraphInvalid) as invalid:
+        document.parse(
+            dict(
+                people=[node("p1", given="Herbert", surname="Invented")],
+                families=[node("f1")],
+                events=[node("e1", type="Marriage", family="f1")],
+            )
+        )
+
+    assert "nothing would be written for it" in str(invalid.value)
+
+
+def test_the_family_shapes_that_DO_get_written_are_still_accepted() -> None:
+    """⚠️ A refusal that also refuses correct graphs is worse than the defect."""
+    parents_only = dict(
+        people=[
+            node("p1", given="Herbert", surname="Invented", gender="male"),
+            node("p2", given="Louise", surname="Madeup", gender="female"),
+        ],
+        families=[node("f1", parents=["p1", "p2"])],
+        events=[node("e1", type="Marriage", family="f1")],
+    )
+    attaching = dict(
+        people=[node("p1", given="Herbert", surname="Invented")],
+        families=[node("f1", gramps_id="F0003", children=["p1"])],
+    )
+    children_only = dict(
+        people=[node("p1", given="Herbert", surname="Invented")],
+        families=[node("f1", children=["p1"])],
+    )
+
+    for graph, label in (
+        (parents_only, "parents only"),
+        (attaching, "attaching by gramps_id"),
+        (children_only, "children only"),
+    ):
+        assert document.parse(graph) is not None, f"{label} was refused"
+
+
+def test_a_role_with_nobody_to_carry_it_is_refused() -> None:
+    """⛔ The preview promised ``as Witness`` and the writer applied it nowhere.
+
+    The FAMILY reference's role is fixed at ``FAMILY`` -- it must be, or
+    ``role:"Primary"`` and no role render identically while writing differently.
+    So a role on an event that names no ``people`` reaches nothing at all.
+
+    ⚠️ **Third time on this branch that the approved account and the write
+    disagreed**, which is what #106 is filed about.
+    """
+    with pytest.raises(document.GraphInvalid) as invalid:
+        document.parse(
+            dict(
+                people=[
+                    node("p1", given="Herbert", surname="Invented", gender="male"),
+                    node("p2", given="Louise", surname="Madeup", gender="female"),
+                ],
+                families=[node("f1", parents=["p1", "p2"])],
+                events=[node("e1", type="Marriage", family="f1", role="Witness")],
+            )
+        )
+
+    assert "nothing would carry it" in str(invalid.value)
+
+
+def test_a_role_WITH_people_is_still_accepted() -> None:
+    """⚠️ A refusal that also refuses correct graphs is worse than the defect."""
+    with_people = dict(
+        people=[
+            node("p1", given="Herbert", surname="Invented", gender="male"),
+            node("p2", given="Louise", surname="Madeup", gender="female"),
+        ],
+        families=[node("f1", parents=["p1", "p2"])],
+        events=[node("e1", type="Marriage", family="f1", people=["p1"], role="Witness")],
+    )
+    no_role = dict(
+        people=[
+            node("p1", given="Herbert", surname="Invented", gender="male"),
+            node("p2", given="Louise", surname="Madeup", gender="female"),
+        ],
+        families=[node("f1", parents=["p1", "p2"])],
+        events=[node("e1", type="Marriage", family="f1")],
+    )
+    primary_only = dict(
+        people=[node("p1", given="Herbert", surname="Invented")],
+        families=[node("f1", children=["p1"])],
+        events=[node("e1", type="Marriage", family="f1", role="Primary")],
+    )
+
+    for graph, label in (
+        (with_people, "a role with people to carry it"),
+        (no_role, "a family event with no role"),
+        (primary_only, "an explicit Primary, which the preview suppresses anyway"),
+    ):
+        assert document.parse(graph) is not None, f"{label} was refused"
+
+
+def test_a_family_whose_members_are_only_nulls_is_refused() -> None:
+    """⛔ The earlier refusal was bypassable by one JSON null.
+
+    ``parents: [null]`` is a **non-empty list**, so a truthiness check passed --
+    and the writer then drops the null, skips the now-empty family, and any event
+    targeting it orphans, with the preview having promised both. **A guard
+    defeated by a value the writer silently discards.**
+    """
+    for slot in ("parents", "children"):
+        with pytest.raises(document.GraphInvalid) as invalid:
+            document.parse(
+                dict(
+                    people=[node("p1", given="Herbert", surname="Invented")],
+                    families=[node("f1", **{slot: [None]})],
+                    events=[node("e1", type="Marriage", family="f1")],
+                )
+            )
+        assert "silently dropped" in str(invalid.value) or "nothing would be written" in str(
+            invalid.value
+        ), f"{slot}: {invalid.value}"
+
+
+def test_an_empty_string_member_is_refused_too() -> None:
+    """⚠️ Same hole, different spelling -- and the writer drops both alike."""
+    with pytest.raises(document.GraphInvalid):
+        document.parse(
+            dict(
+                people=[node("p1", given="Herbert", surname="Invented")],
+                families=[node("f1", children=["p1", "  "])],
+            )
+        )
+
+
+def test_real_members_are_still_accepted() -> None:
+    """⚠️ A refusal that also refuses correct graphs is worse than the defect."""
+    good = dict(
+        people=[
+            node("p1", given="Herbert", surname="Invented", gender="male"),
+            node("p2", given="Louise", surname="Madeup", gender="female"),
+        ],
+        families=[node("f1", parents=["p1", "p2"], children=[])],
+        events=[node("e1", type="Marriage", family="f1")],
+    )
+    assert document.parse(good) is not None
+
+
+def test_a_null_entry_is_refused_in_EVERY_local_id_list() -> None:
+    """⛔ Fixing this per-list did not fix it, twice.
+
+    ``parents``/``children`` were hardened after one round; the very next round
+    found the identical bypass in an event's ``people``. ``[null]`` is a
+    non-empty list, ``check`` treats a null as absent, and the writer drops it at
+    ``handles.get(None)`` -- so the preview promises and the write skips.
+
+    ⚠️ **The rule is applied to the vocabulary now**, not to whichever list a
+    reviewer last pointed at.
+    """
+    person = node("p1", given="Herbert", surname="Invented")
+    cases = {
+        "event people": dict(
+            people=[person],
+            families=[node("f1", children=["p1"])],
+            events=[node("e1", type="Marriage", family="f1", people=[None], role="Witness")],
+        ),
+        "citation attach_to": dict(
+            people=[person],
+            source=node("s1", title="A register"),
+            citations=[node("c1", source="s1", attach_to=[None])],
+        ),
+        "note attach_to": dict(people=[person], notes=[dict(text="x", attach_to=[None])]),
+        "family parents": dict(people=[person], families=[node("f1", parents=[None])]),
+        "family children blank": dict(people=[person], families=[node("f1", children=["  "])]),
+    }
+    for label, graph in cases.items():
+        with pytest.raises(
+            document.GraphInvalid, match="(silently dropped|nothing would be written)"
+        ):
+            document.parse(graph)
+            pytest.fail(f"{label} was accepted")
+
+
+def test_a_role_carried_only_by_a_null_person_is_refused() -> None:
+    """⛔ The role check counted list LENGTH, so one null satisfied it."""
+    with pytest.raises(document.GraphInvalid):
+        document.parse(
+            dict(
+                people=[node("p1", given="Herbert", surname="Invented")],
+                families=[node("f1", children=["p1"])],
+                events=[node("e1", type="Marriage", family="f1", people=[None], role="Witness")],
+            )
+        )

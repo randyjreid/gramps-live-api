@@ -233,10 +233,9 @@ LIST_FAMILY_EVENTS_DESCRIPTION = (
     "one of these. Asking a person for their events and concluding there is no "
     "marriage is how a second marriage record gets entered for a couple who "
     "already have one. Use find_families first to get the family Gramps ID. "
-    "READ ONLY, and the gap it finds cannot be filled through propose_document: "
-    "an event can only be attached to PEOPLE, so a marriage proposed here would "
-    "land on the spouses and this would still report none. Tell the owner "
-    "instead."
+    "If it shows no marriage and a document says there was one, you can now "
+    "propose it: put the family local id in the event's family field and it is "
+    "written onto the family, so this lookup reports it afterwards."
 )
 
 LIST_NOTES_DESCRIPTION = (
@@ -286,7 +285,8 @@ happens, so you never need a handle.
 
   people:    [{"id","gramps_id?","given","surname","gender"}]
   places:    [{"id","gramps_id?","title"}]
-  events:    [{"id","type","date","place":<place id>,"people":[<person ids>],"role"}]
+  events:    [{"id","type","date","place":<place id>,"people":[<person ids>],
+              "family":<family id>,"role"}]
   source:     {"id","gramps_id?","title","author","pubinfo"}
   citations: [{"id","source":<source id>,"page","attach_to":[<any ids>]}]
   families:  [{"id","gramps_id?","parents":[<person ids>],"children":[<person ids>]}]
@@ -309,13 +309,11 @@ two households. A family with a gramps_id is ADDED TO: the children you name
 join it, its recorded parents are left exactly as they are, and any parents you
 name here are ignored.
 
-*** AN EVENT CANNOT YET BE ATTACHED TO A FAMILY. *** events[].people names
-PEOPLE, and that is the only place an event can land. So a marriage you propose
-is written onto the two spouses rather than onto their family, and
-list_family_events will still report none afterwards. If find_families and
-list_family_events show a couple has no marriage record, SAY SO TO THE OWNER and
-let him add it in Gramps -- do not propose one expecting it to land on the
-family, because it will not, and the check will keep coming back empty.
+*** A MARRIAGE BELONGS ON THE FAMILY, NOT ON THE TWO SPOUSES. *** An event may
+name "family": <family id> and it is written onto that family, which is where
+Gramps keeps a marriage and where list_family_events looks for one. An event that
+names only "people" lands on those people, which is right for a birth or a
+residence and wrong for a marriage.
 
 A node with a gramps_id is ATTACHED TO, never modified. Its given/surname/gender
 are ignored: nothing already in the tree is changed, ever. If the document
