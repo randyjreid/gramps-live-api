@@ -58,7 +58,12 @@ the class's contract promises the name survives a Gramps release.**
 **Owed to the build's plan gate, not open as rulings.**
 
 1. ⚠️ **How the copy respects R8's cap on work inside `GLib.idle_add`. This is an open problem,
-   not a confirmation task.** An earlier draft of this page framed it as *"whether the copy runs
+   not a confirmation task.**
+   > ⭐ **SETTLED 2026-08-23, and not the way this question expects.** The copy runs
+   > **synchronously inside the callback**, at a measured 108 ms against the
+   > 343–402 ms of main-thread cost this project already accepts for a name
+   > search. The cap was respected by making the work small enough to be honest
+   > about, not by moving it. See the four sections dated 2026-08-23 below. An earlier draft of this page framed it as *"whether the copy runs
    incrementally via the `pages` and `sleep` arguments"*. ⛔ **That framing is wrong, and it was
    measured rather than argued.**
 
@@ -78,6 +83,15 @@ the class's contract promises the name survives a Gramps release.**
 2. **Where the backup file lands, and its retention.**
 
 ## ⭐ The build constraint, measured 2026-08-22
+
+> ⛔ **SUPERSEDED IN PART, 2026-08-23 — read this section with the four below it.**
+> The second read-only connection stands and is what ships. **The worker thread
+> does not.** The build ran it on a worker, that design produced three
+> correctness defects that all needed the interval it created, and it was
+> reversed to a synchronous copy on the GTK main thread — see *The asynchronous
+> design was tried, and reversed*. ⚠️ The measurements in this section are real
+> and are kept; what changed is where the copy runs. **Nothing here should be
+> read as the current design without the later sections.**
 
 **The work-cap problem above is solved, and the private-attribute problem goes
 with it.** Both fall to one change of mechanism.
