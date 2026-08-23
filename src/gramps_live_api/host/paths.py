@@ -13,6 +13,7 @@ is running.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 from collections.abc import Mapping
@@ -87,6 +88,17 @@ def create_directory(directory: str) -> list[str]:
 
     os.makedirs(absolute, exist_ok=True)
 
+    # ⛔ **Owner-only, and ONLY on the levels this run created.**
+    #
+    # ⚠️ A tree copy is the whole database -- including every record the API's
+    # privacy filtering hides. Under the common 022 umask these directories are
+    # created 0755, so on any shared POSIX machine another local account can walk
+    # in and read what the API refuses to show. ⭐ Narrowing a directory this run
+    # did NOT create would change permissions the owner chose, so the same list
+    # that bounds the flush bounds this.
+    for level in missing:
+        owner_only(level)
+
     levels = [absolute, *missing]
     if missing and os.path.isdir(current):
         levels.append(current)
@@ -94,6 +106,41 @@ def create_directory(directory: str) -> list[str]:
     # ``missing`` is empty and the only level is the directory itself -- its entry
     # in its parent is already durable, so the parent is not flushed again.
     return list(dict.fromkeys(levels))
+
+
+def owner_only(path: str) -> None:
+    """Restrict ``path`` to its owner. ⛔ Never fatal -- and a no-op on Windows.
+
+    ⚠️ **Windows does not have POSIX modes**, and `os.chmod` there controls only
+    the read-only flag; access is governed by inherited ACLs instead. Calling it
+    would do nothing useful and would make this read as a guarantee on a platform
+    where it is not one. **Saying which platforms a protection covers is part of
+    the protection.**
+    """
+    if os.name == "nt":
+        return
+    mode = 0o700 if os.path.isdir(path) else 0o600
+    # A permission we could not narrow is not a reason to abandon a backup that is
+    # otherwise sound; the caller has no better answer available than this one.
+    with contextlib.suppress(OSError):
+        os.chmod(path, mode)
+
+
+def create_file_owner_only(path: str) -> None:
+    """Create ``path`` empty and owner-readable BEFORE anything else opens it.
+
+    ⛔ **Before, not after.** SQLite creates its destination with the process
+    umask, so narrowing the file afterwards leaves a window in which the whole
+    tree -- privacy-filtered records included -- is world-readable on disk. The
+    window is small and its contents are the entire database.
+
+    ⭐ Pre-creating means SQLite opens a file that already exists and leaves its
+    mode alone, and ``os.replace`` carries that mode to the final name.
+    """
+    flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC
+    handle = os.open(path, flags, 0o600)
+    os.close(handle)
+    owner_only(path)
 
 
 def durable_directory(levels: list[str]) -> str:

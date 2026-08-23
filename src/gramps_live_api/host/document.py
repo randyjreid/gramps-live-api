@@ -829,6 +829,13 @@ def write_journal(tree_dir: str, record: dict[str, Any], *, stem: str) -> tuple[
     # name holds either the intact intent or the intact completion -- the same bound
     # the backup's own publication uses, for the same reason.
     partial = path + ".partial"
+    # ⛔ Owner-only, for the same reason the backup copy is. ⚠️ The bot named the
+    # backup; this file is the SAME exposure in a second place -- it carries the
+    # approved preview, which is the names and dates the owner just read on
+    # screen. Fixing only the site that was named is the enumeration this project
+    # keeps paying for, so the rule is *anything this code creates that holds
+    # tree data is owner-only*.
+    paths.create_file_owner_only(partial)
     with open(partial, "w", encoding="utf-8") as handle:
         json.dump(record, handle, ensure_ascii=False, indent=2, sort_keys=True)
         handle.flush()

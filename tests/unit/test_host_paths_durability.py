@@ -109,3 +109,55 @@ def test_a_REAL_failure_is_not_dressed_as_a_platform_limit(
         "fd exhaustion was reported as a platform limit, so the write proceeded "
         "past the very guard that exists to refuse it"
     )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows has no POSIX modes; ACLs govern access")
+def test_everything_this_code_creates_with_tree_data_is_OWNER_ONLY(tmp_path: Path) -> None:
+    """⛔ A backup is the whole tree, privacy-filtered records included.
+
+    ⚠️ Under the common ``022`` umask a directory is created ``0755`` and SQLite
+    creates its destination ``0644``. On any shared POSIX machine that means
+    **another local account can walk into the backup folder and read exactly the
+    records the API refuses to show** — the protection the rest of this project
+    exists to provide, undone by a default nobody chose.
+
+    ⭐ Stated as a rule rather than a patch: *anything this code creates that
+    holds tree data is owner-only.* The backup copy, the journal record, and the
+    directories created to hold them.
+    """
+    created = tmp_path / "state" / "backups" / "abc123"
+    levels = paths.create_directory(str(created))
+
+    for level in levels:
+        if Path(level).resolve() == tmp_path.resolve():
+            continue  # pre-existing; its permissions are the owner's choice
+        mode = os.stat(level).st_mode & 0o777
+        assert mode == 0o700, (
+            f"{level} is {oct(mode)} — another local account can traverse into "
+            f"the backups and read the whole tree"
+        )
+
+    copy = created / "20260824T000000Z-x.sqlite"
+    paths.create_file_owner_only(str(copy))
+    mode = os.stat(copy).st_mode & 0o777
+    assert mode == 0o600, (
+        f"the backup file is {oct(mode)} — it contains every record the privacy "
+        f"filtering hides, readable by any local account"
+    )
+
+
+def test_narrowing_never_touches_a_directory_this_run_did_not_create(tmp_path: Path) -> None:
+    """⛔ The same list that bounds the flush bounds the permission change.
+
+    Narrowing a directory the owner already had would change permissions they
+    chose, on a path this code merely passed through.
+    """
+    outer = tmp_path / "theirs"
+    outer.mkdir()
+    before = os.stat(outer).st_mode & 0o777
+
+    paths.create_directory(str(outer / "ours"))
+
+    assert (os.stat(outer).st_mode & 0o777) == before, (
+        "a pre-existing directory had its permissions changed"
+    )

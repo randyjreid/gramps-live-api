@@ -372,6 +372,12 @@ def _one_attempt(source: str, destination: str) -> int:
                     "faster than it can be read."
                 )
 
+        # ⛔ Created owner-only BEFORE SQLite opens it. SQLite would create it
+        # with the process umask -- 0644 under the common 022 -- and this file is
+        # the WHOLE tree, including every record the API's privacy filtering
+        # hides. Narrowing it afterwards leaves a window; there is no reason to
+        # have one.
+        paths.create_file_owner_only(destination)
         with contextlib.closing(sqlite3.connect(destination)) as writer:
             reader.backup(writer, pages=PAGES_PER_STEP, progress=progress)
     return moved
