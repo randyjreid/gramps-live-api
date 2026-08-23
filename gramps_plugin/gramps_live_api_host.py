@@ -28,6 +28,7 @@ nothing else would catch a call that arrived after the floor.
 import os
 import sys
 import traceback
+import uuid
 
 DIRECTORY_NAME = "gramps-live-api"
 LOG_FILE = "host.log"
@@ -49,6 +50,14 @@ tree's own ``name.txt``, which is an ordinary file read.
 below returned the fallback -- so every backup would have landed in a directory
 called ``tree``. A test asserting the POSITIVE case caught it; one asserting only
 the fallback would have passed."""
+
+_IN_FLIGHT = {"present": False}
+"""Whether an approval is already on screen. ⛔ One at a time.
+
+⚠️ **This is a bound on a class, not a fix for an instance.** Four review rounds
+found four different consequences of two approvals interleaving; see ``_present``
+for the list. A GTK modal spins a nested main loop, so *"it runs on the main
+thread"* has never meant *"nothing else runs"*."""
 
 _RUNNING = {}
 """The started host, kept so a later slice has something to stop. Gramps' exit
@@ -144,6 +153,35 @@ def _present(dbstate, uistate, graph):
         if host is not None:
             host.note(level, message)
 
+    # ⛔ ONE APPROVAL IN FLIGHT AT A TIME. A second is REFUSED, not queued.
+    #
+    # ⚠️ **There is no "synchronous" in a GTK application with modal dialogs.**
+    # ``writer.confirm`` spins a NESTED main loop, so other ``GLib.idle_add``
+    # callbacks -- including another ``_present`` -- run inside it. Moving the
+    # backup off its worker shortened the window and **serialised nothing.**
+    #
+    # ⭐ Four rounds of review found four different consequences of that one
+    # missing requirement: two documents snapshotting the same database so the
+    # second's backup restored away the first's write · a cancelled preview
+    # evicting the pre-write backup · re-entry through the dialog's nested loop ·
+    # an interleaved completion truncating the intent journal. **They are not
+    # four defects. They are one, seen four times**, which is why this is a bound
+    # rather than a fourth patch.
+    #
+    # ⛔ Refused rather than queued, and no dialog: a second modal stacked on the
+    # one the owner is reading is worse than the refusal it announces. The route
+    # answers 202 before any of this and reports no outcome anyway, so the log is
+    # where a refusal belongs.
+    if _IN_FLIGHT["present"]:
+        note(
+            "ERROR",
+            "document: REFUSED -- another document is already awaiting approval. "
+            "Finish or cancel that dialog before proposing again. Nothing was "
+            "written for this one.",
+        )
+        return False
+
+    _IN_FLIGHT["present"] = True
     try:
         import gramps_live_api_writer as writer
 
@@ -254,6 +292,12 @@ def _present(dbstate, uistate, graph):
             writer.tell(uistate, "The document could not be written", traceback.format_exc()[:2000])
         except Exception:
             pass
+    finally:
+        # ⛔ In a ``finally``, so every exit clears it -- refusals, cancellation,
+        # a raise inside the nested loop. A flag left set would refuse every
+        # later proposal for the lifetime of the process, which is a worse
+        # failure than the one it prevents.
+        _IN_FLIGHT["present"] = False
 
 
 def _take_backup(tree_dir, note):
@@ -317,7 +361,15 @@ def _record_intent(document, outcome, parsed, approved, taken, totals, note):
         )
         record["write_confirmed"] = False
         path = document.write_journal(
-            outcome.message, record, stem=stamped.strftime("%Y%m%dT%H%M%SZ") + "-document"
+            outcome.message,
+            record,
+            # ⛔ A collision-free suffix, the SAME bound the backup's filename
+            # already uses. Two runs in one UTC second produced one stem, so a
+            # completion could name an existing intent file -- and
+            # ``write_journal`` opens with "w". **The already-fsynced backup
+            # mapping was truncated after the database had committed.** Second
+            # location, same defect: bound rather than patched.
+            stem=stamped.strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8] + "-document",
         )
         note("INFO", "document: backup recorded before writing: " + path)
         return path
@@ -523,7 +575,10 @@ def _write_after_backup(
                     backup_utc=taken.taken_utc,
                     totals_before=totals,
                 ),
-                stem=written_utc.strftime("%Y%m%dT%H%M%SZ") + "-document",
+                # ⛔ The intent's OWN stem, reused. Recomputing one independently
+                # is what let a same-second completion truncate a different
+                # record -- the completion must finish the file it started.
+                stem=os.path.basename(intent)[: -len(".json")],
             )
             note("INFO", "document: journalled to " + journal)
         except Exception:

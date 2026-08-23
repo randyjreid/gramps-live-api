@@ -800,6 +800,14 @@ def write_journal(tree_dir: str, record: dict[str, Any], *, stem: str) -> str:
     ⚠️ **``fsync`` before returning**, for the reason ``core/apply`` gives: "the
     record was written" must not mean "the record is in a buffer" while the
     database change reaches the disk.
+
+    ⛔ **And the DIRECTORY is synced too, where the platform allows it.** Syncing
+    only the file leaves the directory entry itself unflushed on POSIX, so a
+    power loss after the database commit can preserve the tree change and lose
+    the record naming its backup -- *the file was durable and its name was not.*
+    ⚠️ Windows cannot open a directory for ``fsync``; ``directory_synced`` in the
+    returned record says which happened rather than letting a platform silently
+    stand in for a guarantee.
     """
     directory = os.path.join(tree_dir, UNDO_DIRECTORY)
     os.makedirs(directory, exist_ok=True)
@@ -808,7 +816,33 @@ def write_journal(tree_dir: str, record: dict[str, Any], *, stem: str) -> str:
         json.dump(record, handle, ensure_ascii=False, indent=2, sort_keys=True)
         handle.flush()
         os.fsync(handle.fileno())
+    sync_directory(directory)
     return path
+
+
+def sync_directory(directory: str) -> bool:
+    """Flush a directory entry. ``False`` where the platform cannot.
+
+    ⛔ **Returns what actually happened.** An earlier version of the equivalent
+    code in ``backup._publish`` treated every failure as *unsupported platform*
+    and reported success -- and **Windows always took that path**, so durability
+    was unverified on the only platform this runs on. That is a check succeeding
+    for a reason unrelated to the property it names, inside the durability
+    guarantee itself.
+    """
+    try:
+        handle = os.open(directory, os.O_RDONLY)
+    except OSError:
+        # ⚠️ Windows cannot open a directory as a file descriptor at all. That is
+        # a KNOWN LIMIT rather than a failure, and it is reported as one.
+        return False
+    try:
+        os.fsync(handle)
+        return True
+    except OSError:
+        return False
+    finally:
+        os.close(handle)
 
 
 def caller_preview(graph: Graph) -> str:

@@ -171,6 +171,36 @@ the outcome is identical and the measured workload restarts zero times. The
 livelock was only ever produced by an artificial continuous writer on a scratch
 copy.
 
+## ⛔ There is no "synchronous" in a GTK application — approvals are serialised
+
+⚠️ **The synchronous move shortened the window and serialised nothing**, and the
+next reader will assume otherwise unless this says so. `writer.confirm` spins a
+**nested GTK main loop**, so other `GLib.idle_add` callbacks — including another
+`_present` — run *inside* it. Moving the copy off its worker removed the interval
+before the dialog and left the one inside it untouched.
+
+⭐ **Four review rounds found four different consequences of one missing
+requirement:**
+
+| round | what it looked like |
+|---|---|
+| 1 | two documents snapshotting the same database; the second's backup restored away the first's write |
+| 2 | a cancelled preview's backup evicting the pre-write one from retention |
+| 3 | re-entry through the dialog's nested loop, writing against a stale backup |
+| 4 | an interleaved completion truncating the intent journal |
+
+**They are not four defects. They are one, seen four times** — which is why the
+answer is a bound rather than a fourth patch.
+
+**One approval is in flight at a time. A second is REFUSED**, with the reason in
+`host.log`, and the flag is cleared in a `finally` so no exit can leave it set —
+a stuck flag would refuse every later proposal for the life of the process, which
+is worse than the defect it prevents.
+
+⛔ **Refused, not queued.** A queue would preserve the interleaving and merely
+reorder it, and a second modal stacked on the dialog the owner is reading is
+worse than the refusal it announces.
+
 ## What this settles that was open
 
 **Slice 3's deleted deliverable now has a mechanism.** R8 removed the spawned-CLI writer and left

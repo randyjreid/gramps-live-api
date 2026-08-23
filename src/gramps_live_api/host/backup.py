@@ -47,13 +47,18 @@ slow -- it is being restarted by a writer, which is the livelock below.
 legitimate backup of a larger tree ever exceeds this, the budget is wrong and
 must be re-derived from a new measurement, not raised because it fired."""
 
-ATTEMPTS = 2
-"""One retry absorbs a single write burst. A second failure is a pattern.
+ATTEMPTS = 1
+"""⛔ **ONE attempt. The retry is gone.**
 
-⛔ **Measured, and the reason both limits exist: under a CONTINUOUSLY committing
-writer, ``backup()`` did not converge in ten minutes.** Gramps writes in bursts
-rather than continuously, so this is probably not the real case -- and *probably*
-is not a bound."""
+⚠️ **It froze the GTK loop for the whole budget on every failure.** Two five-second
+attempts run inside one ``GLib.idle_add`` callback, so Gramps was unresponsive for
+about **ten seconds** before it could show the refusal -- and the 108 ms
+measurement bounds the SUCCESS path, saying nothing about the failure path the
+timeout exists for. **That gap is exactly why this was invisible.**
+
+⭐ Refuse-to-arm already exists and is the right answer to a failed backup. A
+retry buys a rare success at the cost of a ten-second freeze every time one
+fails, and the owner can simply propose again."""
 
 RETAIN = 20
 """How many backups to keep per tree. At ~24 MB that is roughly 480 MB, which is
@@ -74,6 +79,14 @@ class Outcome:
     pages: int = 0
     attempts: int = 0
     seconds: float = 0.0
+    directory_synced: bool = False
+    """Whether the backup's DIRECTORY ENTRY was flushed, not merely its contents.
+
+    ⛔ **Reported rather than assumed.** ``os.replace`` is atomic everywhere, so
+    the file is never half visible -- but on Windows the new directory entry
+    cannot be fsynced, and pretending otherwise made the durability guarantee
+    unverifiable on the only platform this runs on."""
+
     taken_utc: str = ""
     """When the copy completed, ISO-8601 UTC.
 
@@ -181,7 +194,7 @@ def take(source: str, destination: str) -> Outcome:
             discard(partial)
             continue
         try:
-            _publish(partial, destination)
+            entry_durable = _publish(partial, destination)
         except OSError as failure:
             last = f"the copy could not be published: {failure}"
             discard(partial)
@@ -194,6 +207,7 @@ def take(source: str, destination: str) -> Outcome:
             attempts=attempt,
             seconds=time.monotonic() - started,
             taken_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            directory_synced=entry_durable,
         )
 
     return Outcome(
@@ -211,8 +225,28 @@ class _TookTooLong(Exception):
     """A single attempt ran past its wall clock. ⛔ There is no page budget."""
 
 
-def _publish(partial: str, destination: str) -> None:
-    """Make the finished copy visible under its final name, durably.
+def _sync_directory(directory: str) -> bool:
+    """Flush a directory entry. ⛔ ``False`` where the platform cannot do it.
+
+    Windows cannot open a directory as a file descriptor, so this is a **known
+    limit reported as one** rather than a failure quietly reported as success.
+    """
+    try:
+        handle = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return False
+    try:
+        os.fsync(handle)
+        return True
+    except OSError:
+        return False
+    finally:
+        os.close(handle)
+
+
+def _publish(partial: str, destination: str) -> bool:
+    """Make the finished copy visible under its final name. Returns whether the
+    DIRECTORY ENTRY was made durable.
 
     ⛔ **fsync THEN rename.** A rename is atomic, but it can be reordered ahead of
     the data on a crash -- which would publish a name whose contents are not
@@ -222,20 +256,30 @@ def _publish(partial: str, destination: str) -> None:
     # opened for WRITING and fails with EBADF otherwise -- an
     # interpreter-and-platform-dependent behaviour, which is this project's
     # class 4, caught here by the test rather than by CI.
+    # ⚠️ O_RDWR, not O_RDONLY. On Windows ``os.fsync`` requires a descriptor
+    # opened for WRITING and fails with EBADF otherwise -- an
+    # interpreter-and-platform-dependent behaviour, caught here by test.
     handle = os.open(partial, os.O_RDWR)
     try:
         os.fsync(handle)
     finally:
         os.close(handle)
     os.replace(partial, destination)
-    # ⭐ The directory entry itself is synced where the platform allows it, so
-    # the rename survives a crash rather than merely having happened in memory.
-    with contextlib.suppress(OSError, AttributeError):
-        folder = os.open(os.path.dirname(destination), os.O_RDONLY)
-        try:
-            os.fsync(folder)
-        finally:
-            os.close(folder)
+
+    # ⛔ Whether the directory entry was made durable is REPORTED, not assumed.
+    #
+    # ⚠️ This previously suppressed every failure as an unsupported platform and
+    # returned success -- **and Windows always takes that path**, because it
+    # cannot open a directory as a descriptor at all. So the durability guarantee
+    # was unverified on the only platform this actually runs on: a check
+    # succeeding for a reason unrelated to the property it names, inside the
+    # guarantee itself.
+    #
+    # ⭐ ``os.replace`` is atomic on both platforms -- the file is never half
+    # visible. What is NOT established on Windows is that the new directory entry
+    # survives a power loss, and the caller is told which it got rather than
+    # being allowed to believe the stronger one.
+    return _sync_directory(os.path.dirname(destination))
 
 
 def _one_attempt(source: str, destination: str) -> int:

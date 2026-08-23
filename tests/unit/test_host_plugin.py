@@ -633,3 +633,133 @@ def test_a_failure_to_record_the_backup_REFUSES_the_write(
     title, body = writer.told[-1]
     assert "Nothing was written" in title
     assert "backup could not be recorded" in body
+
+
+def test_a_second_approval_is_REFUSED_while_one_is_on_screen(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ The bound, not a fourth patch.
+
+    ⚠️ **There is no "synchronous" in a GTK application with modal dialogs.**
+    ``writer.confirm`` spins a nested main loop, so another ``_present`` runs
+    *inside* it. Four review rounds found four different consequences of that one
+    missing requirement — a backup restoring away another document's write, a
+    cancelled preview evicting the pre-write backup, re-entry through the nested
+    loop, an interleaved completion truncating the intent journal.
+
+    ⭐ **They are one defect seen four times.** This asserts the second approval
+    is REFUSED rather than queued behind and silently executed.
+    """
+    from gramps_live_api.host import backup, document
+
+    reentered: list[object] = []
+    backups_taken: list[str] = []
+    writer = _Writer(say_yes=False)
+    inner = dict(people=[dict(id="p9", given="Second", surname="Proposal")])
+
+    def confirm_that_reenters(uistate: Any, text: str) -> bool:
+        # This is exactly what a nested GTK main loop does: another scheduled
+        # callback runs while the first is still inside ``confirm``.
+        reentered.append(plugin._present(None, None, inner))
+        return False
+
+    def counting_backup(tree_dir: str, note: Any):  # noqa: ANN202
+        backups_taken.append(tree_dir)
+        return backup.Outcome(
+            ok=True, path=str(tmp_path / "b.sqlite"), message="ok", taken_utc="t", seconds=0.1
+        )
+
+    writer.confirm = confirm_that_reenters  # type: ignore[method-assign]
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+    monkeypatch.setattr(accessor, "tree_totals", lambda: {"people": 1})
+    monkeypatch.setattr(accessor, "resolve_nodes", lambda graph: document.Resolution())
+    monkeypatch.setattr(plugin, "_take_backup", counting_backup)
+
+    plugin._present(None, None, dict(people=[dict(id="p1", given="Ada", surname="Invented")]))
+
+    assert reentered, "the re-entrant call never happened, so this proves nothing"
+    assert reentered[0] is False, (
+        f"the second approval was not refused; it returned {reentered[0]!r}"
+    )
+    assert len(backups_taken) == 1, (
+        f"the re-entrant approval took its OWN backup -- the interleaving the "
+        f"guard exists to prevent: {backups_taken}"
+    )
+    assert writer.wrote == [], "the re-entrant approval wrote"
+
+
+def _ok_backup(tmp_path: Path):  # noqa: ANN202
+    from gramps_live_api.host import backup
+
+    return backup.Outcome(
+        ok=True, path=str(tmp_path / "b.sqlite"), message="ok", taken_utc="t", seconds=0.1
+    )
+
+
+def test_the_in_flight_flag_is_cleared_on_every_exit(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ A flag left set refuses every later proposal for the life of the process.
+
+    That is a worse failure than the one it prevents, so the clearing is in a
+    ``finally`` and this asserts it for a path that RAISES.
+    """
+    from gramps_live_api.host import document
+
+    writer = _Writer()
+    _install_writer(monkeypatch, writer)
+
+    def explode() -> object:
+        raise RuntimeError("blessing check blew up")
+
+    monkeypatch.setattr(accessor, "blessing", explode)
+    monkeypatch.setattr(accessor, "resolve_nodes", lambda graph: document.Resolution())
+
+    plugin._present(None, None, dict(people=[dict(id="p1", given="Ada", surname="Invented")]))
+
+    assert plugin._IN_FLIGHT["present"] is False, (
+        "an exception left the guard set, so every later proposal would be refused"
+    )
+
+
+def test_the_intent_and_its_completion_share_one_file(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ A completion must finish the file it started, not name a new one.
+
+    ⚠️ Both stems were computed independently from a UTC second, so a completion
+    in the same second named an EXISTING intent file and ``write_journal`` opens
+    with ``"w"`` — **truncating an already-fsynced backup mapping after the
+    database had committed.** The stem now carries a collision-free suffix and
+    the completion reuses the intent's own.
+    """
+    from gramps_live_api.host import backup, document
+
+    writer = _Writer(say_yes=True)
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+    plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph=graph,
+        parsed=document.parse(graph),
+        resolution=document.Resolution(),
+        taken=backup.Outcome(ok=True, path=str(tmp_path / "b.sqlite"), message="ok", taken_utc="t"),
+        totals={"people": 1},
+        note=lambda level, message: None,
+        backed_up_tree=str(tmp_path),
+    )
+
+    undo = tmp_path / ".gramps-live-api-undo"
+    records = sorted(undo.glob("*.json")) if undo.exists() else []
+    assert len(records) == 1, (
+        f"the completion should finish the intent's own file, not add a second: {records}"
+    )
+    import json
+
+    written = json.loads(records[0].read_text(encoding="utf-8"))
+    assert written.get("written_utc"), "the record was never completed"
+    assert written["backup"]["path"].endswith("b.sqlite")
