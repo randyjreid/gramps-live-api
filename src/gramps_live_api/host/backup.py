@@ -204,10 +204,23 @@ def _uri(path: str) -> str:
 
 
 def take(source: str, destination: str) -> Outcome:
-    """Copy ``source`` to ``destination``. ⛔ **Call this ON the worker thread.**
+    """Copy ``source`` to ``destination``. ⛔ **Called on the GTK MAIN thread.**
 
-    ⚠️ ``sqlite3`` refuses a connection object created on another thread, which is
-    not an obstacle but a reminder: **nothing here is shared with Gramps.**
+    ⚠️ **This line used to say "call this ON the worker thread", and it was left
+    saying so after the worker was removed** -- the fourth instance on this branch
+    of a comment asserting a property its code did not have. The asynchronous
+    design was tried and reversed: it produced three correctness defects that all
+    needed the interval it created, and the copy is now synchronous inside the
+    ``GLib.idle_add`` callback, before the dialog. See R7's page.
+
+    ⭐ The measured cost is **108 ms** on the owner's real tree (24 MB, 5,894
+    pages, one page per step, zero restarts), against the 343-402 ms of
+    main-thread cost this project already accepts for a name search.
+
+    ⚠️ ``sqlite3`` still refuses a connection object created on another thread,
+    which is why the connection is opened here rather than passed in -- **nothing
+    here is shared with Gramps.** That reason survives the reversal; only the
+    thread it names changed.
 
     Never raises for an ordinary failure -- a refusal is a result, because the
     caller has to tell the owner either way.
