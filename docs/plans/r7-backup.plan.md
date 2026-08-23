@@ -8,9 +8,15 @@ its plan gate needs.
 [`rulings/R7-backup-with-gramps-open.md`](../rulings/R7-backup-with-gramps-open.md) — a **second,
 read-only `sqlite3` connection opened on a worker thread**, measured 2026-08-22 against the real tree
 with Gramps holding it: **24 MB in 120 ms**, `integrity_check` ok, all ten table counts matching, 19
-indexes and 39 metadata rows preserved, no lock preventing a second reader. **No GTK callback**, so
-R8's work cap does not apply. **No `_Connection__connection`**, so R7's accepted fragility cost is
-not incurred at all.
+indexes and 39 metadata rows preserved, no lock preventing a second reader. **No
+`_Connection__connection`**, so R7's accepted fragility cost is not incurred at all.
+
+⛔ **CORRECTED after review. An earlier draft said "no GTK callback, so R8's work cap does not
+apply", and that was FALSE as written.** Opening the connection on a worker thread does not by
+itself take the work off the GTK loop: the call site is `_present`, which runs **inside**
+`GLib.idle_add`, so an implementation that *waits* for the backup blocks the main loop for as long
+as the backup takes — up to the full budget below. **See §1a: the wait must not happen inside the
+callback**, and that is a design obligation rather than a detail.
 
 ⭐ **Why this matters more than its size.** R4 approved the guarantee downgrade in these words:
 
@@ -44,7 +50,13 @@ source written faster than it can be copied never finishes.
 
 **The bound:**
 
-- **`pages=1024` per step**, with a progress callback that counts steps.
+- **`pages=1024` per step** — ⚠️ **this is the step SIZE, not the budget.** A3's *page budget* is a
+  separate number and was missing from an earlier draft, which made that criterion unimplementable:
+  a callback that only counts steps has no count at which it fails.
+- **Page budget: 4× the source's page count**, read from `PRAGMA page_count` before the copy starts.
+  ⭐ Derived rather than picked — a clean copy touches each page about once, so 4× tolerates several
+  restarts and still terminates. The progress callback accumulates pages copied and **fails the
+  attempt when the budget is exceeded**, routing to A2 exactly as the clock does.
 - **Wall-clock budget: 5 seconds.** ⭐ **Derived from the measurement rather than invented**: the real
   tree copies in **120 ms**, so 5 s is roughly 40× headroom. A run that has not finished in 5 s is not
   slow — it is being restarted by a writer, which is the livelock.
@@ -57,6 +69,35 @@ source written faster than it can be copied never finishes.
 
 ⚠️ **Falsifier for the 5 s figure:** if a legitimate backup on a larger tree ever exceeds it, the budget
 is wrong and must be re-derived from a measurement — not raised by feel.
+
+## 1a. ⛔ The callback must RETURN, not wait
+
+**The backup runs on a worker thread. The decision to write does not.**
+
+`_present` runs inside `GLib.idle_add`. If it starts a worker and blocks on the result, the GTK loop
+is frozen for the duration — **up to 10 s under the budget above** — which is precisely the R8 cap
+the worker was supposed to respect. ⚠️ **Moving work to a thread and then waiting for it on the main
+thread moves nothing.**
+
+**So the flow is an explicit continuation:**
+
+1. `_present` checks the blessing, starts the backup on a worker, and **returns immediately.** The
+   GTK loop is free.
+2. The worker finishes — success or failure — and **reschedules onto the main thread** with
+   `GLib.idle_add`, the same marshalling the host already uses in the other direction.
+3. That second callback re-checks the blessing (a tree can close while a backup runs), then opens
+   the dialog and performs the write.
+
+⚠️ **The blessing is checked TWICE, deliberately**, for the reason the existing write path already
+checks it twice: the first check and the transaction are separated by real time — and now by a
+worker as well.
+
+⛔ **No dialog appears before the backup succeeds.** A dialog that opens and then reports *"the
+backup failed, nothing was written"* has already spent the owner's attention on a decision that
+could not be honoured.
+
+⚠️ **This makes the write path asynchronous in a way it is not today, and that is the largest piece
+of work in this slice — larger than the backup itself.** Named here so the plan gate prices it.
 
 ## 2. Refuse-to-arm — ⛔ verbatim, and it is what bounds the accepted cost
 
@@ -92,8 +133,8 @@ precedent already says the tree directory is not ours to litter.
 **Naming:** `<UTC-timestamp>-<tree-name>.sqlite`, timestamp first so lexical order is chronological.
 
 ⭐ **A4 — the age relative to the write is visible without archaeology.** The journal already records each
-write with its UTC timestamp and its approved preview. **The journal entry gains the backup's filename
-and the backup's own timestamp**, so *"which backup predates this write"* is answered by reading the
+write with its UTC timestamp and its approved preview. **The journal entry gains the backup's filename,
+the backup's own timestamp, and the tree's object totals at that moment** (see §5 step 4), so *"which backup predates this write"* is answered by reading the
 journal entry for that write — not by comparing file mtimes and hoping.
 
 **Retention: keep the last 20 per tree, and never prune the newest.** At 24 MB that is roughly 480 MB,
@@ -111,6 +152,12 @@ exactly the destructive operation this project defers. ⛔ **The tool must never
 3. Copy the chosen backup over `sqlite.db` in the tree directory, moving the existing file aside under a
    new name first.
 4. Reopen Gramps and check the person count against what the journal says it was.
+
+⚠️ **Step 4 needs a number the journal does not currently record.** `document.journal_record` stores
+the created and attached ids and the approved preview — **no total person count** — so as written
+that step could not be performed. **The journal entry therefore gains the source tree's object
+totals at backup time**, alongside the backup filename and timestamp. ⭐ `accessor.tree_totals()`
+already produces exactly that, in O(1), so this is a field to store rather than a walk to add.
 
 ⭐ **Handles survive**, because nothing re-reads and re-keys the data — which is the whole reason R7 chose
 file replacement over Gramps' export, whose import silently regenerates every handle.
