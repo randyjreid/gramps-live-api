@@ -753,6 +753,9 @@ def journal_record(
     tree_dir: str,
     written_utc: str,
     approved_preview: str,
+    backup_path: str = "",
+    backup_utc: str = "",
+    totals_before: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """What was written, in enough detail to reverse it by hand.
 
@@ -763,6 +766,17 @@ def journal_record(
     ``attached`` records the existing objects that gained something -- reversing
     those means removing a reference rather than deleting a record, and the two
     are different jobs.
+
+    ⭐ **The backup is named HERE, and that is R4's precondition 4** -- *the
+    backup's age relative to the write is visible without archaeology*. Asking
+    *which copy predates this write* is then reading one field, rather than
+    comparing file times and hoping.
+
+    ⛔ **``totals_before`` exists because the restore procedure asks for it.** The
+    owner is told to reopen Gramps after replacing the file and check the counts;
+    without the counts recorded at backup time there is nothing to check against,
+    and that step could not be performed. ``accessor.tree_totals()`` produces them
+    in O(1), so this is a field to store rather than a walk to add.
     """
     return {
         "record": JOURNAL_FORMAT,
@@ -772,6 +786,11 @@ def journal_record(
         "attached_to_existing": {kind: list(ids) for kind, ids in attached.items() if ids},
         "graph": graph.as_dict(),
         "approved_preview": approved_preview,
+        "backup": {
+            "path": backup_path,
+            "taken_utc": backup_utc,
+            "totals_before": totals_before or {},
+        },
     }
 
 

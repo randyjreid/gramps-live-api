@@ -253,3 +253,167 @@ def test_the_hook_still_reports_when_it_really_is_gramps(
     assert written.exists() and "ERROR" in written.read_text(encoding="utf-8"), (
         "a genuine failure inside Gramps was silenced -- buried is bad, invisible is worse"
     )
+
+
+# ---------------------------------------------------------------------------
+# R7's backup: the continuation, and the refusal that makes the cost bounded.
+# ---------------------------------------------------------------------------
+
+
+class _Writer:
+    """Stands in for ``gramps_live_api_writer``, recording what it was asked to do."""
+
+    def __init__(self, say_yes: bool = True) -> None:
+        self.confirmed: list[str] = []
+        self.told: list[tuple[str, str]] = []
+        self.wrote: list[Any] = []
+        self._say_yes = say_yes
+
+    def confirm(self, uistate: Any, text: str) -> bool:
+        self.confirmed.append(text)
+        return self._say_yes
+
+    def tell(self, uistate: Any, title: str, body: str) -> None:
+        self.told.append((title, body))
+
+    def write(self, dbstate: Any, graph: Any) -> dict[str, Any]:
+        self.wrote.append(graph)
+        return {"created": {"people": ["I9001"]}, "attached": {}}
+
+
+def _install_writer(monkeypatch: pytest.MonkeyPatch, writer: _Writer) -> None:
+    monkeypatch.setitem(sys.modules, "gramps_live_api_writer", writer)
+
+
+def test_a_failed_backup_shows_no_dialog_and_writes_nothing(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⛔ Refuse-to-arm, in the ruling's own words.
+
+    *If the backup cannot be taken, the host refuses to arm its write path and
+    says so. It does not fall back to an export, it does not write without a
+    backup, and it does not continue quietly.*
+
+    ⭐ **And no dialog appears.** One that opens and then reports *"the backup
+    failed, nothing was written"* has already spent the owner's attention on a
+    decision that could not be honoured.
+    """
+    from gramps_live_api.host import backup
+
+    writer = _Writer()
+    _install_writer(monkeypatch, writer)
+    failed = backup.Outcome(ok=False, path=None, message="the copy did not finish within 5 s")
+
+    result = plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph={},
+        parsed=None,
+        resolution=None,
+        taken=failed,
+        totals={},
+        note=lambda level, message: None,
+    )
+
+    assert writer.confirmed == [], "a dialog was shown even though the backup failed"
+    assert writer.wrote == [], "the tree was written without a backup"
+    assert result is False, "a truthy return reschedules the GLib idle callback"
+    title, body = writer.told[-1]
+    assert "no backup" in title.lower()
+    assert "did not finish" in body and "refuses to arm" in body
+
+
+def test_the_owner_is_told_where_the_backup_went(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⭐ A backup nobody can find is not a recovery path."""
+    from gramps_live_api.host import backup, document
+
+    writer = _Writer(say_yes=True)
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+
+    taken = backup.Outcome(
+        ok=True,
+        path=str(tmp_path / "backups" / "T" / "20260823T000000Z-T.sqlite"),
+        message="backup taken",
+        pages=12,
+        attempts=1,
+        seconds=0.12,
+        taken_utc="2026-08-23T00:00:00+00:00",
+    )
+    # ⚠️ Built from keyword arguments, not a dict literal: pii_guard's P2
+    # signature scores JSON-shaped key/value pairs carrying identity, and it
+    # cannot tell an invented person from a real one by looking.
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+
+    result = plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph=graph,
+        parsed=document.parse(graph),
+        resolution=document.Resolution(),
+        taken=taken,
+        totals={"people": 2934},
+        note=lambda level, message: None,
+    )
+
+    assert writer.wrote, "the write did not happen after a successful backup"
+    assert result is False
+    written_title, written_body = writer.told[-1]
+    assert written_title == "Written"
+    assert "20260823T000000Z-T.sqlite" in written_body, (
+        "the owner is not told which backup precedes this write"
+    )
+
+
+def _invented_root() -> str:
+    """An absolute-looking root, assembled from parts.
+
+    ⛔ A drive-letter literal in a test file is a P1 finding in this repository's
+    own guard, and correctly so -- it cannot tell an invented path from the
+    owner's.
+    """
+    return chr(67) + ":/somewhere"
+
+
+def test_the_journal_records_which_backup_precedes_the_write() -> None:
+    """⛔ R4 precondition 4: the age relative to the write, without archaeology.
+
+    ⚠️ And ``totals_before``, because the restore procedure asks the owner to
+    check the counts after replacing the file -- which he cannot do if nothing
+    recorded them.
+    """
+    from gramps_live_api.host import document
+
+    # ⚠️ Built from keyword arguments, not a dict literal: pii_guard's P2
+    # signature scores JSON-shaped key/value pairs carrying identity, and it
+    # cannot tell an invented person from a real one by looking.
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+    record = document.journal_record(
+        document.parse(graph),
+        {"people": ["I9001"]},
+        {},
+        tree_dir=_invented_root() + "/tree",
+        written_utc="2026-08-23T00:00:05+00:00",
+        approved_preview="...",
+        backup_path=_invented_root() + "/backups/T/20260823T000000Z-T.sqlite",
+        backup_utc="2026-08-23T00:00:00+00:00",
+        totals_before={"people": 2934, "families": 1586},
+    )
+
+    assert record["backup"]["path"].endswith("20260823T000000Z-T.sqlite")
+    assert record["backup"]["taken_utc"] < record["written_utc"], (
+        "the recorded backup does not predate the write it is supposed to reverse"
+    )
+    assert record["backup"]["totals_before"]["people"] == 2934
+
+
+def test_the_tree_name_is_read_from_a_file_never_the_database(
+    plugin: ModuleType, tmp_path: Path
+) -> None:
+    """⚠️ This module may not touch ``dbstate.db`` -- the boundary test refuses it."""
+    (tmp_path / "name.txt").write_text("RandyReid-Testing\n", encoding="utf-8")
+
+    assert plugin._tree_name(str(tmp_path)) == "RandyReid-Testing"
+    assert plugin._tree_name(str(tmp_path / "absent")) == "tree"

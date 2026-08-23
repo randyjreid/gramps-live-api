@@ -37,6 +37,19 @@ module cannot be imported, so the last-resort writer cannot ask it where to
 write. ``tests/unit/test_host_plugin.py`` asserts the two answers agree, which is
 what stops the copy drifting into a second directory nobody looks in."""
 
+NAME_FILE = "name.txt"
+"""What Gramps calls a tree, read as a FILE rather than through the database.
+
+⛔ This module may not touch ``dbstate.db`` -- it is host code by the rule in
+``tests/fixtures/host_sources.py`` -- so the backup directory is named from the
+tree's own ``name.txt``, which is an ordinary file read.
+
+⚠️ **This constant was missing at first and the failure was invisible.**
+``_tree_name`` referenced it, raised ``NameError``, and the broad ``except``
+below returned the fallback -- so every backup would have landed in a directory
+called ``tree``. A test asserting the POSITIVE case caught it; one asserting only
+the fallback would have passed."""
+
 _RUNNING = {}
 """The started host, kept so a later slice has something to stop. Gramps' exit
 takes the daemon thread with it, so nothing here needs to."""
@@ -157,14 +170,8 @@ def _present(dbstate, uistate, graph):
 
         note("INFO", "document: showing " + document.summary(parsed))
 
-        if not writer.confirm(uistate, document.preview(parsed, resolution)):
-            note("INFO", "document: the owner said no. Nothing was written.")
-            return
-
-        # ⛔ The blessing is checked AGAIN here, on the main thread, immediately
-        # before the transaction. The route checked it too -- but that was a
-        # different moment and a tree can be closed or swapped while a dialog is
-        # open. This is the check that is adjacent to the write.
+        # ⛔ The blessing is checked BEFORE the backup. A tree that may not be
+        # written does not get copied.
         #
         # ⚠️ Through the ACCESSOR, not through ``dbstate.db``. This file is host
         # code by the rule in ``tests/fixtures/host_sources.py`` -- it imports the
@@ -174,9 +181,137 @@ def _present(dbstate, uistate, graph):
 
         outcome = accessor.blessing()
         if not outcome.blessed:
-            note("ERROR", "document: refused at write time: " + outcome.message)
+            note("ERROR", "document: refused before backup: " + outcome.message)
             writer.tell(uistate, "Nothing was written", outcome.message)
             return
+
+        # ⭐ Read on the MAIN THREAD, and only strings and numbers cross to the
+        # worker. ⛔ No database object goes with it -- that is the load-bearing
+        # invariant of the whole host, and a backup thread holding a ``db``
+        # reference would break it while looking harmless.
+        totals = accessor.tree_totals()
+
+        _start_backup(
+            tree_dir=outcome.message,
+            totals=totals,
+            note=note,
+            resume=lambda taken: _write_after_backup(
+                dbstate, uistate, graph, parsed, resolution, taken, totals, note
+            ),
+        )
+        # ⛔ AND RETURN. The GTK loop is free while the copy runs.
+        return
+
+    except Exception:
+        note("ERROR", "document: the write failed: " + traceback.format_exc())
+        try:
+            import gramps_live_api_writer as writer
+
+            writer.tell(uistate, "The document could not be written", traceback.format_exc()[:2000])
+        except Exception:
+            pass
+
+
+def _start_backup(tree_dir, totals, note, resume):
+    """Copy the tree on a WORKER, then hand the result back to the main thread.
+
+    ⛔ **The worker does not wait, and neither does the caller.** ``_present`` runs
+    inside ``GLib.idle_add``; blocking there on a worker freezes the GTK loop for
+    as long as the copy takes -- up to the full budget -- which is precisely the
+    R8 cap the worker was supposed to respect. ⚠️ **Moving work to a thread and
+    then waiting for it on the main thread moves nothing.**
+
+    ``GLib.idle_add`` is safe to call from any thread, and is the same marshalling
+    the host already uses in the other direction.
+    """
+    import datetime
+    import threading
+
+    from gramps_live_api.host import backup, paths
+
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    tree_name = _tree_name(tree_dir)
+    directory = os.path.join(paths.state_directory(os.environ), "backups")
+    destination = backup.destination_for(directory, tree_name, stamp)
+    source = os.path.join(tree_dir, "sqlite.db")
+
+    def run():
+        try:
+            taken = backup.take(source, destination)
+            if taken.ok and not backup.verify(taken.path):
+                taken = backup.Outcome(
+                    ok=False,
+                    path=None,
+                    message="the copy was taken and did not pass integrity_check",
+                    attempts=taken.attempts,
+                    seconds=taken.seconds,
+                )
+        except Exception:
+            taken = backup.Outcome(
+                ok=False, path=None, message="the backup raised: " + traceback.format_exc()
+            )
+        from gi.repository import GLib
+
+        GLib.idle_add(resume, taken)
+
+    note("INFO", "document: taking a backup before writing")
+    threading.Thread(target=run, name="gramps-live-api-backup", daemon=True).start()
+
+
+def _tree_name(tree_dir):
+    """The tree's own name, read from ``name.txt``. ⛔ A file read, never the database."""
+    try:
+        with open(os.path.join(tree_dir, NAME_FILE), encoding="utf-8") as handle:
+            return handle.read().strip() or "tree"
+    except Exception:
+        return "tree"
+
+
+def _write_after_backup(dbstate, uistate, graph, parsed, resolution, taken, totals, note):
+    """Back on the MAIN THREAD, with the backup's verdict. Show, then write.
+
+    ⛔ **Refuse-to-arm, in the ruling's own words:** *if the backup cannot be
+    taken, the host refuses to arm its write path and says so. It does not fall
+    back to an export, it does not write without a backup, and it does not
+    continue quietly.*
+
+    ⛔ **No dialog is shown before the backup succeeds.** A dialog that opens and
+    then reports "the backup failed, nothing was written" has already spent the
+    owner's attention on a decision that could not be honoured.
+    """
+    import gramps_live_api_writer as writer
+
+    from gramps_live_api.host import accessor, backup, document
+
+    try:
+        if not taken.ok:
+            note("ERROR", "document: REFUSED TO ARM -- " + taken.message)
+            writer.tell(
+                uistate,
+                "Nothing was written -- no backup",
+                taken.message + "\n\nThe write path refuses to arm without a backup. "
+                "Nothing in your tree was touched.",
+            )
+            return False
+
+        note(
+            "INFO",
+            f"document: backup ok in {taken.seconds:.3f} s "
+            f"({taken.pages} pages, attempt {taken.attempts}): {taken.path}",
+        )
+
+        # ⛔ The blessing AGAIN. The first check and this moment are separated by
+        # real time -- and now by a worker as well -- so a tree can have closed or
+        # been swapped in between.
+        outcome = accessor.blessing()
+        if not outcome.blessed:
+            note("ERROR", "document: refused at write time: " + outcome.message)
+            writer.tell(uistate, "Nothing was written", outcome.message)
+            return False
+
+        if not writer.confirm(uistate, document.preview(parsed, resolution)):
+            note("INFO", "document: the owner said no. Nothing was written.")
+            return False
 
         approved = document.preview(parsed, resolution)
         result = writer.write(dbstate, graph)
@@ -205,6 +340,9 @@ def _present(dbstate, uistate, graph):
                     tree_dir=outcome.message,
                     written_utc=written_utc.isoformat(),
                     approved_preview=approved,
+                    backup_path=taken.path or "",
+                    backup_utc=taken.taken_utc,
+                    totals_before=totals,
                 ),
                 stem=written_utc.strftime("%Y%m%dT%H%M%SZ") + "-document",
             )
@@ -220,8 +358,21 @@ def _present(dbstate, uistate, graph):
             summary
             + "\n\nUndo record: "
             + journal
+            + "\n\nBackup taken first: "
+            + (taken.path or "(none)")
             + "\n\nEdit > Undo in Gramps also works, until Gramps closes.",
         )
+
+        # ⛔ Pruned only AFTER a success, so a failed backup can never destroy the
+        # last good copy.
+        try:
+            backup.prune(os.path.dirname(taken.path))
+        except Exception:
+            note("ERROR", "document: pruning old backups failed: " + traceback.format_exc())
+
+        # ⛔ FALSE, always. This is a ``GLib.idle_add`` callback, and a TRUTHY
+        # return reschedules it -- which would run the whole write again.
+        return False
     except Exception:
         note("ERROR", "document: the write failed: " + traceback.format_exc())
         try:
@@ -230,6 +381,7 @@ def _present(dbstate, uistate, graph):
             writer.tell(uistate, "The document could not be written", traceback.format_exc()[:2000])
         except Exception:
             pass
+        return False
 
 
 def _put_the_package_on_the_path():
