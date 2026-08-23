@@ -45,6 +45,24 @@ def run(label: str, *command: str) -> None:
     print("ok")
 
 
+def run_visible(label: str, *command: str) -> None:
+    """One gate, with its output left ON SCREEN. ⛔ Still judged by return code.
+
+    ⚠️ **Not a softening of this file's rule.** The rule is that nothing *decides*
+    from output; showing it to the person running the gate is the opposite of
+    parsing it. ``run`` swallows stdout on success, which is right for a linter
+    and wrong for ``pytest -rs``: the skip report is printed on a PASS, so
+    capturing and discarding it recreates the exact defect ``-rs`` exists to
+    prevent -- **a skip nobody can see reads exactly like a pass** (#31).
+    """
+    print(f"  {label:<28}(output follows)")
+    finished = subprocess.run(command, cwd=ROOT, check=False)
+    if finished.returncode != 0:
+        print(f"  {label:<28}FAILED (exit {finished.returncode})")
+        raise SystemExit(finished.returncode)
+    print(f"  {label:<28}ok")
+
+
 def git(*args: str) -> str:
     finished = subprocess.run(("git", *args), cwd=ROOT, capture_output=True, text=True, check=False)
     return finished.stdout.strip() if finished.returncode == 0 else ""
@@ -65,28 +83,36 @@ def main() -> int:
     run("ruff check", python, "-m", "ruff", "check", ".")
     run("mypy", python, "-m", "mypy", "src")
     if not quick:
-        run("pytest", python, "-m", "pytest", "-q")
+        # ⛔ ``-rs``, which CONTRIBUTING requires, and its report is left visible.
+        # ``-q`` with the output discarded said "pytest ok" while hiding which
+        # tests had not run and why.
+        run_visible("pytest", python, "-m", "pytest", "-rs")
 
+    # ⛔ **The guard ALWAYS runs. There is no path here that skips it and then
+    # prints ALL GATES PASS.**
+    #
+    # ⚠️ It used to skip when ``HEAD`` had no commits beyond ``origin/main`` --
+    # which is the NORMAL state while preparing a branch's first commit. Staged
+    # personal data was therefore never scanned, and the script said ALL GATES
+    # PASS anyway: **a gate reporting success for a reason unrelated to the
+    # property it names, inside the file written to end that class.**
+    #
+    # ⭐ Measured, not assumed: in a throwaway repository with no ``HEAD`` at all
+    # and a drive-lettered path only ``git add``-ed, the guard exits 1. Repository
+    # mode reads the INDEX (``git ls-files --stage`` then ``cat-file blob``),
+    # which is what a commit publishes -- so it gates a first commit exactly as
+    # well as a later one. Without ``--range`` is not a weaker scan; it is the
+    # same scan without the extra history blobs a range adds.
     base = "origin/main"
-    print(f"  {'pii_guard':<28}", end="", flush=True)
-    if not git("rev-parse", "--verify", base):
-        print(f"SKIPPED -- no {base} to compare against")
-    elif git("rev-list", "--count", f"{base}..HEAD") in ("", "0"):
-        # ⭐ ``pii_guard`` REFUSES an empty range -- *a range covering nothing is
-        # never a pass* -- which is the principle this whole file is built on, so
-        # the skip is announced rather than swallowed.
-        print(f"SKIPPED -- nothing committed on top of {base} yet")
+    scope: list[str] = []
+    if git("rev-parse", "--verify", base) and git("rev-list", "--count", f"{base}..HEAD") not in (
+        "",
+        "0",
+    ):
+        scope = ["--range", f"{base}..HEAD"]
     else:
-        print()
-        run(
-            "pii_guard",
-            python,
-            "-m",
-            "gramps_live_api.core.pii_guard",
-            "--range",
-            f"{base}..HEAD",
-            ".",
-        )
+        print(f"  {'pii_guard':<28}(no committed range yet -- tracked content only)")
+    run("pii_guard", python, "-m", "gramps_live_api.core.pii_guard", *scope, ".")
 
     print("  ALL GATES PASS (exit 0)")
     return 0
