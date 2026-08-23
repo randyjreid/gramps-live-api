@@ -536,8 +536,13 @@ def test_a_cancelled_preview_still_prunes(
 
     assert result is False
     assert writer.wrote == [], "cancelling must not write"
-    assert len(list(directory.iterdir())) == 2, (
-        "declining the preview left the backup directory unpruned"
+    assert not newest.exists(), (
+        "a cancelled preview's backup was KEPT. It protects nothing -- no write "
+        "happened -- and RETAIN of them push the journal-linked pre-write backup "
+        "out of the window, leaving copies but none that can undo the write."
+    )
+    assert len(list(directory.iterdir())) == 4, (
+        "only the cancelled preview's own backup should have been removed"
     )
 
 

@@ -124,6 +124,53 @@ when it hits them, before it ships.**
 costs; the implementation is still owed a plan gate, and it still writes to a
 tree, so it is still FULL tier.
 
+## ⭐ The asynchronous design was tried, and reversed — 2026-08-23
+
+**Recorded because the reasoning matters more than the outcome**, and because the
+outcome looks arbitrary without it.
+
+The build's first shape ran the copy on a **worker thread** and marshalled the
+result back with `GLib.idle_add`, so that no single callback held the GTK loop.
+That respected R8's cap. ⛔ **It also produced three correctness defects the
+synchronous design cannot have:**
+
+- **two documents approved close together snapshotted the same pre-A database**,
+  so the second's backup restored away the first's write — *per-write recovery
+  collapsing into batch undo*, which is precisely what R4 §1 says #25's deferral
+  of destructive operations depends on not happening;
+- **the dialog rendered a resolution taken before the copy** while the writer
+  resolved live, so the owner could approve one target and another be written;
+- **`totals_before` was counted at a moment unrelated to the snapshot it names**,
+  making the documented restore check report a mismatch against a sound backup.
+
+⚠️ **Every one of them needed an interval, and the interval was the asynchrony.**
+
+**The measured cost that bought:** **108 ms** on the owner's real tree — 24 MB,
+5,894 pages, one page each, **zero restarts** — against the **343–402 ms** of
+main-thread cost this project already accepts for a name search. ⭐ **A third of
+an already-accepted cost, once, immediately before a dialog the owner is about to
+spend seconds reading.**
+
+**The trade was wrong and is reversed.** The copy runs on the main thread inside
+the existing callback, before the dialog.
+
+⚠️ **What did NOT dissolve, stated so the reversal is not read as a cure:** a
+crash mid-copy publishing a truncated file, two backups colliding on one name,
+retention keyed on something mutable, and **cancelled previews evicting the
+pre-write backup** — the dialog still sits between the copy and the write. Those
+were fixed on their own terms: temp-name-then-atomic-rename, a collision-free
+identity, a digest of the full tree directory, and retention that does not count
+a preview nobody accepted.
+
+⭐ **And the page budget was deleted rather than fixed a fourth time.** It was
+rewritten three times and never once fired, because it inferred *too long* from
+SQLite restart bookkeeping that resets on every restart — **a quantity that resets
+cannot accumulate a bound.** A wall clock states the requirement directly.
+⚠️ A clock cannot distinguish *slow* from *livelocked*; it does not need to, since
+the outcome is identical and the measured workload restarts zero times. The
+livelock was only ever produced by an artificial continuous writer on a scratch
+copy.
+
 ## What this settles that was open
 
 **Slice 3's deleted deliverable now has a mechanism.** R8 removed the spawned-CLI writer and left

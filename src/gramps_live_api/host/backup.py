@@ -24,9 +24,11 @@ from __future__ import annotations
 
 import contextlib
 import datetime
+import hashlib
 import os
 import sqlite3
 import time
+import uuid
 from dataclasses import dataclass
 
 PAGES_PER_STEP = 1024
@@ -97,10 +99,27 @@ def destination_for(directory: str, tree_name: str, stamp: str, tree_dir: str = 
     the stable identity wanted here.
     """
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in tree_name) or "tree"
-    identity = os.path.basename(os.path.normpath(tree_dir)) if tree_dir else ""
-    identity = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in identity)
-    folder = f"{safe}-{identity}" if identity else safe
-    return os.path.join(directory, folder, f"{stamp}-{safe}.sqlite")
+
+    # ⛔ Keyed on the FULL normalised directory, hashed -- not on its basename and
+    # not on the display name.
+    #
+    # ⚠️ Basename plus display name is two weak keys, not one strong one: two
+    # trees with the same basename under different roots still merge, and
+    # renaming a tree splits its own retention across folders. A digest of the
+    # absolute path cannot change under either.
+    if tree_dir:
+        absolute = os.path.normcase(os.path.abspath(os.path.normpath(tree_dir)))
+        identity = hashlib.sha256(absolute.encode("utf-8")).hexdigest()[:12]
+        folder = f"{safe}-{identity}"
+    else:
+        folder = safe
+
+    # ⛔ A collision-free suffix, and deliberately NOT more timestamp digits --
+    # that is the same proxy failing at finer resolution, which is how the page
+    # budget failed three times. Two previews in one second are two DIFFERENT
+    # operations, so they get different identities rather than a finer clock.
+    unique = uuid.uuid4().hex[:8]
+    return os.path.join(directory, folder, f"{stamp}-{unique}-{safe}.sqlite")
 
 
 def _uri(path: str) -> str:
@@ -130,18 +149,42 @@ def take(source: str, destination: str) -> Outcome:
     started = time.monotonic()
     os.makedirs(os.path.dirname(destination), exist_ok=True)
 
+    # ⛔ Copied under a name RETENTION DOES NOT COUNT, then published by rename.
+    #
+    # ⚠️ Writing straight to the final name meant a crash, a power loss or a
+    # killed process during ``reader.backup()`` left a truncated file called
+    # ``....sqlite`` -- **indistinguishable from a verified backup**, counted by
+    # pruning, and offered to the owner as a recovery point. Exception cleanup
+    # cannot help: the process is gone.
+    #
+    # ⭐ **A file under the final name now means COMPLETE, by construction.**
+    partial = destination + ".partial"
+
     last = "no attempt was made"
     for attempt in range(1, ATTEMPTS + 1):
         moved = 0
         try:
-            moved = _one_attempt(source, destination)
+            moved = _one_attempt(source, partial)
         except _TookTooLong as refusal:
             last = str(refusal)
-            discard(destination)
+            discard(partial)
             continue
         except Exception as failure:  # noqa: BLE001 -- reported, never swallowed
             last = f"{type(failure).__name__}: {failure}"
-            discard(destination)
+            discard(partial)
+            continue
+
+        # ⛔ Verified BEFORE publication, so an unsound copy never wears the
+        # final name even for an instant.
+        if not verify(partial):
+            last = "the copy was taken and did not pass integrity_check"
+            discard(partial)
+            continue
+        try:
+            _publish(partial, destination)
+        except OSError as failure:
+            last = f"the copy could not be published: {failure}"
+            discard(partial)
             continue
         return Outcome(
             ok=True,
@@ -166,6 +209,33 @@ def take(source: str, destination: str) -> Outcome:
 
 class _TookTooLong(Exception):
     """A single attempt ran past its wall clock. ⛔ There is no page budget."""
+
+
+def _publish(partial: str, destination: str) -> None:
+    """Make the finished copy visible under its final name, durably.
+
+    ⛔ **fsync THEN rename.** A rename is atomic, but it can be reordered ahead of
+    the data on a crash -- which would publish a name whose contents are not
+    there yet, the very state this exists to prevent.
+    """
+    # ⚠️ O_RDWR, not O_RDONLY. On Windows ``os.fsync`` requires a descriptor
+    # opened for WRITING and fails with EBADF otherwise -- an
+    # interpreter-and-platform-dependent behaviour, which is this project's
+    # class 4, caught here by the test rather than by CI.
+    handle = os.open(partial, os.O_RDWR)
+    try:
+        os.fsync(handle)
+    finally:
+        os.close(handle)
+    os.replace(partial, destination)
+    # ⭐ The directory entry itself is synced where the platform allows it, so
+    # the rename survives a crash rather than merely having happened in memory.
+    with contextlib.suppress(OSError, AttributeError):
+        folder = os.open(os.path.dirname(destination), os.O_RDONLY)
+        try:
+            os.fsync(folder)
+        finally:
+            os.close(folder)
 
 
 def _one_attempt(source: str, destination: str) -> int:

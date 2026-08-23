@@ -185,30 +185,66 @@ def _present(dbstate, uistate, graph):
             writer.tell(uistate, "Nothing was written", outcome.message)
             return
 
-        # ⭐ Read on the MAIN THREAD, and only strings and numbers cross to the
-        # worker. ⛔ No database object goes with it -- that is the load-bearing
-        # invariant of the whole host, and a backup thread holding a ``db``
-        # reference would break it while looking harmless.
+        # ⭐ Counted IMMEDIATELY before the copy, on this thread, with nothing
+        # able to run in between.
+        #
+        # ⚠️ These numbers are what the restore procedure tells the owner to check
+        # against after replacing the file, so they have to describe **the
+        # snapshot**, not some earlier moment. While the backup ran on a worker
+        # they described a database version that could already have moved on --
+        # a check whose numbers come from a different instant than the thing it
+        # names, which is this project's most common defect class.
         totals = accessor.tree_totals()
 
-        _start_backup(
-            tree_dir=outcome.message,
-            totals=totals,
-            note=note,
-            resume=lambda taken: _write_after_backup(
-                dbstate,
+        # ⛔ THE BACKUP RUNS HERE, ON THIS THREAD, BEFORE THE DIALOG.
+        #
+        # ⚠️ **It used to run on a worker with the result marshalled back**, to
+        # respect R8's cap on work inside one ``GLib.idle_add`` callback. That
+        # design produced three correctness defects the synchronous one cannot
+        # have -- two documents snapshotting the same pre-A database so the
+        # second's backup restored away the first's write · a dialog rendering a
+        # resolution taken before the copy while the writer resolved live · totals
+        # counted at a moment unrelated to the snapshot they name. **Every one of
+        # them needed an interval, and there is no longer an interval.**
+        #
+        # ⭐ **The measured cost it avoided was 108 ms** on the owner's real tree
+        # (24 MB, 5,894 pages, one page each, zero restarts) -- against the
+        # **343-402 ms** of main-thread cost this project already accepts for a
+        # name search, once, immediately before a dialog he is about to read.
+        # **The trade was wrong and is reversed.**
+        taken = _take_backup(outcome.message, note)
+        if not taken.ok:
+            # ⛔ Refuse-to-arm, in the ruling's own words: it does not fall back
+            # to an export, it does not write without a backup, and it does not
+            # continue quietly. ⭐ And NO DIALOG -- one that opened and then said
+            # "the backup failed" would already have spent his attention on a
+            # decision that could not be honoured.
+            note("ERROR", "document: REFUSED TO ARM -- " + taken.message)
+            writer.tell(
                 uistate,
-                graph,
-                parsed,
-                resolution,
-                taken,
-                totals,
-                note,
-                backed_up_tree=outcome.message,
-            ),
+                "Nothing was written -- no backup",
+                taken.message + "\n\nThe write path refuses to arm without a backup. "
+                "Nothing in your tree was touched.",
+            )
+            return
+
+        note(
+            "INFO",
+            f"document: backup ok in {taken.seconds:.3f} s "
+            f"({taken.pages} pages, attempt {taken.attempts}): {taken.path}",
         )
-        # ⛔ AND RETURN. The GTK loop is free while the copy runs.
-        return
+
+        return _write_after_backup(
+            dbstate,
+            uistate,
+            graph,
+            parsed,
+            resolution,
+            taken,
+            totals,
+            note,
+            backed_up_tree=outcome.message,
+        )
 
     except Exception:
         note("ERROR", "document: the write failed: " + traceback.format_exc())
@@ -220,69 +256,32 @@ def _present(dbstate, uistate, graph):
             pass
 
 
-def _start_backup(tree_dir, totals, note, resume):
-    """Copy the tree on a WORKER, then hand the result back to the main thread.
+def _take_backup(tree_dir, note):
+    """Copy the tree, on THIS thread, and return the outcome.
 
-    ⛔ **The worker does not wait, and neither does the caller.** ``_present`` runs
-    inside ``GLib.idle_add``; blocking there on a worker freezes the GTK loop for
-    as long as the copy takes -- up to the full budget -- which is precisely the
-    R8 cap the worker was supposed to respect. ⚠️ **Moving work to a thread and
-    then waiting for it on the main thread moves nothing.**
+    ⛔ **No worker, no continuation, no marshalling back.** The asynchronous
+    version existed to keep one ``GLib.idle_add`` callback short; it bought 108 ms
+    and cost three correctness defects that all needed the interval it created.
 
-    ``GLib.idle_add`` is safe to call from any thread, and is the same marshalling
-    the host already uses in the other direction.
+    Never raises -- a refusal is a result, because the caller has to tell the
+    owner either way.
     """
     import datetime
-    import threading
 
     from gramps_live_api.host import backup, paths
 
-    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    tree_name = _tree_name(tree_dir)
-    directory = os.path.join(paths.state_directory(os.environ), "backups")
-    destination = backup.destination_for(directory, tree_name, stamp, tree_dir=tree_dir)
-    source = os.path.join(tree_dir, "sqlite.db")
-
-    def run():
-        try:
-            taken = backup.take(source, destination)
-            if taken.ok and not backup.verify(taken.path):
-                # ⛔ Delete it. A file that failed integrity_check sitting in the
-                # backup directory LOOKS like a backup, and retention pruning
-                # would count it as one -- so the owner could be left with a
-                # directory of copies where the newest is corrupt.
-                backup.discard(taken.path)
-                taken = backup.Outcome(
-                    ok=False,
-                    path=None,
-                    message="the copy was taken and did not pass integrity_check",
-                    attempts=taken.attempts,
-                    seconds=taken.seconds,
-                )
-        except Exception:
-            taken = backup.Outcome(
-                ok=False, path=None, message="the backup raised: " + traceback.format_exc()
-            )
-
-        # ⛔ The marshalling back is inside its own guard, and that is the point.
-        # An exception raised HERE dies with the worker thread: no dialog, no
-        # message, and an approved write that simply never happens. **A silent
-        # nothing is the worst outcome available to this code** -- the owner
-        # approved something and would be left watching for a result that is not
-        # coming. So a failure to get back onto the main thread is written down.
-        try:
-            from gi.repository import GLib
-
-            GLib.idle_add(resume, taken)
-        except Exception:
-            note(
-                "ERROR",
-                "document: THE BACKUP FINISHED AND COULD NOT REACH THE MAIN "
-                "THREAD, so nothing was written and no dialog was shown: " + traceback.format_exc(),
-            )
-
-    note("INFO", "document: taking a backup before writing")
-    threading.Thread(target=run, name="gramps-live-api-backup", daemon=True).start()
+    try:
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        directory = os.path.join(paths.state_directory(os.environ), "backups")
+        destination = backup.destination_for(
+            directory, _tree_name(tree_dir), stamp, tree_dir=tree_dir
+        )
+        note("INFO", "document: taking a backup before writing")
+        return backup.take(os.path.join(tree_dir, "sqlite.db"), destination)
+    except Exception:
+        return backup.Outcome(
+            ok=False, path=None, message="the backup raised: " + traceback.format_exc()
+        )
 
 
 def _tree_name(tree_dir):
@@ -357,6 +356,23 @@ def _same_blessed_tree(backed_up_tree, note, writer, uistate):
     return outcome
 
 
+def _discard_quietly(taken, note):
+    """Remove a backup that protects nothing. ⛔ Never fatal.
+
+    ⚠️ This deletes **this run's own output**, on a path it just built, for a
+    write that did not happen. It is never a tree file and never something the
+    owner made.
+    """
+    from gramps_live_api.host import backup
+
+    try:
+        if taken.path:
+            backup.discard(taken.path)
+            note("INFO", "document: discarded the backup for a cancelled preview")
+    except Exception:
+        note("ERROR", "document: could not discard the cancelled backup: " + traceback.format_exc())
+
+
 def _prune_quietly(taken, note):
     """Drop old backups. Never fatal -- the write's outcome does not depend on it."""
     from gramps_live_api.host import backup
@@ -412,23 +428,39 @@ def _write_after_backup(
         # the backup on disk is of A. **Recoverable-after is then false while
         # every individual check reads as green** -- the guarantee gone, and
         # nothing saying so.
+        # ⚠️ **Redundant now, and kept deliberately.** With the backup synchronous
+        # nothing can run between the blessing check in ``_present`` and this
+        # line -- ``backup.take`` is plain Python and SQLite, and enters no GTK
+        # loop. **It is retained because the check below it is NOT redundant**,
+        # and a reader deleting this one as dead weight would be one step from
+        # deleting that one too. Three lines is a cheap way to keep the pair
+        # legible.
         outcome = _same_blessed_tree(backed_up_tree, note, writer, uistate)
         if outcome is None:
             return False
 
         if not writer.confirm(uistate, document.preview(parsed, resolution)):
             note("INFO", "document: the owner said no. Nothing was written.")
-            # ⛔ Prune on the way out. The backup had to finish BEFORE the dialog
-            # opened, so every cancellation has already written a verified copy
-            # -- roughly 24 MB on the measured tree. Without this the only prune
-            # call sits on the success path, and repeated previews the owner
-            # declines grow the directory past its documented bound.
-            _prune_quietly(taken, note)
+            # ⛔ DISCARD it, do not merely prune around it.
+            #
+            # ⚠️ **A cancelled preview's backup protects nothing** -- no write
+            # happened, so it is a snapshot of a tree nobody changed. Keeping it
+            # was actively harmful, not merely wasteful: ``RETAIN`` declined
+            # previews create newer files that push the **journal-linked
+            # pre-write backup** out of the window, leaving twenty copies and
+            # none that can undo the write they were supposed to protect.
+            #
+            # ⭐ Counting only backups that precede a real write is what makes
+            # retention a bound on RECOVERY POINTS rather than on files.
+            _discard_quietly(taken, note)
             return False
 
-        # ⛔ And AGAIN after the dialog. ``confirm`` spins a nested GTK main loop,
-        # so arbitrary real time passes inside that call and the tree can be
-        # closed or swapped while the owner is reading.
+        # ⛔ And AGAIN after the dialog -- **this is the one that earns its
+        # keep.** ``confirm`` spins a NESTED GTK main loop, so arbitrary real
+        # time passes inside that call and other idle callbacks run: the tree can
+        # be closed or swapped while the owner is reading. Making the backup
+        # synchronous removed the interval before the dialog; it did nothing
+        # about the interval inside it.
         outcome = _same_blessed_tree(backed_up_tree, note, writer, uistate)
         if outcome is None:
             return False
@@ -515,8 +547,9 @@ def _write_after_backup(
         # last good copy.
         _prune_quietly(taken, note)
 
-        # ⛔ FALSE, always. This is a ``GLib.idle_add`` callback, and a TRUTHY
-        # return reschedules it -- which would run the whole write again.
+        # ⛔ FALSE, always. This value becomes ``_present``'s, and ``_present`` is
+        # reached from a ``GLib.idle_add`` callback where a TRUTHY return
+        # reschedules -- which would run the whole write again.
         return False
     except Exception:
         note("ERROR", "document: the write failed: " + traceback.format_exc())

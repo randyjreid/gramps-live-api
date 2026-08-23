@@ -293,7 +293,19 @@ def test_two_trees_sharing_a_display_name_do_not_share_a_backup_folder() -> None
     assert os.path.dirname(live) != os.path.dirname(copy), (
         "a tree and its copy share a backup folder, so pruning one deletes the other's"
     )
-    # ⭐ The display name survives in the folder, because the owner has to
-    # recognise it under stress; the directory id is what makes it unique.
+    # ⭐ The display name survives, because the owner has to recognise the folder
+    # under stress. The identity beside it is a digest of the FULL path, so the
+    # assertion is about the PROPERTY -- distinct trees, distinct folders -- and
+    # not about the shape of the key, which is free to change.
     assert "RandyReid" in os.path.dirname(live)
-    assert "6a77aa4a" in os.path.dirname(live)
+
+    # ⛔ Two trees whose directories share a BASENAME under different roots must
+    # also not merge. Keying on the basename alone would have passed the first
+    # assertion and failed this one.
+    import os.path as ntpath
+
+    a = backup.destination_for("/bk", "Tree", "T", ntpath.join("rootA", "6a821852"))
+    b = backup.destination_for("/bk", "Tree", "T", ntpath.join("rootB", "6a821852"))
+    assert os.path.dirname(a) != os.path.dirname(b), (
+        "two trees sharing a directory basename merged into one backup folder"
+    )
