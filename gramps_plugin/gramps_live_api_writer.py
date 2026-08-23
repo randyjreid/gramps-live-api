@@ -348,7 +348,7 @@ def write(dbstate, graph):
             # this file creates everything pointable before attaching pointers.
             # The intent is recorded and honoured in a third pass.
             if spec.get("family"):
-                pending_family_events.append((event_handle, spec["family"], spec.get("role")))
+                pending_family_events.append((event_handle, spec["family"]))
 
             role = _event_role(spec.get("role"))
             for person_local in spec.get("people") or []:
@@ -458,7 +458,7 @@ def write(dbstate, graph):
         # a marriage could only be written onto the two spouses -- so the lookup
         # reported no marriage, one was proposed, it landed on the people, and
         # the lookup still reported none. Forever.
-        for event_handle, family_local, role_name in pending_family_events:
+        for event_handle, family_local in pending_family_events:
             family_handle = handles.get(family_local)
             if not family_handle:
                 continue
