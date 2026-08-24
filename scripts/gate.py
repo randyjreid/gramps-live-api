@@ -231,10 +231,24 @@ def main() -> int:
     # ⭐ The remediation does not need the value: the person who set it can read
     # it back, and the person who did not set it wants the default named, which is
     # a constant in this file rather than an input.
-    configured = "GRAMPS_LIVE_API_GATE_BASE" in os.environ
+    # ⛔ **TWO facts, named separately, because they are two questions.**
+    #
+    # ⚠️ One boolean answered both and was wrong three times running. *Is the
+    # baseline the operator's?* and *does this command line carry it?* come apart
+    # exactly when the baseline resolves to ``HEAD``: the range is empty, the
+    # argv holds nothing the operator typed, and a single flag suppressed anyway.
+    #
+    # ⭐ Same shape as two defects already fixed here -- retention keyed on a
+    # basename PLUS a display name, two weak keys pretending to be one; and the
+    # write summary's ``wrote`` line, two tallies that could not help drifting.
+    # **One name for two facts is the defect**, and combining them at the point of
+    # use is what makes each half trivially checkable.
+    baseline_is_operators = "GRAMPS_LIVE_API_GATE_BASE" in os.environ
     base = os.environ.get("GRAMPS_LIVE_API_GATE_BASE", "origin/main")
     if not git("rev-parse", "--verify", base):
-        source = "the ref named by GRAMPS_LIVE_API_GATE_BASE" if configured else "origin/main"
+        source = (
+            "the ref named by GRAMPS_LIVE_API_GATE_BASE" if baseline_is_operators else "origin/main"
+        )
         print(f"  {'pii_guard':<28}FAILED -- cannot resolve the baseline")
         print(f"    The history scan needs a baseline, and {source} does not resolve here.")
         print("    Scanning only the index would miss a branch that adds personal data")
@@ -243,16 +257,26 @@ def main() -> int:
         print("        GRAMPS_LIVE_API_GATE_BASE=<remote>/main python scripts/gate.py")
         raise SystemExit(2)
 
+    # ⛔ The second fact: whether the command this file is about to run actually
+    # interpolates the baseline. Set beside ``scope`` so the two cannot drift.
+    scope_carries_the_baseline = False
     scope: list[str] = []
     # ⛔ ``git_or_die``: a rev-list that FAILS must not read as "zero commits".
     if git_or_die(
-        "pii_guard", "rev-list", "--count", f"{base}..HEAD", operator_input=configured
+        "pii_guard",
+        "rev-list",
+        "--count",
+        f"{base}..HEAD",
+        # ⛔ This argv ALWAYS interpolates the baseline, so carrying it and the
+        # baseline being the operator's are the same question here.
+        operator_input=baseline_is_operators,
     ) in ("", "0"):
         # Nothing committed on top of the baseline, so the index is the whole of
         # what this branch adds and the range would cover nothing.
         print(f"  {'pii_guard':<28}(nothing committed on top of the baseline -- index only)")
     else:
         scope = ["--range", f"{base}..HEAD"]
+        scope_carries_the_baseline = True
     # ⛔ ``operator_input``: ``scope`` can carry GRAMPS_LIVE_API_GATE_BASE.
     run(
         "pii_guard",
@@ -261,14 +285,32 @@ def main() -> int:
         "gramps_live_api.core.pii_guard",
         *scope,
         ".",
-        # ⛔ ``configured``, not ``bool(scope)``. ``scope`` is non-empty whenever
-        # the branch has commits, so keying on it discarded pii_guard's own --
-        # already redacted -- findings on the ordinary failure path, where the
-        # baseline is this file's constant and nothing was operator-supplied.
-        operator_input=configured,
+        # ⛔ **BOTH facts, and this is the call site where they differ.** ``scope``
+        # is empty when the range covers nothing -- a baseline resolving to
+        # ``HEAD`` -- and then this argv carries no operator value at all, whoever
+        # supplied the baseline. Suppressing there discarded pii_guard's own,
+        # already-redacted findings for nothing.
+        # ⚠️ **How each half is protected, measured -- because they are protected
+        # differently and a control that fires on neither proves nothing.**
+        #
+        #   drop ``baseline_is_operators``      -> BEHAVIOUR changes: the
+        #       unconfigured case withholds pii_guard's own already-redacted
+        #       findings, which is the defect this key exists to avoid
+        #   drop ``scope_carries_the_baseline`` -> ``ruff`` fails the gate first,
+        #       because the name goes unused. Caught, but by the LINTER rather
+        #       than by behaviour, and that distinction is recorded rather than
+        #       reported as a passing control.
+        operator_input=baseline_is_operators and scope_carries_the_baseline,
+        # ⛔ Both shells. ``$env:NAME`` is PowerShell-only: in bash the quoted
+        # argument becomes ``:GRAMPS_LIVE_API_GATE_BASE..HEAD`` and the guard is
+        # handed an invalid revision -- **an advertised recovery command that
+        # cannot be followed, which is the defect this hint replaced.**
         rerun=(
-            "python -m gramps_live_api.core.pii_guard "
-            '--range "$env:GRAMPS_LIVE_API_GATE_BASE..HEAD" .'
+            'PowerShell:  python -m gramps_live_api.core.pii_guard --range "$env:'
+            'GRAMPS_LIVE_API_GATE_BASE..HEAD" .'
+            + chr(10)
+            + '        bash:        python -m gramps_live_api.core.pii_guard --range "$'
+            'GRAMPS_LIVE_API_GATE_BASE..HEAD" .'
         ),
     )
 
