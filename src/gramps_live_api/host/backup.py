@@ -217,10 +217,12 @@ def take(source: str, destination: str) -> Outcome:
     pages, one page per step, zero restarts), against the 343-402 ms of
     main-thread cost this project already accepts for a name search.
 
-    ⚠️ **That is one sample of one tree, and it bounds nothing.** A larger or
-    busier tree blocks the GTK loop for longer; the only bound that exists is
-    ``SECONDS_PER_ATTEMPT``, after which the copy is abandoned and the write
-    refused. **This is an accepted, timeout-bounded blocking risk** -- do not read
+    ⚠️ **That is one sample of one tree, and it bounds nothing.**
+    ``SECONDS_PER_ATTEMPT`` is checked only from SQLite's progress callback,
+    between steps of ``PAGES_PER_STEP`` pages, so **one slow step overruns it**;
+    and ``verify()`` then runs ``PRAGMA integrity_check`` on this same thread with
+    no deadline at all (issue #116). **Five seconds is a best-effort deadline on
+    the copy step, not a bound on how long this blocks the GTK loop.** Do not read
     the measurement as an invariant, and do not build on it as one.
 
     ⚠️ ``sqlite3`` still refuses a connection object created on another thread,

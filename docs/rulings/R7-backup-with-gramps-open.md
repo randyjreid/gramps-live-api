@@ -67,18 +67,28 @@ the class's contract promises the name survives a Gramps release.**
    > against the 343–402 ms of main-thread cost this project already accepts for a name search.
    >
    > ⛔ **That measurement does NOT make the work intrinsically small, and it does not satisfy
-   > R8's cap.** It is one sample of one tree. A larger or busier tree blocks the GTK loop for
-   > longer, bounded only by `SECONDS_PER_ATTEMPT` — **currently five seconds** — after which the
-   > backup is abandoned and the write refused.
+   > R8's cap.** It is one sample of one tree.
    >
-   > ⚠️ **So this is an accepted, timeout-bounded blocking risk, and it is recorded as one.** An
-   > earlier revision of this note said the cap "was respected by making the work small enough to
-   > be honest about", which reads as an invariant and is not one — it would let a future change
-   > lean on a property that holds only for the sampled tree. **The bound that actually exists is
-   > the five-second wall clock, not the 108 ms observation.**
+   > ⛔⛔ **And there is NO hard bound on how long the callback can block. This sentence has been
+   > written wrong twice already, so here is what the code does:**
    >
-   > See the sections dated 2026-08-23 below, and issue #116, which is the open question about
-   > whether that wall clock covers the whole pre-write path.
+   > * `SECONDS_PER_ATTEMPT` — currently five seconds — is checked **only inside SQLite's progress
+   >   callback**, which fires between steps of `PAGES_PER_STEP` (1,024) pages. `Connection.backup()`
+   >   runs to completion in one call, so raising from that callback is the only way to stop it —
+   >   and **a single slow step overruns the deadline with nothing able to interrupt it.**
+   > * After the copy returns, `take()` runs `verify()` — `PRAGMA integrity_check` — **on the same
+   >   thread, with no deadline at all.** That is issue #116.
+   >
+   > ⚠️ **So five seconds is a best-effort deadline on the COPY STEP, not a bound on the operation.**
+   > Two earlier revisions claimed more: first that the cap "was respected by making the work small
+   > enough to be honest about", then that this was a "timeout-bounded blocking risk". **Both read
+   > as invariants; neither is one.** What is true: the callback can block for an unbounded time on
+   > a large or slow-backed tree, the five-second check makes the common case terminate, and
+   > bounding the whole pre-write path is open in #116.
+   >
+   > ⭐ **Recorded this way deliberately.** Each earlier wording would have let a future change lean
+   > on a guarantee that does not exist — which is the failure this ruling page exists to prevent,
+   > appearing twice in the page's own account of itself.
 
    **`Connection.backup()` is synchronous and runs to completion in one call.** `pages` sets the
    size of each internal copy step; it does **not** make the call return partway. `sleep` only
