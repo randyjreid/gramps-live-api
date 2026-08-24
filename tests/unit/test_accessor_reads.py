@@ -1237,3 +1237,139 @@ def test_a_COMMA_decimal_separator_is_normalised_like_a_period() -> None:
     # ⛔ The interpreter must never see a comma at all — that is what removes the
     # 3.10 divergence, and it is asserted rather than assumed.
     assert "," not in accessor._iso_for_any_interpreter("2026-08-01T12:00:00,5")
+
+
+# ⛔ **Every spelling this project accepts, in one place.** The bound #124 asked
+# for: this list closes, "ISO 8601 is accepted" does not — and four review rounds
+# were spent sampling the latter, one spelling at a time.
+ACCEPTED_ISO_SPELLINGS = {
+    # what it looks like              what it must canonicalise to
+    "2026-08-01": "2026-08-01",
+    "20260801": "2026-08-01",
+    "2026-08-01T12:00": "2026-08-01T12:00:00",
+    "20260801T1200": "2026-08-01T12:00:00",
+    "2026-08-01T12:00:00": "2026-08-01T12:00:00",
+    "20260801T120000": "2026-08-01T12:00:00",
+    "2026-08-01 12:00:00": "2026-08-01T12:00:00",
+    "2026-08-01T12:00:00Z": "2026-08-01T12:00:00+00:00",
+    "2026-08-01T12:00:00z": "2026-08-01T12:00:00+00:00",
+    "20260801T120000Z": "2026-08-01T12:00:00+00:00",
+    "2026-08-01T12:00:00+02:00": "2026-08-01T12:00:00+02:00",
+    "2026-08-01T12:00:00+0200": "2026-08-01T12:00:00+02:00",
+    "2026-08-01T12:00:00-05:00": "2026-08-01T12:00:00-05:00",
+    "2026-08-01T12:00:00.5": "2026-08-01T12:00:00.500000",
+    "2026-08-01T12:00:00,5": "2026-08-01T12:00:00.500000",
+    "2026-08-01T12:00:00.0000001": "2026-08-01T12:00:00.000001",
+    "2026-08-01T12:00:00,0000001": "2026-08-01T12:00:00.000001",
+    "2026-08-01T12:00:00.000000000": "2026-08-01T12:00:00.000000",
+}
+
+
+def test_every_accepted_ISO_SPELLING_canonicalises_to_one_form() -> None:
+    """⛔ The bound that replaced four rounds of patching.
+
+    ``Z`` versus an explicit offset · fractional width · the decimal separator ·
+    basic versus extended notation — **each was found one review round at a time,
+    and each was fixed by adding another substitution.** A fifth spelling invited
+    a sixth finding, because the set being sampled was *"spellings ISO permits
+    that 3.10 will not parse"* and it was being discovered rather than declared.
+
+    ⭐ **The criterion this closes on:** every accepted spelling is listed above
+    and canonicalises to one form. That is finite and checkable. *"ISO 8601 is
+    accepted"* is neither.
+    """
+    for spelling, expected in ACCEPTED_ISO_SPELLINGS.items():
+        assert accessor._iso_for_any_interpreter(spelling) == expected, (
+            f"{spelling!r} did not canonicalise as declared"
+        )
+
+
+def test_every_canonical_form_is_one_the_FLOOR_interpreter_accepts() -> None:
+    """⛔ 3.10 is the floor, and it is the strictest of the three.
+
+    It accepts **extended notation only**, with **exactly three or six** fractional
+    digits. So a canonical form is only worth calling canonical if it stays inside
+    that grammar — this asserts the shape rather than the parse, because the shape
+    is what 3.10 constrains and the parse is what this interpreter would tell us.
+
+    ⚠️ The real 3.10 run is recorded in the pull request. It cannot happen here:
+    an off-version interpreter inside a project directory can recreate the
+    project's environment, which has destroyed one on this project before.
+    """
+    import datetime
+    import re as _re
+
+    floor_grammar = _re.compile(
+        r"^\d{4}-\d{2}-\d{2}"
+        r"(?:T\d{2}:\d{2}:\d{2}(?:\.\d{6})?)?"
+        r"(?:[+-]\d{2}:\d{2})?$"
+    )
+
+    for spelling, expected in ACCEPTED_ISO_SPELLINGS.items():
+        assert floor_grammar.match(expected), (
+            f"{spelling!r} canonicalises to {expected!r}, which is outside the "
+            f"grammar the 3.10 floor accepts"
+        )
+        # ⭐ And it must actually parse here too — a shape assertion alone could
+        # be satisfied by something no interpreter accepts.
+        datetime.datetime.fromisoformat(expected)
+
+
+# ⛔ **Spellings the grammar must REFUSE, enumerated beside the accepted ones.**
+# Each was accepted by an earlier version of the pattern and is invalid ISO, or
+# valid ISO the floor interpreter cannot parse. **The refused list is half the
+# bound** -- a grammar is only as good as what it turns away.
+REFUSED_ISO_SPELLINGS = {
+    "2026-W31-1": "a week date: valid ISO, parsed by 3.11/3.12 and rejected by the 3.10 floor",
+    "2026-0801": "hybrid notation -- one hyphen, then none",
+    "202608-01": "hybrid notation -- no hyphen, then one",
+    "2026-08-01Z": "an offset with no time: became a naive midnight carrying +00:00",
+    "2026-08-01T12:00.5": "a fraction with no seconds: became half a second past noon",
+    "20260801 120000": "a space separator in basic notation",
+    "not a date": "not a date",
+    "01/08/2026": "not ISO at all",
+    "": "empty",
+}
+
+
+def test_every_REFUSED_spelling_is_refused_and_never_reaches_the_interpreter() -> None:
+    """⛔ Returning an unmatched spelling unchanged preserved the divergence.
+
+    ⚠️ It looked harmless -- hand it back and let ``fromisoformat`` refuse it. But
+    ``2026-W31-1`` is a **valid ISO week date that 3.11 and 3.12 parse and 3.10
+    rejects**, so delegating an unmatched spelling reproduced exactly the
+    interpreter-dependent behaviour this grammar exists to remove.
+
+    ⭐ And the hybrids are worse than useless input: ``2026-0801`` was rejected by
+    every supported interpreter before the grammar existed, and the first version
+    of the grammar **canonicalised it** — turning a typo in a cutoff from a refusal
+    into a successful query against the wrong instant.
+    """
+    for spelling, why in REFUSED_ISO_SPELLINGS.items():
+        assert accessor._iso_for_any_interpreter(spelling) is None, (
+            f"{spelling!r} was accepted; it should be refused ({why})"
+        )
+        assert accessor._as_epoch(spelling) is None, (
+            f"{spelling!r} produced an epoch; it should be refused ({why})"
+        )
+
+
+def test_a_spelling_this_project_does_NOT_accept_is_left_alone() -> None:
+    """⚠️ A normaliser must not invent an interpretation for what it cannot read.
+
+    Anything outside the grammar is returned unchanged, so it fails downstream
+    exactly as it does today. **Widening what is accepted means editing the
+    pattern**, which shows up in a diff — rather than discovering that some
+    spelling happened to survive.
+    """
+    # ⛔ **This assertion said "returned unchanged" and that behaviour is gone.**
+    # Passing an unmatched spelling along let the interpreter accept what this
+    # project does not -- see the refused-spellings test above. ``None`` is the
+    # refusal, and the caller is required not to fall back.
+    for unknown in ("not a date", "01/08/2026", "2026-W31-1", "yesterday", ""):
+        assert accessor._iso_for_any_interpreter(unknown) is None
+
+    # ⛔ And the calendar is still the interpreter's job, not the grammar's. A
+    # well-SPELLED impossible date must still be refused.
+    assert accessor._as_epoch("2026-13-01") is None
+    assert accessor._as_epoch("2026-02-30") is None
