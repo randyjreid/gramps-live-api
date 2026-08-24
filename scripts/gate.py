@@ -33,6 +33,25 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# ⛔ **Git's repository overrides are cleared for every probe here, using the
+# guard's OWN answer rather than a copy of it.**
+#
+# ⚠️ ``GIT_DIR``, ``GIT_WORK_TREE`` and friends make a Git command answer
+# SUCCESSFULLY about a different repository. These probes decide whether the
+# history scan runs at all, so a stray ``GIT_DIR`` reporting zero commits beyond
+# its own baseline selects index-only for THIS checkout -- and an add-then-delete
+# blob in the real branch history is never scanned, under an ALL GATES PASS.
+#
+# ⭐ Imported, not re-listed. The guard asks Git via ``--local-env-vars``, which
+# answers **fifteen** variables and not the two an author would think of; the
+# omission that mattered there was ``GIT_INDEX_FILE``, which decides *which
+# staged content*. A second hand-written list in this file would be a second
+# thing to keep in step, and it would fall behind silently.
+sys.path.insert(0, str(ROOT / "src"))
+from gramps_live_api.core.pii_guard import (  # noqa: E402
+    _git_environment_anchored_on_the_target as _anchored_env,
+)
+
 
 def run(label: str, *command: str) -> None:
     """One gate. ⛔ Its RETURN CODE is the verdict; its output is not consulted."""
@@ -71,7 +90,9 @@ def git(*args: str) -> str:
     ``rev-parse --verify`` on a ref that may not exist is exactly that. For
     anything where a failure must not read as an empty result, use ``git_or_die``.
     """
-    finished = subprocess.run(("git", *args), cwd=ROOT, capture_output=True, text=True, check=False)
+    finished = subprocess.run(
+        ("git", *args), cwd=ROOT, capture_output=True, text=True, check=False, env=_anchored_env()
+    )
     return finished.stdout.strip() if finished.returncode == 0 else ""
 
 
@@ -88,7 +109,9 @@ def git_or_die(label: str, *args: str) -> str:
     PowerShell ``-ErrorAction SilentlyContinue`` turning a wrong query into an
     empty result, which is recorded in CONTRIBUTING for the same reason.
     """
-    finished = subprocess.run(("git", *args), cwd=ROOT, capture_output=True, text=True, check=False)
+    finished = subprocess.run(
+        ("git", *args), cwd=ROOT, capture_output=True, text=True, check=False, env=_anchored_env()
+    )
     if finished.returncode != 0:
         print(f"  {label:<28}FAILED -- git could not answer (exit {finished.returncode})")
         sys.stderr.write(finished.stderr[-2000:])
@@ -186,7 +209,16 @@ def main() -> int:
         scope = ["--range", f"{base}..HEAD"]
     run("pii_guard", python, "-m", "gramps_live_api.core.pii_guard", *scope, ".")
 
-    print("  ALL GATES PASS (exit 0)")
+    # ⛔ **A partial run does not get the full verdict.**
+    #
+    # ⚠️ ``--quick`` deliberately omits the suite, and this line said ALL GATES
+    # PASS anyway -- so a branch with failing tests produced a verdict
+    # indistinguishable from a complete run. **That is the output-based false
+    # assurance this whole file exists to prevent**, printed by the file itself.
+    if quick:
+        print("  PARTIAL -- --quick SKIPPED pytest. This is NOT a passing gate (exit 0)")
+    else:
+        print("  ALL GATES PASS (exit 0)")
     return 0
 
 
