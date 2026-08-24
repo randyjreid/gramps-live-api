@@ -10,6 +10,7 @@ asserted.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import sys
 import threading
@@ -490,6 +491,79 @@ def test_a_BACKWARD_CLOCK_cannot_delete_the_copy_just_taken(tmp_path: Path) -> N
     )
     assert str(just_taken) not in removed
     # ⭐ And retention still does its job on everything else.
-    assert len(list(tmp_path.glob("*.sqlite"))) == 4, (
-        "protecting one copy must not stop the bound applying to the rest"
+    #
+    # ⛔ **This assertion said 4 and was wrong.** ``keep`` is 3, so three files
+    # is the bound being applied; four was the protected copy landing inside the
+    # removal slice, being skipped, and **no replacement being chosen** -- the
+    # defect, asserted as though it were the behaviour.
+    #
+    # ⚠️ The message above it already said *"protecting one copy must not stop
+    # the bound applying to the rest"*, which is exactly what 4 means. **The
+    # sentence and the number disagreed, and the sentence was the true one.**
+    assert len(list(tmp_path.glob("*.sqlite"))) == 3, (
+        "protecting one copy must not stop the bound applying to the rest: "
+        "keep is 3, so 3 files survive"
     )
+
+
+def test_a_BACKWARD_CLOCK_does_not_collapse_the_retention_WINDOW(tmp_path: Path) -> None:
+    """⛔ Two changes each correct alone, and wrong together.
+
+    Protecting the copy this run took, and selecting the removal slice by name
+    order, were added in separate rounds. **Neither change's own tests could see
+    the interaction**, and together they produced two distinct defects under a
+    clock that had moved backward — an NTP correction, a restored VM snapshot, a
+    dual boot:
+
+    * **the count was not honoured.** The protected file landed inside the slice,
+      was skipped, and no replacement was chosen — measured as
+      ``removed: 0, files after: 21`` with ``RETAIN`` 20;
+    * ⛔ **the window collapsed from RETAIN to one.** Each new recovery point
+      sorted oldest and was deleted by the very next write, while the stale
+      pre-rollback copies survived forever. **A journal record one write old
+      already pointed at a deleted file** — which is recoverable-after defeated
+      at the moment it is needed.
+
+    ⭐ **This test exercises both changes at once, through the real name builder**,
+    because that is the only way the interaction is visible. Reverting *either*
+    fix fails it.
+    """
+    keep = 5
+    tree = str(tmp_path / "grampsdb" / "abcd1234")
+    root = str(tmp_path / "backups")
+
+    # Five backups taken while the clock ran forward.
+    seeded = []
+    for day in range(1, keep + 1):
+        destination = backup.destination_for(root, "T", f"202608{day:02d}T000000Z", tree_dir=tree)
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        Path(destination).write_text("x", encoding="utf-8")
+        seeded.append(destination)
+    folder = os.path.dirname(seeded[0])
+
+    # ⛔ Now the clock jumps backwards. Every copy below is genuinely the newest
+    # recovery point, and every one of them asks for a stamp that sorts first.
+    newest = []
+    for day in range(1, 4):
+        destination = backup.destination_for(root, "T", f"202001{day:02d}T000000Z", tree_dir=tree)
+        Path(destination).write_text("the newest recovery point", encoding="utf-8")
+        backup.prune(folder, keep=keep, protect=destination)
+        newest.append(destination)
+
+        surviving = [n for n in os.listdir(folder) if n.endswith(".sqlite")]
+        assert len(surviving) == keep, (
+            f"RETAIN is {keep} and the folder holds {len(surviving)}. Protecting a "
+            f"file inside the removal slice without choosing a replacement shrinks "
+            f"what retention removes."
+        )
+
+    # ⭐ And the half that matters more: every recovery point taken since the
+    # rollback must still be there. A count that is right while the WRONG files
+    # survive is the defect wearing the fix's clothes.
+    for path in newest:
+        assert Path(path).exists(), (
+            f"{os.path.basename(path)} was pruned away by a later write. Under a "
+            f"backward clock the newest copies sorted oldest, so the window "
+            f"collapsed to one and a journal record one write old pointed at a "
+            f"deleted file."
+        )
