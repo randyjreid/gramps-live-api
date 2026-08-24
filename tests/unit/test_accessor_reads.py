@@ -915,3 +915,325 @@ def test_the_tree_totals_answer_a_question_no_search_could() -> None:
         "repositories",
         "media",
     }
+
+
+# --------------------------------------------------------------------------
+# changed_since -- and the swallow that made its first version answer nothing.
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class FakeChanged:
+    gramps_id: str
+    change: int = 0
+    private: bool = False
+    expose_getter: bool = True
+
+    def get_gramps_id(self) -> str:
+        return self.gramps_id
+
+    def get_privacy(self) -> bool:
+        return self.private
+
+    def get_title(self) -> str:
+        return "a record"
+
+    def __getattr__(self, name: str):  # noqa: ANN204
+        if name == "get_change":
+            if not object.__getattribute__(self, "expose_getter"):
+                raise AttributeError(name)
+            return lambda: object.__getattribute__(self, "change")
+        raise AttributeError(name)
+
+
+class TreeThatChanges:
+    def __init__(self, records: list[FakeChanged]) -> None:
+        self._records = records
+
+    def iter_sources(self):  # noqa: ANN201
+        return iter(self._records)
+
+    def iter_people(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_families(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_events(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_places(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_citations(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_notes(self):  # noqa: ANN201
+        return iter([])
+
+
+def test_records_changed_after_the_cutoff_are_returned() -> None:
+    old = FakeChanged("S0001", change=1_500_000_000)
+    recent = FakeChanged("S0002", change=1_787_483_523)
+    accessor.bind(FakeDbState(db=TreeThatChanges([old, recent])))
+    try:
+        found = accessor.changed_since("2026-08-01", kind="sources")
+    finally:
+        accessor.forget()
+
+    assert [m.gramps_id for m in found.matches] == ["S0002"]
+    assert "changed" in found.matches[0].display
+
+
+def test_a_private_record_is_never_reported_as_changed() -> None:
+    """⛔ P2 holds here too: not in the results, not in the count."""
+    accessor.bind(
+        FakeDbState(
+            db=TreeThatChanges(
+                [
+                    FakeChanged("S0002", change=1_787_483_523),
+                    FakeChanged("S0099", change=1_787_483_523, private=True),
+                ]
+            )
+        )
+    )
+    try:
+        found = accessor.changed_since("2026-08-01", kind="sources")
+    finally:
+        accessor.forget()
+
+    assert "S0099" not in {m.gramps_id for m in found.matches}
+    assert found.matched == len(found.matches), "the leak by arithmetic"
+
+
+def test_a_tree_whose_stamps_cannot_be_read_REFUSES_rather_than_reporting_none() -> None:
+    """⛔ The defect the first version shipped past, and it is the whole lesson.
+
+    It wrapped the read in ``except AttributeError: continue``, so using the
+    wrong accessor skipped every record and the route answered an empty result --
+    **the full walk's cost and none of its answer.** Measured live: 275 ms over
+    2,935 people, ``shown=0``, on a tree that had changed that morning.
+
+    ⚠️ *Nothing changed* is exactly the answer a caller acts on, so a silent
+    wrong one is worse than an error.
+    """
+    accessor.bind(
+        FakeDbState(
+            db=TreeThatChanges(
+                # ⚠️ Neither path yields a usable number: no getter, and the
+                # attribute holds something that is not a timestamp. That models
+                # the real failure -- an accessor whose answer cannot be used --
+                # rather than merely a missing method, which the fallback handles.
+                [
+                    FakeChanged("S0001", change="not-a-timestamp", expose_getter=False)  # type: ignore[arg-type]
+                    for _ in range(3)
+                ]
+            )
+        )
+    )
+    try:
+        with pytest.raises(reads.ReadRefused) as refusal:
+            accessor.changed_since("2020-01-01", kind="sources")
+    finally:
+        accessor.forget()
+
+    assert "change stamp" in str(refusal.value)
+    assert "Refusing rather than reporting none" in str(refusal.value)
+
+
+def test_an_unreadable_date_is_refused() -> None:
+    accessor.bind(FakeDbState(db=TreeThatChanges([])))
+    try:
+        with pytest.raises(reads.SearchTermRequired):
+            accessor.changed_since("last Tuesday", kind="sources")
+        with pytest.raises(reads.SearchTermRequired):
+            accessor.changed_since("")
+        with pytest.raises(reads.UnknownKind):
+            accessor.changed_since("2020-01-01", kind="peoples")
+    finally:
+        accessor.forget()
+
+
+def test_a_private_record_cannot_change_the_shape_of_the_answer() -> None:
+    """⛔ A private record must not reach the stamp read at all.
+
+    Counting it as unreadable let it turn an empty 200 into a refusal -- so its
+    existence was detectable through **control flow**: absent from the results
+    and the counts, and leaking through the shape of the response instead.
+    """
+    accessor.bind(
+        FakeDbState(
+            db=TreeThatChanges(
+                [
+                    FakeChanged("S0099", change="unreadable", private=True, expose_getter=False),  # type: ignore[arg-type]
+                    FakeChanged("S0001", change=1_500_000_000),
+                ]
+            )
+        )
+    )
+    try:
+        found = accessor.changed_since("2026-08-01", kind="sources")
+    finally:
+        accessor.forget()
+
+    assert found.matches == ()
+    assert found.matched == 0
+
+
+def test_nothing_changed_is_an_answer_not_a_refusal() -> None:
+    """⚠️ A partially readable collection whose readable records are all older
+    than the cutoff was refused for giving exactly the right answer."""
+    accessor.bind(
+        FakeDbState(
+            db=TreeThatChanges(
+                [
+                    FakeChanged("S0001", change=1_500_000_000),
+                    FakeChanged("S0002", change="unreadable", expose_getter=False),  # type: ignore[arg-type]
+                ]
+            )
+        )
+    )
+    try:
+        found = accessor.changed_since("2026-08-01", kind="sources")
+    finally:
+        accessor.forget()
+
+    assert found.matches == (), "nothing changed since the cutoff"
+    assert found.matched == 0
+
+
+def test_the_iso_date_times_the_tool_advertises_are_accepted() -> None:
+    """⛔ The documented input was rejected by the code that documents it.
+
+    ``changed_since`` says *an ISO date or date-time*, and three hand-written
+    ``strptime`` formats are not ISO -- so ``2026-08-01T12:00:00Z``, an offset,
+    and fractional seconds all came back as 400.
+    """
+    import datetime
+
+    naive = accessor._as_epoch("2026-08-01T12:00:00")
+    assert naive == int(datetime.datetime(2026, 8, 1, 12, 0, 0).timestamp()), (
+        "a naive input must stay LOCAL -- Gramps writes change from time.time()"
+    )
+
+    utc = accessor._as_epoch("2026-08-01T12:00:00Z")
+    offset = accessor._as_epoch("2026-08-01T14:00:00+02:00")
+    assert utc is not None and offset is not None
+    assert utc == offset, "the same instant expressed two ways gave two answers"
+
+    assert accessor._as_epoch("2026-08-01T12:00:00.123456") is not None
+    assert accessor._as_epoch("2026-08-01") is not None
+    assert accessor._as_epoch("2026/08/01") is not None
+    assert accessor._as_epoch("last Tuesday") is None
+
+
+def test_a_change_stamp_of_zero_is_a_stamp_not_an_absence() -> None:
+    """⛔ Truthiness said the opposite of the docstring directly above it.
+
+    A stamp of 0 is the Unix epoch -- a real value. Treating it as unreadable
+    meant a collection whose public records all carried 0 produced a **refusal**
+    instead of the correct empty result.
+    """
+    assert accessor._change_stamp(FakeChanged("S0001", change=0)) == 0
+    assert accessor._change_stamp(FakeChanged("S0002", change=1_787_483_523)) == 1_787_483_523
+    assert (
+        accessor._change_stamp(FakeChanged("S0003", change="nonsense", expose_getter=False)) is None
+    )  # type: ignore[arg-type]
+
+
+def test_a_fractional_cutoff_does_not_reach_backwards() -> None:
+    """⛔ ``int()`` moved a fractional cutoff to the START of its second.
+
+    Gramps stamps whole seconds, so a record changed at ``12:00:00`` was reported
+    for a cutoff of ``12:00:00.5`` -- earlier than the instant asked for, which
+    is not *at or after*.
+    """
+    whole = accessor._as_epoch("2026-08-01T12:00:00")
+    fractional = accessor._as_epoch("2026-08-01T12:00:00.5")
+
+    assert whole is not None and fractional is not None
+    assert fractional == whole + 1, (
+        "a fractional cutoff must not include the second it falls inside"
+    )
+    # ⚠️ And the ordinary whole-second case is untouched.
+    assert accessor._as_epoch("2026-08-01T12:00:00") == whole
+
+
+def test_a_fraction_BEYOND_six_digits_still_reaches_forwards() -> None:
+    """⛔ The previous fix was right about the ceiling and wrong about what reaches it.
+
+    ⚠️ The normaliser truncates a fractional second to **six digits**, because six
+    is what every supported interpreter agrees on. But ``.0000001`` truncated to
+    six is ``.000000`` — **no fraction at all** — so the ``ceil`` had nothing to
+    round up, and a record changed at ``12:00:00`` was reported for a cutoff
+    strictly after it. Exactly the defect the fractional fix closed, arriving
+    through the input shape that fix did not cover.
+
+    ⭐ **Truncating to a fixed width is an enumeration of precision.** What has to
+    survive is *there was a fraction*, not its value, because the only consumer
+    ceils.
+    """
+    whole = accessor._as_epoch("2026-08-01T12:00:00")
+    assert whole is not None
+
+    for cutoff in (
+        "2026-08-01T12:00:00.0000001",
+        "2026-08-01T12:00:00.000000999",
+        "2026-08-01T12:00:00.00000000000001",
+    ):
+        moment = accessor._as_epoch(cutoff)
+        assert moment == whole + 1, (
+            f"{cutoff} is strictly after {whole}, but normalised to the whole "
+            f"second and got {moment} — a record changed at 12:00:00 would be "
+            f"reported for a cutoff after it"
+        )
+
+    # ⛔ And a fraction that really IS zero must NOT move. A rule that rounds
+    # every fractional input up is the same defect pointing the other way.
+    assert accessor._as_epoch("2026-08-01T12:00:00.000000000") == whole, (
+        "an all-zero fraction is the whole second and must stay there"
+    )
+    assert accessor._as_epoch("2026-08-01T12:00:00.000000") == whole
+
+
+def test_a_COMMA_decimal_separator_is_normalised_like_a_period() -> None:
+    """⛔ ISO 8601 permits a comma, and the interpreters disagree about it.
+
+    3.11 and 3.12 accept `12:00:00,5`; the 3.10 floor rejects it. The normaliser
+    matched only a period, so a comma fraction reached ``fromisoformat``
+    untouched — **bypassing the discarded-digit handling entirely.** Measured on
+    3.12 before the fix: ``12:00:00,0000001`` returned the whole second, so a
+    record changed *at* that second was reported for a cutoff after it.
+
+    ⭐ **This is the third member of a set, not a new case.** The normaliser
+    already converts ``Z`` to an explicit offset and pads or truncates fractional
+    width; the separator is the same kind of disagreement. The rule is that every
+    ISO spelling the interpreters differ on becomes the one spelling they agree
+    on — which also removes the 3.10-versus-3.11 divergence, because the
+    interpreter never sees a comma.
+    """
+    whole = accessor._as_epoch("2026-08-01T12:00:00")
+    assert whole is not None
+
+    # ⛔ The two separators must be indistinguishable by the time they are parsed.
+    for period, comma in (
+        ("2026-08-01T12:00:00.5", "2026-08-01T12:00:00,5"),
+        ("2026-08-01T12:00:00.0000001", "2026-08-01T12:00:00,0000001"),
+        ("2026-08-01T12:00:00.000000000", "2026-08-01T12:00:00,000000000"),
+    ):
+        assert accessor._as_epoch(period) == accessor._as_epoch(comma), (
+            f"{period!r} and {comma!r} are the same instant and were read differently"
+        )
+
+    # ⚠️ And the comma forms must carry the precision fix, not merely agree.
+    assert accessor._as_epoch("2026-08-01T12:00:00,0000001") == whole + 1, (
+        "a comma fraction beyond six digits normalised to the whole second, so "
+        "the discarded-digit safeguard was bypassed"
+    )
+    assert accessor._as_epoch("2026-08-01T12:00:00,000000000") == whole, (
+        "an all-zero comma fraction is the whole second and must not move"
+    )
+
+    # ⛔ The interpreter must never see a comma at all — that is what removes the
+    # 3.10 divergence, and it is asserted rather than assumed.
+    assert "," not in accessor._iso_for_any_interpreter("2026-08-01T12:00:00,5")

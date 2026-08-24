@@ -1132,3 +1132,269 @@ def tree_totals() -> dict[str, int]:
         "repositories": database.get_number_of_repositories(),
         "media": database.get_number_of_media(),
     }
+
+
+CHANGED_COLLECTIONS = ("people", "families", "events", "places", "sources", "citations", "notes")
+"""Which collections ``changed_since`` will walk.
+
+⚠️ **Named COLLECTIONS rather than KINDS deliberately.** ``NOTE_KINDS`` and
+``CITED_KINDS`` name things ``_by_gramps_id`` can look up, and a test pins them
+against its branches. These are collection names -- *people*, not *person* -- so
+that pin does not apply, and calling them kinds made the guard fail on correct
+code. **Renaming removes the exception instead of adding one**, which is how the
+next such list stays covered rather than carved out."""
+
+
+@mainthread.on_main_thread
+def changed_since(when: str, kind: str = "people") -> reads.Found:
+    """Records of one kind whose ``change`` stamp is at or after ``when``.
+
+    ⭐ **Use-derived:** every *"is this already entered?"* conclusion this month
+    came from diffing a stale export by hand, because nothing could answer *what
+    changed in this tree, and when*.
+
+    ⚠️ **One collection per call, and that is a cost decision.** The tree holds
+    17,822 walkable objects against 2,934 people. A call spanning every
+    collection would be the most expensive read in the host, inside the GTK main
+    thread, for a question usually asked about one kind at a time.
+
+    ``when`` is an ISO date or date-time, and it is also the required search
+    term -- so there is still no way to list everybody.
+    """
+    wanted = reads.require_term(when)
+    asked = str(kind or "people")
+    if asked not in CHANGED_COLLECTIONS:
+        raise reads.UnknownKind(
+            f"{asked!r} is not a collection this can walk. Use one of: "
+            + ", ".join(CHANGED_COLLECTIONS)
+        )
+    cutoff = _as_epoch(wanted)
+    if cutoff is None:
+        raise reads.SearchTermRequired(
+            f"{wanted!r} is not a date this can read. Use YYYY-MM-DD, or an ISO date-time."
+        )
+    if _DBSTATE is None:
+        return reads.Found()
+    database = _DBSTATE.db
+
+    iterators = {
+        "people": database.iter_people,
+        "families": database.iter_families,
+        "events": database.iter_events,
+        "places": database.iter_places,
+        "sources": database.iter_sources,
+        "citations": database.iter_citations,
+        "notes": database.iter_notes,
+    }
+    rows = []
+    readable = 0
+    unreadable = 0
+    for obj in iterators[asked]():
+        # ⛔ GATED FIRST. A private record must not reach the stamp read at all:
+        # counting it as unreadable let it change the observable answer from an
+        # empty 200 to a refusal, so its existence was detectable through control
+        # flow -- private in the results and not in the counts, but leaking
+        # through the shape of the response instead.
+        visible = _public(obj)
+        if visible is None:
+            continue
+        changed = _change_stamp(visible)
+        if changed is None:
+            unreadable += 1
+            continue
+        readable += 1
+        if changed < cutoff:
+            continue
+        rows.append(
+            (False, reads.Match(visible.get_gramps_id(), _changed_display(asked, visible, changed)))
+        )
+
+    # ⛔ If NOTHING could be read, say so instead of answering "nothing changed".
+    #
+    # ⚠️ This is the defect the first version shipped past. It wrapped the read in
+    # ``except AttributeError: continue``, so using the wrong accessor skipped
+    # every object and the route answered an empty result -- **the full walk's
+    # cost and none of its answer.** *Nothing changed* is exactly the answer a
+    # caller acts on, so a silent wrong one is worse than an error.
+    # ⚠️ Keyed on whether any stamp was READABLE, not on whether any row matched.
+    # "Nothing changed" is a real answer, and a partially readable collection
+    # whose readable records are all older than the cutoff was being refused for
+    # giving exactly the right one.
+    if unreadable and not readable:
+        raise reads.ReadRefused(
+            f"none of the {unreadable} {asked} in this tree exposed a change stamp, "
+            "so this cannot say what changed. Refusing rather than reporting none."
+        )
+    return reads.bound(rows)
+
+
+def _change_stamp(obj: typing.Any) -> int | None:
+    """When Gramps last changed this record, or ``None`` if it cannot be read.
+
+    ⛔ **``None`` and zero are different answers.** A record with no stamp is not
+    a record that never changed, and collapsing the two is how a walk reports
+    *nothing changed* about a tree that changed this morning.
+    """
+    getter = getattr(obj, "get_change", None)
+    if callable(getter):
+        try:
+            value = getter()
+        except Exception:
+            value = None
+        # ⛔ ``is not None``, NOT truthiness. A stamp of 0 is a real stamp -- the
+        # Unix epoch -- and this function's whole point is that zero and None are
+        # different answers. Testing truthiness said the opposite of the
+        # docstring directly above it, and a collection whose public records all
+        # carried 0 would have produced a REFUSAL instead of an empty result.
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return int(value)
+    value = getattr(obj, "change", None)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return int(value)
+    return None
+
+
+def _iso_for_any_interpreter(raw: str) -> str:
+    """An ISO string ``fromisoformat`` accepts on **3.10 as well as 3.12**.
+
+    ⛔ **``fromisoformat``'s definition comes from the INTERPRETER, not from
+    ISO 8601**, and this project's floor is 3.10 while its gates run on the
+    developer's 3.12. **3.11 widened it to full ISO; 3.10 accepts only what
+    ``isoformat()`` emits** -- no ``Z``, and a fractional second of exactly three
+    or six digits.
+
+    ⚠️ **Measured, not supposed:** ``2026-08-01T12:00:00.5`` parsed locally and
+    returned ``None`` on CI's 3.10 legs, failing four jobs. That is this
+    project's recorded failure shape -- *a check whose answer varies with where
+    it runs, silently, because every test passes on the machine that wrote them.*
+
+    So the input is normalised here rather than delegated: ``Z`` becomes an
+    explicit offset, and a fractional second is padded or truncated to six
+    digits. **The behaviour is then the interpreter's only where they agree.**
+    """
+    import re
+
+    text = str(raw).strip()
+    if text.endswith(("Z", "z")):
+        text = text[:-1] + "+00:00"
+
+    def six_digits(match: re.Match[str]) -> str:
+        digits = match.group(1)
+        kept = (digits + "000000")[:6]
+
+        # ⛔ **A discarded non-zero digit must not become no fraction at all.**
+        #
+        # ⚠️ ``.0000001`` truncated to six digits is ``.000000``, so an instant
+        # strictly AFTER 12:00:00 normalised to exactly 12:00:00 -- and the
+        # ``ceil`` in ``_as_epoch`` then had nothing to round up, so a record
+        # changed AT 12:00:00 was reported for a cutoff after it. **The previous
+        # fractional fix was right about the ceiling and wrong about what reaches
+        # it**: truncating to a fixed width is an enumeration of precision, and
+        # this is the input that falls outside it.
+        #
+        # ⭐ The smallest representable fraction is enough, because the only
+        # consumer ceils: what has to survive is *there was a fraction*, not its
+        # value. Six digits is what every supported interpreter agrees on, so the
+        # width stays and the information that mattered is preserved inside it.
+        if kept == "000000" and digits.strip("0"):
+            kept = "000001"
+        return "." + kept
+
+    # ⛔ **Both decimal separators, normalised to the one the interpreters agree
+    # on.** ISO 8601 permits a COMMA, and the interpreters disagree about it:
+    # 3.11 and 3.12 accept it, the 3.10 floor rejects it. Matching only a period
+    # left a comma fraction untouched, so it bypassed the discarded-digit
+    # handling entirely -- measured on 3.12, ``12:00:00,0000001`` returned the
+    # whole second and a record changed AT that second was reported for a cutoff
+    # after it.
+    #
+    # ⭐ This is the third member of the set this function already handles, not a
+    # new case: ``Z`` versus an explicit offset, fractional WIDTH, and now the
+    # separator. **The rule is that every ISO spelling the interpreters disagree
+    # about becomes the one spelling they agree on** -- which also removes the
+    # 3.10-versus-3.11 divergence outright, because the interpreter never sees a
+    # comma.
+    return re.sub(r"[.,](\d+)", six_digits, text, count=1)
+
+
+def _as_epoch(text: str) -> int | None:
+    """An ISO date or date-time as a unix timestamp, or ``None``.
+
+    ⛔ Local time, not UTC: Gramps writes ``change`` from ``time.time()``, and an
+    owner asking *"since yesterday"* means his yesterday.
+    """
+    import datetime
+    import math
+
+    raw = str(text).strip().replace("/", "-")
+
+    # ⛔ ``fromisoformat`` FIRST, because the tool advertises "an ISO date-time"
+    # and three hand-written formats are not ISO.
+    #
+    # ⚠️ A caller passing ``2026-08-01T12:00:00Z``, an offset like ``+02:00``, or
+    # fractional seconds was refused with a 400 -- **the documented input
+    # rejected by the code that documents it.** The same shape as every other
+    # enumeration in this project: a list of spellings standing in for a format.
+    try:
+        parsed = datetime.datetime.fromisoformat(_iso_for_any_interpreter(raw))
+    except ValueError:
+        parsed = None
+    if parsed is not None:
+        # ⭐ A naive input stays LOCAL, which is the promise above: Gramps writes
+        # ``change`` from ``time.time()``, and an owner asking "since yesterday"
+        # means his yesterday. An input carrying an offset is honoured as given.
+        #
+        # ⛔ CEIL, not int(). Gramps stamps are whole seconds, so truncating a
+        # fractional cutoff moves it BACKWARDS to the start of its second -- and
+        # a record changed at 12:00:00 was then reported for a cutoff of
+        # 12:00:00.5, which is not "at or after" the requested instant. Ceil and
+        # int agree on every whole-second input, so the ordinary case is
+        # unchanged.
+        return math.ceil(parsed.timestamp())
+
+    for shape in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return int(datetime.datetime.strptime(raw, shape).timestamp())
+        except ValueError:
+            continue
+    return None
+
+
+def _changed_display(kind: str, obj: typing.Any, changed: int) -> str:
+    """What changed and when, in a form the owner reads rather than decodes."""
+    import datetime
+
+    stamp = datetime.datetime.fromtimestamp(changed).strftime("%Y-%m-%d %H:%M")
+    database = _DBSTATE.db if _DBSTATE is not None else None
+    if kind == "people":
+        return f"{_person_display(obj, database)}  [changed {stamp}]"
+    if kind == "families":
+        return f"{_family_display(database, obj)}  [changed {stamp}]"
+    if kind == "events":
+        return f"{_event_display(obj)}  [changed {stamp}]"
+    # ⛔ An explicit map, not ``kind[:-1]``. Chopping the last letter turns
+    # "families" into "familie", which no renderer answers to -- so every family
+    # came back as a bare timestamp with nothing to recognise it by. **The same
+    # naive singulariser had already been fixed once in ``document.py``**, and it
+    # was still here: a spelling rule standing in for a vocabulary.
+    singular = {
+        "places": "place",
+        "sources": "source",
+        "citations": "citation",
+        "notes": "note",
+    }.get(kind, kind)
+    return f"{_orphan_display(singular, obj)}  [changed {stamp}]"
+
+
+def _event_display(event: typing.Any) -> str:
+    """An event as the owner recognises it: what it was, and when."""
+    try:
+        shown = str(event.get_type() or "Event")
+        date = event.get_date_object()
+        if date is not None and not date.is_empty():
+            shown += f" {date.get_year() or date}"
+        if event.get_description():
+            shown += f" -- {event.get_description()}"
+        return shown
+    except Exception:
+        return "(could not read the event)"
