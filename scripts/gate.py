@@ -53,14 +53,36 @@ from gramps_live_api.core.pii_guard import (  # noqa: E402
 )
 
 
-def run(label: str, *command: str) -> None:
-    """One gate. ⛔ Its RETURN CODE is the verdict; its output is not consulted."""
+def run(label: str, *command: str, operator_input: bool = False) -> None:
+    """One gate. ⛔ Its RETURN CODE is the verdict; its output is not consulted.
+
+    ⛔ **``operator_input=True`` means this command line carried something a
+    person typed, and its DIAGNOSTICS ARE NOT FORWARDED.**
+
+    ⚠️ A tool's stderr quotes its arguments back -- ``fatal: Invalid revision
+    range <the thing you typed>`` -- so forwarding it puts operator- or
+    machine-identifying text into captured gate output and any CI log. The
+    mistake that reaches these paths is typing a **path** where a ref belongs,
+    which is exactly the value that must not be echoed.
+
+    ⭐ Stated as a bound rather than fixed where it was found: *nothing in this
+    file forwards a subprocess's stderr for a command that took operator-supplied
+    input.* Two sites had it; a third would have been likely.
+
+    ⚠️ Suppressing the diagnostic costs little -- the exit code is the verdict,
+    and re-running the command shows the operator their own value on their own
+    terminal, where it was never a leak.
+    """
     print(f"  {label:<28}", end="", flush=True)
-    finished = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+    finished = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=False)
     if finished.returncode != 0:
         print(f"FAILED (exit {finished.returncode})")
-        sys.stdout.write(finished.stdout[-4000:])
-        sys.stderr.write(finished.stderr[-4000:])
+        if operator_input:
+            print("    (diagnostics withheld: this command line carried operator input)")
+            print(f"    re-run it yourself to see them: {label}")
+        else:
+            sys.stdout.write(finished.stdout[-4000:])
+            sys.stderr.write(finished.stderr[-4000:])
         raise SystemExit(finished.returncode)
     print("ok")
 
@@ -113,8 +135,10 @@ def git_or_die(label: str, *args: str) -> str:
         ("git", *args), cwd=ROOT, capture_output=True, text=True, check=False, env=_anchored_env()
     )
     if finished.returncode != 0:
+        # ⛔ Git's stderr quotes the revision argument back, and that argument can
+        # be operator-supplied. Not forwarded -- see ``run``'s note.
         print(f"  {label:<28}FAILED -- git could not answer (exit {finished.returncode})")
-        sys.stderr.write(finished.stderr[-2000:])
+        print("    (diagnostics withheld: the revision expression is operator-supplied)")
         raise SystemExit(finished.returncode)
     return finished.stdout.strip()
 
@@ -207,7 +231,16 @@ def main() -> int:
         print(f"  {'pii_guard':<28}(nothing committed on top of the baseline -- index only)")
     else:
         scope = ["--range", f"{base}..HEAD"]
-    run("pii_guard", python, "-m", "gramps_live_api.core.pii_guard", *scope, ".")
+    # ⛔ ``operator_input``: ``scope`` can carry GRAMPS_LIVE_API_GATE_BASE.
+    run(
+        "pii_guard",
+        python,
+        "-m",
+        "gramps_live_api.core.pii_guard",
+        *scope,
+        ".",
+        operator_input=bool(scope),
+    )
 
     # ⛔ **A partial run does not get the full verdict.**
     #
