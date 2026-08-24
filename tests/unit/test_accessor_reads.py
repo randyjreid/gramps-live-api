@@ -1194,3 +1194,46 @@ def test_a_fraction_BEYOND_six_digits_still_reaches_forwards() -> None:
         "an all-zero fraction is the whole second and must stay there"
     )
     assert accessor._as_epoch("2026-08-01T12:00:00.000000") == whole
+
+
+def test_a_COMMA_decimal_separator_is_normalised_like_a_period() -> None:
+    """⛔ ISO 8601 permits a comma, and the interpreters disagree about it.
+
+    3.11 and 3.12 accept `12:00:00,5`; the 3.10 floor rejects it. The normaliser
+    matched only a period, so a comma fraction reached ``fromisoformat``
+    untouched — **bypassing the discarded-digit handling entirely.** Measured on
+    3.12 before the fix: ``12:00:00,0000001`` returned the whole second, so a
+    record changed *at* that second was reported for a cutoff after it.
+
+    ⭐ **This is the third member of a set, not a new case.** The normaliser
+    already converts ``Z`` to an explicit offset and pads or truncates fractional
+    width; the separator is the same kind of disagreement. The rule is that every
+    ISO spelling the interpreters differ on becomes the one spelling they agree
+    on — which also removes the 3.10-versus-3.11 divergence, because the
+    interpreter never sees a comma.
+    """
+    whole = accessor._as_epoch("2026-08-01T12:00:00")
+    assert whole is not None
+
+    # ⛔ The two separators must be indistinguishable by the time they are parsed.
+    for period, comma in (
+        ("2026-08-01T12:00:00.5", "2026-08-01T12:00:00,5"),
+        ("2026-08-01T12:00:00.0000001", "2026-08-01T12:00:00,0000001"),
+        ("2026-08-01T12:00:00.000000000", "2026-08-01T12:00:00,000000000"),
+    ):
+        assert accessor._as_epoch(period) == accessor._as_epoch(comma), (
+            f"{period!r} and {comma!r} are the same instant and were read differently"
+        )
+
+    # ⚠️ And the comma forms must carry the precision fix, not merely agree.
+    assert accessor._as_epoch("2026-08-01T12:00:00,0000001") == whole + 1, (
+        "a comma fraction beyond six digits normalised to the whole second, so "
+        "the discarded-digit safeguard was bypassed"
+    )
+    assert accessor._as_epoch("2026-08-01T12:00:00,000000000") == whole, (
+        "an all-zero comma fraction is the whole second and must not move"
+    )
+
+    # ⛔ The interpreter must never see a comma at all — that is what removes the
+    # 3.10 divergence, and it is asserted rather than assumed.
+    assert "," not in accessor._iso_for_any_interpreter("2026-08-01T12:00:00,5")

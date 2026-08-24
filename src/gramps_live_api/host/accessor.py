@@ -1300,7 +1300,21 @@ def _iso_for_any_interpreter(raw: str) -> str:
             kept = "000001"
         return "." + kept
 
-    return re.sub(r"\.(\d+)", six_digits, text, count=1)
+    # ⛔ **Both decimal separators, normalised to the one the interpreters agree
+    # on.** ISO 8601 permits a COMMA, and the interpreters disagree about it:
+    # 3.11 and 3.12 accept it, the 3.10 floor rejects it. Matching only a period
+    # left a comma fraction untouched, so it bypassed the discarded-digit
+    # handling entirely -- measured on 3.12, ``12:00:00,0000001`` returned the
+    # whole second and a record changed AT that second was reported for a cutoff
+    # after it.
+    #
+    # ⭐ This is the third member of the set this function already handles, not a
+    # new case: ``Z`` versus an explicit offset, fractional WIDTH, and now the
+    # separator. **The rule is that every ISO spelling the interpreters disagree
+    # about becomes the one spelling they agree on** -- which also removes the
+    # 3.10-versus-3.11 divergence outright, because the interpreter never sees a
+    # comma.
+    return re.sub(r"[.,](\d+)", six_digits, text, count=1)
 
 
 def _as_epoch(text: str) -> int | None:
