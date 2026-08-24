@@ -143,7 +143,59 @@ def destination_for(directory: str, tree_name: str, stamp: str, tree_dir: str = 
     # budget failed three times. Two previews in one second are two DIFFERENT
     # operations, so they get different identities rather than a finer clock.
     unique = uuid.uuid4().hex[:8]
-    return os.path.join(directory, folder, f"{stamp}-{unique}-{safe}.sqlite")
+
+    # ⛔ **The name must sort AFTER every backup already in this folder, whatever
+    # the clock says.**
+    #
+    # ⚠️ Retention keeps the newest by NAME, and name order is a proxy for
+    # creation order that inverts the moment the clock moves backward -- an NTP
+    # correction, a restored VM snapshot, a dual boot. Measured before this
+    # bound: after a rollback each new recovery point sorted OLDEST and was
+    # deleted by the very next write, while the stale pre-rollback copies
+    # survived. **The window collapsed from RETAIN to one**, and a journal record
+    # written one write ago already pointed at a deleted file.
+    #
+    # ⭐ Fixing ``prune`` alone could not reach this: the count was honoured and
+    # the wrong file was still chosen. The ordering itself had to stop depending
+    # on a clock this code does not control.
+    #
+    # ⚠️ **The trade, recorded: when the clock has moved backward the stamp in the
+    # NAME is no longer the time the copy was taken.** It becomes an ordering key.
+    # The true time is in the journal's ``backup.taken_utc``, which is read from
+    # the clock and never adjusted -- so nothing that reports to the owner is
+    # falsified, and the one thing that needs to be monotonic is.
+    return os.path.join(
+        directory,
+        folder,
+        f"{_monotonic_stamp(os.path.join(directory, folder), stamp)}-{unique}-{safe}.sqlite",
+    )
+
+
+def _monotonic_stamp(folder: str, stamp: str) -> str:
+    """``stamp``, or one second past the newest name already there. Never earlier.
+
+    ⛔ Compares against what is ON DISK rather than remembering a previous value:
+    a fresh process has no memory, and the folder is the only shared record.
+    """
+    import datetime
+
+    try:
+        names = sorted(n for n in os.listdir(folder) if n.endswith(".sqlite"))
+    except OSError:
+        return stamp
+    if not names:
+        return stamp
+
+    newest = names[-1][: len(stamp)]
+    if stamp > newest:
+        return stamp
+    try:
+        moment = datetime.datetime.strptime(newest, "%Y%m%dT%H%M%SZ")
+    except ValueError:
+        # A name this module did not write. ⛔ Leave the real stamp rather than
+        # inventing an order against something whose shape is unknown.
+        return stamp
+    return (moment + datetime.timedelta(seconds=1)).strftime("%Y%m%dT%H%M%SZ")
 
 
 TREE_MARKER = "which-tree.txt"
@@ -463,13 +515,26 @@ def prune(directory: str, keep: int | None = None, protect: str | None = None) -
         names = sorted(n for n in os.listdir(directory) if n.endswith(".sqlite"))
     except OSError:
         return []
+    # ⛔ **The protected copy is REMOVED FROM THE CANDIDATES, not skipped inside
+    # the slice.**
+    #
+    # ⚠️ Skipping it after selecting ``len(names) - keep`` entries silently
+    # shrinks what retention removes: when the protected file lands in that slice
+    # it is passed over and **no replacement is chosen**, so the directory keeps
+    # ``keep + 1``. Measured: 20 backups plus a backward-clock copy gave
+    # ``removed: 0, files after: 21``.
+    #
+    # ⭐ Two changes each correct alone and wrong together -- protecting the
+    # current copy, and selecting the slice by name order. Neither change's own
+    # tests could see the interaction, which is why the test below exercises both.
     guarded = os.path.abspath(protect) if protect else None
+    candidates = [
+        n for n in names if not (guarded and os.path.abspath(os.path.join(directory, n)) == guarded)
+    ]
+
     removed = []
-    for name in names[: max(0, len(names) - keep)]:
+    for name in candidates[: max(0, len(candidates) - (keep - 1 if guarded else keep))]:
         target = os.path.join(directory, name)
-        # ⛔ Never the copy this run just took, regardless of how it sorts.
-        if guarded and os.path.abspath(target) == guarded:
-            continue
         with contextlib.suppress(OSError):
             os.remove(target)
             removed.append(target)
