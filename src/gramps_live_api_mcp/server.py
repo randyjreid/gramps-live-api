@@ -298,6 +298,8 @@ happens, so you never need a handle.
   places:    [{"id","gramps_id?","title"}]
   events:    [{"id","gramps_id?","type","date","place":<place id>,
               "people":[<person ids>],"family":<family id>,"role","description"}]
+             -- with "gramps_id": only "citations"/notes attach; sending
+                "people", "family" or "role" is refused (see below)
   source:     {"id","gramps_id?","title","author","pubinfo"}
   citations: [{"id","source":<source id>,"page","attach_to":[<any ids>]}]
   families:  [{"id","gramps_id?","parents":[<person ids>],"children":[<person ids>]}]
@@ -312,11 +314,12 @@ strings, and a note is prose nothing can query.
 GRAMPS ID. A citation belongs ON the event it documents. Creating a second copy
 of an event that is already there is the duplicate this tool exists to prevent,
 and an event you did not look up is an event you are about to duplicate. An
-attached event is NOT modified: its type, date, place and role come from the
-tree, and anything you send for them is dropped and shown to the owner as
+attached event is NOT modified: its type, date, place and description come from
+the tree, and anything you send for them is dropped and shown to the owner as
 dropped. An attached event also keeps the participants it has: do NOT send
-"people" or "family" with a gramps_id -- that is refused, because an event
-already in the tree keeps its own. ***
+"people", "family" or "role" with a gramps_id -- all three are REFUSED, and the
+whole proposal is rejected rather than partly written, because an event already
+in the tree keeps its own participants. ***
 
 *** IF A PERSON IS ALREADY IN THE TREE, LOOK THEM UP WITH list_people FIRST AND
 PASS THEIR GRAMPS ID as "gramps_id". *** Otherwise you create a duplicate of

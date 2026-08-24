@@ -1,19 +1,24 @@
-"""⛔ Two ways a caller could not IDENTIFY an event, and both caused duplicates.
+"""⛔ Telling one event from another, and one claim that turned out to be false.
 
-The whole point of letting a document name an event by ``gramps_id`` is that
-citing an event stops meaning creating a second copy of it. That only works if
-the caller can (a) **find** the event and (b) **tell it apart** from its
-neighbours. Round 2 of the review found both halves broken:
+Letting a document name an event by ``gramps_id`` only stops meaning *duplicate
+it* if the caller can find the event **and** tell it apart from its neighbours.
 
-* ⚠️ ``list_events`` walked only ``get_event_ref_list()``. Gramps keeps Birth and
-  Death in **their own slots**, so the two most common events in any tree had no
-  discoverable id -- a caller looked, found nothing, omitted the id, and created
-  the duplicate the feature exists to prevent.
-* ⚠️ The approval dialog rendered an event without its **place**. Two Residence
-  events in one census year are then the same string, and the owner cannot see a
-  citation landing on the wrong one.
+⚠️ A review round reported two ways that failed. **Only one of them was real.**
 
-⛔ Both are about the OWNER's ability to check, which is the only real gate.
+* **Real** -- the approval dialog rendered an event without its *place*, so two
+  Residence events in one census year were the same string and the owner could
+  not see a citation landing on the wrong one.
+* **False** -- that ``list_events`` missed births and deaths because Gramps keeps
+  them in slots outside ``get_event_ref_list()``. It does not: ``get_birth_ref``
+  returns ``event_ref_list[birth_ref_index]``, an index into that same list.
+
+⛔ **The false one was fixed before it was checked, and a negative control passed
+on the fix**, because the fixture's fake ``Person`` returned the slots separately
+from its ref list and so encoded the premise the test was meant to prove. **A
+control demonstrates that the code satisfies the fixture.** Where the fixture is
+the thing in doubt, it demonstrates nothing -- which is why the fake below now
+models Gramps' actual arrangement, and why the first test asserts the arrangement
+rather than the fix.
 """
 
 from __future__ import annotations
@@ -37,7 +42,16 @@ class Ref:
 
 @dataclass
 class Date:
+    """⛔ ``str(date)`` and ``get_year()`` must DIFFER here, or nothing is proved.
+
+    ⚠️ A first version returned the year from both, so a mutation truncating the
+    display to the year changed no output and the negative control stayed silent
+    -- a fixture that cannot express the defect cannot test the fix.
+    """
+
     year: int = 1880
+    month: int = 6
+    day: int = 1
 
     def is_empty(self) -> bool:
         return False
@@ -46,7 +60,7 @@ class Date:
         return self.year
 
     def __str__(self) -> str:
-        return str(self.year)
+        return f"{self.year}-{self.month:02d}-{self.day:02d}"
 
 
 @dataclass
@@ -79,6 +93,7 @@ class Event:
     place_handle: str = ""
     private: bool = False
     description: str = ""
+    when: Date = field(default_factory=Date)
 
     def get_gramps_id(self) -> str:
         return self.gramps_id
@@ -90,7 +105,7 @@ class Event:
         return self.kind
 
     def get_date_object(self) -> Date:
-        return Date()
+        return self.when
 
     def get_place_handle(self) -> str:
         return self.place_handle
@@ -101,10 +116,19 @@ class Event:
 
 @dataclass
 class Person:
+    """⛔ Modelled on Gramps' own arrangement, which is the thing in doubt here.
+
+    ``event_refs`` is the whole list. ``birth_index`` and ``death_index`` are
+    INDEXES into it, exactly as ``Person.birth_ref_index`` is -- so a birth is
+    always reachable through ``get_event_ref_list()``. An earlier version of this
+    fake held the slots in separate fields, which made a false claim about Gramps
+    testable and therefore made a wrong fix look proven.
+    """
+
     gramps_id: str = "I0700"
-    birth: Any = None
-    death: Any = None
-    others: list[Any] = field(default_factory=list)
+    event_refs: list[Any] = field(default_factory=list)
+    birth_index: int = -1
+    death_index: int = -1
 
     def get_gramps_id(self) -> str:
         return self.gramps_id
@@ -112,14 +136,17 @@ class Person:
     def get_privacy(self) -> bool:
         return False
 
+    def _slot(self, index: int) -> Any:
+        return self.event_refs[index] if 0 <= index < len(self.event_refs) else None
+
     def get_birth_ref(self) -> Any:
-        return self.birth
+        return self._slot(self.birth_index)
 
     def get_death_ref(self) -> Any:
-        return self.death
+        return self._slot(self.death_index)
 
     def get_event_ref_list(self) -> list[Any]:
-        return list(self.others)
+        return list(self.event_refs)
 
 
 class Tree:
@@ -157,60 +184,52 @@ def bind(person: Person, events: dict[str, Event], places: dict[str, Place] | No
 
 
 # ---------------------------------------------------------------------------
-# (a) the dedicated slots
+# (a) the claim that was false
 # ---------------------------------------------------------------------------
 
 
-def test_a_birth_and_a_death_are_LISTED_even_though_gramps_keeps_them_apart(
+def test_a_birth_is_reachable_through_the_REF_LIST_because_the_slot_is_an_index(
     unbind: None,
 ) -> None:
-    """⛔ The defect exactly: neither was returned, so neither could be cited."""
+    """⛔ The disproof, kept as a test so the wrong fix is not made twice.
+
+    ⚠️ A review round reported that ``list_events`` missed births and deaths, and
+    a traversal of ``get_birth_ref()``/``get_death_ref()`` was written and gated
+    and tested before the premise was checked. **The premise is false.** Gramps'
+    ``Person.get_birth_ref`` is ``event_ref_list[birth_ref_index]``
+    (``gen/lib/person.py:814``), and ``set_birth_ref`` appends to that list when
+    the ref is not already in it.
+
+    ⭐ Confirmed against the live tree as well as here: a person's birth comes
+    back from ``list_events`` with no slot traversal in the code at all.
+    """
+    birth, residence = Ref("hb"), Ref("hr")
     bind(
-        Person(birth=Ref("hb"), death=Ref("hd"), others=[Ref("hr")]),
-        {
-            "hb": Event("E0001", "Birth"),
-            "hd": Event("E0002", "Death"),
-            "hr": Event("E0003", "Residence"),
-        },
+        Person(event_refs=[birth, residence], birth_index=0),
+        {"hb": Event("E0001", "Birth"), "hr": Event("E0003", "Residence")},
     )
 
     ids = [match.gramps_id for match in accessor.list_events("I0700").matches]
 
-    assert "E0001" in ids, "the BIRTH has no discoverable id, so citing it duplicates it"
-    assert "E0002" in ids, "the DEATH has no discoverable id, so citing it duplicates it"
-    assert "E0003" in ids, "the ordinary event regressed"
+    # The slot and the list are the SAME object -- that is the whole point.
+    person = accessor._DBSTATE.db.person
+    assert person.get_birth_ref() is person.get_event_ref_list()[0]
+    assert ids == ["E0001", "E0003"], (
+        f"the birth is not reachable through the ref list after all: {ids}"
+    )
+    assert ids.count("E0001") == 1, "the birth was listed twice"
 
 
-def test_an_event_in_BOTH_places_is_listed_ONCE(unbind: None) -> None:
-    """⚠️ Gramps may keep a birth in the slot AND in the list.
-
-    ⭐ Without the dedup a person would read as having two births, which is a new
-    way to make the owner doubt the dialog -- the opposite of the fix's purpose.
-    """
-    shared = Ref("hb")
-    bind(Person(birth=shared, others=[Ref("hb")]), {"hb": Event("E0001", "Birth")})
-
-    ids = [match.gramps_id for match in accessor.list_events("I0700").matches]
-
-    assert ids.count("E0001") == 1, f"the birth was listed twice: {ids}"
-
-
-def test_a_PRIVATE_birth_reference_is_still_gated_in_its_slot(unbind: None) -> None:
-    """⛔ The negative control, and the one that matters.
-
-    ⚠️ A new traversal is a new way to bypass the privacy gate, and this one was
-    caught by the container ratchet during the build -- the first version read the
-    handle off an ungated reference. **A test that only proved births appear would
-    pass against the leaking version too.**
-    """
+def test_a_PRIVATE_event_reference_is_still_gated(unbind: None) -> None:
+    """⚠️ The gate this loop has always carried, asserted so the revert kept it."""
     bind(
-        Person(birth=Ref("hb", private=True), death=Ref("hd")),
+        Person(event_refs=[Ref("hb", private=True), Ref("hd")], birth_index=0),
         {"hb": Event("E0001", "Birth"), "hd": Event("E0002", "Death")},
     )
 
     ids = [match.gramps_id for match in accessor.list_events("I0700").matches]
 
-    assert "E0001" not in ids, "a PRIVATE birth reference reached the wire"
+    assert "E0001" not in ids, "a PRIVATE event reference reached the wire"
     assert "E0002" in ids, "the gate refused everything, so the test above proves nothing"
 
 
@@ -249,7 +268,9 @@ def test_the_dialog_shows_the_PLACE_so_two_same_year_events_differ(unbind: None)
     # ``document._event_line`` renders ``type date at PLACE -- description``; a
     # resolved event rendering ``-- description at PLACE`` would be the
     # preview/writer disagreement class inside one approval screen.
-    assert described == "Census 1880 at Amherst County, Invented -- household of 4", described
+    assert described == ("Census 1880-06-01 at Amherst County, Invented -- household of 4"), (
+        described
+    )
 
 
 def test_a_PRIVATE_place_is_not_named_in_the_dialog(unbind: None) -> None:
@@ -262,3 +283,26 @@ def test_a_PRIVATE_place_is_not_named_in_the_dialog(unbind: None) -> None:
 
     assert "Hidden" not in shown, f"a PRIVATE place was named in the dialog: {shown!r}"
     assert "Residence" in shown, "the event stopped rendering at all"
+
+
+def test_two_events_in_ONE_year_are_told_apart_by_the_FULL_date(unbind: None) -> None:
+    """⛔ Same type, same year, same place, same description -- different days.
+
+    ⚠️ ``list_events`` hands the caller ``str(date)``, so the caller picks between
+    two ids it can see are different. The approval line rendered only the YEAR, so
+    the two ids produced the SAME string and the owner had nothing to check
+    against. **The identity mechanism failed exactly where two candidates exist**,
+    which is the only case it is for.
+    """
+    bind(Person(), {}, {"pa": Place("Amherst County, Invented")})
+    db = accessor._DBSTATE.db
+
+    spring = accessor._display_of(
+        db, "event", Event("E0020", "Residence", place_handle="pa", when=Date(1880, 4, 2))
+    )
+    autumn = accessor._display_of(
+        db, "event", Event("E0021", "Residence", place_handle="pa", when=Date(1880, 10, 9))
+    )
+
+    assert spring != autumn, f"two events months apart render identically: {spring!r}"
+    assert "1880-04-02" in spring and "1880-10-09" in autumn

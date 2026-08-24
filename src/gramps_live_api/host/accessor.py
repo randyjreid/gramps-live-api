@@ -358,38 +358,26 @@ def list_events(person_gramps_id: str) -> reads.Found:
     if person is None:
         return reads.Found()
     rows = []
-    # ⛔ **The dedicated slots too, not only the event-ref list.**
+    # ⚠️ **``get_event_ref_list()`` ALREADY contains the birth and the death.**
     #
-    # ⚠️ Gramps stores a person's Birth and Death in ``birth_ref`` and
-    # ``death_ref``, NOT in ``get_event_ref_list()``. Walking only the list meant
-    # this tool never returned the Gramps ID of most births and deaths -- so a
-    # caller told to look an event up before citing it found nothing, omitted the
-    # id, and **created a duplicate of the very event it was trying to cite.**
-    # That is the duplication this whole feature exists to prevent, on the two
-    # most common events in any tree.
+    # ⛔ A review round reported that it does not -- that Gramps keeps them in
+    # ``birth_ref``/``death_ref`` slots this loop never walked, so births and
+    # deaths had no citable Gramps ID. **That is false, and it was fixed before it
+    # was checked.** Gramps' ``Person.get_birth_ref`` is
+    # ``event_ref_list[birth_ref_index]`` (``gen/lib/person.py:814``) -- an INDEX
+    # into this very list -- and ``set_birth_ref`` appends to it. There is no
+    # state in which a birth is reachable by the slot and not by this loop.
     #
-    # ⭐ Deduplicated by handle: Gramps may ALSO list them, and a person whose
-    # birth appeared twice would read as two births.
-    #
-    # ⛔ **The dedup happens AFTER the gate, and every getter sits in the loop's
-    # ITERABLE.** Both halves of that were learned from one refusal. A first
-    # version built the list up front -- ``list(...)`` then ``insert`` -- and
-    # compared ``r.ref == slot.ref`` while doing it, **reading a handle off an
-    # ``EventRef`` nobody had gated yet**, so a record joined by a private
-    # reference could reach the wire. The privacy ratchet refused it on sight,
-    # which is what that ratchet is for.
-    seen_handles = set()
-    for ref in (
-        person.get_birth_ref(),
-        person.get_death_ref(),
-        *person.get_event_ref_list(),
-    ):
-        # ⛔ Gated FIRST. ``.ref`` below is read only on a reference that passed.
-        if ref is None or _public(ref) is None:
+    # ⚠️ **The negative control fired anyway**, which is the part worth
+    # remembering. The fixture's fake ``Person`` returned the slots separately
+    # from its ref list, so it encoded the false premise; deleting the traversal
+    # then failed a test that was only ever asserting the fixture's own shape.
+    # **A control proves the code satisfies the fixture, not that the defect was
+    # real.** Confirmed against the live tree: a person's birth is returned by
+    # this loop with no slot traversal at all.
+    for ref in person.get_event_ref_list():
+        if _public(ref) is None:
             continue
-        if ref.ref in seen_handles:
-            continue
-        seen_handles.add(ref.ref)
         event = _public(database.get_event_from_handle(ref.ref))
         if event is None:
             continue
@@ -1518,7 +1506,14 @@ def _event_display(event: typing.Any, place: str = "") -> str:
         shown = str(event.get_type() or "Event")
         date = event.get_date_object()
         if date is not None and not date.is_empty():
-            shown += f" {date.get_year() or date}"
+            # ⛔ **The whole date, not the year.** ``list_events`` shows the caller
+            # ``str(date)``; rendering only ``get_year()`` here meant two events
+            # sharing a type, year, place and description -- two Residence rows
+            # months apart -- produced the SAME approval line from ids the caller
+            # had just been shown as different. **The owner cannot catch a
+            # citation landing on the wrong one**, which is the identity check
+            # this string exists to be.
+            shown += f" {date}"
         if place:
             shown += f" at {place}"
         if event.get_description():

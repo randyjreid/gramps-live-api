@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 
 from gramps_live_api.host import document
+from tests.fixtures.host_sources import REPOSITORY_ROOT
 
 
 def node(local_id: str, **fields: Any) -> dict[str, Any]:
@@ -271,3 +272,96 @@ def test_a_PRIMARY_role_on_an_attached_event_is_refused_like_any_other() -> None
         )
         is not None
     )
+
+
+def test_the_MCP_INSTRUCTION_and_the_PARSER_agree_about_attached_events() -> None:
+    """⛔ The instruction is a claim about the code, and it was false.
+
+    ⚠️ After ``role`` became refused rather than dropped, ``server.py`` still told
+    callers their role would be *"dropped and shown to the owner as dropped"*. A
+    caller following the documented instruction had its **entire proposal
+    rejected** -- so the text that exists to stop a duplicate was itself the thing
+    producing the failure.
+
+    ⭐ This asserts the agreement rather than the sentence, so the next person to
+    move a field between REFUSED and DROPPED cannot leave the instruction behind.
+    """
+    instruction = (REPOSITORY_ROOT / "src" / "gramps_live_api_mcp" / "server.py").read_text(
+        encoding="utf-8"
+    )
+
+    refused = ("people", "family", "role")
+    dropped = ("type", "date", "place", "description")
+
+    # The instruction names all three as refused, in one sentence, and none of
+    # them as merely dropped.
+    sentence = instruction[instruction.index("An attached event also keeps") :][:400]
+    for field in refused:
+        assert f'"{field}"' in sentence, f"the instruction does not name {field} as refused"
+
+    values = {
+        "people": ["p1"],
+        "family": "f1",
+        "role": "Primary",
+        "type": "Baptism",
+        "date": "1881-04-02",
+        "place": "pl1",
+        "description": "a description the tree already has",
+    }
+
+    for field in refused:
+        with pytest.raises(document.GraphInvalid):
+            document.parse(
+                {
+                    "people": [node("p1", gramps_id="I0001")],
+                    "families": [node("f1", gramps_id="F0001")],
+                    "places": [node("pl1", title="Amherst County, Invented")],
+                    "events": [node("e1", gramps_id="E0060", **{field: values[field]})],
+                }
+            )
+
+    for field in dropped:
+        entry = node("e1", gramps_id="E0060", **{field: values[field]})
+        parsed = document.parse(
+            {
+                "people": [node("p1", gramps_id="I0001")],
+                "places": [node("pl1", title="Amherst County, Invented")],
+                "events": [entry],
+            }
+        )
+        reported = document.dropped_fields(parsed.events[0])
+        assert field in reported, (
+            f"the instruction promises {field} is shown to the owner as dropped, "
+            f"but it is not reported: {reported}"
+        )
+        # ⛔ And it must reach the owner's DIALOG, not just a tuple -- rendered
+        # the way the host renders it, with a resolution (``host.py:588``). A
+        # field recorded as dropped and never shown is the preview/writer class
+        # in its quietest form.
+        shown = document.preview(
+            parsed,
+            document.Resolution(
+                nodes=(
+                    document.Resolved(
+                        local_id="p1",
+                        kind="person",
+                        gramps_id="I0001",
+                        found=True,
+                        display="Tabitha Quillfeather",
+                    ),
+                    document.Resolved(
+                        local_id="e1",
+                        kind="event",
+                        gramps_id="E0060",
+                        found=True,
+                        display="Census 1880 at Amherst County, Invented",
+                    ),
+                )
+            ),
+        )
+        assert field in shown, f"{field} is recorded as dropped but never rendered:\n{shown}"
+        # ⛔ The SUPPLIED value must not appear as if it would be written.
+        assert str(values[field]) not in shown, (
+            f"the dialog shows the value supplied for {field}, which is dropped -- "
+            f"the owner would approve a value the writer never applies:\n{shown}"
+        )
