@@ -359,8 +359,18 @@ def take(source: str, destination: str) -> Outcome:
 
         # ⛔ Verified BEFORE publication, so an unsound copy never wears the
         # final name even for an instant.
-        if not verify(partial, deadline):
-            last = "the copy was taken and did not pass integrity_check"
+        sound = verify(partial, deadline)
+        if sound is not True:
+            # ⛔ The REASON, not one message for two causes. "Did not pass
+            # integrity_check" told the owner their tree might be corrupt when
+            # what had happened was the clock running out.
+            last = (
+                f"the copy was taken but could not be verified within "
+                f"{SECONDS_PER_ATTEMPT:g} s. Either the tree is very large or it "
+                f"is being written to faster than it can be read."
+                if sound == TIMED_OUT
+                else "the copy was taken and did not pass integrity_check"
+            )
             discard(partial)
             continue
         try:
@@ -520,7 +530,13 @@ deadline is honoured promptly, large enough that the check itself is not the cos
 -- measured at 4 handler calls to interrupt a 28 MB database."""
 
 
-def verify(path: str, deadline: float | None = None) -> bool:
+TIMED_OUT = "timed out"
+"""What ``verify`` returns when the shared budget expired rather than the copy
+being unsound. ⛔ **A distinct value, not ``False``** -- the two have different
+causes and the owner is told which."""
+
+
+def verify(path: str, deadline: float | None = None) -> bool | str:
     """Whether the copy reads as a sound database. ⛔ A copy nobody checked is a hope.
 
     ⛔ **Bounded by the same deadline as the copy, so the WHOLE pre-write path is
@@ -542,6 +558,16 @@ def verify(path: str, deadline: float | None = None) -> bool:
     unsound at the one moment they can no longer decline. Bounding the check keeps
     the refusal before the write, which is what refuse-to-arm means.
     """
+    # ⛔ **Checked BEFORE the statement, not only from inside it.**
+    #
+    # ⚠️ The progress handler fires every ``VERIFY_STEPS`` VM instructions, so a
+    # database small enough to finish in fewer **never invokes it at all** --
+    # measured: an 8 KB database returned ``True`` with the deadline 999 seconds
+    # in the past. The budget was advertised and not applied, which is this
+    # project's most common defect wearing the bound's own clothes.
+    if deadline is not None and time.monotonic() > deadline:
+        return TIMED_OUT
+
     try:
         with contextlib.closing(sqlite3.connect(_uri(path), uri=True)) as taken:
             if deadline is not None:
@@ -553,9 +579,31 @@ def verify(path: str, deadline: float | None = None) -> bool:
 
                 taken.set_progress_handler(past_the_deadline, VERIFY_STEPS)
             row = taken.execute("PRAGMA integrity_check").fetchone()
-            return bool(row) and row[0] == "ok"
+            sound = bool(row) and row[0] == "ok"
     except Exception:
+        # ⛔ **An interrupted check is not a failed check**, and reporting it as
+        # one told the owner their copy "did not pass integrity_check" when what
+        # actually happened was the shared budget expiring. On a large or slow
+        # tree that is every write refused for a reason that is not the reason.
+        if deadline is not None and time.monotonic() > deadline:
+            return TIMED_OUT
         return False
+
+    # ⛔ And again after: a check that FINISHED past the budget finished outside
+    # it, whether or not the handler ever fired.
+    #
+    # ⚠️ **These two checks are individually redundant for every case the tests
+    # can construct, and that is recorded rather than glossed.** Reverting either
+    # one alone leaves all tests passing; only removing both fails them. The
+    # earlier check avoids opening a connection and starting an unbounded
+    # ``integrity_check`` when the budget is already spent -- a behaviour
+    # difference, not a different answer -- and **no test here distinguishes
+    # them.** Saying so is the point: a control that fires on neither proves
+    # nothing about either, and claiming otherwise is the class this file's own
+    # history is made of.
+    if deadline is not None and time.monotonic() > deadline:
+        return TIMED_OUT
+    return sound
 
 
 def prune(directory: str, keep: int | None = None, protect: str | None = None) -> list[str]:

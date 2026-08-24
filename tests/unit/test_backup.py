@@ -649,14 +649,54 @@ def test_verification_is_bounded_by_the_SAME_deadline_as_the_copy(tmp_path: Path
 
     # ⛔ A deadline already in the past: verification must refuse rather than run
     # to completion, and it must not raise.
-    assert backup.verify(str(source), deadline=time.monotonic() - 1) is False, (
+    assert backup.verify(str(source), deadline=time.monotonic() - 1) == backup.TIMED_OUT, (
         "verification ignored an expired deadline and ran unbounded"
     )
 
-    # ⭐ And with room, the same call still answers truthfully — a bound that
-    # refuses everything would pass the assertion above and be useless.
+    # ⛔⛔ **And a database small enough that the progress handler NEVER FIRES.**
+    #
+    # ⚠️ This assertion is why the one above is not enough. The handler runs every
+    # ``VERIFY_STEPS`` VM instructions; a database that finishes in fewer never
+    # invokes it, so the deadline was advertised and not applied — measured, an
+    # 8 KB database returned ``True`` with the deadline 999 seconds past. **The
+    # test above passed only because its fixture happened to be large enough**,
+    # which is a test passing for a reason unrelated to the property it names.
+    tiny = tmp_path / "tiny.sqlite"
+    connection = sqlite3.connect(tiny)
+    connection.execute("create table t (x)")
+    connection.commit()
+    connection.close()
+    assert backup.verify(str(tiny), deadline=time.monotonic() - 999) == backup.TIMED_OUT, (
+        "a database too small to trigger the progress handler ignored the deadline"
+    )
+
+    # ⭐ And with room, the same calls still answer truthfully — a bound that
+    # refuses everything would pass every assertion above and be useless.
     assert backup.verify(str(source), deadline=time.monotonic() + 30) is True
+    assert backup.verify(str(tiny), deadline=time.monotonic() + 30) is True
     assert backup.verify(str(source)) is True, "an unbounded call must still work"
+
+
+def test_a_TIMEOUT_is_told_apart_from_a_CORRUPT_copy(tmp_path: Path) -> None:
+    """⛔ One message for two causes told the owner the wrong thing.
+
+    An interrupted check and a failed check both returned ``False``, so ``take``
+    reported *"the copy did not pass integrity_check"* when what had happened was
+    the shared budget expiring. ⚠️ On a large or slow tree that is **every write
+    refused, for a reason that is not the reason** — and the owner would go
+    looking for corruption that is not there.
+    """
+    sound = _tree(tmp_path / "sound.db", rows=200)
+    corrupt = tmp_path / "corrupt.sqlite"
+    corrupt.write_bytes(b"SQLite format 3" + bytes(201))
+
+    assert backup.verify(str(corrupt), deadline=time.monotonic() + 30) is False, (
+        "a corrupt copy must report unsound, not timed out"
+    )
+    assert backup.verify(str(sound), deadline=time.monotonic() - 1) == backup.TIMED_OUT, (
+        "a sound copy past the budget must report timed out, not unsound"
+    )
+    assert backup.TIMED_OUT is not False, "the two outcomes must be distinguishable"
 
 
 def test_an_unsound_copy_is_still_refused_BEFORE_publication(tmp_path: Path) -> None:
