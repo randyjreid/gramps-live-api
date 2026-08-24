@@ -53,7 +53,7 @@ from gramps_live_api.core.pii_guard import (  # noqa: E402
 )
 
 
-def run(label: str, *command: str, operator_input: bool = False) -> None:
+def run(label: str, *command: str, operator_input: bool = False, rerun: str = "") -> None:
     """One gate. ⛔ Its RETURN CODE is the verdict; its output is not consulted.
 
     ⛔ **``operator_input=True`` means this command line carried something a
@@ -79,7 +79,19 @@ def run(label: str, *command: str, operator_input: bool = False) -> None:
         print(f"FAILED (exit {finished.returncode})")
         if operator_input:
             print("    (diagnostics withheld: this command line carried operator input)")
-            print(f"    re-run it yourself to see them: {label}")
+            # ⛔ A RUNNABLE command, supplied BY THE CALL SITE.
+            #
+            # ⚠️ The obvious fix -- print ``" ".join(command)`` -- **reintroduces
+            # the leak this whole file is about**, because the command line is
+            # where the operator-supplied value lives. The caller knows which part
+            # is safe to show and refers to the variable rather than its value.
+            #
+            # ⚠️ And the label alone was not a recovery path either: ``pii_guard``
+            # is what this script calls the step, not an entry point, so following
+            # it produced "command not found".
+            if rerun:
+                print("    re-run it yourself to see them:")
+                print("        " + rerun)
         else:
             sys.stdout.write(finished.stdout[-4000:])
             sys.stderr.write(finished.stderr[-4000:])
@@ -118,7 +130,7 @@ def git(*args: str) -> str:
     return finished.stdout.strip() if finished.returncode == 0 else ""
 
 
-def git_or_die(label: str, *args: str) -> str:
+def git_or_die(label: str, *args: str, operator_input: bool = False) -> str:
     """Git's stdout, ABORTING if the command failed.
 
     ⚠️ **``git`` above collapses failure into the empty string, and an empty
@@ -135,10 +147,18 @@ def git_or_die(label: str, *args: str) -> str:
         ("git", *args), cwd=ROOT, capture_output=True, text=True, check=False, env=_anchored_env()
     )
     if finished.returncode != 0:
-        # ⛔ Git's stderr quotes the revision argument back, and that argument can
-        # be operator-supplied. Not forwarded -- see ``run``'s note.
         print(f"  {label:<28}FAILED -- git could not answer (exit {finished.returncode})")
-        print("    (diagnostics withheld: the revision expression is operator-supplied)")
+        # ⛔ **Withheld only when the revision really was operator-supplied.**
+        #
+        # ⚠️ Withholding unconditionally threw away Git's diagnosis on the path
+        # where nothing was configured and the baseline is this file's own
+        # ``origin/main`` -- an unborn HEAD or a corrupt object then produced a
+        # message naming no cause at all. **A fix aimed at not over-sharing
+        # under-shared on the path the operator never touched.**
+        if operator_input:
+            print("    (diagnostics withheld: the revision expression is operator-supplied)")
+        else:
+            sys.stderr.write(finished.stderr[-2000:])
         raise SystemExit(finished.returncode)
     return finished.stdout.strip()
 
@@ -225,7 +245,9 @@ def main() -> int:
 
     scope: list[str] = []
     # ⛔ ``git_or_die``: a rev-list that FAILS must not read as "zero commits".
-    if git_or_die("pii_guard", "rev-list", "--count", f"{base}..HEAD") in ("", "0"):
+    if git_or_die(
+        "pii_guard", "rev-list", "--count", f"{base}..HEAD", operator_input=configured
+    ) in ("", "0"):
         # Nothing committed on top of the baseline, so the index is the whole of
         # what this branch adds and the range would cover nothing.
         print(f"  {'pii_guard':<28}(nothing committed on top of the baseline -- index only)")
@@ -239,7 +261,15 @@ def main() -> int:
         "gramps_live_api.core.pii_guard",
         *scope,
         ".",
-        operator_input=bool(scope),
+        # ⛔ ``configured``, not ``bool(scope)``. ``scope`` is non-empty whenever
+        # the branch has commits, so keying on it discarded pii_guard's own --
+        # already redacted -- findings on the ordinary failure path, where the
+        # baseline is this file's constant and nothing was operator-supplied.
+        operator_input=configured,
+        rerun=(
+            "python -m gramps_live_api.core.pii_guard "
+            '--range "$env:GRAMPS_LIVE_API_GATE_BASE..HEAD" .'
+        ),
     )
 
     # ⛔ **A partial run does not get the full verdict.**
