@@ -65,8 +65,35 @@ def run_visible(label: str, *command: str) -> None:
 
 
 def git(*args: str) -> str:
+    """Git's stdout, or ``""`` if it failed. ⚠️ **The two are indistinguishable.**
+
+    ⛔ Only for questions where *failed* and *empty* deserve the same answer --
+    ``rev-parse --verify`` on a ref that may not exist is exactly that. For
+    anything where a failure must not read as an empty result, use ``git_or_die``.
+    """
     finished = subprocess.run(("git", *args), cwd=ROOT, capture_output=True, text=True, check=False)
     return finished.stdout.strip() if finished.returncode == 0 else ""
+
+
+def git_or_die(label: str, *args: str) -> str:
+    """Git's stdout, ABORTING if the command failed.
+
+    ⚠️ **``git`` above collapses failure into the empty string, and an empty
+    string is a real answer to several of the questions this file asks.** A
+    ``rev-list --count`` that dies on a missing or corrupt object returns ``""``,
+    which reads as *zero commits*, which selects the index-only scan -- and the
+    gate then prints ALL GATES PASS without ever looking at the branch history.
+
+    ⛔ **A command that failed is not a command that answered.** Same shape as a
+    PowerShell ``-ErrorAction SilentlyContinue`` turning a wrong query into an
+    empty result, which is recorded in CONTRIBUTING for the same reason.
+    """
+    finished = subprocess.run(("git", *args), cwd=ROOT, capture_output=True, text=True, check=False)
+    if finished.returncode != 0:
+        print(f"  {label:<28}FAILED -- git could not answer (exit {finished.returncode})")
+        sys.stderr.write(finished.stderr[-2000:])
+        raise SystemExit(finished.returncode)
+    return finished.stdout.strip()
 
 
 def main() -> int:
@@ -125,21 +152,36 @@ def main() -> int:
     # a clone whose canonical remote is ``upstream`` names it and carries on. A
     # gate nobody can satisfy gets worked around, and a gate worked around is not
     # a gate.
+    # ⛔ **The baseline is operator-supplied and is NEVER echoed.**
+    #
+    # ⚠️ ``GRAMPS_LIVE_API_GATE_BASE`` is whatever someone typed, and the mistake
+    # that puts it on this path is typing a PATH where a ref belongs -- so the
+    # failure message is exactly where an absolute path would land, verbatim, in
+    # captured output and CI logs. **The guard's own rule is that revision
+    # expressions are operator-supplied and must not be echoed**, and a gate
+    # script leaking one while reporting on leaks is the joke telling itself.
+    #
+    # ⭐ The remediation does not need the value: the person who set it can read
+    # it back, and the person who did not set it wants the default named, which is
+    # a constant in this file rather than an input.
+    configured = "GRAMPS_LIVE_API_GATE_BASE" in os.environ
     base = os.environ.get("GRAMPS_LIVE_API_GATE_BASE", "origin/main")
     if not git("rev-parse", "--verify", base):
-        print(f"  {'pii_guard':<28}FAILED -- cannot resolve the baseline {base!r}")
-        print(f"    The history scan needs a baseline, and {base!r} does not resolve here.")
+        source = "the ref named by GRAMPS_LIVE_API_GATE_BASE" if configured else "origin/main"
+        print(f"  {'pii_guard':<28}FAILED -- cannot resolve the baseline")
+        print(f"    The history scan needs a baseline, and {source} does not resolve here.")
         print("    Scanning only the index would miss a branch that adds personal data")
         print("    and deletes it again, which still publishes the blob.")
         print("    Fetch it (git fetch origin main), or name the right one:")
-        print("        GRAMPS_LIVE_API_GATE_BASE=upstream/main python scripts/gate.py")
+        print("        GRAMPS_LIVE_API_GATE_BASE=<remote>/main python scripts/gate.py")
         raise SystemExit(2)
 
     scope: list[str] = []
-    if git("rev-list", "--count", f"{base}..HEAD") in ("", "0"):
+    # ⛔ ``git_or_die``: a rev-list that FAILS must not read as "zero commits".
+    if git_or_die("pii_guard", "rev-list", "--count", f"{base}..HEAD") in ("", "0"):
         # Nothing committed on top of the baseline, so the index is the whole of
         # what this branch adds and the range would cover nothing.
-        print(f"  {'pii_guard':<28}(nothing committed on top of {base} -- index only)")
+        print(f"  {'pii_guard':<28}(nothing committed on top of the baseline -- index only)")
     else:
         scope = ["--range", f"{base}..HEAD"]
     run("pii_guard", python, "-m", "gramps_live_api.core.pii_guard", *scope, ".")
