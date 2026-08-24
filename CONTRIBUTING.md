@@ -1609,9 +1609,48 @@ survived multiple review rounds; the reviewer read the assurance and moved on.
    forward, this platform supports that, this list cannot be empty. Those are claims
    about the world, and the code cannot make them true.
 
-⭐ **Recorded because the session that wrote all four reported them, unprompted.** No
-gate can catch this class: a comment has no exit code. Only a reviewer reading the
-code *against* the comment finds it, which is why each of them cost a round.
+⭐ **Recorded because the session that wrote them reported them, unprompted.** No gate
+can catch this class: a comment has no exit code. Only a reviewer reading the code
+*against* the comment finds it, which is why each of them cost a round.
+
+⚠️ **The table above is four of seven.** The other three were: `take()` instructing
+the reader to call it on a worker thread that had been removed; R7's page calling the
+GTK block "timeout-bounded" when the deadline is only checked between page-steps; and
+`docs/using.md` saying the host "replies the moment the dialog is up" when it replies
+the moment the dialog is *queued*. **All three were written inside fixes for earlier
+entries in this same table**, which is what produced the rule below.
+
+### ⛔ The mechanism: name the test or the line, or do not write the sentence
+
+**Seven instances, and the last three each occurred inside a fix for the previous
+one.** Carefulness has been tried and has not worked. The class needs a rule that can
+be checked rather than an intention that can be held.
+
+> ⛔ **A sentence asserting a safety property must name the test or the line that
+> establishes it. If you cannot name one, you cannot write the sentence.**
+
+**The two forms, on the same fact:**
+
+| ⛔ an assertion | ⭐ a description with a citation |
+| --- | --- |
+| *"The backup is timeout-bounded."* | *"`SECONDS_PER_ATTEMPT` is checked inside the progress callback between 1,024-page steps; `verify()` runs afterward with no deadline."* |
+| *"The copy just taken cannot be pruned."* | *"`prune` is given the path to protect and skips it."* |
+| *"Every name in the dialog is read from the tree."* | *"Names under ATTACHING TO EXISTING are resolved against the open database; under CREATING NEW there is no record to read."* |
+
+⭐ **The second form cannot be written without reading the code. That is the entire
+point.** The first can be written from memory, from intent, or from what was true
+last week — which is exactly how all seven arrived.
+
+⚠️ **This applies hardest inside a fix for a previous instance of this class.** Three
+of the seven happened exactly there. **A repair feels like the safest possible moment
+to write a reassurance, and is the most dangerous** — the fix is fresh, the reasoning
+feels complete, and the sentence is being written by the person least able to see
+what the fix did not cover.
+
+**The tell, before a reviewer applies it for you:** an assertion generalises over
+inputs, platforms, or time — *always*, *cannot*, *every*, *bounded*, *never*. A
+description names a mechanism and stops. **If the sentence would still read as true
+after someone changed the code underneath it, it is an assertion.**
 
 ### ⚠️ The same class outside the code, in a shell command
 
