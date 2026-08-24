@@ -743,6 +743,17 @@ def _display_of(database: typing.Any, kind: str, obj: typing.Any) -> str:
             # different operation from the one that runs**, which is R3's whole
             # criterion. ``document.preview`` is what renders this.
             return _family_display(database, obj)
+        if kind == "event":
+            # ⛔ **Type, date and description read from the TREE**, never from the
+            # payload that named the id.
+            #
+            # ⭐ This is the mechanism, not a nicety. A citation attaching to the
+            # wrong event is invisible unless the dialog shows what that event
+            # actually IS -- and the same read is what caught a wrong Gramps ID
+            # on the family path. ⚠️ Without a branch here a resolved event fell
+            # through to "(could not read its name)" while the preview also
+            # listed it under CREATING NEW, which is the family defect exactly.
+            return _event_display(obj)
     except Exception:
         # A display string is not worth failing a lookup over. The id resolved;
         # that is the load-bearing fact.

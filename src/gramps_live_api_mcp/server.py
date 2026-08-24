@@ -296,12 +296,20 @@ happens, so you never need a handle.
 
   people:    [{"id","gramps_id?","given","surname","gender"}]
   places:    [{"id","gramps_id?","title"}]
-  events:    [{"id","type","date","place":<place id>,"people":[<person ids>],
-              "family":<family id>,"role"}]
+  events:    [{"id","gramps_id?","type","date","place":<place id>,
+              "people":[<person ids>],"family":<family id>,"role"}]
   source:     {"id","gramps_id?","title","author","pubinfo"}
   citations: [{"id","source":<source id>,"page","attach_to":[<any ids>]}]
   families:  [{"id","gramps_id?","parents":[<person ids>],"children":[<person ids>]}]
   notes:     [{"text","attach_to":[<any ids>]}]
+
+*** IF AN EVENT ALREADY EXISTS, LOOK IT UP WITH list_events FIRST AND PASS ITS
+GRAMPS ID. A citation belongs ON the event it documents. Creating a second copy
+of an event that is already there is the duplicate this tool exists to prevent,
+and an event you did not look up is an event you are about to duplicate. An
+attached event is NOT modified: its type, date, place and role come from the
+tree, and anything you send for them is dropped and shown to the owner as
+dropped. ***
 
 *** IF A PERSON IS ALREADY IN THE TREE, LOOK THEM UP WITH list_people FIRST AND
 PASS THEIR GRAMPS ID as "gramps_id". *** Otherwise you create a duplicate of

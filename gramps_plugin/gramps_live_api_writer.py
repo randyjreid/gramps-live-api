@@ -175,6 +175,10 @@ _BY_GRAMPS_ID = {
     "place": "get_place_from_gramps_id",
     "source": "get_source_from_gramps_id",
     "family": "get_family_from_gramps_id",
+    # ⛔ Events are attachable. Their handles are invisible in the UI, which is
+    # why they were excluded -- but a Gramps ID is visible and ``list_events``
+    # returns one, so the exclusion was enforcing a premise that had expired.
+    "event": "get_event_from_gramps_id",
 }
 
 
@@ -247,7 +251,7 @@ def write(dbstate, graph):
     created = {
         k: [] for k in ("people", "events", "places", "families", "citations", "notes", "sources")
     }
-    attached = {k: [] for k in ("people", "places", "sources", "families")}
+    attached = {k: [] for k in ("people", "places", "sources", "families", "events")}
     # ⛔ Family event attachments are DEFERRED. The events loop runs before
     # families exist, so the handle to attach to is not minted yet -- the same
     # reason everything pointable is created before any pointer is written.
@@ -328,6 +332,20 @@ def write(dbstate, graph):
 
         # --- events, and the people they happened to -------------------------
         for spec in graph.get("events") or []:
+            existing = _existing(database, "event", spec)
+            if existing is not None:
+                # ⛔ **Attached to, never altered.** The graph's type, date, place,
+                # description and role are deliberately NOT applied -- see
+                # ``IGNORED_WHEN_ATTACHING``, and the preview names them as
+                # dropped so the owner approves the write that actually happens.
+                #
+                # ⚠️ No ``add_event`` and no ``commit_event`` on this path: an
+                # existing event is a record the owner asked to attach TO, and
+                # editing it is the one thing attaching is defined not to do.
+                handles[spec["id"]] = existing
+                kinds[spec["id"]] = "event"
+                attached["events"].append(str(spec.get("gramps_id")))
+                continue
             event = Event()
             event.set_type(_event_type(spec.get("type")))
             parsed = _gramps_date(spec.get("date"))
