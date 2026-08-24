@@ -157,8 +157,12 @@ IGNORED_WHEN_ATTACHING = (
     "date",
     "place",
     "description",
-    "role",
 )
+# ⚠️ ``role`` is deliberately NOT here. It cannot survive on an attached event to
+# be dropped: with ``people`` it is refused because an attached event keeps its
+# own participants, and without ``people`` it is refused because a role with
+# nobody to carry it reaches nothing. **Listing it would claim a state that
+# cannot occur**, which is the comment-as-claim shape recorded in CONTRIBUTING.
 """Fields that describe an object, and are therefore NOT applied to one that
 already exists.
 
@@ -499,6 +503,28 @@ def parse(body: Any) -> Graph:
                         )
 
     for event in events:
+        # ⛔ **An ATTACHED event may not also name participants.**
+        #
+        # ⚠️ Without this the graph parsed, the preview rendered a ``+`` for the
+        # event under each named person, and the writer's attach path skipped both
+        # the person ``EventRef`` loop and the deferred family attachment
+        # entirely -- **so the owner approved a relationship that was never
+        # written.** That is the preview and the writer disagreeing, which is the
+        # class this project has six recorded instances of, in code added for the
+        # feature above.
+        #
+        # ⭐ **Refused rather than dropped-and-reported.** Dropping would leave the
+        # caller believing it can express participation on an existing event and
+        # leave the rendering to suppress separately; refusing makes the
+        # disagreement impossible rather than merely announced, and the message
+        # says what to do instead.
+        if event.get("gramps_id") and (event.get("people") or event.get("family")):
+            raise GraphInvalid(
+                f"event {event.get('id')!r} names an existing event by gramps_id and "
+                "also names 'people' or 'family'. An event already in the tree keeps "
+                "the participants it has -- attach a citation or a note to it "
+                "instead, and drop those fields."
+            )
         check(f"event {event.get('id')!r}'s place", event.get("place"), must_be="place")
         for person in event.get("people") or []:
             check(f"event {event.get('id')!r}", person, must_be="person")
@@ -663,13 +689,22 @@ def _event_line(event: dict[str, Any], named: Any) -> str:
     role = str(event.get("role") or "").strip()
     if role and role.casefold() != "primary":
         bits.append(f"as {role}")
+    # ⛔ **Rendered, because the writer applies it.** A census line's occupation,
+    # relationship to head or marital status has nowhere else structured to go,
+    # and the tree's own events already carry such strings. **A description
+    # written and not shown is the preview/writer class**, which this file has six
+    # recorded instances of.
+    described = str(event.get("description") or "").strip()
     # ⛔ The household the event JOINS, named. R3's criterion is that no byte
     # reaches the tree unrendered, and a marriage attaching to a family the owner
     # never saw named is that criterion failing -- the write is small, this line
     # is the reason the slice exists.
     if event.get("family"):
         bits.append("on the family " + named(event["family"]))
-    return ", ".join(bits)
+    line = ", ".join(bits)
+    # ⛔ Appended after the join, not as another comma-separated bit: a
+    # description is prose and reads as a trailing clause, not as another field.
+    return f"{line} -- {described}" if described else line
 
 
 def preview(graph: Graph, resolution: Resolution | None = None) -> str:
@@ -1061,15 +1096,24 @@ def caller_preview(graph: Graph) -> str:
     attaching_people = [p for p in graph.people if p.get("gramps_id")]
     attaching_places = [p for p in graph.places if p.get("gramps_id")]
     attaching_source = graph.source if graph.source and graph.source.get("gramps_id") else None
+    # ⛔ Events are attachable, so this preview has to say so too.
+    #
+    # ⚠️ It reported EVERY event as created new. For a proposal that correctly
+    # named an existing event, the agent's immediate answer contradicted both the
+    # approval dialog and the writer -- so a caller could abandon or "fix" a
+    # proposal that was already right, and produce the duplicate by fixing it.
+    attaching_events = [e for e in graph.events if e.get("gramps_id")]
     creating_people = [p for p in graph.people if not p.get("gramps_id")]
     creating_places = [p for p in graph.places if not p.get("gramps_id")]
     creating_source = graph.source if graph.source and not graph.source.get("gramps_id") else None
 
     out: list[str] = []
-    if attaching_people or attaching_places or attaching_source:
+    if attaching_people or attaching_places or attaching_source or attaching_events:
         out.append("ATTACHING TO EXISTING RECORDS")
         for entry in attaching_people:
             out.append(f"  person  {entry['gramps_id']}")
+        for entry in attaching_events:
+            out.append(f"  event   {entry['gramps_id']}")
         for entry in attaching_places:
             out.append(f"  place   {entry['gramps_id']}")
         if attaching_source:
@@ -1097,8 +1141,19 @@ def caller_preview(graph: Graph) -> str:
             )
             out.append("")
 
+    # ⛔ Events are no longer always created new, so the count is split the same
+    # way families' already is. **Saying "always created new" about a node the
+    # caller correctly attached is a false statement about its own proposal**, and
+    # the caller acting on it produces the duplicate.
+    new_events = [e for e in graph.events if not e.get("gramps_id")]
+    if new_events:
+        out.append(f"  {len(new_events)} events (created new)")
+    if attaching_events:
+        out.append(
+            f"  {len(attaching_events)} events (attaching to an event already in the "
+            "tree; its type, date and place are left exactly as they are)"
+        )
     for label, items in (
-        ("events", graph.events),
         ("citations", graph.citations),
         ("notes", graph.notes),
     ):

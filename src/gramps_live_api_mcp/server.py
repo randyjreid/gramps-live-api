@@ -297,11 +297,16 @@ happens, so you never need a handle.
   people:    [{"id","gramps_id?","given","surname","gender"}]
   places:    [{"id","gramps_id?","title"}]
   events:    [{"id","gramps_id?","type","date","place":<place id>,
-              "people":[<person ids>],"family":<family id>,"role"}]
+              "people":[<person ids>],"family":<family id>,"role","description"}]
   source:     {"id","gramps_id?","title","author","pubinfo"}
   citations: [{"id","source":<source id>,"page","attach_to":[<any ids>]}]
   families:  [{"id","gramps_id?","parents":[<person ids>],"children":[<person ids>]}]
   notes:     [{"text","attach_to":[<any ids>]}]
+
+"description" is free text on the event itself -- a census line's occupation,
+relationship to head or marital status, an officiant's name. Use it rather than
+putting those facts only in a note: the tree's own events already carry such
+strings, and a note is prose nothing can query.
 
 *** IF AN EVENT ALREADY EXISTS, LOOK IT UP WITH list_events FIRST AND PASS ITS
 GRAMPS ID. A citation belongs ON the event it documents. Creating a second copy
@@ -309,7 +314,9 @@ of an event that is already there is the duplicate this tool exists to prevent,
 and an event you did not look up is an event you are about to duplicate. An
 attached event is NOT modified: its type, date, place and role come from the
 tree, and anything you send for them is dropped and shown to the owner as
-dropped. ***
+dropped. An attached event also keeps the participants it has: do NOT send
+"people" or "family" with a gramps_id -- that is refused, because an event
+already in the tree keeps its own. ***
 
 *** IF A PERSON IS ALREADY IN THE TREE, LOOK THEM UP WITH list_people FIRST AND
 PASS THEIR GRAMPS ID as "gramps_id". *** Otherwise you create a duplicate of
@@ -318,9 +325,9 @@ wrong. The same goes for the SOURCE: if you have already cited this parish
 register or this census, pass its Gramps ID rather than making a second copy of
 it.
 
-gramps_id works on people, places, the source AND families. Events, citations
-and notes are always created new -- a document asserting a fact is asserting a
-new claim about it, even between people who already exist.
+gramps_id works on people, places, the source, families AND events. Citations and
+notes are always created new -- a document asserting a fact is asserting a new
+claim about it, even about people and events that already exist.
 
 *** FOR A FAMILY, CALL find_families FIRST AND PASS ITS GRAMPS ID. *** A tree
 holds one family per couple, and creating a second splits their children across

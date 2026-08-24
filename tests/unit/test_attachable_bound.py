@@ -115,3 +115,125 @@ def test_an_event_gramps_id_that_does_not_resolve_refuses_the_WHOLE_batch() -> N
         "creating a second copy of the event"
     )
     assert "E9999" in str(resolution.refusal())
+
+
+def test_an_ATTACHED_event_may_not_also_name_participants() -> None:
+    """⛔ The preview promised a relationship the writer never wrote.
+
+    An event carrying a ``gramps_id`` and also ``people`` or ``family`` parsed
+    cleanly, the approval dialog rendered a ``+`` for it under each named target,
+    and the writer's attach path skipped **both** the person ``EventRef`` loop and
+    the deferred family attachment. **So the owner approved a relationship that was
+    never written** — the preview/writer class, with six recorded instances, in the
+    code added to let a citation reach an existing event.
+
+    ⭐ **Refused rather than dropped-and-reported.** Dropping leaves the caller
+    believing it can express participation on an existing event, and leaves the
+    rendering to be suppressed separately; refusing makes the disagreement
+    impossible rather than announced.
+    """
+    for extra in ({"people": ["p1"]}, {"family": "f1"}):
+        body: dict[str, Any] = {
+            "people": [node("p1", gramps_id="I0001"), node("p2")],
+            "families": [node("f1", parents=["p1", "p2"])],
+            "events": [dict(node("e1", gramps_id="E0060"), **extra)],
+        }
+        with pytest.raises(document.GraphInvalid) as invalid:
+            document.parse(body)
+        message = str(invalid.value)
+        assert "keeps the participants it has" in message, message
+        assert "e1" in message, "the refusal must name the node"
+
+    # ⭐ The case this feature exists for is untouched: an attached event with a
+    # citation and nothing else.
+    fine = {
+        "people": [node("p1", gramps_id="I0001")],
+        "events": [node("e1", gramps_id="E0060")],
+        "source": node("s1"),
+        "citations": [node("c1", source="s1", attach_to=["e1"])],
+    }
+    assert document.parse(fine) is not None
+
+    # ⚠️ And a CREATED event still carries participants, which is most events.
+    created = {
+        "people": [node("p1")],
+        "events": [node("e1", people=["p1"])],
+    }
+    assert document.parse(created) is not None
+
+
+def test_the_caller_preview_agrees_with_the_dialog_about_attached_events() -> None:
+    """⛔ The agent's immediate answer contradicted the approval dialog.
+
+    ``caller_preview`` reported **every** event as *always created new*. For a
+    proposal that correctly named an existing event, the caller was told it was
+    about to create one — so it could abandon or "fix" a correct proposal, and
+    **produce the duplicate by fixing it.**
+    """
+    graph = document.parse(
+        {
+            "people": [node("p1", gramps_id="I0001")],
+            "events": [node("e1", gramps_id="E0060")],
+            "source": node("s1"),
+            "citations": [node("c1", source="s1", attach_to=["e1"])],
+        }
+    )
+    text = document.caller_preview(graph)
+
+    assert "event   E0060" in text, "an attached event is not listed as attaching"
+    assert "1 events (always created new)" not in text, (
+        "the caller is told an existing event will be created new"
+    )
+    assert "attaching to an event already in the tree" in text
+
+
+def test_a_created_event_carries_a_DESCRIPTION_and_the_preview_shows_it() -> None:
+    """⛔ A census line's occupation had nowhere structured to go.
+
+    ``events[]`` carried type, date, place, people and role — so an occupation,
+    a relationship to head, or a marital status ended up in note prose, which
+    nothing can query. The tree's own events already carry such strings.
+
+    ⚠️ **And the preview must render it.** A description written and not shown is
+    the preview/writer class, which this project has six recorded instances of —
+    so this asserts the rendering, not merely that the field parses.
+    """
+    graph = document.parse(
+        {
+            "people": [node("p1")],
+            "events": [node("e1", type="Census", date="1930-04-01", description="a clause")],
+        }
+    )
+    assert graph.events[0]["description"] == "a clause"
+
+    shown = document.preview(graph, document.Resolution())
+    assert "a clause" in shown, "the description is written and not shown"
+
+
+def test_an_ATTACHED_event_DROPS_its_description_and_says_so() -> None:
+    """⛔ Same rule as every other field on an attached node.
+
+    An event already in the tree keeps its own description; applying the
+    payload's would be editing a record the owner asked to attach to.
+    """
+    graph = document.parse(
+        {
+            "people": [node("p1", gramps_id="I0001")],
+            "events": [node("e1", gramps_id="E0060", description="not applied")],
+        }
+    )
+    assert "description" in document.dropped_fields(graph.events[0]), (
+        "an attached event's description is not reported as dropped"
+    )
+
+    resolution = document.Resolution(
+        nodes=(
+            document.Resolved(
+                local_id="e1", gramps_id="E0060", kind="event", found=True, display="Service 1932"
+            ),
+        )
+    )
+    shown = document.preview(graph, resolution)
+    assert "NOT applied" in shown and "description" in shown, (
+        "the owner is not told the description was dropped"
+    )

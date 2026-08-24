@@ -351,8 +351,16 @@ def write(dbstate, graph):
             parsed = _gramps_date(spec.get("date"))
             if parsed is not None:
                 event.set_date_object(parsed)
-            elif spec.get("date"):
-                event.set_description("date as written: " + str(spec["date"]))
+            # ⛔ **The description, and the unparsed-date fallback, share one
+            # field.** Gramps' Event has one description, and this file already
+            # used it to preserve a date it could not parse. Writing both would
+            # have had the later call silently discard the earlier -- so they are
+            # JOINED, and the owner sees in the preview whichever parts exist.
+            described = [str(spec["description"]).strip()] if spec.get("description") else []
+            if parsed is None and spec.get("date"):
+                described.append("date as written: " + str(spec["date"]))
+            if described:
+                event.set_description("; ".join(described))
             place_local = spec.get("place")
             if place_local and place_local in handles:
                 event.set_place_handle(handles[place_local])
