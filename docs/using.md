@@ -340,13 +340,24 @@ places, an event, a source and a citation, written as one transaction.
 
 ### What the dialog is for
 
-**Every name in it is read from the tree, not from what the agent sent.** If the model picked the
-wrong Gramps ID, you see the wrong person's name and cancel — and that is the only check there is.
-An agent echoing back a name it chose itself would defeat it entirely, which is why the preview
-resolves each id against the open database instead.
+**The dialog has two sections, and the difference between them is the whole point.**
+
+⭐ **Under *ATTACHING TO EXISTING*, every name is read from the tree** — never from what the agent
+sent. If the model picked the wrong Gramps ID you see the wrong person's name and cancel, and **that
+is the only check there is.** An agent echoing back a name it chose itself would defeat it entirely,
+which is why the preview resolves each id against the open database instead.
+
+⛔ **Under *CREATING NEW*, the names are the agent's own words.** Nothing exists in the tree to read
+them from yet, so there is nothing to check them against — they are a proposal, and approving them is
+you deciding they are right.
+
+> ⚠️ **This page previously said "every name is read from the tree", without that split.** It was
+> wrong in the direction that matters: it invited you to read a model-proposed name as if the tree
+> had confirmed it. **A new person is created exactly as spelled, and nothing is matched by name** —
+> if they are already in your tree, you get a second copy.
 
 ⛔ **Read the names, not the shape.** The shape is nearly always right; the identity is the thing
-worth your attention.
+worth your attention — and under *CREATING NEW*, the spelling is too.
 
 ### What it does before it writes
 

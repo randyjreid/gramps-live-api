@@ -79,7 +79,8 @@ landed, and what was created:
 ```powershell
 Get-ChildItem "<tree>\.gramps-live-api-undo\*.json" | Sort-Object Name | ForEach-Object {
   $r = Get-Content $_.FullName -Raw | ConvertFrom-Json
-  "{0}  confirmed={1}  wrote {2}" -f $r.written_utc, $r.write_confirmed, ($r.created | ConvertTo-Json -Compress)
+  $state = if ($r.PSObject.Properties.Name -contains 'write_confirmed') { "INTENT ONLY" } else { "completed" }
+  "{0}  [{1}]  wrote {2}" -f $r.written_utc, $state, ($r.created | ConvertTo-Json -Compress)
   "    backup {0}" -f $r.backup.path
   "    taken  {0}   people before: {1}" -f $r.backup.taken_utc, $r.backup.totals_before.people
 }
@@ -97,8 +98,27 @@ change without your inspecting either database.
 you to check the restored tree against. It is stored precisely so that step has something to compare
 with.
 
-> ⚠️ **A record whose `write_confirmed` is `false` describes a write that was refused or never
-> finished.** Its backup is of a tree nothing changed. That is not the one you want.
+### ⛔ What `INTENT ONLY` means, and what it does not
+
+A record is written **before** the transaction and completed **after** it. The one written first
+carries `write_confirmed: false`; the completion has no such field at all, and carries the real
+`written_utc` and the created Gramps IDs.
+
+⛔ **`INTENT ONLY` means the completion was never recorded. It does NOT mean nothing was written.**
+
+⚠️ There is a window in which the database has committed and the completion has not been written —
+Gramps runs its post-commit callbacks *after* the SQLite COMMIT, and an exception in one of them
+exits the write with **the tree already changed**. The plugin keeps the backup in exactly that case,
+deliberately, because it may be the only way back.
+
+⭐ **So treat `INTENT ONLY` as *commit status unknown*, and check the tree before you act on it.**
+Open it and look for the Gramps IDs in that record's `graph`. If they are there, the write happened
+and this record's backup is the right one to restore from. If they are not, nothing was written and
+you want an **older** backup.
+
+⛔ **Do not skip past an `INTENT ONLY` record on the assumption that nothing happened.** Choosing an
+older backup than you needed does not merely fail to help — **it discards every change made between
+the two**, including work that had nothing to do with the problem.
 
 ## 3. Close Gramps
 
