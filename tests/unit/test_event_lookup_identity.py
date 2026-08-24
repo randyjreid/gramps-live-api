@@ -244,7 +244,12 @@ def test_the_dialog_shows_the_PLACE_so_two_same_year_events_differ(unbind: None)
         Event("E0012", "Census", place_handle="pa", description="household of 4"),
     )
     assert described.count(" -- ") == 1, f"two separators of the same shape: {described!r}"
-    assert described.endswith("at Amherst County, Invented"), described
+
+    # ⛔ **The preview's order, because both strings land in the same dialog.**
+    # ``document._event_line`` renders ``type date at PLACE -- description``; a
+    # resolved event rendering ``-- description at PLACE`` would be the
+    # preview/writer disagreement class inside one approval screen.
+    assert described == "Census 1880 at Amherst County, Invented -- household of 4", described
 
 
 def test_a_PRIVATE_place_is_not_named_in_the_dialog(unbind: None) -> None:

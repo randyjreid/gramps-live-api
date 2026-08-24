@@ -797,14 +797,9 @@ def _display_of(database: typing.Any, kind: str, obj: typing.Any) -> str:
                 if held is not None:
                     place = str(held.get_name().get_value() or held.get_title() or "")
             #
-            # ⚠️ ``at``, NOT another ``--``. ``_event_display`` already ends a
-            # described event with ``-- <description>``, so appending the place the
-            # same way gives ``Census 1880 -- household of ... -- Amherst County``:
-            # two identical separators in the one string whose entire job is
-            # letting the owner tell two events apart. **Caught in self-review of
-            # this fix, not by a reviewer** -- it was introduced by the fix above.
-            shown = _event_display(obj)
-            return f"{shown} at {place}" if place else shown
+            # ⛔ Handed to the renderer, not appended after it -- see
+            # ``_event_display``, which owns the grammar for both call sites.
+            return _event_display(obj, place)
     except Exception:
         # A display string is not worth failing a lookup over. The id resolved;
         # that is the load-bearing fact.
@@ -1506,13 +1501,26 @@ def _changed_display(kind: str, obj: typing.Any, changed: int) -> str:
     return f"{_orphan_display(singular, obj)}  [changed {stamp}]"
 
 
-def _event_display(event: typing.Any) -> str:
-    """An event as the owner recognises it: what it was, and when."""
+def _event_display(event: typing.Any, place: str = "") -> str:
+    """An event as the owner recognises it: what it was, when, and where.
+
+    ⛔ **The order is ``document._event_line``'s order, deliberately** --
+    ``type date at PLACE -- description``. Both strings land in the SAME approval
+    dialog, one for an event being created and one for an event being attached
+    to, and a dialog with two grammars is a dialog the owner reads twice.
+
+    ⚠️ A first version appended the place at the call site instead, giving
+    ``-- description at PLACE`` against the preview's ``at PLACE -- description``:
+    **the preview/writer disagreement class, introduced by the fix that added the
+    place.** Passing it in keeps one renderer, so the two cannot drift.
+    """
     try:
         shown = str(event.get_type() or "Event")
         date = event.get_date_object()
         if date is not None and not date.is_empty():
             shown += f" {date.get_year() or date}"
+        if place:
+            shown += f" at {place}"
         if event.get_description():
             shown += f" -- {event.get_description()}"
         return shown
