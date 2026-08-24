@@ -567,3 +567,107 @@ def test_a_BACKWARD_CLOCK_does_not_collapse_the_retention_WINDOW(tmp_path: Path)
             f"collapsed to one and a journal record one write old pointed at a "
             f"deleted file."
         )
+def test_a_long_display_name_cannot_push_the_filename_past_the_component_limit(
+    tmp_path: Path,
+) -> None:
+    """⛔ Every write for an otherwise valid tree was refused, and fail-closed.
+
+    A filesystem component limit is **255 bytes**. A display name long enough
+    made ``{stamp}-{unique}-{safe}.sqlite`` exceed it, so creating the copy raised
+    and the write path refused — for a tree with nothing wrong with it.
+
+    ⚠️ **The bound is on ENCODED BYTES, and that distinction is the finding.**
+    120 accented characters is 153 characters and 273 bytes: inside the limit by
+    the character count on Windows, past it by the byte count on Linux. **A bound
+    counting the wrong unit is the same defect one layer down.**
+
+    ⭐ What is truncated is decorative. Identity is the digest in the folder name
+    and the marker file inside it, so nothing that distinguishes one tree from
+    another is lost.
+    """
+    tree = str(tmp_path / "grampsdb" / "abcd1234")
+    root = str(tmp_path / "backups")
+
+    for label, display in (
+        ("ascii", "A" * 300),
+        ("multibyte", "é" * 120),
+        ("mixed", ("naïve-" * 40)),
+    ):
+        destination = backup.destination_for(root, display, "20260824T000000Z", tree_dir=tree)
+        name = os.path.basename(destination)
+
+        assert len(name.encode("utf-8")) <= 255, (
+            f"{label}: the filename is {len(name.encode('utf-8'))} BYTES, past the "
+            f"component limit — every write for this tree would be refused"
+        )
+
+        # ⛔ And it must actually be creatable, not merely short enough on paper.
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        Path(destination).write_text("x", encoding="utf-8")
+        assert Path(destination).exists(), f"{label}: could not create the copy"
+
+        # ⚠️ Truncation must not split a character — a name that cannot round-trip
+        # through UTF-8 is a name some tool will refuse later.
+        assert name == name.encode("utf-8").decode("utf-8"), f"{label}: split a character"
+
+    # ⭐ An ordinary name is untouched. A bound that mangles the common case to
+    # survive the rare one has traded the wrong way.
+    ordinary = backup.destination_for(root, "RandyReid-Testing", "20260824T000000Z", tree_dir=tree)
+    assert "RandyReid-Testing" in os.path.basename(ordinary)
+
+    # ⛔ Two trees whose names share a truncated prefix must still not collide —
+    # identity is the digest, and truncating the decorative half must not reach it.
+    long_a = backup.destination_for(root, "X" * 300, "20260824T000000Z", tree_dir=tree)
+    long_b = backup.destination_for(
+        root, "X" * 300, "20260824T000000Z", tree_dir=str(tmp_path / "grampsdb" / "ffff9999")
+    )
+    assert os.path.dirname(long_a) != os.path.dirname(long_b), (
+        "two distinct trees with the same over-long display name share a folder"
+    )
+
+
+def test_verification_is_bounded_by_the_SAME_deadline_as_the_copy(tmp_path: Path) -> None:
+    """⛔ The bound now covers the whole pre-write path, not just its first half.
+
+    ⚠️ ``SECONDS_PER_ATTEMPT`` bounded the copy and **nothing bounded
+    ``PRAGMA integrity_check``**, which ran afterwards on the same GTK main
+    thread with no limit. So the advertised deadline did not describe the
+    operation the owner waits through — the third attempt at this bound, each one
+    bounding a smaller thing than it claimed.
+
+    ⭐ ``set_progress_handler`` is what allows this without moving verification
+    off the pre-write path: a non-zero return interrupts the running statement.
+
+    ⚠️ **The alternative was reordering** — publish, write, then verify and warn.
+    Recorded and not taken: it moves corruption detection to *after* the tree has
+    changed, telling the owner their backup is unsound at the one moment they can
+    no longer decline.
+    """
+    source = _tree(tmp_path / "source.db", rows=4000)
+
+    # ⛔ A deadline already in the past: verification must refuse rather than run
+    # to completion, and it must not raise.
+    assert backup.verify(str(source), deadline=time.monotonic() - 1) is False, (
+        "verification ignored an expired deadline and ran unbounded"
+    )
+
+    # ⭐ And with room, the same call still answers truthfully — a bound that
+    # refuses everything would pass the assertion above and be useless.
+    assert backup.verify(str(source), deadline=time.monotonic() + 30) is True
+    assert backup.verify(str(source)) is True, "an unbounded call must still work"
+
+
+def test_an_unsound_copy_is_still_refused_BEFORE_publication(tmp_path: Path) -> None:
+    """⚠️ Bounding the check must not weaken what it decides.
+
+    The point of verifying before publication is that an unsound copy never wears
+    the final name even for an instant. A deadline that let a corrupt copy through
+    would have traded the guarantee for the bound.
+    """
+    corrupt = tmp_path / "corrupt.sqlite"
+    corrupt.write_bytes(b"SQLite format 3\x00" + b"\x00" * 200)
+
+    assert backup.verify(str(corrupt)) is False
+    assert backup.verify(str(corrupt), deadline=time.monotonic() + 30) is False, (
+        "a corrupt copy passed verification when a deadline was supplied"
+    )

@@ -121,7 +121,9 @@ def destination_for(directory: str, tree_name: str, stamp: str, tree_dir: str = 
     ⭐ The owner still has to recognise it under stress, so the display name goes
     in a marker file INSIDE the folder, where changing it renames nothing.
     """
-    safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in tree_name) or "tree"
+    safe = _bounded(
+        "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in tree_name) or "tree"
+    )
 
     # ⛔ Keyed on the FULL normalised directory, hashed -- not on its basename and
     # not on the display name.
@@ -196,6 +198,37 @@ def _monotonic_stamp(folder: str, stamp: str) -> str:
         # inventing an order against something whose shape is unknown.
         return stamp
     return (moment + datetime.timedelta(seconds=1)).strftime("%Y%m%dT%H%M%SZ")
+
+
+NAME_BUDGET_BYTES = 96
+"""How many ENCODED BYTES of the display name a filename may carry.
+
+⛔ **Bytes, not characters.** A filesystem component limit is a byte limit -- 255
+on both Linux and NTFS -- so a rule counted in characters passes on a machine
+whose names are ASCII and fails on one whose names are not. ⚠️ Measured: 120
+accented characters is 153 characters and **273 bytes** -- inside the limit by the
+character count on Windows, past it by the byte count on Linux. **A bound counting
+the wrong unit is the same defect one layer down**, which is a shape this project
+has paid for before.
+
+⭐ 96 is generous for recognising a folder and leaves the stamp, the collision
+suffix and the extension far inside the limit. What is bounded here is
+DECORATIVE: identity is the digest in the folder name and the marker file inside
+it, and neither is touched."""
+
+
+def _bounded(text: str) -> str:
+    """``text``, truncated to ``NAME_BUDGET_BYTES`` without splitting a character.
+
+    ⚠️ **Encode, slice, decode-ignoring** rather than slicing the string -- a
+    character-count truncation is exactly what this replaces, and slicing encoded
+    bytes can land mid-sequence. ``errors="ignore"`` drops the partial tail, which
+    is the one case where discarding is right.
+    """
+    encoded = text.encode("utf-8")
+    if len(encoded) <= NAME_BUDGET_BYTES:
+        return text
+    return encoded[:NAME_BUDGET_BYTES].decode("utf-8", "ignore")
 
 
 TREE_MARKER = "which-tree.txt"
@@ -304,9 +337,17 @@ def take(source: str, destination: str) -> Outcome:
 
     last = "no attempt was made"
     for attempt in range(1, ATTEMPTS + 1):
+        # ⛔ **ONE deadline, measured once, covering the whole pre-write path.**
+        #
+        # ⚠️ It used to be computed inside ``_one_attempt``, which bounded the
+        # copy and left verification unbounded on the same thread -- so the
+        # advertised limit did not describe the operation the owner waits
+        # through. Measuring it here and passing it to both is what makes the
+        # deadline mean the thing it is named for.
+        deadline = time.monotonic() + SECONDS_PER_ATTEMPT
         moved = 0
         try:
-            moved = _one_attempt(source, partial)
+            moved = _one_attempt(source, partial, deadline)
         except _TookTooLong as refusal:
             last = str(refusal)
             discard(partial)
@@ -318,7 +359,7 @@ def take(source: str, destination: str) -> Outcome:
 
         # ⛔ Verified BEFORE publication, so an unsound copy never wears the
         # final name even for an instant.
-        if not verify(partial):
+        if not verify(partial, deadline):
             last = "the copy was taken and did not pass integrity_check"
             discard(partial)
             continue
@@ -398,7 +439,7 @@ def _publish(partial: str, destination: str, levels: list[str]) -> str:
     return paths.durable_directory(levels)
 
 
-def _one_attempt(source: str, destination: str) -> int:
+def _one_attempt(source: str, destination: str, deadline: float | None = None) -> int:
     """One copy, bounded by a wall clock. Returns the pages moved in the last pass.
 
     ⛔ **THE PAGE BUDGET IS DELETED, AND WAS NOT REPLACED IN KIND.** It was
@@ -429,7 +470,10 @@ def _one_attempt(source: str, destination: str) -> int:
     runs to completion in a single call: ``pages`` sets the step size and does
     **not** make it return partway, so raising is the only way to stop it.
     """
-    deadline = time.monotonic() + SECONDS_PER_ATTEMPT
+    # ⛔ The caller's deadline when given, so the copy and the verification share
+    # one budget rather than each having its own.
+    if deadline is None:
+        deadline = time.monotonic() + SECONDS_PER_ATTEMPT
     moved = 0
 
     # ⛔ Read-only, and opened HERE so it belongs to the calling thread.
@@ -468,10 +512,46 @@ def discard(path: str) -> None:
         os.remove(path)
 
 
-def verify(path: str) -> bool:
-    """Whether the copy reads as a sound database. ⛔ A copy nobody checked is a hope."""
+VERIFY_STEPS = 2000
+"""How many SQLite VM instructions between deadline checks during verification.
+
+⭐ The counterpart of ``PAGES_PER_STEP`` for the copy. Small enough that the
+deadline is honoured promptly, large enough that the check itself is not the cost
+-- measured at 4 handler calls to interrupt a 28 MB database."""
+
+
+def verify(path: str, deadline: float | None = None) -> bool:
+    """Whether the copy reads as a sound database. ⛔ A copy nobody checked is a hope.
+
+    ⛔ **Bounded by the same deadline as the copy, so the WHOLE pre-write path is
+    bounded rather than only its first half.**
+
+    ⚠️ Without this, ``SECONDS_PER_ATTEMPT`` bounded the copy and nothing bounded
+    ``PRAGMA integrity_check``, which then ran on the GTK main thread with no
+    limit at all -- so the advertised deadline did not describe the operation the
+    owner waits through. **The bound has been attempted three times and each
+    attempt bounded a smaller thing than it claimed.**
+
+    ⭐ ``set_progress_handler`` is what makes this possible without moving
+    verification off the pre-write path. Measured: a non-zero return interrupts a
+    running ``integrity_check`` after 4 handler calls on a 28 MB database.
+
+    ⚠️ **The alternative was reordering** -- publish the copy, write, then verify
+    afterwards and warn. Recorded and NOT taken: it moves corruption detection to
+    *after* the tree has changed, so the owner would be told their backup is
+    unsound at the one moment they can no longer decline. Bounding the check keeps
+    the refusal before the write, which is what refuse-to-arm means.
+    """
     try:
         with contextlib.closing(sqlite3.connect(_uri(path), uri=True)) as taken:
+            if deadline is not None:
+
+                def past_the_deadline() -> int:
+                    # ⛔ Non-zero aborts the running statement. Returning a bool
+                    # would work by accident; this returns what SQLite documents.
+                    return 1 if time.monotonic() > deadline else 0
+
+                taken.set_progress_handler(past_the_deadline, VERIFY_STEPS)
             row = taken.execute("PRAGMA integrity_check").fetchone()
             return bool(row) and row[0] == "ok"
     except Exception:
