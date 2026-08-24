@@ -111,14 +111,31 @@ Gramps runs its post-commit callbacks *after* the SQLite COMMIT, and an exceptio
 exits the write with **the tree already changed**. The plugin keeps the backup in exactly that case,
 deliberately, because it may be the only way back.
 
-⭐ **So treat `INTENT ONLY` as *commit status unknown*, and check the tree before you act on it.**
-Open it and look for the Gramps IDs in that record's `graph`. If they are there, the write happened
-and this record's backup is the right one to restore from. If they are not, nothing was written and
-you want an **older** backup.
+⛔ **Treat `INTENT ONLY` as *commit status unknown*. The record cannot tell you which it was, and
+there is no test on it that can.**
 
-⛔ **Do not skip past an `INTENT ONLY` record on the assumption that nothing happened.** Choosing an
-older backup than you needed does not merely fail to help — **it discards every change made between
-the two**, including work that had nothing to do with the problem.
+⚠️ **In particular, do not go looking for the record's Gramps IDs in the tree.** An earlier version
+of this page said to, and it does not work in either direction:
+
+- the IDs in `graph` are the ones being **attached to** — they existed *before* the write, so finding
+  them proves nothing;
+- anything the write **created** receives its Gramps ID inside the write itself, and those IDs appear
+  only in a completion — which, by definition, this record does not have.
+
+⭐ **What you do have is `backup.totals_before`** — the counts as they stood when the backup was
+taken. Open the tree and compare (*Family Trees → Manage Family Trees* shows the person count). **If
+the tree holds more than the record says, something was written.** That is evidence rather than
+proof — anything else you did since would also move the count — but it is the real signal, and it
+points the right way.
+
+⛔ **When you cannot tell, do not reach for an older backup.** Choosing one older than you needed
+does not merely fail to help: **it discards every change made between the two**, including work that
+had nothing to do with the problem.
+
+⭐ **And this is exactly what step 4 is for.** The damaged database is renamed, not deleted, so a
+restore is reversible. **Try this record's own backup first**, open it, look — and if it turns out to
+be the wrong choice, put the renamed file back and try the next one. A reversible attempt beats a
+confident guess.
 
 ## 3. Close Gramps
 
