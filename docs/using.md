@@ -1,10 +1,22 @@
 # Using it: a proposed note becomes a note on a person
 
-This is slice 1. It does exactly one thing: it takes a **note you propose for a person**, shows you
-the one sentence it would write, waits for you to say yes, writes it into **a copy of your tree that
-you have blessed by hand**, and then reads it back in a fresh process to prove it is there.
+**There are two write routes now, and this page covers both.**
 
-It ships no server, no endpoint and no unattended path. Nothing runs without you typing it.
+**The note route**, which most of this page is about, is three commands you type. It takes a **note
+you propose for a person**, shows you the one sentence it would write, waits for you to say yes,
+writes it into **a copy of your tree that you have blessed by hand**, and then reads it back in a
+fresh process to prove it is there. Nothing in it runs without you typing it.
+
+**[The document route](#the-other-route-a-document-approved-inside-gramps)** works the other way
+round: Gramps stays open, the approval is a dialog inside it, and a whole graph is written as one
+transaction. **It takes a byte-level copy of the tree before every write.**
+
+> ⚠️ **This page used to say the tool "does exactly one thing" and that the second plugin "writes to
+> no tree."** Both were true when they were written and neither is now. They are corrected here
+> rather than quietly deleted, because a setup page that once told you something false is worth
+> knowing about.
+
+⛔ **Neither route has an unattended path.** Every write on both of them waits for you.
 
 > ⚠️ **Green CI is not evidence this works.** The runners have no Gramps, no `gi` and no tree, so
 > the write, the plugin registration and the read-back cannot be observed there at all — the round
@@ -71,11 +83,15 @@ surprised us too; it is measured, not assumed.
 
 Copying the files works just as well and goes stale; the junction does not.
 
-> ⚠️ **That folder now holds a second plugin**, R8's loopback host, which Gramps starts at launch.
-> It is read-only, it binds `127.0.0.1` and it needs a bearer token; `docs/slice-a-demo.md` says
-> what it does and how to see it. Nothing on this page depends on it and it writes to no tree.
-> **A copy rather than a junction breaks it**, because it finds its own source by resolving the
-> link — one more reason to make the junction.
+> ⚠️ **That folder holds a second plugin**, R8's loopback host, which Gramps starts at launch. It
+> binds `127.0.0.1` and needs a bearer token; `docs/slice-a-demo.md` says what it does and how to
+> see it. **A copy rather than a junction breaks it**, because it finds its own source by resolving
+> the link — one more reason to make the junction.
+>
+> ⛔ **That plugin is no longer read-only, and it no longer writes to no tree.** It now carries a
+> second write route — *the document route* — which puts a dialog in front of you inside Gramps and
+> writes through Gramps' own connection with the tree open. **[The other route](#the-other-route-a-document-approved-inside-gramps)
+> below says what it does, how it differs from the three commands, and what it backs up first.**
 
 ### 3. Where the copy is
 
@@ -288,10 +304,98 @@ If the write succeeds and its record does not, the write **stands** and the hand
 anyway, loudly, with a non-zero exit. You can reconstruct a record; you cannot reconstruct a handle
 nobody told you.
 
-> ⚠️ This is not the Phase 2 backup mechanism and does not replace it. It makes one write reversible
-> by hand. A full backup is still required before any write **endpoint** ships.
+> ⚠️ **These two files are all the three commands leave behind. They take NO backup.** They make one
+> write reversible by hand, from a record; they do not give you a copy of the tree as it was.
+>
+> ⛔ **The document route is different and does take one** — see below. The asymmetry is real and is
+> stated rather than smoothed over: the three commands write one note into a copy you blessed, and
+> the document route writes a whole graph. **If you want a copy of the tree before a note goes in,
+> make it yourself.**
 
-## When it refuses
+## The other route: a document, approved inside Gramps
+
+Everything above is the **note route** — three commands you type, each of which starts Gramps, does
+one thing, and exits. There is a second route, and it works the other way round: **Gramps stays
+open, and the approval happens inside it.**
+
+Use it when what you want to write is not one note but a **document** — a small graph of people,
+places, an event, a source and a citation, written as one transaction.
+
+> ⚠️ **The setup is the same setup.** The blessed copy, the junction and `config.json` are what both
+> routes read. If `check` passes, this route has what it needs.
+
+### What you do
+
+1. **Leave Gramps open**, on the blessed copy. ⛔ Open it with `-O <tree name>` — reopening on the
+   tree manager leaves the plugin bound to no tree.
+2. The agent calls **`propose_document`**, which stores the graph and hands back an id. Nothing is
+   written and nothing is shown yet.
+3. The agent calls **`approve_document`** with that id. **A dialog appears in Gramps.**
+4. **You read it and say yes or no.** That dialog is the approval — there is no second confirmation
+   and no console step.
+
+> ⚠️ **The answer the agent gets is "shown", not "written".** The host replies the moment the dialog
+> is up, because holding an HTTP connection open while a person reads would time out mid-decision.
+> **What happens next is between you and the dialog**, and the agent learns nothing about it.
+
+### What the dialog is for
+
+**Every name in it is read from the tree, not from what the agent sent.** If the model picked the
+wrong Gramps ID, you see the wrong person's name and cancel — and that is the only check there is.
+An agent echoing back a name it chose itself would defeat it entirely, which is why the preview
+resolves each id against the open database instead.
+
+⛔ **Read the names, not the shape.** The shape is nearly always right; the identity is the thing
+worth your attention.
+
+### What it does before it writes
+
+**A byte-level copy of the tree is taken first, every time, before the dialog opens.**
+
+- It is taken through a second read-only connection to the tree's own database file — not through
+  Gramps' connection, and not by exporting.
+- It lands in `%APPDATA%\gramps-live-api\backups\<digest>\`, where `<digest>` identifies the tree by
+  its directory. A file named `which-tree.txt` inside says which tree that is, in words.
+- **Twenty are kept per tree.** Older ones are removed after a successful write.
+- On the owner's tree it takes about **a tenth of a second**, so the dialog does not feel delayed.
+
+⛔ **If the copy cannot be taken, nothing is written and no dialog appears.** Not an export instead,
+not a write without one, and not a dialog that opens and then apologises — a decision you cannot
+have honoured should not cost you the attention of making it.
+
+⚠️ **A cancelled dialog discards its copy**, and so does any other exit before the write. A backup
+kept for a write that never happened would push a real one out of the twenty.
+
+### What it leaves behind
+
+One record in `.gramps-live-api-undo\` inside the tree, written **before** the transaction and
+completed after it. It holds the backup's path, the time the backup was taken, the time the write
+landed, the sentence you approved, and the Gramps IDs created.
+
+⭐ **The two timestamps are the point.** They let you tell, without any archaeology, whether the
+backup on disk predates the change you are looking at.
+
+When it succeeds, the dialog tells you what was written, where the undo record is, and which backup
+preceded it.
+
+### When the document route refuses
+
+| What you see | What it means |
+| --- | --- |
+| nothing at all, and a line in `host.log` | another document is already awaiting approval. Finish or cancel that dialog first — a second one is refused, not queued |
+| `Nothing was written — no backup` | the copy could not be taken. Nothing was touched |
+| `has not been blessed for writing` | the open tree has no sentinel. It names the tree so you can tell which one |
+| `is not a Gramps family tree directory` | the path is not a tree at all — a different problem from the one above, and said differently on purpose |
+| `the open tree changed after the backup was taken` | the tree was closed or swapped while the dialog was up. The backup is of the old one, so the write is refused |
+
+`host.log` lives at `%APPDATA%\gramps-live-api\host.log` and is the only place a failure inside
+Gramps is visible — Gramps' plugin loader swallows exceptions and the all-in-one build has no
+console.
+
+> ⛔ **If something did go wrong, [`docs/restoring.md`](restoring.md) is the procedure.** Read it
+> before you touch anything, and in particular before you delete anything.
+
+## When the three commands refuse
 
 | What you see | What it means |
 | --- | --- |
