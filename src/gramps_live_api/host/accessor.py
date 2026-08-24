@@ -381,7 +381,8 @@ def list_events(person_gramps_id: str) -> reads.Found:
         event = _public(database.get_event_from_handle(ref.ref))
         if event is None:
             continue
-        date = event.get_date_object()
+        # ⚠️ No local date handling any more: the shared renderer reads the
+        # date itself, and a second copy here is what let the two drift.
         place = ""
         if event.get_place_handle():
             found = _public(database.get_place_from_handle(event.get_place_handle()))
@@ -390,9 +391,21 @@ def list_events(person_gramps_id: str) -> reads.Found:
             # as the birth date above, one relation further out.
             if found is not None and not found.get_privacy():
                 place = found.get_name().get_value() or found.get_title() or ""
-        shown = " ".join(
-            part for part in (str(event.get_type()), str(date) if date else "", place) if part
-        )
+        # ⛔ **ONE renderer, shared with the approval dialog.** Not a tidy-up --
+        # this is the third time these two descriptions of an event disagreed on
+        # this branch alone: first the place, then the date's precision, then the
+        # description. Each was a real way for the caller to pick an id it could
+        # see was distinct and hand the owner a line that was not.
+        #
+        # ⚠️ Two events sharing a type, date and place differ ONLY by their
+        # description -- two Occupation rows, two Residence rows in one census --
+        # and this renderer omitted it while the dialog showed it. **The caller
+        # had to guess**, in the lookup the workflow tells it to trust.
+        #
+        # ⭐ Sharing the renderer ends the class rather than fixing its third
+        # instance: what the caller reads and what the owner approves are now the
+        # same string, produced once.
+        shown = _event_display(event, place)
         rows.append((bool(event.get_privacy()), reads.Match(event.get_gramps_id(), shown)))
     return reads.bound(rows)
 
@@ -516,15 +529,17 @@ def list_family_events(family_gramps_id: str) -> reads.Found:
         event = _public(raw)
         if event is None:
             continue
-        date = event.get_date_object()
+        # ⚠️ No local date handling any more: the shared renderer reads the
+        # date itself, and a second copy here is what let the two drift.
         place = ""
         if event.get_place_handle():
             found = _public(database.get_place_from_handle(event.get_place_handle()))
             if found is not None:
                 place = found.get_name().get_value() or found.get_title() or ""
-        shown = " ".join(
-            part for part in (str(event.get_type()), str(date) if date else "", place) if part
-        )
+        # ⛔ The same one renderer -- see ``list_events``. A family's marriage is
+        # chosen from this list exactly as a person's events are chosen from that
+        # one, so it needs the same completeness.
+        shown = _event_display(event, place)
         rows.append((False, reads.Match(event.get_gramps_id(), shown)))
     return reads.bound(rows)
 

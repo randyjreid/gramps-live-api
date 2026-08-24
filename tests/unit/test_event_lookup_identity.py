@@ -306,3 +306,62 @@ def test_two_events_in_ONE_year_are_told_apart_by_the_FULL_date(unbind: None) ->
 
     assert spring != autumn, f"two events months apart render identically: {spring!r}"
     assert "1880-04-02" in spring and "1880-10-09" in autumn
+
+
+def test_the_LOOKUP_and_the_DIALOG_render_an_event_IDENTICALLY(unbind: None) -> None:
+    """⛔ The bound, not a fourth fix.
+
+    This branch produced three instances of one class: the lookup and the
+    approval dialog described the same event differently, first missing the
+    **place**, then losing the **date's precision**, then omitting the
+    **description**. Each was a real way for the caller to choose an id it could
+    see was distinct and hand the owner a line that was not.
+
+    ⚠️ Fixing the third instance is not the fix. **Two renderers kept in step is
+    the defect**; they now share one, and this asserts the sharing rather than
+    the three symptoms -- so a field added to either arrives in both or fails
+    here.
+
+    ⭐ It matters because these two strings are the whole identity check: the
+    caller picks from the lookup, the owner approves from the dialog, and a
+    citation on the wrong event is invisible unless those two agree.
+    """
+    place = Place("Amherst County, Invented")
+    events = {
+        "h1": Event(
+            "E0030",
+            "Occupation",
+            place_handle="pa",
+            description="wheelwright",
+            when=Date(1880, 6, 1),
+        ),
+        "h2": Event(
+            "E0031",
+            "Occupation",
+            place_handle="pa",
+            description="farm labourer",
+            when=Date(1880, 6, 1),
+        ),
+    }
+    bind(Person(event_refs=[Ref("h1"), Ref("h2")]), events, {"pa": place})
+    db = accessor._DBSTATE.db
+
+    found = accessor.list_events("I0700")
+    from_lookup = {match.gramps_id: match.display for match in found.matches}
+    from_dialog = {
+        event.gramps_id: accessor._display_of(db, "event", event) for event in events.values()
+    }
+
+    assert from_lookup == from_dialog, (
+        "the caller and the owner are shown different descriptions of the same "
+        f"events:\n  lookup: {from_lookup}\n  dialog: {from_dialog}"
+    )
+
+    # ⛔ And the two must actually be DISTINGUISHABLE -- an agreement that
+    # renders both events identically would satisfy the assertion above and
+    # defeat its entire purpose.
+    assert len(set(from_lookup.values())) == 2, (
+        f"two events differing only by description render alike: {from_lookup}"
+    )
+    assert "wheelwright" in from_lookup["E0030"]
+    assert "farm labourer" in from_lookup["E0031"]

@@ -13,11 +13,12 @@ live, never the guard's threshold.
 
 from __future__ import annotations
 
+import importlib.util
 from typing import Any
 
 import pytest
 
-from gramps_live_api.host import document
+from gramps_live_api.host import accessor, document
 from tests.fixtures.host_sources import REPOSITORY_ROOT
 
 
@@ -412,3 +413,69 @@ def test_the_INSTRUCTION_names_the_right_lookup_for_FAMILY_owned_events() -> Non
     # ⛔ Both routes named, and the person route still named -- a fix that sent
     # everything to list_family_events would break the common case.
     assert "list_events" in guidance
+
+
+class _AnyRecord:
+    """A record every getter returns. ⛔ Public, so ``_public`` lets it through."""
+
+    def get_privacy(self) -> bool:
+        return False
+
+    def get_handle(self) -> str:
+        return "a_handle"
+
+
+class _AnswersEveryGetter:
+    """A database whose every ``get_*_from_gramps_id`` finds something.
+
+    ⛔ **The point is that a MISS here can only mean the dispatch did not handle
+    the kind**, never that the record was absent -- so the assertion is about the
+    enumeration and nothing else.
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("get_") and name.endswith("_from_gramps_id"):
+            return lambda gramps_id: _AnyRecord()
+        raise AttributeError(name)
+
+
+def test_every_ATTACHABLE_kind_reaches_BOTH_dispatches_that_must_know_it() -> None:
+    """⛔ The bound this file is named for, which it did not previously have.
+
+    ⚠️ The test above proves only that an attachable kind reaches
+    ``document.requested()``. It says nothing about the two **separate,
+    hand-maintained enumerations** that must also know the kind:
+
+    * ``accessor._by_gramps_id`` -- an ``if kind == ...`` chain that falls
+      through to ``return False, None``. A kind missing there makes ``/resolve``
+      report a **valid Gramps ID as missing**.
+    * ``gramps_live_api_writer._BY_GRAMPS_ID`` -- a dict. A kind missing there
+      makes ``_existing()`` unable to fetch the record it was told to attach to.
+
+    ⭐ So adding a kind to ``ATTACHABLE`` could break the resolver or the writer
+    **while the "every attachable kind is resolved" test stayed green** -- a check
+    succeeding for a reason unrelated to the property it names, in the file
+    written to bound that property. Raised by a review round; it was right.
+    """
+    specification = importlib.util.spec_from_file_location(
+        "a_writer_under_test", REPOSITORY_ROOT / "gramps_plugin" / "gramps_live_api_writer.py"
+    )
+    assert specification is not None and specification.loader is not None
+    writer = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(writer)
+
+    database = _AnswersEveryGetter()
+
+    for group, kind in document.ATTACHABLE.items():
+        existed, found = accessor._by_gramps_id(database, kind, "X0001")
+        assert existed and found is not None, (
+            f"{group!r} ({kind!r}) is declared attachable but accessor._by_gramps_id "
+            "does not handle it, so /resolve would report a VALID Gramps ID as "
+            "missing and the caller would create a duplicate"
+        )
+
+        assert kind in writer._BY_GRAMPS_ID, (
+            f"{group!r} ({kind!r}) is declared attachable but the writer has no "
+            f"getter for it, so _existing() cannot fetch what it was told to "
+            f"attach to: {sorted(writer._BY_GRAMPS_ID)}"
+        )
