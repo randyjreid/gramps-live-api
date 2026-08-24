@@ -1553,6 +1553,7 @@ a reason unrelated to the property it names*:
 | a bot 👍 | arrived on a commit whose CI was red on four jobs |
 | three "PASS" branch results | measured on a fourth branch, because the checkout had been refused and nothing checked |
 | a commit | pushed after a test command that had reported two failures, because the commit ran unconditionally |
+| a commit message | claimed `Gates: --quick` on a branch where `scripts/gate.py` did not exist. The command exited **2** with *can't open file*; the push output was read and the gate output was not |
 
 **Three rules follow, and each is mechanical rather than a matter of care:**
 
@@ -1562,6 +1563,15 @@ a reason unrelated to the property it names*:
 3. ⛔ **A refused `git checkout` must abort whatever depended on it.** A measurement
    that names a branch it did not check out is worse than no measurement, because it
    reads as evidence.
+
+⭐ **The last row is the newest and the most embarrassing**, so it is worth stating plainly
+rather than burying in a table: it happened on a night whose own work included filing an issue
+about claims that name no test, and it was a claim about *verification* — the one subject where
+the claim and the check are the same act. **The class does not respect the topic, and it does not
+spare the person writing about it.**
+
+⚠️ **What would have caught it is this section's own rule, unapplied.** The exit code was `2`,
+printed on the line above the one that was read.
 
 ⚠️ **A gate step that cannot fail is not a gate step.** A draft of this script ended
 its `pii_guard` line with `|| true` -- inside the script whose entire purpose is
