@@ -217,6 +217,12 @@ def take(source: str, destination: str) -> Outcome:
     pages, one page per step, zero restarts), against the 343-402 ms of
     main-thread cost this project already accepts for a name search.
 
+    ⚠️ **That is one sample of one tree, and it bounds nothing.** A larger or
+    busier tree blocks the GTK loop for longer; the only bound that exists is
+    ``SECONDS_PER_ATTEMPT``, after which the copy is abandoned and the write
+    refused. **This is an accepted, timeout-bounded blocking risk** -- do not read
+    the measurement as an invariant, and do not build on it as one.
+
     ⚠️ ``sqlite3`` still refuses a connection object created on another thread,
     which is why the connection is opened here rather than passed in -- **nothing
     here is shared with Gramps.** That reason survives the reversal; only the

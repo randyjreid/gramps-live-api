@@ -58,14 +58,27 @@ the class's contract promises the name survives a Gramps release.**
 **Owed to the build's plan gate, not open as rulings.**
 
 1. ⚠️ **How the copy respects R8's cap on work inside `GLib.idle_add`. This is an open problem,
-   not a confirmation task.**
-   > ⭐ **SETTLED 2026-08-23, and not the way this question expects.** The copy runs
-   > **synchronously inside the callback**, at a measured 108 ms against the
-   > 343–402 ms of main-thread cost this project already accepts for a name
-   > search. The cap was respected by making the work small enough to be honest
-   > about, not by moving it. See the four sections dated 2026-08-23 below. An earlier draft of this page framed it as *"whether the copy runs
+   not a confirmation task.** An earlier draft of this page framed it as *"whether the copy runs
    incrementally via the `pages` and `sleep` arguments"*. ⛔ **That framing is wrong, and it was
    measured rather than argued.**
+
+   > ⭐ **ANSWERED 2026-08-23 — by TAKING the risk, not by removing it.** The copy runs
+   > **synchronously inside the callback**. On the owner's tree that is a measured **108 ms**,
+   > against the 343–402 ms of main-thread cost this project already accepts for a name search.
+   >
+   > ⛔ **That measurement does NOT make the work intrinsically small, and it does not satisfy
+   > R8's cap.** It is one sample of one tree. A larger or busier tree blocks the GTK loop for
+   > longer, bounded only by `SECONDS_PER_ATTEMPT` — **currently five seconds** — after which the
+   > backup is abandoned and the write refused.
+   >
+   > ⚠️ **So this is an accepted, timeout-bounded blocking risk, and it is recorded as one.** An
+   > earlier revision of this note said the cap "was respected by making the work small enough to
+   > be honest about", which reads as an invariant and is not one — it would let a future change
+   > lean on a property that holds only for the sampled tree. **The bound that actually exists is
+   > the five-second wall clock, not the 108 ms observation.**
+   >
+   > See the sections dated 2026-08-23 below, and issue #116, which is the open question about
+   > whether that wall clock covers the whole pre-write path.
 
    **`Connection.backup()` is synchronous and runs to completion in one call.** `pages` sets the
    size of each internal copy step; it does **not** make the call return partway. `sleep` only
