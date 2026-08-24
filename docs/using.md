@@ -334,9 +334,22 @@ places, an event, a source and a citation, written as one transaction.
 4. **You read it and say yes or no.** That dialog is the approval — there is no second confirmation
    and no console step.
 
-> ⚠️ **The answer the agent gets is "shown", not "written".** The host replies the moment the dialog
-> is up, because holding an HTTP connection open while a person reads would time out mid-decision.
-> **What happens next is between you and the dialog**, and the agent learns nothing about it.
+> ⚠️ **The answer the agent gets is "accepted", not "written" — and not even "shown".** The host
+> **schedules** the dialog and replies immediately (`service._document` calls `schedule(show)` and
+> returns), because holding an HTTP connection open while a person reads would time out
+> mid-decision. **What happens next is between you and the dialog**, and the agent learns nothing
+> about it.
+>
+> ⛔ **So a reply does not prove a dialog appeared.** Two cases where it does not:
+>
+> * **another document is already awaiting approval** — the queued dialog is refused, with the
+>   reason in `host.log`;
+> * **Gramps closes first** — the queued callback never runs at all.
+>
+> ⚠️ **This page previously said the host "replies the moment the dialog is up".** That was false: it
+> replies the moment the dialog is *queued*. If an agent tells you a document was shown and you saw
+> nothing, **that is a state the system can genuinely be in** — check `host.log`, and propose it
+> again.
 
 ### What the dialog is for
 

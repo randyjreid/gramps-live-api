@@ -73,18 +73,29 @@ The tree's own undo directory holds one record per write:
 <your tree's directory>\.gramps-live-api-undo\
 ```
 
-Each is JSON, and each names the backup taken before that write, when it was taken, when the write
-landed, and what was created:
+⚠️ **Both write routes use this one directory, and they write different records.** The three
+commands write a note record; the document route writes the one described here. **Only the document
+route's records name a backup at all** — so the listing below filters on the format, and a note
+record simply does not appear.
+
+⛔ **Without that filter a note record prints as a completed write with a blank backup path**, which
+reads as *"a write whose backup is missing"*. It is not: it is a write that never had one.
 
 ```powershell
+$DOC = 'gramps-live-api/document/1'
 Get-ChildItem "<tree>\.gramps-live-api-undo\*.json" | Sort-Object Name | ForEach-Object {
   $r = Get-Content $_.FullName -Raw | ConvertFrom-Json
+  if ($r.record -ne $DOC) { return }   # a note-route record: no backup, not restorable this way
   $state = if ($r.PSObject.Properties.Name -contains 'write_confirmed') { "INTENT ONLY" } else { "completed" }
   "{0}  [{1}]  wrote {2}" -f $r.written_utc, $state, ($r.created | ConvertTo-Json -Compress)
   "    backup {0}" -f $r.backup.path
   "    taken  {0}   people before: {1}" -f $r.backup.taken_utc, $r.backup.totals_before.people
 }
 ```
+
+> ⚠️ **If that prints nothing, the tree has no document-route writes** — and therefore no backups
+> this procedure can restore from. See *If there is no backup for the write you want to undo* at the
+> end of this page.
 
 ⭐ **Find the write you want to undo, and take `backup.path` from its own record.** That is what the
 two timestamps are for: `backup.taken_utc` against `written_utc` tells you the copy predates the
@@ -188,17 +199,42 @@ Start Gramps and open the tree **by name**:
 & "$env:ProgramFiles\GrampsAIO64-6.0.8\gramps.exe" -O "<tree name>"
 ```
 
-**Check three things, in this order:**
+**What you check depends on which record you restored from**, because a `completed` record and an
+`INTENT ONLY` one give you different things to check against.
 
-1. **The thing you were undoing is gone.** The undo record names the Gramps IDs the write created —
-   search for one. It should not be there.
+### If you restored from a `completed` record
+
+1. **The thing you were undoing is gone.** That record's `created` names the Gramps IDs the write
+   made — search for one. It should not be there.
 2. **The rest of the tree is present.** Open the person you know best. Check their events, notes and
    family, not just their name.
-3. **The counts are plausible.** *Family Trees → Manage Family Trees* shows how many people the tree
-   holds.
+3. **The count agrees.** *Family Trees → Manage Family Trees* shows how many people the tree holds.
+   Compare it with `backup.totals_before` from that record.
 
-> ⛔ **Only when all three look right should you consider the restore finished.** Until then the
+### If you restored from an `INTENT ONLY` record
+
+⛔ **There are no created Gramps IDs to search for** — that is what `INTENT ONLY` means. Check 1
+above **cannot be performed**, and its absence is not a failed restore.
+
+Check these instead:
+
+1. **The count agrees with `backup.totals_before`.** That number was recorded when the backup was
+   taken, so the restored tree should match it. **If it still holds more, the restore did not take
+   effect** — check you copied the right file over.
+2. **What the record proposed is not there.** `approved_preview` is the exact sentence you were
+   shown. Read it, and look for what it describes — the person, the place, the event. **None of it
+   should be present.**
+3. **The rest of the tree is present**, as above.
+
+> ⚠️ **`approved_preview` is the check that works here**, because it describes the write in the words
+> you approved rather than in identifiers that were never recorded.
+
+> ⛔ **Only when your three look right should you consider the restore finished.** Until then the
 > damaged file is still your best copy, and it is still on disk under the name you gave it in step 4.
+
+> ⭐ **And if they do not look right, you are not stuck.** Put the renamed file back and try the next
+> candidate. **Step 4 exists so that this is reversible** — trying a backup is cheap, and guessing
+> which one is right without looking is not.
 
 ## 7. Afterwards
 
