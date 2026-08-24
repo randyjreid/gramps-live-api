@@ -135,22 +135,27 @@ that R7 would make B cheaper (it would not).
   facts are materialised, leaves the main thread.** So the comparison is A's fact-gathering against
   B's dry run, not "extra work" against "none".
 - ⛔ **B is NOT exact by construction**, for the nested-loop reason above.
-- ⛔ **And A has the SAME race.** Its facts are gathered before the dialog too, so another approval
-  can add the child between `Plan` and `execute(Plan)`. Obeying the stale Plan appends a duplicate
-  reference; re-checking membership makes the write diverge from the approved preview. ⚠️ **A needs
-  serialisation, revalidation or conflict handling exactly as B does** — an earlier revision
-  attributed this race to B alone, which was wrong and flattered A.
+- ⛔ **The stale-tree race is CUT from this comparison, in both directions.** An earlier revision
+  attributed it to B alone, which flattered A; a later one added it to both, which inflated both.
+  **Neither is right now:** `_IN_FLIGHT["present"]` refuses a second presentation and holds through
+  the dialog and the write, so a second approval cannot write during the first. ⚠️ It is a
+  dependency for whichever option is built — recorded under the recommendation — and **not a cost
+  that separates them.**
 
-⚠️ **So the recommendation is now weak, and saying otherwise would be dishonest.** Across three
-review rounds, **every one of the four original reasons for preferring A has been removed**: the
-approval-binding claim, the `caller_preview` cost, the R7 asynchrony, and now the zero-main-thread
--cost claim. What is left is two options with real costs on both sides and no clear winner on the
-axes this plan chose.
+⚠️ **Every one of the four original reasons for preferring A has been removed** across three review
+rounds: the approval-binding claim, the `caller_preview` cost, the R7 asynchrony, and the
+zero-main-thread-cost claim. **On the axes this section chose — runtime cost and race exposure —
+there is no winner.**
 
-⭐ **That is a result, not a failure of the plan.** The honest conclusion is that **the choice between
-A and B is a judgement the owner has to make on grounds this document has not established** — and
-that a build proceeding on either needs its own measurement of the main-thread cost first, because
-that number is now the only thing separating them and nobody has taken it.
+⛔ **What this section no longer claims is that runtime cost is the only separator.** It said so, and
+it was wrong: A carries the `execute()`-versus-`Plan` divergence that this same document identifies,
+and B does not, because B has one decision path. **That is a reliability difference, not a cost
+one** — and it is the axis the recommendation below turns on.
+
+⚠️ **The earlier conclusion — "a judgement the owner must make on grounds this document has not
+established" — is CUT rather than reconciled.** It contradicted the recommendation that follows, and
+a plan holding two accounts of one decision is the exact arrangement this document argues cannot be
+kept in step by hand. **One of them had to go, and it was the one that was false.**
 
 **C is not an alternative to either — it is how whichever is chosen gets verified.** A's residual
 risk is `execute()` drifting from `Plan`; B's is the dry run and the write observing different facts.
@@ -158,10 +163,8 @@ risk is `execute()` drifting from `Plan`; B's is the dry run and the write obser
 outputs to match. That is a *bounded* property, because it compares two concrete outputs rather than
 quantifying over inputs.
 
-⚠️ **What I am not recommending is doing this before it is worth it.** Two of the three findings are
-already fixed and the third is a P2. **The argument for A is not the three bugs — it is that the
-class has no fixed point**, and the next feature on this path (#105's family events) adds a fourth
-thing for the two implementations to disagree about.
+⚠️ **What is not being recommended is doing this before it is worth it.** The findings that prompted
+it are fixed or filed. **The argument is not the bugs — it is that the class has no fixed point.**
 
 ## ⭐ The recommendation: Option B, and the requirement it stands or falls on
 
