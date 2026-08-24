@@ -62,6 +62,34 @@ the class's contract promises the name survives a Gramps release.**
    incrementally via the `pages` and `sleep` arguments"*. ⛔ **That framing is wrong, and it was
    measured rather than argued.**
 
+   > ⭐ **ANSWERED 2026-08-23 — by TAKING the risk, not by removing it.** The copy runs
+   > **synchronously inside the callback**. On the owner's tree that is a measured **108 ms**,
+   > against the 343–402 ms of main-thread cost this project already accepts for a name search.
+   >
+   > ⛔ **That measurement does NOT make the work intrinsically small, and it does not satisfy
+   > R8's cap.** It is one sample of one tree.
+   >
+   > ⛔⛔ **And there is NO hard bound on how long the callback can block. This sentence has been
+   > written wrong twice already, so here is what the code does:**
+   >
+   > * `SECONDS_PER_ATTEMPT` — currently five seconds — is checked **only inside SQLite's progress
+   >   callback**, which fires between steps of `PAGES_PER_STEP` (1,024) pages. `Connection.backup()`
+   >   runs to completion in one call, so raising from that callback is the only way to stop it —
+   >   and **a single slow step overruns the deadline with nothing able to interrupt it.**
+   > * After the copy returns, `take()` runs `verify()` — `PRAGMA integrity_check` — **on the same
+   >   thread, with no deadline at all.** That is issue #116.
+   >
+   > ⚠️ **So five seconds is a best-effort deadline on the COPY STEP, not a bound on the operation.**
+   > Two earlier revisions claimed more: first that the cap "was respected by making the work small
+   > enough to be honest about", then that this was a "timeout-bounded blocking risk". **Both read
+   > as invariants; neither is one.** What is true: the callback can block for an unbounded time on
+   > a large or slow-backed tree, the five-second check makes the common case terminate, and
+   > bounding the whole pre-write path is open in #116.
+   >
+   > ⭐ **Recorded this way deliberately.** Each earlier wording would have let a future change lean
+   > on a guarantee that does not exist — which is the failure this ruling page exists to prevent,
+   > appearing twice in the page's own account of itself.
+
    **`Connection.backup()` is synchronous and runs to completion in one call.** `pages` sets the
    size of each internal copy step; it does **not** make the call return partway. `sleep` only
    delays retries when the source is locked. Measured on CPython 3.12 with `pages=1` — the smallest
@@ -78,6 +106,15 @@ the class's contract promises the name survives a Gramps release.**
 2. **Where the backup file lands, and its retention.**
 
 ## ⭐ The build constraint, measured 2026-08-22
+
+> ⛔ **SUPERSEDED IN PART, 2026-08-23 — read this section with the four below it.**
+> The second read-only connection stands and is what ships. **The worker thread
+> does not.** The build ran it on a worker, that design produced three
+> correctness defects that all needed the interval it created, and it was
+> reversed to a synchronous copy on the GTK main thread — see *The asynchronous
+> design was tried, and reversed*. ⚠️ The measurements in this section are real
+> and are kept; what changed is where the copy runs. **Nothing here should be
+> read as the current design without the later sections.**
 
 **The work-cap problem above is solved, and the private-attribute problem goes
 with it.** Both fall to one change of mechanism.
