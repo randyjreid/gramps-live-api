@@ -237,3 +237,37 @@ def test_an_ATTACHED_event_DROPS_its_description_and_says_so() -> None:
     assert "NOT applied" in shown and "description" in shown, (
         "the owner is not told the description was dropped"
     )
+
+
+def test_a_PRIMARY_role_on_an_attached_event_is_refused_like_any_other() -> None:
+    """⛔ A conclusion generalised from one case, and it was wrong.
+
+    An earlier note in ``document.py`` claimed ``role`` could never survive on an
+    attached event — reasoned from a **non-Primary** role, which is refused for
+    having no carriers. ⚠️ ``role: "Primary"`` takes a different path: that check
+    only rejects non-Primary roles, so it was accepted, silently discarded by the
+    writer, and **not reported as dropped** — contradicting the tool's own promise
+    that supplied roles are shown as dropped.
+
+    ⭐ Both are now refused by name, so there is no state needing a report.
+    """
+    for role in ("Primary", "primary", "Witness", "Informant"):
+        with pytest.raises(document.GraphInvalid) as invalid:
+            document.parse(
+                {
+                    "people": [node("p1", gramps_id="I0001")],
+                    "events": [node("e1", gramps_id="E0060", role=role)],
+                }
+            )
+        assert "role" in str(invalid.value), f"{role}: {invalid.value}"
+
+    # ⭐ A CREATED event still takes a role, which is most of their use.
+    assert (
+        document.parse(
+            {
+                "people": [node("p1")],
+                "events": [node("e1", type="Baptism", people=["p1"], role="Witness")],
+            }
+        )
+        is not None
+    )

@@ -358,9 +358,38 @@ def list_events(person_gramps_id: str) -> reads.Found:
     if person is None:
         return reads.Found()
     rows = []
-    for ref in person.get_event_ref_list():
-        if _public(ref) is None:
+    # ⛔ **The dedicated slots too, not only the event-ref list.**
+    #
+    # ⚠️ Gramps stores a person's Birth and Death in ``birth_ref`` and
+    # ``death_ref``, NOT in ``get_event_ref_list()``. Walking only the list meant
+    # this tool never returned the Gramps ID of most births and deaths -- so a
+    # caller told to look an event up before citing it found nothing, omitted the
+    # id, and **created a duplicate of the very event it was trying to cite.**
+    # That is the duplication this whole feature exists to prevent, on the two
+    # most common events in any tree.
+    #
+    # ⭐ Deduplicated by handle: Gramps may ALSO list them, and a person whose
+    # birth appeared twice would read as two births.
+    #
+    # ⛔ **The dedup happens AFTER the gate, and every getter sits in the loop's
+    # ITERABLE.** Both halves of that were learned from one refusal. A first
+    # version built the list up front -- ``list(...)`` then ``insert`` -- and
+    # compared ``r.ref == slot.ref`` while doing it, **reading a handle off an
+    # ``EventRef`` nobody had gated yet**, so a record joined by a private
+    # reference could reach the wire. The privacy ratchet refused it on sight,
+    # which is what that ratchet is for.
+    seen_handles = set()
+    for ref in (
+        person.get_birth_ref(),
+        person.get_death_ref(),
+        *person.get_event_ref_list(),
+    ):
+        # ⛔ Gated FIRST. ``.ref`` below is read only on a reference that passed.
+        if ref is None or _public(ref) is None:
             continue
+        if ref.ref in seen_handles:
+            continue
+        seen_handles.add(ref.ref)
         event = _public(database.get_event_from_handle(ref.ref))
         if event is None:
             continue
@@ -753,7 +782,29 @@ def _display_of(database: typing.Any, kind: str, obj: typing.Any) -> str:
             # on the family path. ⚠️ Without a branch here a resolved event fell
             # through to "(could not read its name)" while the preview also
             # listed it under CREATING NEW, which is the family defect exactly.
-            return _event_display(obj)
+            # ⛔ **With its PLACE**, because the place is often the only thing
+            # telling two events apart.
+            #
+            # ⚠️ Two events of the same type and date differ only by place -- two
+            # Residence rows in one census year, for instance -- and without it
+            # the dialog shows the same string for both. **The owner cannot
+            # notice a citation landing on the wrong one**, which is exactly the
+            # identity check this display exists to provide.
+            place = ""
+            if obj.get_place_handle():
+                held = _public(database.get_place_from_handle(obj.get_place_handle()))
+                # ⛔ The place's own privacy flag, same as ``list_events``.
+                if held is not None:
+                    place = str(held.get_name().get_value() or held.get_title() or "")
+            #
+            # ⚠️ ``at``, NOT another ``--``. ``_event_display`` already ends a
+            # described event with ``-- <description>``, so appending the place the
+            # same way gives ``Census 1880 -- household of ... -- Amherst County``:
+            # two identical separators in the one string whose entire job is
+            # letting the owner tell two events apart. **Caught in self-review of
+            # this fix, not by a reviewer** -- it was introduced by the fix above.
+            shown = _event_display(obj)
+            return f"{shown} at {place}" if place else shown
     except Exception:
         # A display string is not worth failing a lookup over. The id resolved;
         # that is the load-bearing fact.

@@ -158,11 +158,15 @@ IGNORED_WHEN_ATTACHING = (
     "place",
     "description",
 )
-# ⚠️ ``role`` is deliberately NOT here. It cannot survive on an attached event to
-# be dropped: with ``people`` it is refused because an attached event keeps its
-# own participants, and without ``people`` it is refused because a role with
-# nobody to carry it reaches nothing. **Listing it would claim a state that
-# cannot occur**, which is the comment-as-claim shape recorded in CONTRIBUTING.
+# ⚠️ ``role`` is deliberately NOT here, and the reasoning had to be corrected
+# once. It is REFUSED on an attached event rather than dropped -- explicitly, in
+# ``parse`` -- so there is no state in which it needs reporting as dropped.
+#
+# ⛔ **The first version of this note claimed role could never survive, having
+# tested only a non-Primary role.** ``role: "Primary"`` took a different path: the
+# with-no-carriers check only rejects non-Primary, so it was accepted, silently
+# discarded by the writer, and not reported as dropped. **A conclusion generalised
+# from one case**, which is why the refusal now names ``role`` outright.
 """Fields that describe an object, and are therefore NOT applied to one that
 already exists.
 
@@ -518,12 +522,14 @@ def parse(body: Any) -> Graph:
         # leave the rendering to suppress separately; refusing makes the
         # disagreement impossible rather than merely announced, and the message
         # says what to do instead.
-        if event.get("gramps_id") and (event.get("people") or event.get("family")):
+        if event.get("gramps_id") and (
+            event.get("people") or event.get("family") or event.get("role")
+        ):
             raise GraphInvalid(
                 f"event {event.get('id')!r} names an existing event by gramps_id and "
-                "also names 'people' or 'family'. An event already in the tree keeps "
-                "the participants it has -- attach a citation or a note to it "
-                "instead, and drop those fields."
+                "also names 'people', 'family' or 'role'. An event already in the "
+                "tree keeps the participants it has -- attach a citation or a note "
+                "to it instead, and drop those fields."
             )
         check(f"event {event.get('id')!r}'s place", event.get("place"), must_be="place")
         for person in event.get("people") or []:
