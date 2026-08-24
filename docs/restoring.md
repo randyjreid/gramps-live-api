@@ -122,31 +122,39 @@ Gramps runs its post-commit callbacks *after* the SQLite COMMIT, and an exceptio
 exits the write with **the tree already changed**. The plugin keeps the backup in exactly that case,
 deliberately, because it may be the only way back.
 
-⛔ **Treat `INTENT ONLY` as *commit status unknown*. The record cannot tell you which it was, and
-there is no test on it that can.**
+### ⛔ No test on the record settles it. Do not look for one.
 
-⚠️ **In particular, do not go looking for the record's Gramps IDs in the tree.** An earlier version
-of this page said to, and it does not work in either direction:
+**This page has told you three different ways to decide whether an `INTENT ONLY` write committed, and
+all three were wrong.** They are not written out here, because the useful thing is why no fourth
+attempt will work either:
 
-- the IDs in `graph` are the ones being **attached to** — they existed *before* the write, so finding
-  them proves nothing;
-- anything the write **created** receives its Gramps ID inside the write itself, and those IDs appear
-  only in a completion — which, by definition, this record does not have.
+- **the IDs in `graph` are the ones being attached to.** They existed *before* the write, so finding
+  them in the tree proves nothing;
+- **anything the write created receives its Gramps ID inside the write.** Those IDs appear only in a
+  completion — which, by definition, this record does not have.
 
-⭐ **What you do have is `backup.totals_before`** — the counts as they stood when the backup was
-taken. Open the tree and compare (*Family Trees → Manage Family Trees* shows the person count). **If
-the tree holds more than the record says, something was written.** That is evidence rather than
-proof — anything else you did since would also move the count — but it is the real signal, and it
-points the right way.
+⭐ **The record structurally cannot answer the question.** Not "answers it unreliably" — the
+information is not in it.
 
-⛔ **When you cannot tell, do not reach for an older backup.** Choosing one older than you needed
-does not merely fail to help: **it discards every change made between the two**, including work that
-had nothing to do with the problem.
+### What to do instead
 
-⭐ **And this is exactly what step 4 is for.** The damaged database is renamed, not deleted, so a
-restore is reversible. **Try this record's own backup first**, open it, look — and if it turns out to
-be the wrong choice, put the renamed file back and try the next one. A reversible attempt beats a
-confident guess.
+⭐ **Do not try to decide first. Try the newest candidate and look.**
+
+Step 4 renames the damaged database rather than deleting it, **so restoring is reversible.** That
+mechanism is already in this procedure and it is what makes the question safe to leave open: restore
+this record's backup, open the tree, and see. If it is wrong, put the renamed file back and try the
+next one.
+
+> ⚠️ **The evidence that does exist, and what it is worth.** `backup.totals_before` holds the counts
+> as they stood when the backup was taken. Comparing them with the tree (*Family Trees → Manage
+> Family Trees*) tells you whether the tree holds more than the record expected. **That is evidence,
+> not proof** — anything else you have done since moves the count too. Use it to choose which
+> candidate to try first, never to decide without looking.
+
+⛔ **And the failure direction that matters:** every version of the check this page has carried could
+make a **correct** restore look like a failed one. Acting on that sends you to an older backup, which
+**discards every change made between the two** — the outcome this whole procedure exists to prevent.
+**A reversible attempt beats a confident guess**, and the guess has been wrong three times.
 
 ## 3. Close Gramps
 
@@ -221,13 +229,18 @@ Check these instead:
 1. **The count agrees with `backup.totals_before`.** That number was recorded when the backup was
    taken, so the restored tree should match it. **If it still holds more, the restore did not take
    effect** — check you copied the right file over.
-2. **What the record proposed is not there.** `approved_preview` is the exact sentence you were
-   shown. Read it, and look for what it describes — the person, the place, the event. **None of it
-   should be present.**
+2. **What the record said it would CREATE is not there.** `approved_preview` is the exact sentence
+   you were shown, and it has two sections. Look only under **CREATING NEW** — those people, places
+   and events should be absent.
 3. **The rest of the tree is present**, as above.
 
-> ⚠️ **`approved_preview` is the check that works here**, because it describes the write in the words
-> you approved rather than in identifiers that were never recorded.
+> ⛔ **Only the CREATING NEW half, and this distinction is not a detail.** `approved_preview` also
+> lists everything the write was **attaching to**, and those records **existed before the backup was
+> taken** — they *must* still be there. Checking for their absence makes a **correct restore look
+> like a failed one**, which sends you to an older backup and discards more work than you meant to.
+>
+> ⚠️ An earlier version of this page said *"none of it should be present"*, without the split. That
+> was wrong in exactly that direction.
 
 > ⛔ **Only when your three look right should you consider the restore finished.** Until then the
 > damaged file is still your best copy, and it is still on disk under the name you gave it in step 4.
