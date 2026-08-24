@@ -116,7 +116,7 @@ failure the privacy tests already had to be rescued from once.
 
 ---
 
-## ⛔ No recommendation — the comparison, and what it does not settle
+## The comparison, and what it does not settle
 
 ⚠️ **An earlier revision claimed to withdraw the recommendation and left this heading saying
 "Recommendation: A".** A reader would reasonably have taken A as the selected design, which is the
@@ -162,6 +162,107 @@ quantifying over inputs.
 already fixed and the third is a P2. **The argument for A is not the three bugs — it is that the
 class has no fixed point**, and the next feature on this path (#105's family events) adds a fourth
 thing for the two implementations to disagree about.
+
+## ⭐ The recommendation: Option B, and the requirement it stands or falls on
+
+**B — the dry run.** Not because the comparison above found a winner on cost; it did not, and that
+section stands. **B is recommended on a different axis entirely, and it is the axis this class is
+about.**
+
+⛔ **A and C both leave two descriptions of one operation and try to keep them in step.** A adds a
+`Plan` and hopes `execute(Plan)` obeys it. C adds a test and hopes the test covers the case that
+diverges next. **Both are the current arrangement with more machinery** — and the current
+arrangement has produced six instances, each individually a reasonable local decision.
+
+⭐ **B is the only shape in which there is one description.** The writer says what it would do; the
+preview renders that. There is no second implementation to disagree with, because there is no second
+implementation.
+
+⚠️ **That argument survives everything the review rounds removed.** Three of A's four advantages were
+withdrawn as unfounded, but none of the withdrawals touched this: *a derived description cannot
+disagree with what it is derived from.* The cost comparison is genuinely open and is the owner's
+call; the structural argument is not open, and it points one way.
+
+---
+
+## ⛔ What does this design make possible that shouldn't be?
+
+**This is the question the plan gate exists to ask, and it is why this section is longer than the
+recommendation.** For #111 the same question surfaced *"two approvals can be in flight at once"* —
+one requirement whose four consequences then cost four review rounds each. Asking it here, of B:
+
+### 1. ⛔ A dry run that writes
+
+**The design puts a code path whose entire purpose is to NOT write inside the writer that does.**
+Every branch of `write` must honour the flag; one that forgets is a silent, unapproved mutation —
+and it is the branch nobody thought about, because the branches people think about are the ones they
+write the flag into.
+
+⚠️ **A boolean parameter is not a bound.** It is the same shape as `_IN_FLIGHT` before #111: a
+requirement held by every call site remembering it.
+
+⭐ **So the requirement this design stands or falls on:**
+
+> **The dry run must be incapable of writing BY CONSTRUCTION, not by a flag.** It runs against a
+> database object that has no `commit_*` and no `add_*` — a recorder, not the real handle. A branch
+> that forgets the flag then **raises** instead of writing, and the failure is loud, immediate, and
+> impossible to ship.
+
+⚠️ **If the build cannot achieve that, B is worse than the status quo**, because today the writer
+never runs except to write. That is the falsifier for this recommendation, and it should be settled
+before anything is built.
+
+### 2. ⛔ The renderer acquiring a Gramps dependency through the back door
+
+`document.py` imports no `gramps` and no `gi`. **That is load-bearing** — it is what lets the whole
+renderer run under CI, and it is the constraint that makes this problem hard in the first place.
+
+⚠️ **B threatens it in a way A does not.** If the dry run's output carries Gramps objects — handles,
+`EventRoleType`, `Person` — then the renderer must understand Gramps types to render them, and the
+import creeps in one field at a time. **Nothing structurally prevents that**; it would arrive as a
+convenience in a single field and be discovered when CI stops running the renderer.
+
+**Requirement:** the dry run returns **plain data** — strings, ints, lists, dicts — and a test asserts
+`document.py`'s import closure stays free of `gramps` and `gi`. ⭐ *That test already has a precedent
+in this repository*: `tests/fixtures/host_sources.py` already decides what counts as host code.
+
+### 3. ⛔ Two observations of a tree that can change between them
+
+The dry run happens before the dialog; the write happens after. **A modal dialog is an unbounded
+interval** — `confirm` spins a nested GTK main loop.
+
+⚠️ **This is the one thing B does not fix on its own**, and pretending otherwise would repeat the
+mistake this document is about. If another approval adds the child between the dry run and the
+write, the writer skips it and **the approved account is wrong again** — the exact class.
+
+⭐ **It is already mitigated, and by something that exists**: #111 serialised approvals, so a second
+`_present` is refused rather than interleaved. **B's correctness therefore depends on that guard
+continuing to hold**, which is worth stating in the build's own criteria rather than assumed. ⚠️ And
+A has this race identically, as the comparison above records — it is not a reason to prefer A.
+
+### 4. ⚠️ A cheap dry run becomes a frequently-called one
+
+If rendering a preview means running the writer, then **every proposal executes the writer's code
+path on the GTK main thread**, inside the same `idle_add` callback R8 caps. Today the renderer is
+pure and the writer runs once per approved write.
+
+**This is a cost to measure, not a defect** — but it is a cost the current arrangement does not have,
+and the comparison above already identifies main-thread cost as the only axis separating the options.
+⛔ **It should be measured before the build, not after**, because it is the number the whole
+comparison turns on and nobody has taken it.
+
+---
+
+## ⭐ What the answer changes about the recommendation
+
+**Nothing, and that is the point of asking.** B is still the recommendation — but it now comes with
+**one requirement that is load-bearing** (§1: unwritable by construction), **one property that must
+be defended** (§2: the renderer's import closure), **one dependency on existing work** (§3: approvals
+stay serialised), and **one measurement owed before the build** (§4: main-thread cost).
+
+⚠️ **A plan that had described B's mechanism without asking this question would have shipped §1 as an
+afterthought** — a boolean flag, honoured everywhere it was thought about. That is what #107 was, and
+#107 approved the design that produced most of #111's review rounds.
 
 ## ⛔ What this plan does not settle
 
