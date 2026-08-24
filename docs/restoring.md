@@ -207,47 +207,42 @@ Start Gramps and open the tree **by name**:
 & "$env:ProgramFiles\GrampsAIO64-6.0.8\gramps.exe" -O "<tree name>"
 ```
 
-**What you check depends on which record you restored from**, because a `completed` record and an
-`INTENT ONLY` one give you different things to check against.
+### What the record gives you to look at
 
-### If you restored from a `completed` record
+⛔ **This section describes what each field holds. It does not tell you what the tree should
+contain** — four earlier versions tried to, and each was wrong in a different way. What follows are
+the mechanisms; the judgement is yours, and step 4 makes it reversible.
 
-1. **The thing you were undoing is gone.** That record's `created` names the Gramps IDs the write
-   made — search for one. It should not be there.
-2. **The rest of the tree is present.** Open the person you know best. Check their events, notes and
-   family, not just their name.
-3. **The count agrees.** *Family Trees → Manage Family Trees* shows how many people the tree holds.
-   Compare it with `backup.totals_before` from that record.
+**`backup.totals_before`** — the counts as they stood when the backup was taken. *Family Trees →
+Manage Family Trees* shows the tree's current person count.
 
-### If you restored from an `INTENT ONLY` record
+**`created`** — the Gramps IDs the write made. ⚠️ A `completed` record has this field; an
+`INTENT ONLY` one does not, and **a completed record can carry an empty `created`** when the write
+only attached to records that already existed.
 
-⛔ **There are no created Gramps IDs to search for** — that is what `INTENT ONLY` means. Check 1
-above **cannot be performed**, and its absence is not a failed restore.
+**`approved_preview`** — the exact text you were shown, in two sections
+([`document.py:679`](../src/gramps_live_api/host/document.py) and
+[`:757`](../src/gramps_live_api/host/document.py)):
 
-Check these instead:
+- Records under **ATTACHING TO EXISTING** show the name Gramps holds.
+- Records under **CREATING NEW** show what the agent proposed — there is no tree record to read.
 
-1. **The count agrees with `backup.totals_before`.** That number was recorded when the backup was
-   taken, so the restored tree should match it. **If it still holds more, the restore did not take
-   effect** — check you copied the right file over.
-2. **What the record said it would CREATE is not there.** `approved_preview` is the exact sentence
-   you were shown, and it has two sections. Look only under **CREATING NEW** — those people, places
-   and events should be absent.
-3. **The rest of the tree is present**, as above.
+⭐ **That is the whole of what the two headings mean.** Everything a reader might want to conclude
+from them — what should be present, what should be absent, whether the write landed — depends on
+which record you restored from and what else you have done since, and the record does not carry that.
 
-> ⛔ **Only the CREATING NEW half, and this distinction is not a detail.** `approved_preview` also
-> lists everything the write was **attaching to**, and those records **existed before the backup was
-> taken** — they *must* still be there. Checking for their absence makes a **correct restore look
-> like a failed one**, which sends you to an older backup and discards more work than you meant to.
+### So: open the tree and look
+
+1. **The person you know best is intact** — events, notes and family, not just the name.
+2. **The count** against `backup.totals_before`, if you have it.
+3. **What `approved_preview` describes**, read with the two headings above in mind.
+
+> ⛔ **Until all three look right, the damaged file is still your best copy** — and it is still on
+> disk under the name you gave it in step 4.
 >
-> ⚠️ An earlier version of this page said *"none of it should be present"*, without the split. That
-> was wrong in exactly that direction.
-
-> ⛔ **Only when your three look right should you consider the restore finished.** Until then the
-> damaged file is still your best copy, and it is still on disk under the name you gave it in step 4.
-
-> ⭐ **And if they do not look right, you are not stuck.** Put the renamed file back and try the next
-> candidate. **Step 4 exists so that this is reversible** — trying a backup is cheap, and guessing
-> which one is right without looking is not.
+> ⭐ **If it looks wrong, put that file back and try the next candidate.** Step 4 exists so this is
+> reversible. **A reversible attempt beats a confident reading of a record that cannot answer the
+> question** — which is what the four earlier versions of this section each tried to be.
 
 ## 7. Afterwards
 
