@@ -29,6 +29,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
+from gramps_live_api.host import paths
+
 MAX_GRAPH_BYTES = 512 * 1024
 """A document's findings, not a tree import. Large enough for a dense census
 page with forty people on it; small enough that a runaway caller cannot hand the
@@ -332,7 +334,14 @@ def parse(body: Any) -> Graph:
             if local in known:
                 raise GraphInvalid(f"the local id {local!r} is used more than once")
             known.add(local)
-            kind_of[local] = {"people": "person", "places": "place"}.get(group, group[:-1])
+            # ⚠️ ``group[:-1]`` is a naive singulariser and it was wrong for
+            # families -- it produced "familie". Nothing referenced a family
+            # until events gained one, so the bug sat here unreachable: a rule
+            # whose definition comes from the SPELLING rather than from the
+            # vocabulary, right up until a new spelling arrives.
+            kind_of[local] = {"people": "person", "places": "place", "families": "family"}.get(
+                group, group[:-1]
+            )
     if source is not None:
         # ⛔ Held to the SAME rule as every other node group. A source carrying a
         # ``gramps_id`` but no ``id`` used to be accepted, and a non-string id
@@ -371,10 +380,83 @@ def parse(body: Any) -> Graph:
                 f"{kind_of.get(referenced)} and not a {must_be}"
             )
 
+    # ⛔ A family that names nobody and no gramps_id is never written -- the
+    # writer skips it at ``if not parents and not children`` -- while the preview
+    # promises to create it. **That divergence produced an ORPHAN EVENT**: the
+    # marriage was created, the family was not, and the approved text said
+    # otherwise. Refusing here is the honest end of it, and it also closes the
+    # older case where an empty family node silently wrote nothing at all.
+    for family in families:
+        # ⛔ Members that are USABLE, not merely present.
+        #
+        # ⚠️ Testing the lists for truthiness left the refusal bypassable by a
+        # single JSON null: ``parents: [null]`` is a non-empty list, so the check
+        # passed -- and the writer then drops the null, skips the now-empty
+        # family, and any event targeting it orphans, with the preview having
+        # promised both. **A guard defeated by a value the writer silently
+        # discards.**
+        members = [
+            member
+            for member in list(family.get("parents") or []) + list(family.get("children") or [])
+            if str(member or "").strip()
+        ]
+        if family.get("gramps_id") or members:
+            continue
+        raise GraphInvalid(
+            f"family {family.get('id')!r} names no parents, no children and no "
+            "gramps_id, so nothing would be written for it. Give it somebody, or "
+            "leave it out."
+        )
+
+    # ⛔ A null or blank entry is refused in EVERY list of local ids, not just
+    # the one a reviewer last pointed at.
+    #
+    # ⚠️ **Fixing this per-list did not fix it.** ``parents``/``children`` were
+    # hardened first; the very next round found the identical bypass in an
+    # event's ``people`` -- ``[null]`` is a non-empty list, ``check`` treats a
+    # null as absent, and the writer drops it at ``handles.get(None)``.
+    # **Anything the writer discards without saying so is something the preview
+    # can promise and the write can skip**, which is the whole of #106, so the
+    # rule is applied to the vocabulary rather than to the instance.
+    for holder, slots, what in (
+        (families, ("parents", "children"), "family"),
+        (events, ("people",), "event"),
+        (citations, ("attach_to",), "citation"),
+        (notes, ("attach_to",), "note"),
+    ):
+        for entry in holder:
+            for slot in slots:
+                for member in entry.get(slot) or []:
+                    if not str(member or "").strip():
+                        raise GraphInvalid(
+                            f"{what} {entry.get('id')!r} lists an empty entry in "
+                            f"{slot!r}, which would be silently dropped. Name "
+                            "something, or shorten the list."
+                        )
+
     for event in events:
         check(f"event {event.get('id')!r}'s place", event.get("place"), must_be="place")
         for person in event.get("people") or []:
             check(f"event {event.get('id')!r}", person, must_be="person")
+        # ⭐ A marriage belongs to a FAMILY, and until now nothing could say so.
+        check(f"event {event.get('id')!r}'s family", event.get("family"), must_be="family")
+        # ⛔ A role with nobody to carry it is a role that gets discarded.
+        #
+        # ⚠️ The FAMILY reference's role is fixed at ``FAMILY`` -- it must be, or
+        # two inputs render identically and write differently -- so a role on an
+        # event with no ``people`` reaches nothing at all. The preview promised
+        # "as Witness" and the writer applied it nowhere: **the approved account
+        # and the write disagreeing for the third time on this branch**, which is
+        # what #106 is filed about.
+        role = str(event.get("role") or "").strip()
+        carriers = [who for who in (event.get("people") or []) if str(who or "").strip()]
+        if role and role.casefold() != "primary" and not carriers:
+            raise GraphInvalid(
+                f"event {event.get('id')!r} gives the role {role!r} but names no "
+                "people, so nothing would carry it -- a family's own reference "
+                "always uses the family role. Name the people it applies to, or "
+                "leave the role out."
+            )
     for citation in citations:
         check(
             f"citation {citation.get('id')!r}'s source",
@@ -494,6 +576,12 @@ def _event_line(event: dict[str, Any], named: Any) -> str:
     role = str(event.get("role") or "").strip()
     if role and role.casefold() != "primary":
         bits.append(f"as {role}")
+    # ⛔ The household the event JOINS, named. R3's criterion is that no byte
+    # reaches the tree unrendered, and a marriage attaching to a family the owner
+    # never saw named is that criterion failing -- the write is small, this line
+    # is the reason the slice exists.
+    if event.get("family"):
+        bits.append("on the family " + named(event["family"]))
     return ", ".join(bits)
 
 
@@ -529,6 +617,16 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
         node = resolved.get(local_id)
         if node is not None and node.found:
             return f"{node.gramps_id}  {node.display}"
+        # ⭐ A family the graph is CREATING has no name of its own and no
+        # gramps_id to look up, so it is named by the couple it joins -- "the
+        # household on the line above", which is how the owner will read it.
+        # ⚠️ Without this a marriage rendered as "on the family f1", and a local
+        # id is not something anybody can recognise or refuse.
+        family = families_by_id.get(local_id)
+        if family is not None:
+            parents = [named_node(x) for x in (family.get("parents") or [])]
+            return " + ".join(parents) if parents else "the family being created"
+
         entry = people_by_id.get(local_id) or places_by_id.get(local_id) or {}
         if entry.get("title"):
             return str(entry["title"])
@@ -542,7 +640,11 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
         """Every event, citation and note that names ``local_id``, in full."""
         out: list[str] = []
         for index, event in enumerate(graph.events):
-            if local_id not in (event.get("people") or []):
+            # ⭐ An event reaches a node through its PEOPLE or through its FAMILY.
+            # Matching only people left a marriage rendered in the leftovers
+            # section rather than under the household it joins -- present, which
+            # is what R3 requires, but not where the owner is looking for it.
+            if local_id not in (event.get("people") or []) and event.get("family") != local_id:
                 continue
             shown_events.add(index)
             out.extend(_wrap("+ " + _event_line(event, named_node), indent))
@@ -753,6 +855,9 @@ def journal_record(
     tree_dir: str,
     written_utc: str,
     approved_preview: str,
+    backup_path: str = "",
+    backup_utc: str = "",
+    totals_before: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """What was written, in enough detail to reverse it by hand.
 
@@ -763,6 +868,17 @@ def journal_record(
     ``attached`` records the existing objects that gained something -- reversing
     those means removing a reference rather than deleting a record, and the two
     are different jobs.
+
+    ⭐ **The backup is named HERE, and that is R4's precondition 4** -- *the
+    backup's age relative to the write is visible without archaeology*. Asking
+    *which copy predates this write* is then reading one field, rather than
+    comparing file times and hoping.
+
+    ⛔ **``totals_before`` exists because the restore procedure asks for it.** The
+    owner is told to reopen Gramps after replacing the file and check the counts;
+    without the counts recorded at backup time there is nothing to check against,
+    and that step could not be performed. ``accessor.tree_totals()`` produces them
+    in O(1), so this is a field to store rather than a walk to add.
     """
     return {
         "record": JOURNAL_FORMAT,
@@ -772,24 +888,64 @@ def journal_record(
         "attached_to_existing": {kind: list(ids) for kind, ids in attached.items() if ids},
         "graph": graph.as_dict(),
         "approved_preview": approved_preview,
+        "backup": {
+            "path": backup_path,
+            "taken_utc": backup_utc,
+            "totals_before": totals_before or {},
+        },
     }
 
 
-def write_journal(tree_dir: str, record: dict[str, Any], *, stem: str) -> str:
+def write_journal(tree_dir: str, record: dict[str, Any], *, stem: str) -> tuple[str, str]:
     """Put the record in the tree's own undo directory and return where it landed.
 
     ⚠️ **``fsync`` before returning**, for the reason ``core/apply`` gives: "the
     record was written" must not mean "the record is in a buffer" while the
     database change reaches the disk.
+
+    ⛔ **And the DIRECTORY is synced too, where the platform allows it.** Syncing
+    only the file leaves the directory entry itself unflushed on POSIX, so a
+    power loss after the database commit can preserve the tree change and lose
+    the record naming its backup -- *the file was durable and its name was not.*
+    ⚠️ Windows cannot open a directory for ``fsync``; ``directory_synced`` in the
+    returned record says which happened rather than letting a platform silently
+    stand in for a guarantee.
     """
     directory = os.path.join(tree_dir, UNDO_DIRECTORY)
-    os.makedirs(directory, exist_ok=True)
+    # ⛔ Creating and flushing are one decision -- see ``paths.create_directory``.
+    created_levels = paths.create_directory(directory)
     path = os.path.join(directory, stem + ".json")
-    with open(path, "w", encoding="utf-8") as handle:
+
+    # ⛔ **Written beside the target and MOVED into place, never opened over it.**
+    #
+    # ⚠️ Completion re-uses the intent's stem deliberately -- the completed record
+    # must replace the intent, not sit beside it as a second file. But ``open(...,
+    # "w")`` TRUNCATES FIRST: for the whole span between that truncation and the
+    # fsync below, the only durable link between the committed database change and
+    # its backup was a zero-length file. A crash there loses the mapping A4 exists
+    # to keep, and loses it *after* the write has already landed.
+    #
+    # ⭐ ``os.replace`` is atomic on both POSIX and Windows, so at every instant the
+    # name holds either the intact intent or the intact completion -- the same bound
+    # the backup's own publication uses, for the same reason.
+    partial = path + ".partial"
+    # ⛔ Owner-only, for the same reason the backup copy is. ⚠️ The bot named the
+    # backup; this file is the SAME exposure in a second place -- it carries the
+    # approved preview, which is the names and dates the owner just read on
+    # screen. Fixing only the site that was named is the enumeration this project
+    # keeps paying for, so the rule is *anything this code creates that holds
+    # tree data is owner-only*.
+    paths.create_file_owner_only(partial)
+    with open(partial, "w", encoding="utf-8") as handle:
         json.dump(record, handle, ensure_ascii=False, indent=2, sort_keys=True)
         handle.flush()
         os.fsync(handle.fileno())
-    return path
+    os.replace(partial, path)
+    # ⛔ The result is RETURNED, not discarded. An earlier version called this
+    # and threw the answer away, so ``write_journal`` reported a durable record
+    # on every Windows write -- a check performed and then ignored, which is
+    # exactly the same defect as not performing it.
+    return path, paths.durable_directory(created_levels)
 
 
 def caller_preview(graph: Graph) -> str:
