@@ -27,6 +27,7 @@ answer.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import typing
 
@@ -1254,67 +1255,104 @@ def _change_stamp(obj: typing.Any) -> int | None:
     return None
 
 
+ISO_GRAMMAR = re.compile(
+    r"""^
+    (?P<year>\d{4}) -? (?P<month>\d{2}) -? (?P<day>\d{2})
+    (?:
+        [T\ ]
+        (?P<hour>\d{2}) :? (?P<minute>\d{2})
+        (?: :? (?P<second>\d{2}) )?
+        (?: [.,] (?P<fraction>\d+) )?
+    )?
+    (?P<offset> [Zz] | [+-]\d{2}:?\d{2} )?
+    $""",
+    re.VERBOSE,
+)
+"""⛔ **Every spelling this project accepts, enumerated in ONE place.**
+
+⭐ This is the bound that replaced four rounds of patching. ``Z`` versus an
+explicit offset, fractional WIDTH, the decimal separator, and basic versus
+extended notation were each found one review round at a time, and each was fixed
+by adding another substitution -- so a fifth spelling invited a sixth finding.
+**The set being sampled was "spellings ISO permits that 3.10 will not parse", and
+it was being discovered rather than declared.**
+
+⚠️ **The criterion this closes on:** *every accepted spelling is listed here and
+tested on the floor interpreter.* That is checkable and finite. *"ISO 8601 is
+accepted"* is not, and is what the four rounds were sampling.
+
+⛔ Anything this does not match is returned unchanged, so it reaches
+``fromisoformat`` exactly as before and is refused there. **Widening what is
+accepted means editing this pattern**, which is a visible diff, rather than
+discovering that some spelling happened to survive."""
+
+
 def _iso_for_any_interpreter(raw: str) -> str:
     """An ISO string ``fromisoformat`` accepts on **3.10 as well as 3.12**.
 
-    ⛔ **``fromisoformat``'s definition comes from the INTERPRETER, not from
-    ISO 8601**, and this project's floor is 3.10 while its gates run on the
-    developer's 3.12. **3.11 widened it to full ISO; 3.10 accepts only what
-    ``isoformat()`` emits** -- no ``Z``, and a fractional second of exactly three
-    or six digits.
+    ⛔ **``fromisoformat``'s definition comes from the INTERPRETER, not from the
+    specification**, and the three supported interpreters disagree. 3.10 accepts
+    only extended notation with exactly three or six fractional digits; 3.11 and
+    3.12 accept far more. So this parses the input against a grammar **this
+    project owns** and hands ``fromisoformat`` a single canonical form that every
+    supported interpreter accepts.
 
-    ⚠️ **Measured, not supposed:** ``2026-08-01T12:00:00.5`` parsed locally and
-    returned ``None`` on CI's 3.10 legs, failing four jobs. That is this
-    project's recorded failure shape -- *a check whose answer varies with where
-    it runs, silently, because every test passes on the machine that wrote them.*
+    ⭐ **The interpreter then contributes nothing to WHICH SPELLINGS ARE
+    ACCEPTED**, which is what "for any interpreter" has to mean to be worth
+    saying. It still contributes the calendar validation -- month 13 is refused
+    downstream, and that is a fact about dates rather than about spellings.
 
-    So the input is normalised here rather than delegated: ``Z`` becomes an
-    explicit offset, and a fractional second is padded or truncated to six
-    digits. **The behaviour is then the interpreter's only where they agree.**
+    ⚠️ Measured on the floor before and after: ``20260801T120000Z`` parsed on 3.12
+    and raised on 3.10, from the same normalised string.
     """
-    import re
-
     text = str(raw).strip()
-    if text.endswith(("Z", "z")):
-        text = text[:-1] + "+00:00"
+    match = ISO_GRAMMAR.match(text)
+    if match is None:
+        # ⛔ Not a spelling this project claims to accept. Returned unchanged so
+        # it fails downstream exactly as it does today -- a normaliser must not
+        # invent an interpretation for something it does not recognise.
+        return text
 
-    def six_digits(match: re.Match[str]) -> str:
-        digits = match.group(1)
-        kept = (digits + "000000")[:6]
+    parts = match.groupdict()
+    canonical = f"{parts['year']}-{parts['month']}-{parts['day']}"
 
-        # ⛔ **A discarded non-zero digit must not become no fraction at all.**
-        #
-        # ⚠️ ``.0000001`` truncated to six digits is ``.000000``, so an instant
-        # strictly AFTER 12:00:00 normalised to exactly 12:00:00 -- and the
-        # ``ceil`` in ``_as_epoch`` then had nothing to round up, so a record
-        # changed AT 12:00:00 was reported for a cutoff after it. **The previous
-        # fractional fix was right about the ceiling and wrong about what reaches
-        # it**: truncating to a fixed width is an enumeration of precision, and
-        # this is the input that falls outside it.
-        #
-        # ⭐ The smallest representable fraction is enough, because the only
-        # consumer ceils: what has to survive is *there was a fraction*, not its
-        # value. Six digits is what every supported interpreter agrees on, so the
-        # width stays and the information that mattered is preserved inside it.
-        if kept == "000000" and digits.strip("0"):
-            kept = "000001"
-        return "." + kept
+    if parts["hour"] is not None:
+        canonical += f"T{parts['hour']}:{parts['minute']}:{parts['second'] or '00'}"
+        canonical += _six_digits(parts["fraction"])
 
-    # ⛔ **Both decimal separators, normalised to the one the interpreters agree
-    # on.** ISO 8601 permits a COMMA, and the interpreters disagree about it:
-    # 3.11 and 3.12 accept it, the 3.10 floor rejects it. Matching only a period
-    # left a comma fraction untouched, so it bypassed the discarded-digit
-    # handling entirely -- measured on 3.12, ``12:00:00,0000001`` returned the
-    # whole second and a record changed AT that second was reported for a cutoff
-    # after it.
-    #
-    # ⭐ This is the third member of the set this function already handles, not a
-    # new case: ``Z`` versus an explicit offset, fractional WIDTH, and now the
-    # separator. **The rule is that every ISO spelling the interpreters disagree
-    # about becomes the one spelling they agree on** -- which also removes the
-    # 3.10-versus-3.11 divergence outright, because the interpreter never sees a
-    # comma.
-    return re.sub(r"[.,](\d+)", six_digits, text, count=1)
+    offset = parts["offset"]
+    if offset:
+        if offset in ("Z", "z"):
+            canonical += "+00:00"
+        elif ":" in offset:
+            canonical += offset
+        else:
+            canonical += f"{offset[:3]}:{offset[3:]}"
+    return canonical
+
+
+def _six_digits(fraction: str | None) -> str:
+    """A fractional second in the ONE width every supported interpreter accepts.
+
+    ⚠️ 3.10 accepts exactly three or six digits and nothing else, which is why a
+    width is imposed rather than passed through.
+
+    ⛔ **A discarded non-zero digit must not become no fraction at all.**
+    ``.0000001`` truncated to six digits is ``.000000``, so an instant strictly
+    AFTER a whole second normalised to exactly that second -- and the ``ceil`` in
+    ``_as_epoch`` then had nothing to round up, so a record changed AT that second
+    was reported for a cutoff after it. **Truncating to a fixed width is an
+    enumeration of precision**, and this is the input that falls outside it.
+
+    ⭐ The smallest representable fraction suffices because the only consumer
+    ceils: what must survive is *there was a fraction*, not its value.
+    """
+    if fraction is None:
+        return ""
+    kept = (fraction + "000000")[:6]
+    if kept == "000000" and fraction.strip("0"):
+        kept = "000001"
+    return "." + kept
 
 
 def _as_epoch(text: str) -> int | None:
