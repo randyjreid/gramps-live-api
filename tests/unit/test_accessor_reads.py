@@ -1157,3 +1157,40 @@ def test_a_fractional_cutoff_does_not_reach_backwards() -> None:
     )
     # ⚠️ And the ordinary whole-second case is untouched.
     assert accessor._as_epoch("2026-08-01T12:00:00") == whole
+
+
+def test_a_fraction_BEYOND_six_digits_still_reaches_forwards() -> None:
+    """⛔ The previous fix was right about the ceiling and wrong about what reaches it.
+
+    ⚠️ The normaliser truncates a fractional second to **six digits**, because six
+    is what every supported interpreter agrees on. But ``.0000001`` truncated to
+    six is ``.000000`` — **no fraction at all** — so the ``ceil`` had nothing to
+    round up, and a record changed at ``12:00:00`` was reported for a cutoff
+    strictly after it. Exactly the defect the fractional fix closed, arriving
+    through the input shape that fix did not cover.
+
+    ⭐ **Truncating to a fixed width is an enumeration of precision.** What has to
+    survive is *there was a fraction*, not its value, because the only consumer
+    ceils.
+    """
+    whole = accessor._as_epoch("2026-08-01T12:00:00")
+    assert whole is not None
+
+    for cutoff in (
+        "2026-08-01T12:00:00.0000001",
+        "2026-08-01T12:00:00.000000999",
+        "2026-08-01T12:00:00.00000000000001",
+    ):
+        moment = accessor._as_epoch(cutoff)
+        assert moment == whole + 1, (
+            f"{cutoff} is strictly after {whole}, but normalised to the whole "
+            f"second and got {moment} — a record changed at 12:00:00 would be "
+            f"reported for a cutoff after it"
+        )
+
+    # ⛔ And a fraction that really IS zero must NOT move. A rule that rounds
+    # every fractional input up is the same defect pointing the other way.
+    assert accessor._as_epoch("2026-08-01T12:00:00.000000000") == whole, (
+        "an all-zero fraction is the whole second and must stay there"
+    )
+    assert accessor._as_epoch("2026-08-01T12:00:00.000000") == whole

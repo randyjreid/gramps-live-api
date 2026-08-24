@@ -1279,7 +1279,26 @@ def _iso_for_any_interpreter(raw: str) -> str:
         text = text[:-1] + "+00:00"
 
     def six_digits(match: re.Match[str]) -> str:
-        return "." + (match.group(1) + "000000")[:6]
+        digits = match.group(1)
+        kept = (digits + "000000")[:6]
+
+        # ⛔ **A discarded non-zero digit must not become no fraction at all.**
+        #
+        # ⚠️ ``.0000001`` truncated to six digits is ``.000000``, so an instant
+        # strictly AFTER 12:00:00 normalised to exactly 12:00:00 -- and the
+        # ``ceil`` in ``_as_epoch`` then had nothing to round up, so a record
+        # changed AT 12:00:00 was reported for a cutoff after it. **The previous
+        # fractional fix was right about the ceiling and wrong about what reaches
+        # it**: truncating to a fixed width is an enumeration of precision, and
+        # this is the input that falls outside it.
+        #
+        # ⭐ The smallest representable fraction is enough, because the only
+        # consumer ceils: what has to survive is *there was a fraction*, not its
+        # value. Six digits is what every supported interpreter agrees on, so the
+        # width stays and the information that mattered is preserved inside it.
+        if kept == "000000" and digits.strip("0"):
+            kept = "000001"
+        return "." + kept
 
     return re.sub(r"\.(\d+)", six_digits, text, count=1)
 
