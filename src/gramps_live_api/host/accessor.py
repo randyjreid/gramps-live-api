@@ -1255,18 +1255,27 @@ def _change_stamp(obj: typing.Any) -> int | None:
     return None
 
 
-ISO_GRAMMAR = re.compile(
-    r"""^
-    (?P<year>\d{4}) -? (?P<month>\d{2}) -? (?P<day>\d{2})
-    (?:
-        [T\ ]
-        (?P<hour>\d{2}) :? (?P<minute>\d{2})
-        (?: :? (?P<second>\d{2}) )?
-        (?: [.,] (?P<fraction>\d+) )?
+_TIME_EXTENDED = r"""
+    (?: [T\ ]
+        (?P<hour>\d{2}) : (?P<minute>\d{2})
+        (?: : (?P<second>\d{2}) (?: [.,] (?P<fraction>\d+) )? )?
+        (?P<offset> [Zz] | [+-]\d{2}:?\d{2} )?
     )?
-    (?P<offset> [Zz] | [+-]\d{2}:?\d{2} )?
-    $""",
-    re.VERBOSE,
+"""
+
+_TIME_BASIC = r"""
+    (?: T
+        (?P<hour>\d{2}) (?P<minute>\d{2})
+        (?: (?P<second>\d{2}) (?: [.,] (?P<fraction>\d+) )? )?
+        (?P<offset> [Zz] | [+-]\d{2}:?\d{2} )?
+    )?
+"""
+
+ISO_SPELLINGS = (
+    re.compile(
+        r"^(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})" + _TIME_EXTENDED + r"$", re.VERBOSE
+    ),
+    re.compile(r"^(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})" + _TIME_BASIC + r"$", re.VERBOSE),
 )
 """⛔ **Every spelling this project accepts, enumerated in ONE place.**
 
@@ -1277,41 +1286,49 @@ by adding another substitution -- so a fifth spelling invited a sixth finding.
 **The set being sampled was "spellings ISO permits that 3.10 will not parse", and
 it was being discovered rather than declared.**
 
-⚠️ **The criterion this closes on:** *every accepted spelling is listed here and
-tested on the floor interpreter.* That is checkable and finite. *"ISO 8601 is
-accepted"* is not, and is what the four rounds were sampling.
+⚠️ **Two patterns, not one with optional separators.** A single pattern with each
+hyphen independently optional matched hybrids ISO does not permit -- ``2026-0801``
+and ``202608-01`` -- and canonicalised them, **turning a typo in a cutoff from a
+refusal into a successful query.** Notation is consistent within a value or the
+value is not ISO, so the alternation carries that rather than a comment asking a
+reader to.
 
-⛔ Anything this does not match is returned unchanged, so it reaches
-``fromisoformat`` exactly as before and is refused there. **Widening what is
-accepted means editing this pattern**, which is a visible diff, rather than
-discovering that some spelling happened to survive."""
+⚠️ **The offset lives INSIDE the time group, and the fraction inside seconds.**
+Outside them, ``2026-08-01Z`` and ``2026-08-01T12:00.5`` both matched: the first
+became a naive midnight carrying an offset, the second half a second past noon
+from an input every interpreter rejects.
+
+⛔ Anything no pattern matches is **refused**, not passed along. See
+``_iso_for_any_interpreter``."""
 
 
-def _iso_for_any_interpreter(raw: str) -> str:
-    """An ISO string ``fromisoformat`` accepts on **3.10 as well as 3.12**.
+def _iso_for_any_interpreter(raw: str) -> str | None:
+    """One canonical ISO string, or ``None`` when the spelling is not accepted.
 
     ⛔ **``fromisoformat``'s definition comes from the INTERPRETER, not from the
     specification**, and the three supported interpreters disagree. 3.10 accepts
     only extended notation with exactly three or six fractional digits; 3.11 and
-    3.12 accept far more. So this parses the input against a grammar **this
-    project owns** and hands ``fromisoformat`` a single canonical form that every
-    supported interpreter accepts.
+    3.12 accept far more. So this parses against a grammar **this project owns**
+    and returns a single canonical form every supported interpreter accepts.
 
-    ⭐ **The interpreter then contributes nothing to WHICH SPELLINGS ARE
-    ACCEPTED**, which is what "for any interpreter" has to mean to be worth
-    saying. It still contributes the calendar validation -- month 13 is refused
-    downstream, and that is a fact about dates rather than about spellings.
+    ⛔ **``None`` means REFUSED, and the caller must not fall back to the
+    interpreter.** Returning the text unchanged looked harmless and was not:
+    ``2026-W31-1`` is a valid ISO week date that 3.11 and 3.12 parse and 3.10
+    rejects, so handing an unmatched spelling to ``fromisoformat`` **preserved
+    exactly the interpreter-dependent behaviour this grammar exists to remove.**
 
-    ⚠️ Measured on the floor before and after: ``20260801T120000Z`` parsed on 3.12
-    and raised on 3.10, from the same normalised string.
+    ⭐ So the interpreter contributes nothing to WHICH SPELLINGS ARE ACCEPTED,
+    which is what "for any interpreter" has to mean to be worth saying. It still
+    contributes the calendar -- month 13 is refused downstream, and that is a fact
+    about dates rather than about spellings.
     """
     text = str(raw).strip()
-    match = ISO_GRAMMAR.match(text)
-    if match is None:
-        # ⛔ Not a spelling this project claims to accept. Returned unchanged so
-        # it fails downstream exactly as it does today -- a normaliser must not
-        # invent an interpretation for something it does not recognise.
-        return text
+    for pattern in ISO_SPELLINGS:
+        match = pattern.match(text)
+        if match is not None:
+            break
+    else:
+        return None
 
     parts = match.groupdict()
     canonical = f"{parts['year']}-{parts['month']}-{parts['day']}"
@@ -1319,15 +1336,14 @@ def _iso_for_any_interpreter(raw: str) -> str:
     if parts["hour"] is not None:
         canonical += f"T{parts['hour']}:{parts['minute']}:{parts['second'] or '00'}"
         canonical += _six_digits(parts["fraction"])
-
-    offset = parts["offset"]
-    if offset:
-        if offset in ("Z", "z"):
-            canonical += "+00:00"
-        elif ":" in offset:
-            canonical += offset
-        else:
-            canonical += f"{offset[:3]}:{offset[3:]}"
+        offset = parts["offset"]
+        if offset:
+            if offset in ("Z", "z"):
+                canonical += "+00:00"
+            elif ":" in offset:
+                canonical += offset
+            else:
+                canonical += f"{offset[:3]}:{offset[3:]}"
     return canonical
 
 
@@ -1374,7 +1390,11 @@ def _as_epoch(text: str) -> int | None:
     # rejected by the code that documents it.** The same shape as every other
     # enumeration in this project: a list of spellings standing in for a format.
     try:
-        parsed = datetime.datetime.fromisoformat(_iso_for_any_interpreter(raw))
+        # ⛔ ``None`` is a REFUSAL and must not reach ``fromisoformat`` -- see the
+        # note there. An unmatched spelling that the interpreter happens to parse
+        # is the divergence this grammar exists to remove.
+        canonical = _iso_for_any_interpreter(raw)
+        parsed = datetime.datetime.fromisoformat(canonical) if canonical else None
     except ValueError:
         parsed = None
     if parsed is not None:
@@ -1390,11 +1410,11 @@ def _as_epoch(text: str) -> int | None:
         # unchanged.
         return math.ceil(parsed.timestamp())
 
-    for shape in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
-        try:
-            return int(datetime.datetime.strptime(raw, shape).timestamp())
-        except ValueError:
-            continue
+    # ⛔ **No second acceptance path.** Three hand-written ``strptime`` shapes used
+    # to live here as a fallback; every one of them is a spelling ``ISO_SPELLINGS``
+    # already matches, so they accepted nothing extra -- and a second list of
+    # accepted spellings is exactly what the bound above exists to prevent. If the
+    # grammar refused it, it is refused.
     return None
 
 
