@@ -1553,6 +1553,7 @@ a reason unrelated to the property it names*:
 | a bot 👍 | arrived on a commit whose CI was red on four jobs |
 | three "PASS" branch results | measured on a fourth branch, because the checkout had been refused and nothing checked |
 | a commit | pushed after a test command that had reported two failures, because the commit ran unconditionally |
+| a commit message | claimed `Gates: --quick` on a branch where `scripts/gate.py` did not exist. The command exited **2** with *can't open file*; the push output was read and the gate output was not |
 
 **Three rules follow, and each is mechanical rather than a matter of care:**
 
@@ -1562,6 +1563,15 @@ a reason unrelated to the property it names*:
 3. ⛔ **A refused `git checkout` must abort whatever depended on it.** A measurement
    that names a branch it did not check out is worse than no measurement, because it
    reads as evidence.
+
+⭐ **The last row is the newest and the most embarrassing**, so it is worth stating plainly
+rather than burying in a table: it happened on a night whose own work included filing an issue
+about claims that name no test, and it was a claim about *verification* — the one subject where
+the claim and the check are the same act. **The class does not respect the topic, and it does not
+spare the person writing about it.**
+
+⚠️ **What would have caught it is this section's own rule, unapplied.** The exit code was `2`,
+printed on the line above the one that was read.
 
 ⚠️ **A gate step that cannot fail is not a gate step.** A draft of this script ended
 its `pii_guard` line with `|| true` -- inside the script whose entire purpose is
@@ -1573,6 +1583,40 @@ before being asked.** No review round and no reviewer found the gate-reading def
 CI found one instance of its consequence. **A record reading as though a reviewer
 caught it would teach that reviewers catch this** -- they do not, because a gate
 reporting success looks exactly like a gate that passed.
+
+### ⛔ A test per property does not catch a dropped property
+
+Two changes to one construction each get their own test. **Revert either and exactly one test
+fails — and that failure says nothing about whether the other property survived.** A conflict
+resolution, a refactor, or a careless merge can drop one side while every test that mentions it
+still passes.
+
+> **Where two changes touch one construction, write a test that fails if EITHER is missing**, and
+> prove it by reverting each independently.
+
+**Measured, 2026-08-24, `backup.py`'s filename.** Two changes reach
+`` {stamp}-{unique}-{safe}.sqlite ``: the stamp is made monotonic so retention keeps the newest, and
+the display portion is bounded in encoded bytes so a long tree name cannot exceed the component
+limit. Reverting each in turn:
+
+| reverted | tests that failed |
+| --- | --- |
+| the monotonic stamp | 2 — the retention-window test, **and the combined one** |
+| the count fix | 3 — both retention tests, **and the combined one** |
+| the display-portion bound | 2 — #117's test, **and the combined one** |
+| the verification deadline | 1 |
+
+⭐ **The combined test failed on three of the four controls; each single-property test failed only on
+its own.** Without it, a resolution dropping either filename change would have looked like an
+ordinary single-test failure — or, if the resolution also dropped the test, **like nothing at all.**
+
+⚠️ **This is the testing half of *individually right, wrong together*** — the class that collapsed
+the retention window from twenty to one while every count stayed correct, and whose fix had to touch
+both the count and the ordering because fixing one left the count right and the wrong files chosen.
+
+**The trigger to apply it:** two changes landing on one expression, one filename, one identifier, one
+record — especially when they arrive in different rounds and meet in a merge. ⛔ **A clean auto-merge
+is not evidence both survived**; it is the case where nothing announces that one did not.
 
 ## ⛔ A comment is a claim, and it is written when you can least check it
 
