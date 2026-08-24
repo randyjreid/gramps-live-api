@@ -1527,6 +1527,134 @@ Enforced by `tests/integration/test_repository_hygiene.py`.
 
 Nothing else is covered by either exception.
 
+## ⛔ Read every gate by its EXIT CODE
+
+**Run `python scripts/gate.py`.** It exists because the gates here were being read
+wrong rather than run wrong, and a habit cannot be checked while a script can.
+
+⛔ **Never pipe a gate to `tail`, `head` or `grep`. Never decide from its output.**
+
+**The instance that forced this, 2026-08-23.** Every local gate in a long session ran
+`ruff check . | tail -1`. Ruff prints `Found 1 error.` and *then* a note about unsafe
+fixes -- so `tail -1` showed the note and hid the error. **Every "ruff clean" reported
+that session was read that way**, and CI caught a `B007` the local gate had been
+silently passing over.
+
+⚠️ **This is this project's most common defect class**, and the gate reading was only
+its latest instance. All of these are the same shape -- *a check reporting success for
+a reason unrelated to the property it names*:
+
+| the check | what it actually measured |
+| --- | --- |
+| the write summary's `wrote` line | a hand-kept counter, not what was created -- a source written, reported as none |
+| `host.log` | 68 tracebacks from test runs, against 25 real lines |
+| `changed_since`'s first version | `except AttributeError: continue` -- the full walk's cost and an empty answer, reported as *nothing changed* |
+| a PR watcher | baselined after the verdict landed, so it waited forever for a second one |
+| a bot 👍 | arrived on a commit whose CI was red on four jobs |
+| three "PASS" branch results | measured on a fourth branch, because the checkout had been refused and nothing checked |
+| a commit | pushed after a test command that had reported two failures, because the commit ran unconditionally |
+
+**Three rules follow, and each is mechanical rather than a matter of care:**
+
+1. **Exit codes.** Abort on the first failure and read return codes, as `scripts/gate.py` does.
+2. ⛔ **A commit must never run unconditionally after a test command.** Chain on
+   success (`&&`) or run them as separate deliberate steps.
+3. ⛔ **A refused `git checkout` must abort whatever depended on it.** A measurement
+   that names a branch it did not check out is worse than no measurement, because it
+   reads as evidence.
+
+⚠️ **A gate step that cannot fail is not a gate step.** A draft of this script ended
+its `pii_guard` line with `|| true` -- inside the script whose entire purpose is
+that a gate must be able to fail. That is left recorded in the file because writing it
+was the natural thing to do, which is what makes this class hard.
+
+⭐ **Recorded because the sessions that caused these reported them, unprompted and
+before being asked.** No review round and no reviewer found the gate-reading defect;
+CI found one instance of its consequence. **A record reading as though a reviewer
+caught it would teach that reviewers catch this** -- they do not, because a gate
+reporting success looks exactly like a gate that passed.
+
+## ⛔ A comment is a claim, and it is written when you can least check it
+
+**Three times on one branch, a comment asserted a property its code did not have.**
+All three were caught by reviewers, none by a gate, and every one of them *read as
+considered* — which is exactly what made them expensive.
+
+| the comment | what the code actually did |
+| --- | --- |
+| *"Basename plus display name is two weak keys… A digest of the absolute path cannot change under either"* — the retention docstring, on renames splitting a tree's backups | the folder was `{display}-{digest}`, so a **rename moved it**. `prune` is handed one directory and never saw the old one again; a tree's recovery points scattered across as many folders as it had ever had names, each separately inside `RETAIN` and the whole never inside it |
+| *"the caller is told which it got rather than being allowed to believe the stronger one"* — on `directory_synced` | the caller **never read it**. A fact measured, reported, and ignored, which is worth exactly what not measuring it is worth |
+| *"It cannot remove the copy just taken: retention keeps the newest by name and this one carries the newest stamp"* | a claim about **the clock**, not about the code. A backward clock — NTP correction, restored snapshot, dual boot — makes this run's copy sort first, so it is deleted immediately after the database write and the journal record points at nothing |
+| *"Copy `source` to `destination`. ⛔ **Call this ON the worker thread.**"* — `backup.take` | the worker was **removed** and the copy is synchronous on the GTK main thread. ⚠️ **The worst of the four, because it is an INSTRUCTION rather than an observation** — a reader following it would put the copy back on a worker and reintroduce all three defects the reversal removed, believing they were doing what the file asked |
+
+⭐ **The diagnosis, which is the part worth keeping: the reassurance gets written at
+the moment you are least able to check it.** A comment explaining why something is
+safe is written *while you are convinced it is safe* — that is why you are writing it
+rather than a test. The conviction and the sentence have the same source, so the
+sentence cannot be evidence for the conviction.
+
+⚠️ **And a false comment is worse than no comment**, because it is what the next
+reader — and the next reviewer — checks the code against. Two of the three above
+survived multiple review rounds; the reviewer read the assurance and moved on.
+
+**So, mechanically:**
+
+1. ⛔ **If a comment asserts a property, something must be able to fail when the
+   property does.** A test, an assertion, a type. If you cannot write that, the
+   comment is a hypothesis and must be worded as one.
+2. ⛔ **Name what the code does, never what you believe follows from it.** *"prune is
+   given the path to protect"* is checkable. *"prune cannot delete it"* is a
+   conclusion, and conclusions are where the assumptions hide.
+3. ⚠️ **Assurances about the environment are the sharpest case** — the clock moves
+   forward, this platform supports that, this list cannot be empty. Those are claims
+   about the world, and the code cannot make them true.
+
+⭐ **Recorded because the session that wrote all four reported them, unprompted.** No
+gate can catch this class: a comment has no exit code. Only a reviewer reading the
+code *against* the comment finds it, which is why each of them cost a round.
+
+### ⚠️ The same class outside the code, in a shell command
+
+**A check is a claim too, and the same day produced one.** A session verified that
+Gramps was closed before switching branches — a standing rule, because the plugin
+junction points straight at `gramps_plugin/` in the working tree — using:
+
+```
+Get-Process gramps,python -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -like "*gramps*" }
+```
+
+**The process is `grampsw.exe`.** `Get-Process gramps` does not match it,
+`-ErrorAction SilentlyContinue` swallowed the resulting error, and the empty
+result read as *"no Gramps process running."* Two branch switches followed, across
+**576 lines of difference in exactly those plugin files**, with Gramps live. It was
+luck rather than design that nothing ran in the window.
+
+⛔ **Two rules, both mechanical:**
+
+1. **Match processes by pattern, never by a name list you typed from memory.**
+   `Get-Process | Where-Object { $_.ProcessName -like "*gramps*" }`.
+2. ⚠️ **"No rows returned" and "the query was wrong" are different answers, and
+   `SilentlyContinue` turns the second into the first.** Any check whose safe
+   answer is the empty set must be able to distinguish them.
+
+⭐ **And the better fix is not a better check.** The rule exists because the
+junction points at the working tree, so the answer is to stop moving the working
+tree: `git worktree add ../elsewhere <branch>` gives a separate directory Gramps
+never sees. **That removes the need for the check rather than repairing it** — the
+same move as deleting the page budget instead of writing a fourth version of it.
+
+### The round count, corrected in the same spirit
+
+⚠️ **The five-round backstop is per reviewer per ARTIFACT, not per session.** On PR
+#111 the conductor reported the bot as being at "3, going on 4" and continued. The
+artifact had taken **six** — two rounds on earlier heads that session had not seen.
+**The backstop had already passed, and a round was run past it without anyone
+deciding to.**
+
+**A conductor who cannot state the round number does not have a backstop.** Count from
+the artifact's own record — for a PR bot, the reviews the bot has published on that
+pull request — never from what the current session remembers doing.
+
 ## Working against a running Gramps
 
 ⛔ **Deleting a plugin's source does not unhook a callback a running Gramps has already
