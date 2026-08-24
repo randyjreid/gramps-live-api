@@ -567,6 +567,8 @@ def test_a_BACKWARD_CLOCK_does_not_collapse_the_retention_WINDOW(tmp_path: Path)
             f"collapsed to one and a journal record one write old pointed at a "
             f"deleted file."
         )
+
+
 def test_a_long_display_name_cannot_push_the_filename_past_the_component_limit(
     tmp_path: Path,
 ) -> None:
@@ -671,3 +673,74 @@ def test_an_unsound_copy_is_still_refused_BEFORE_publication(tmp_path: Path) -> 
     assert backup.verify(str(corrupt), deadline=time.monotonic() + 30) is False, (
         "a corrupt copy passed verification when a deadline was supplied"
     )
+
+
+def test_a_LONG_display_name_and_a_BACKWARD_CLOCK_together(tmp_path: Path) -> None:
+    """⛔ Both changes to the filename, exercised in one construction.
+
+    Two separate changes reach `` {stamp}-{unique}-{safe}.sqlite `` — the stamp is
+    made **monotonic** so retention keeps the newest, and the display portion is
+    **bounded in encoded bytes** so an over-long tree name cannot push the
+    component past the filesystem limit. They were written in different rounds and
+    landed through a conflict resolution.
+
+    ⚠️ **A test covering one of them passes while the other is silently absent.**
+    That is exactly how the retention collapse shipped: protecting the current
+    copy and selecting by name order were each individually right, each
+    individually tested, and wrong together.
+
+    ⭐ So this asserts the properties **at the same time**: a display name well past
+    the limit, several writes under a clock that has jumped backwards, and the
+    **oldest** removed each time while every recent recovery point survives.
+    """
+    keep = 4
+    tree = str(tmp_path / "grampsdb" / "abcd1234")
+    root = str(tmp_path / "backups")
+    display = "Ω" * 200  # 200 characters, 400 bytes — past the limit on its own
+
+    seeded = []
+    for day in range(1, keep + 1):
+        destination = backup.destination_for(
+            root, display, f"202608{day:02d}T000000Z", tree_dir=tree
+        )
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        Path(destination).write_text("x", encoding="utf-8")
+        seeded.append(destination)
+    folder = os.path.dirname(seeded[0])
+
+    # ⛔ The bound half: every name this run produced is creatable.
+    for path in seeded:
+        assert len(os.path.basename(path).encode("utf-8")) <= 255, (
+            "the display-portion bound is missing — an over-long tree name pushed "
+            "the filename past the component limit"
+        )
+
+    # ⛔ The monotonic half: under a backward clock the OLDEST goes, every time.
+    taken_since_rollback = []
+    for day in range(1, 4):
+        destination = backup.destination_for(
+            root, display, f"202001{day:02d}T000000Z", tree_dir=tree
+        )
+        Path(destination).write_text("newest recovery point", encoding="utf-8")
+        removed = backup.prune(folder, keep=keep, protect=destination)
+        taken_since_rollback.append(destination)
+
+        assert len(os.path.basename(destination).encode("utf-8")) <= 255, (
+            "a post-rollback name exceeded the component limit — the bound and the "
+            "monotonic stamp do not both apply to the same construction"
+        )
+        assert len([n for n in os.listdir(folder) if n.endswith(".sqlite")]) == keep, (
+            "retention is not holding at RETAIN with both changes in play"
+        )
+        assert removed, "nothing was removed, so the count is being met by not pruning"
+        for gone in removed:
+            assert gone not in taken_since_rollback, (
+                f"{os.path.basename(gone)[:24]}… was taken after the rollback and was "
+                f"pruned anyway — the monotonic stamp is not reaching this filename"
+            )
+
+    for path in taken_since_rollback:
+        assert Path(path).exists(), (
+            "a recovery point taken after the clock moved backwards was deleted by a "
+            "later write — the window collapsed, with the byte bound present"
+        )
