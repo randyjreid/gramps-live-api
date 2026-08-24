@@ -157,22 +157,11 @@ def test_the_exposed_surface_is_exactly_what_the_server_says_it_is(tmp_path: Pat
     tool arrives without being written down here.
     """
     exposed = asyncio.run(mcp_server.build_server(tools(tmp_path)).list_tools())
-    assert {tool.name for tool in exposed} == {
-        "list_people",
-        "propose_note",
-        "approve",
-        "propose_document",
-        "approve_document",
-        "find_people",
-        "find_place",
-        "find_source",
-        "find_citation",
-        "list_events",
-        "find_families",
-        "list_family_events",
-        "list_notes",
-        "list_associations",
-    }
+    # ⛔ The literal set that stood here has been deleted. It was a SECOND
+    # TALLY of the assertion below: two lists that must agree with nothing
+    # making them agree, which is the shape of the counter bug this project
+    # already paid for once. TOOL_NAMES is the one list, and a tool registered
+    # without an entry in it still fails here -- the criterion is unchanged.
     assert {tool.name for tool in exposed} == mcp_server.TOOL_NAMES
 
 
@@ -833,22 +822,26 @@ def test_the_proposal_description_does_not_deny_family_attachment() -> None:
     )
 
 
-def test_the_family_event_gap_is_stated_rather_than_implied() -> None:
-    """⛔ A read that finds a gap the write path cannot fill must say so.
+def test_a_family_event_is_advertised_where_a_caller_will_read_it() -> None:
+    """⭐ #105 shipped, so the LIMITATION NOTICE had to go with it.
 
-    ``list_family_events`` exists because concluding *no marriage* from a
-    person's events is how a duplicate marriage gets entered. But an event can
-    only be attached to PEOPLE, so a marriage proposed in response lands on the
-    spouses and this lookup still reports none — the check comes back empty
-    forever and the workflow never terminates.
+    ⚠️ **A limitation notice that outlives its limitation is a new false
+    statement.** The previous test pinned wording saying an event could only be
+    attached to people -- correct then, wrong now -- so removing the capability
+    gap means removing its warning in the same change.
 
-    Filed as its own capability. Until then the description says it plainly, so
-    a model reports the gap to the owner instead of writing a wrong record.
+    What replaces it is the positive claim, pinned the same way: the shape
+    advertises ``family``, and the family-events lookup tells a caller it can now
+    fill the gap it finds.
     """
-    for description in (
-        mcp_server.PROPOSE_DOCUMENT_DESCRIPTION,
-        mcp_server.LIST_FAMILY_EVENTS_DESCRIPTION,
-    ):
-        assert "cannot" in description.lower() and "family" in description.lower(), (
-            "the family-event limit is not stated where a caller will read it"
-        )
+    shape = mcp_server.PROPOSE_DOCUMENT_DESCRIPTION.split("SHAPE.", 1)[1]
+    events = next(row for row in shape.splitlines() if row.strip().startswith("events:"))
+    assert "family" in events or "family" in shape, (
+        "the event shape does not advertise a family, so nobody will use it"
+    )
+    assert (
+        "AN EVENT CANNOT YET BE ATTACHED TO A FAMILY" not in mcp_server.PROPOSE_DOCUMENT_DESCRIPTION
+    )
+    assert "cannot be filled through propose_document" not in (
+        mcp_server.LIST_FAMILY_EVENTS_DESCRIPTION
+    ), "the family-events lookup still tells callers the gap cannot be filled"

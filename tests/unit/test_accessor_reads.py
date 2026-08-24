@@ -392,11 +392,24 @@ def test_an_unsupported_note_kind_is_refused_not_retargeted(bound_tree: None) ->
     assert accessor.list_notes("I0041", kind="person").matches == ()
 
 
-def test_note_kinds_matches_what_the_lookup_actually_supports() -> None:
-    """⛔ The anti-drift pin. ``NOTE_KINDS`` is a second list of these.
+def test_every_advertised_kind_list_matches_the_lookup() -> None:
+    """⛔ ONE pin for every ``*_KINDS`` constant, not one per constant.
 
-    Same shape as the counter bug this branch fixes: two lists, nothing making
-    them agree. This reads ``_by_gramps_id``'s own branches.
+    ``NOTE_KINDS`` had a pin. ``CITED_KINDS`` was then written **without** one and
+    immediately drifted: it advertised ``event`` and ``citation`` while
+    ``_by_gramps_id`` had no branch for either, so ``list_citations(kind="event")``
+    returned a **successful empty result** -- and a caller reading *no citations*
+    adds the duplicate the tool exists to prevent. **A false negative is worse
+    than an error, because only one of them is visible.**
+
+    ⚠️ **The lesson did not transfer because the pin was written for ONE
+    constant.** This one discovers them, so a third list cannot repeat it.
+
+    ⚠️ **And it asserts two one-way relations rather than equality.** The previous
+    pin required ``NOTE_KINDS`` to EQUAL the lookup's branches, so widening the
+    lookup for citations broke a test about notes. The honest relations are:
+    everything advertised is supported (here), and everything supported is
+    advertised by something (below).
     """
     import ast
     import inspect
@@ -412,18 +425,28 @@ def test_note_kinds_matches_what_the_lookup_actually_supports() -> None:
         and isinstance(node.comparators[0], ast.Constant)
         and isinstance(node.comparators[0].value, str)
     }
-
     assert spelled, "found no kind branches -- has _by_gramps_id been reshaped?"
-    assert spelled == set(accessor.NOTE_KINDS), (
-        "NOTE_KINDS and _by_gramps_id disagree about what can be looked up: "
-        f"only in the code {sorted(spelled - set(accessor.NOTE_KINDS))}, "
-        f"only in the constant {sorted(set(accessor.NOTE_KINDS) - spelled)}"
+
+    advertised = {
+        name: set(getattr(accessor, name))
+        for name in dir(accessor)
+        if name.endswith("_KINDS") and name != "ORPHAN_KINDS"
+    }
+    assert advertised, "no *_KINDS constants found -- has the naming changed?"
+
+    for name, kinds in sorted(advertised.items()):
+        unsupported = sorted(kinds - spelled)
+        assert unsupported == [], (
+            f"{name} advertises kinds _by_gramps_id cannot look up, so a caller "
+            f"naming one gets a successful EMPTY answer: {unsupported}"
+        )
+
+    every = set().union(*(set(getattr(accessor, n)) for n in dir(accessor) if n.endswith("_KINDS")))
+    unreachable = sorted(spelled - every)
+    assert unreachable == [], (
+        "_by_gramps_id can look these up and no route offers them, so the "
+        f"branches are unreachable: {unreachable}"
     )
-
-
-# --------------------------------------------------------------------------
-# Round 2. The REFERENCE carries its own priv, separately from its target.
-# --------------------------------------------------------------------------
 
 
 @dataclass
@@ -664,3 +687,553 @@ def test_a_private_primary_name_is_withheld_not_rendered() -> None:
         "the owner must be told the name is withheld rather than shown nothing -- "
         f"he cannot confirm the identity, so he cancels; got {shown!r}"
     )
+
+
+# --------------------------------------------------------------------------
+# The three read tools. Two are use-derived; C0012 is the trigger.
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class FakeCitation:
+    gramps_id: str
+    page: str = ""
+    source: str | None = None
+    private: bool = False
+    handle: str = "h_cit"
+
+    def get_gramps_id(self) -> str:
+        return self.gramps_id
+
+    def get_privacy(self) -> bool:
+        return self.private
+
+    def get_page(self) -> str:
+        return self.page
+
+    def get_reference_handle(self) -> str | None:
+        return self.source
+
+    def get_handle(self) -> str:
+        return self.handle
+
+
+@dataclass
+class FakeSource:
+    gramps_id: str
+    title: str = ""
+    private: bool = False
+    handle: str = "h_src"
+
+    def get_gramps_id(self) -> str:
+        return self.gramps_id
+
+    def get_privacy(self) -> bool:
+        return self.private
+
+    def get_title(self) -> str:
+        return self.title
+
+    def get_handle(self) -> str:
+        return self.handle
+
+
+class TreeWithCitations:
+    """One cited person, one UNCITED citation -- the C0012 shape."""
+
+    def __init__(self) -> None:
+        self.source = FakeSource("S0001", "Marriage register, 1946")
+        self.attached = FakeCitation("C0001", "p. 44", source="h_src")
+        self.orphan = FakeCitation("C0012", "p. 91", source="h_src")
+        self.private_cit = FakeCitation("C0099", "p. 1", source="h_src", private=True)
+        self.orphan.handle = "h_orphan"
+        self.private_cit.handle = "h_private"
+        self.subject = person("I0600", "Wendell", "Ashgrove")
+        self.subject.get_citation_list = lambda: ["h_cit"]  # type: ignore[method-assign]
+        self._cits = {
+            "h_cit": self.attached,
+            "h_orphan": self.orphan,
+            "h_private": self.private_cit,
+        }
+        self.backlinks = {"h_cit": [("Person", "h_p")]}
+
+    def get_person_from_gramps_id(self, gramps_id: str):  # noqa: ANN201
+        return self.subject if gramps_id == "I0600" else None
+
+    def get_citation_from_handle(self, handle: str):  # noqa: ANN201
+        return self._cits.get(handle)
+
+    def get_source_from_handle(self, handle: str):  # noqa: ANN201
+        return self.source
+
+    def iter_citations(self):  # noqa: ANN201
+        return iter(self._cits.values())
+
+    def iter_sources(self):  # noqa: ANN201
+        return iter([self.source])
+
+    def iter_notes(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_places(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_repositories(self):  # noqa: ANN201
+        return iter([])
+
+    def find_backlink_handles(self, handle: str):  # noqa: ANN201
+        return iter(self.backlinks.get(handle, []))
+
+    def iter_people(self):  # noqa: ANN201
+        return iter([self.subject])
+
+
+def test_a_cited_record_reports_its_citation_and_source() -> None:
+    """⭐ The question no tool could ask: *is this record cited, and by what?*"""
+    accessor.bind(FakeDbState(db=TreeWithCitations()))
+    try:
+        found = accessor.list_citations("I0600", kind="person")
+    finally:
+        accessor.forget()
+
+    assert len(found.matches) == 1
+    assert found.matches[0].gramps_id == "C0001"
+    assert "Marriage register" in found.matches[0].display, (
+        "the citation without its source is half an answer -- the owner needs to "
+        f"know WHAT cites it: {found.matches[0].display!r}"
+    )
+
+
+def test_the_c0012_shape_is_found_as_an_orphan() -> None:
+    """⭐ A citation attached to nothing.
+
+    It existed, it was correct, and it pointed at nothing -- so it did no work,
+    and it was found only by reading an export by hand.
+    """
+    accessor.bind(FakeDbState(db=TreeWithCitations()))
+    try:
+        found = accessor.find_orphans("citation")
+    finally:
+        accessor.forget()
+
+    ids = {match.gramps_id for match in found.matches}
+    assert "C0012" in ids, f"the orphan was not found: {ids}"
+    assert "C0001" not in ids, "a citation that IS attached was reported as an orphan"
+
+
+def test_a_private_record_is_never_reported_as_an_orphan() -> None:
+    """⛔ P2 holds here too: not in the results, not in the count."""
+    accessor.bind(FakeDbState(db=TreeWithCitations()))
+    try:
+        found = accessor.find_orphans("citation")
+    finally:
+        accessor.forget()
+
+    assert "C0099" not in {m.gramps_id for m in found.matches}
+    assert found.matched == len(found.matches), "the leak by arithmetic"
+
+
+def test_a_failed_backlink_lookup_never_reports_an_orphan() -> None:
+    """⛔ *Nothing points at this* must never mean *the question failed*.
+
+    The owner acts on an orphan report by deleting. Reporting a record as
+    unreferenced because the lookup raised would send him deleting one that is
+    in use -- the worst possible direction for this tool to fail in.
+    """
+    tree = TreeWithCitations()
+
+    def explode(handle: str):  # noqa: ANN202
+        raise RuntimeError("the reference table is unavailable")
+
+    tree.find_backlink_handles = explode  # type: ignore[method-assign]
+    accessor.bind(FakeDbState(db=tree))
+    try:
+        found = accessor.find_orphans("citation")
+    finally:
+        accessor.forget()
+
+    assert found.matches == (), (
+        "a backlink lookup that FAILED was reported as 'referenced by nothing'"
+    )
+
+
+def test_orphan_and_citation_kinds_are_refused_when_unknown() -> None:
+    accessor.bind(FakeDbState(db=TreeWithCitations()))
+    try:
+        with pytest.raises(reads.UnknownKind):
+            accessor.find_orphans("peple")
+        with pytest.raises(reads.UnknownKind):
+            accessor.list_citations("I0600", kind="sorce")
+        with pytest.raises(reads.SearchTermRequired):
+            accessor.find_orphans("")
+    finally:
+        accessor.forget()
+
+
+class TreeThatCounts:
+    def __init__(self) -> None:
+        self._n = {
+            "people": 2934,
+            "families": 1586,
+            "events": 10931,
+            "places": 2256,
+            "sources": 14,
+            "citations": 17,
+            "notes": 66,
+            "repositories": 6,
+            "media": 12,
+        }
+
+    def is_open(self) -> bool:
+        return True
+
+    def __getattr__(self, name: str):  # noqa: ANN204
+        if name.startswith("get_number_of_"):
+            key = name[len("get_number_of_") :]
+            return lambda: self._n[key]
+        raise AttributeError(name)
+
+
+def test_the_tree_totals_answer_a_question_no_search_could() -> None:
+    """⚠️ ``find_people`` requires a term, so there was no way to ask how big the tree is."""
+    accessor.bind(FakeDbState(db=TreeThatCounts()))
+    try:
+        totals = accessor.tree_totals()
+    finally:
+        accessor.forget()
+
+    assert totals["people"] == 2934
+    assert totals["events"] == 10931
+    assert set(totals) == {
+        "people",
+        "families",
+        "events",
+        "places",
+        "sources",
+        "citations",
+        "notes",
+        "repositories",
+        "media",
+    }
+
+
+# --------------------------------------------------------------------------
+# changed_since -- and the swallow that made its first version answer nothing.
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class FakeChanged:
+    gramps_id: str
+    change: int = 0
+    private: bool = False
+    expose_getter: bool = True
+
+    def get_gramps_id(self) -> str:
+        return self.gramps_id
+
+    def get_privacy(self) -> bool:
+        return self.private
+
+    def get_title(self) -> str:
+        return "a record"
+
+    def __getattr__(self, name: str):  # noqa: ANN204
+        if name == "get_change":
+            if not object.__getattribute__(self, "expose_getter"):
+                raise AttributeError(name)
+            return lambda: object.__getattribute__(self, "change")
+        raise AttributeError(name)
+
+
+class TreeThatChanges:
+    def __init__(self, records: list[FakeChanged]) -> None:
+        self._records = records
+
+    def iter_sources(self):  # noqa: ANN201
+        return iter(self._records)
+
+    def iter_people(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_families(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_events(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_places(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_citations(self):  # noqa: ANN201
+        return iter([])
+
+    def iter_notes(self):  # noqa: ANN201
+        return iter([])
+
+
+def test_records_changed_after_the_cutoff_are_returned() -> None:
+    old = FakeChanged("S0001", change=1_500_000_000)
+    recent = FakeChanged("S0002", change=1_787_483_523)
+    accessor.bind(FakeDbState(db=TreeThatChanges([old, recent])))
+    try:
+        found = accessor.changed_since("2026-08-01", kind="sources")
+    finally:
+        accessor.forget()
+
+    assert [m.gramps_id for m in found.matches] == ["S0002"]
+    assert "changed" in found.matches[0].display
+
+
+def test_a_private_record_is_never_reported_as_changed() -> None:
+    """⛔ P2 holds here too: not in the results, not in the count."""
+    accessor.bind(
+        FakeDbState(
+            db=TreeThatChanges(
+                [
+                    FakeChanged("S0002", change=1_787_483_523),
+                    FakeChanged("S0099", change=1_787_483_523, private=True),
+                ]
+            )
+        )
+    )
+    try:
+        found = accessor.changed_since("2026-08-01", kind="sources")
+    finally:
+        accessor.forget()
+
+    assert "S0099" not in {m.gramps_id for m in found.matches}
+    assert found.matched == len(found.matches), "the leak by arithmetic"
+
+
+def test_a_tree_whose_stamps_cannot_be_read_REFUSES_rather_than_reporting_none() -> None:
+    """⛔ The defect the first version shipped past, and it is the whole lesson.
+
+    It wrapped the read in ``except AttributeError: continue``, so using the
+    wrong accessor skipped every record and the route answered an empty result --
+    **the full walk's cost and none of its answer.** Measured live: 275 ms over
+    2,935 people, ``shown=0``, on a tree that had changed that morning.
+
+    ⚠️ *Nothing changed* is exactly the answer a caller acts on, so a silent
+    wrong one is worse than an error.
+    """
+    accessor.bind(
+        FakeDbState(
+            db=TreeThatChanges(
+                # ⚠️ Neither path yields a usable number: no getter, and the
+                # attribute holds something that is not a timestamp. That models
+                # the real failure -- an accessor whose answer cannot be used --
+                # rather than merely a missing method, which the fallback handles.
+                [
+                    FakeChanged("S0001", change="not-a-timestamp", expose_getter=False)  # type: ignore[arg-type]
+                    for _ in range(3)
+                ]
+            )
+        )
+    )
+    try:
+        with pytest.raises(reads.ReadRefused) as refusal:
+            accessor.changed_since("2020-01-01", kind="sources")
+    finally:
+        accessor.forget()
+
+    assert "change stamp" in str(refusal.value)
+    assert "Refusing rather than reporting none" in str(refusal.value)
+
+
+def test_an_unreadable_date_is_refused() -> None:
+    accessor.bind(FakeDbState(db=TreeThatChanges([])))
+    try:
+        with pytest.raises(reads.SearchTermRequired):
+            accessor.changed_since("last Tuesday", kind="sources")
+        with pytest.raises(reads.SearchTermRequired):
+            accessor.changed_since("")
+        with pytest.raises(reads.UnknownKind):
+            accessor.changed_since("2020-01-01", kind="peoples")
+    finally:
+        accessor.forget()
+
+
+def test_a_private_record_cannot_change_the_shape_of_the_answer() -> None:
+    """⛔ A private record must not reach the stamp read at all.
+
+    Counting it as unreadable let it turn an empty 200 into a refusal -- so its
+    existence was detectable through **control flow**: absent from the results
+    and the counts, and leaking through the shape of the response instead.
+    """
+    accessor.bind(
+        FakeDbState(
+            db=TreeThatChanges(
+                [
+                    FakeChanged("S0099", change="unreadable", private=True, expose_getter=False),  # type: ignore[arg-type]
+                    FakeChanged("S0001", change=1_500_000_000),
+                ]
+            )
+        )
+    )
+    try:
+        found = accessor.changed_since("2026-08-01", kind="sources")
+    finally:
+        accessor.forget()
+
+    assert found.matches == ()
+    assert found.matched == 0
+
+
+def test_nothing_changed_is_an_answer_not_a_refusal() -> None:
+    """⚠️ A partially readable collection whose readable records are all older
+    than the cutoff was refused for giving exactly the right answer."""
+    accessor.bind(
+        FakeDbState(
+            db=TreeThatChanges(
+                [
+                    FakeChanged("S0001", change=1_500_000_000),
+                    FakeChanged("S0002", change="unreadable", expose_getter=False),  # type: ignore[arg-type]
+                ]
+            )
+        )
+    )
+    try:
+        found = accessor.changed_since("2026-08-01", kind="sources")
+    finally:
+        accessor.forget()
+
+    assert found.matches == (), "nothing changed since the cutoff"
+    assert found.matched == 0
+
+
+def test_the_iso_date_times_the_tool_advertises_are_accepted() -> None:
+    """⛔ The documented input was rejected by the code that documents it.
+
+    ``changed_since`` says *an ISO date or date-time*, and three hand-written
+    ``strptime`` formats are not ISO -- so ``2026-08-01T12:00:00Z``, an offset,
+    and fractional seconds all came back as 400.
+    """
+    import datetime
+
+    naive = accessor._as_epoch("2026-08-01T12:00:00")
+    assert naive == int(datetime.datetime(2026, 8, 1, 12, 0, 0).timestamp()), (
+        "a naive input must stay LOCAL -- Gramps writes change from time.time()"
+    )
+
+    utc = accessor._as_epoch("2026-08-01T12:00:00Z")
+    offset = accessor._as_epoch("2026-08-01T14:00:00+02:00")
+    assert utc is not None and offset is not None
+    assert utc == offset, "the same instant expressed two ways gave two answers"
+
+    assert accessor._as_epoch("2026-08-01T12:00:00.123456") is not None
+    assert accessor._as_epoch("2026-08-01") is not None
+    assert accessor._as_epoch("2026/08/01") is not None
+    assert accessor._as_epoch("last Tuesday") is None
+
+
+def test_a_change_stamp_of_zero_is_a_stamp_not_an_absence() -> None:
+    """⛔ Truthiness said the opposite of the docstring directly above it.
+
+    A stamp of 0 is the Unix epoch -- a real value. Treating it as unreadable
+    meant a collection whose public records all carried 0 produced a **refusal**
+    instead of the correct empty result.
+    """
+    assert accessor._change_stamp(FakeChanged("S0001", change=0)) == 0
+    assert accessor._change_stamp(FakeChanged("S0002", change=1_787_483_523)) == 1_787_483_523
+    assert (
+        accessor._change_stamp(FakeChanged("S0003", change="nonsense", expose_getter=False)) is None
+    )  # type: ignore[arg-type]
+
+
+def test_a_fractional_cutoff_does_not_reach_backwards() -> None:
+    """⛔ ``int()`` moved a fractional cutoff to the START of its second.
+
+    Gramps stamps whole seconds, so a record changed at ``12:00:00`` was reported
+    for a cutoff of ``12:00:00.5`` -- earlier than the instant asked for, which
+    is not *at or after*.
+    """
+    whole = accessor._as_epoch("2026-08-01T12:00:00")
+    fractional = accessor._as_epoch("2026-08-01T12:00:00.5")
+
+    assert whole is not None and fractional is not None
+    assert fractional == whole + 1, (
+        "a fractional cutoff must not include the second it falls inside"
+    )
+    # ⚠️ And the ordinary whole-second case is untouched.
+    assert accessor._as_epoch("2026-08-01T12:00:00") == whole
+
+
+def test_a_fraction_BEYOND_six_digits_still_reaches_forwards() -> None:
+    """⛔ The previous fix was right about the ceiling and wrong about what reaches it.
+
+    ⚠️ The normaliser truncates a fractional second to **six digits**, because six
+    is what every supported interpreter agrees on. But ``.0000001`` truncated to
+    six is ``.000000`` — **no fraction at all** — so the ``ceil`` had nothing to
+    round up, and a record changed at ``12:00:00`` was reported for a cutoff
+    strictly after it. Exactly the defect the fractional fix closed, arriving
+    through the input shape that fix did not cover.
+
+    ⭐ **Truncating to a fixed width is an enumeration of precision.** What has to
+    survive is *there was a fraction*, not its value, because the only consumer
+    ceils.
+    """
+    whole = accessor._as_epoch("2026-08-01T12:00:00")
+    assert whole is not None
+
+    for cutoff in (
+        "2026-08-01T12:00:00.0000001",
+        "2026-08-01T12:00:00.000000999",
+        "2026-08-01T12:00:00.00000000000001",
+    ):
+        moment = accessor._as_epoch(cutoff)
+        assert moment == whole + 1, (
+            f"{cutoff} is strictly after {whole}, but normalised to the whole "
+            f"second and got {moment} — a record changed at 12:00:00 would be "
+            f"reported for a cutoff after it"
+        )
+
+    # ⛔ And a fraction that really IS zero must NOT move. A rule that rounds
+    # every fractional input up is the same defect pointing the other way.
+    assert accessor._as_epoch("2026-08-01T12:00:00.000000000") == whole, (
+        "an all-zero fraction is the whole second and must stay there"
+    )
+    assert accessor._as_epoch("2026-08-01T12:00:00.000000") == whole
+
+
+def test_a_COMMA_decimal_separator_is_normalised_like_a_period() -> None:
+    """⛔ ISO 8601 permits a comma, and the interpreters disagree about it.
+
+    3.11 and 3.12 accept `12:00:00,5`; the 3.10 floor rejects it. The normaliser
+    matched only a period, so a comma fraction reached ``fromisoformat``
+    untouched — **bypassing the discarded-digit handling entirely.** Measured on
+    3.12 before the fix: ``12:00:00,0000001`` returned the whole second, so a
+    record changed *at* that second was reported for a cutoff after it.
+
+    ⭐ **This is the third member of a set, not a new case.** The normaliser
+    already converts ``Z`` to an explicit offset and pads or truncates fractional
+    width; the separator is the same kind of disagreement. The rule is that every
+    ISO spelling the interpreters differ on becomes the one spelling they agree
+    on — which also removes the 3.10-versus-3.11 divergence, because the
+    interpreter never sees a comma.
+    """
+    whole = accessor._as_epoch("2026-08-01T12:00:00")
+    assert whole is not None
+
+    # ⛔ The two separators must be indistinguishable by the time they are parsed.
+    for period, comma in (
+        ("2026-08-01T12:00:00.5", "2026-08-01T12:00:00,5"),
+        ("2026-08-01T12:00:00.0000001", "2026-08-01T12:00:00,0000001"),
+        ("2026-08-01T12:00:00.000000000", "2026-08-01T12:00:00,000000000"),
+    ):
+        assert accessor._as_epoch(period) == accessor._as_epoch(comma), (
+            f"{period!r} and {comma!r} are the same instant and were read differently"
+        )
+
+    # ⚠️ And the comma forms must carry the precision fix, not merely agree.
+    assert accessor._as_epoch("2026-08-01T12:00:00,0000001") == whole + 1, (
+        "a comma fraction beyond six digits normalised to the whole second, so "
+        "the discarded-digit safeguard was bypassed"
+    )
+    assert accessor._as_epoch("2026-08-01T12:00:00,000000000") == whole, (
+        "an all-zero comma fraction is the whole second and must not move"
+    )
+
+    # ⛔ The interpreter must never see a comma at all — that is what removes the
+    # 3.10 divergence, and it is asserted rather than assumed.
+    assert "," not in accessor._iso_for_any_interpreter("2026-08-01T12:00:00,5")

@@ -253,3 +253,754 @@ def test_the_hook_still_reports_when_it_really_is_gramps(
     assert written.exists() and "ERROR" in written.read_text(encoding="utf-8"), (
         "a genuine failure inside Gramps was silenced -- buried is bad, invisible is worse"
     )
+
+
+# ---------------------------------------------------------------------------
+# R7's backup: the continuation, and the refusal that makes the cost bounded.
+# ---------------------------------------------------------------------------
+
+
+class _Writer:
+    """Stands in for ``gramps_live_api_writer``, recording what it was asked to do."""
+
+    def __init__(self, say_yes: bool = True) -> None:
+        self.confirmed: list[str] = []
+        self.told: list[tuple[str, str]] = []
+        self.wrote: list[Any] = []
+        self._say_yes = say_yes
+
+    def confirm(self, uistate: Any, text: str) -> bool:
+        self.confirmed.append(text)
+        return self._say_yes
+
+    def tell(self, uistate: Any, title: str, body: str) -> None:
+        self.told.append((title, body))
+
+    def write(self, dbstate: Any, graph: Any) -> dict[str, Any]:
+        self.wrote.append(graph)
+        return {"created": {"people": ["I9001"]}, "attached": {}}
+
+
+def _install_writer(monkeypatch: pytest.MonkeyPatch, writer: _Writer) -> None:
+    monkeypatch.setitem(sys.modules, "gramps_live_api_writer", writer)
+
+
+def test_a_failed_backup_shows_no_dialog_and_writes_nothing(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⛔ Refuse-to-arm, in the ruling's own words.
+
+    *If the backup cannot be taken, the host refuses to arm its write path and
+    says so. It does not fall back to an export, it does not write without a
+    backup, and it does not continue quietly.*
+
+    ⭐ **And no dialog appears.** One that opens and then reports *"the backup
+    failed, nothing was written"* has already spent the owner's attention on a
+    decision that could not be honoured.
+    """
+    from gramps_live_api.host import backup
+
+    writer = _Writer()
+    _install_writer(monkeypatch, writer)
+    failed = backup.Outcome(ok=False, path=None, message="the copy did not finish within 5 s")
+
+    result = plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph={},
+        parsed=None,
+        resolution=None,
+        taken=failed,
+        totals={},
+        note=lambda level, message: None,
+    )
+
+    assert writer.confirmed == [], "a dialog was shown even though the backup failed"
+    assert writer.wrote == [], "the tree was written without a backup"
+    assert result is False, "a truthy return reschedules the GLib idle callback"
+    title, body = writer.told[-1]
+    assert "no backup" in title.lower()
+    assert "did not finish" in body and "refuses to arm" in body
+
+
+def test_the_owner_is_told_where_the_backup_went(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⭐ A backup nobody can find is not a recovery path."""
+    from gramps_live_api.host import backup, document
+
+    writer = _Writer(say_yes=True)
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+
+    taken = backup.Outcome(
+        ok=True,
+        path=str(tmp_path / "backups" / "T" / "20260823T000000Z-T.sqlite"),
+        message="backup taken",
+        pages=12,
+        attempts=1,
+        seconds=0.12,
+        taken_utc="2026-08-23T00:00:00+00:00",
+    )
+    # ⚠️ Built from keyword arguments, not a dict literal: pii_guard's P2
+    # signature scores JSON-shaped key/value pairs carrying identity, and it
+    # cannot tell an invented person from a real one by looking.
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+
+    result = plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph=graph,
+        parsed=document.parse(graph),
+        resolution=document.Resolution(),
+        taken=taken,
+        totals={"people": 2934},
+        note=lambda level, message: None,
+    )
+
+    assert writer.wrote, "the write did not happen after a successful backup"
+    assert result is False
+    written_title, written_body = writer.told[-1]
+    assert written_title == "Written"
+    assert "20260823T000000Z-T.sqlite" in written_body, (
+        "the owner is not told which backup precedes this write"
+    )
+
+
+def _invented_root() -> str:
+    """An absolute-looking root, assembled from parts.
+
+    ⛔ A drive-letter literal in a test file is a P1 finding in this repository's
+    own guard, and correctly so -- it cannot tell an invented path from the
+    owner's.
+    """
+    return chr(67) + ":/somewhere"
+
+
+def test_the_journal_records_which_backup_precedes_the_write() -> None:
+    """⛔ R4 precondition 4: the age relative to the write, without archaeology.
+
+    ⚠️ And ``totals_before``, because the restore procedure asks the owner to
+    check the counts after replacing the file -- which he cannot do if nothing
+    recorded them.
+    """
+    from gramps_live_api.host import document
+
+    # ⚠️ Built from keyword arguments, not a dict literal: pii_guard's P2
+    # signature scores JSON-shaped key/value pairs carrying identity, and it
+    # cannot tell an invented person from a real one by looking.
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+    record = document.journal_record(
+        document.parse(graph),
+        {"people": ["I9001"]},
+        {},
+        tree_dir=_invented_root() + "/tree",
+        written_utc="2026-08-23T00:00:05+00:00",
+        approved_preview="...",
+        backup_path=_invented_root() + "/backups/T/20260823T000000Z-T.sqlite",
+        backup_utc="2026-08-23T00:00:00+00:00",
+        totals_before={"people": 2934, "families": 1586},
+    )
+
+    assert record["backup"]["path"].endswith("20260823T000000Z-T.sqlite")
+    assert record["backup"]["taken_utc"] < record["written_utc"], (
+        "the recorded backup does not predate the write it is supposed to reverse"
+    )
+    assert record["backup"]["totals_before"]["people"] == 2934
+
+
+def test_the_tree_name_is_read_from_a_file_never_the_database(
+    plugin: ModuleType, tmp_path: Path
+) -> None:
+    """⚠️ This module may not touch ``dbstate.db`` -- the boundary test refuses it."""
+    (tmp_path / "name.txt").write_text("RandyReid-Testing\n", encoding="utf-8")
+
+    assert plugin._tree_name(str(tmp_path)) == "RandyReid-Testing"
+    assert plugin._tree_name(str(tmp_path / "absent")) == "tree"
+
+
+def test_the_backup_must_be_of_the_tree_that_gets_written(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ A backup of a DIFFERENT tree is not a backup.
+
+    Switch from blessed tree A to blessed tree B while the worker is copying and
+    a check that asks only *is this blessed* passes: the write lands in B while
+    the copy on disk is of A. **Recoverable-after is then false while every
+    individual check reads green** -- the guarantee gone, and nothing saying so.
+    """
+    from gramps_live_api.host import backup, document
+
+    writer = _Writer(say_yes=True)
+    _install_writer(monkeypatch, writer)
+    # The tree open NOW is B; the backup was taken of A.
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path / "B")))
+
+    taken = backup.Outcome(ok=True, path=str(tmp_path / "b.sqlite"), message="ok", taken_utc="t")
+
+    result = plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph={},
+        parsed=None,
+        resolution=None,
+        taken=taken,
+        totals={},
+        note=lambda level, message: None,
+        backed_up_tree=str(tmp_path / "A"),
+    )
+
+    assert writer.wrote == [], "the write went to a tree the backup does not cover"
+    assert writer.confirmed == [], "the owner was asked about a write that must not happen"
+    assert result is False
+    title, body = writer.told[-1]
+    assert "tree changed" in title
+    assert "backup is of" in body
+
+
+def test_the_tree_is_rechecked_after_the_owner_confirms(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⚠️ ``confirm`` spins a NESTED GTK main loop, so arbitrary time passes inside it.
+
+    The tree can be closed or swapped while the owner reads the dialog, which is
+    exactly the window the pre-dialog check cannot see.
+    """
+    from gramps_live_api.host import backup, document
+
+    tree_a = str(tmp_path / "A")
+    seen = {"calls": 0}
+
+    def blessing_that_changes():
+        seen["calls"] += 1
+        # Same tree before the dialog; a different one after it.
+        return document.Blessing(True, tree_a if seen["calls"] == 1 else str(tmp_path / "B"))
+
+    writer = _Writer(say_yes=True)
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", blessing_that_changes)
+
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+    result = plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph=graph,
+        parsed=document.parse(graph),
+        resolution=document.Resolution(),
+        taken=backup.Outcome(ok=True, path=str(tmp_path / "b.sqlite"), message="ok"),
+        totals={},
+        note=lambda level, message: None,
+        backed_up_tree=tree_a,
+    )
+
+    assert seen["calls"] >= 2, "the blessing was not re-checked after confirmation"
+    assert writer.confirmed, "the dialog should have been shown -- the tree was fine before it"
+    assert writer.wrote == [], "the tree changed while the dialog was open and the write proceeded"
+    assert result is False
+
+
+def test_a_cancelled_preview_still_prunes(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ Every cancellation has already produced a verified backup.
+
+    The copy must finish BEFORE the dialog opens, so declining costs a full copy
+    -- roughly 24 MB on the measured tree. With pruning only on the success path,
+    repeated declines grow the directory past its documented bound.
+    """
+    from gramps_live_api.host import backup, document
+
+    directory = tmp_path / "backups" / "T"
+    directory.mkdir(parents=True)
+    for n in range(5):
+        (directory / f"2026-08-2{n}T000000Z-T.sqlite").write_text("x", encoding="utf-8")
+    newest = directory / "2026-08-24T000000Z-T.sqlite"
+
+    writer = _Writer(say_yes=False)
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+    monkeypatch.setattr(backup, "RETAIN", 2)
+
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+    result = plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph=graph,
+        parsed=document.parse(graph),
+        resolution=document.Resolution(),
+        taken=backup.Outcome(ok=True, path=str(newest), message="ok"),
+        totals={},
+        note=lambda level, message: None,
+        backed_up_tree=str(tmp_path),
+    )
+
+    assert result is False
+    assert writer.wrote == [], "cancelling must not write"
+    assert not newest.exists(), (
+        "a cancelled preview's backup was KEPT. It protects nothing -- no write "
+        "happened -- and RETAIN of them push the journal-linked pre-write backup "
+        "out of the window, leaving copies but none that can undo the write."
+    )
+    assert len(list(directory.iterdir())) == 4, (
+        "only the cancelled preview's own backup should have been removed"
+    )
+
+
+def test_the_backup_mapping_is_durable_BEFORE_the_write(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ A committed write must never exist with no record of its backup.
+
+    The journal used to be written **after** the transaction with its failure
+    caught, so a disk, permission or serialisation error left a changed tree and
+    no durable link to the copy that precedes it. **That is A4 defeated
+    entirely** -- *recoverable-after* reduced to filesystem archaeology at the
+    exact moment it is needed.
+    """
+    from gramps_live_api.host import backup, document
+
+    writer = _Writer(say_yes=True)
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+
+    seen: list[str] = []
+    real_write_journal = document.write_journal
+
+    def recording(tree_dir, record, *, stem):  # noqa: ANN001, ANN202
+        seen.append("journal" if record.get("write_confirmed") is not False else "intent")
+        return real_write_journal(tree_dir, record, stem=stem)
+
+    monkeypatch.setattr(document, "write_journal", recording)
+    original_write = writer.write
+
+    def write_and_note(dbstate, graph):  # noqa: ANN001, ANN202
+        seen.append("write")
+        return original_write(dbstate, graph)
+
+    writer.write = write_and_note  # type: ignore[method-assign]
+
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+    plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph=graph,
+        parsed=document.parse(graph),
+        resolution=document.Resolution(),
+        taken=backup.Outcome(ok=True, path=str(tmp_path / "b.sqlite"), message="ok", taken_utc="t"),
+        totals={"people": 2934},
+        note=lambda level, message: None,
+        backed_up_tree=str(tmp_path),
+    )
+
+    assert seen and seen[0] == "intent", f"the backup was not recorded before the write: {seen}"
+    assert "write" in seen and seen.index("intent") < seen.index("write")
+
+
+def test_a_failure_to_record_the_backup_REFUSES_the_write(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ Refusing is the only honest answer.
+
+    Writing anyway would produce exactly the state A4 exists to prevent, and it
+    would do it knowingly.
+    """
+    from gramps_live_api.host import backup, document
+
+    writer = _Writer(say_yes=True)
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+
+    def refuse(*args: object, **kwargs: object) -> str:
+        raise OSError("the journal directory is not writable")
+
+    monkeypatch.setattr(document, "write_journal", refuse)
+
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+    result = plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph=graph,
+        parsed=document.parse(graph),
+        resolution=document.Resolution(),
+        taken=backup.Outcome(ok=True, path=str(tmp_path / "b.sqlite"), message="ok", taken_utc="t"),
+        totals={},
+        note=lambda level, message: None,
+        backed_up_tree=str(tmp_path),
+    )
+
+    assert writer.wrote == [], "the tree was written with no durable record of its backup"
+    assert result is False
+    title, body = writer.told[-1]
+    assert "Nothing was written" in title
+    assert "backup could not be recorded" in body
+
+
+def test_a_second_approval_is_REFUSED_while_one_is_on_screen(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ The bound, not a fourth patch.
+
+    ⚠️ **There is no "synchronous" in a GTK application with modal dialogs.**
+    ``writer.confirm`` spins a nested main loop, so another ``_present`` runs
+    *inside* it. Four review rounds found four different consequences of that one
+    missing requirement — a backup restoring away another document's write, a
+    cancelled preview evicting the pre-write backup, re-entry through the nested
+    loop, an interleaved completion truncating the intent journal.
+
+    ⭐ **They are one defect seen four times.** This asserts the second approval
+    is REFUSED rather than queued behind and silently executed.
+    """
+    from gramps_live_api.host import backup, document
+
+    reentered: list[object] = []
+    backups_taken: list[str] = []
+    writer = _Writer(say_yes=False)
+    inner = dict(people=[dict(id="p9", given="Second", surname="Proposal")])
+
+    def confirm_that_reenters(uistate: Any, text: str) -> bool:
+        # This is exactly what a nested GTK main loop does: another scheduled
+        # callback runs while the first is still inside ``confirm``.
+        reentered.append(plugin._present(None, None, inner))
+        return False
+
+    def counting_backup(tree_dir: str, note: Any):  # noqa: ANN202
+        backups_taken.append(tree_dir)
+        return backup.Outcome(
+            ok=True, path=str(tmp_path / "b.sqlite"), message="ok", taken_utc="t", seconds=0.1
+        )
+
+    writer.confirm = confirm_that_reenters  # type: ignore[method-assign]
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+    monkeypatch.setattr(accessor, "tree_totals", lambda: {"people": 1})
+    monkeypatch.setattr(accessor, "resolve_nodes", lambda graph: document.Resolution())
+    monkeypatch.setattr(plugin, "_take_backup", counting_backup)
+
+    plugin._present(None, None, dict(people=[dict(id="p1", given="Ada", surname="Invented")]))
+
+    assert reentered, "the re-entrant call never happened, so this proves nothing"
+    assert reentered[0] is False, (
+        f"the second approval was not refused; it returned {reentered[0]!r}"
+    )
+    assert len(backups_taken) == 1, (
+        f"the re-entrant approval took its OWN backup -- the interleaving the "
+        f"guard exists to prevent: {backups_taken}"
+    )
+    assert writer.wrote == [], "the re-entrant approval wrote"
+
+
+def _ok_backup(tmp_path: Path):  # noqa: ANN202
+    from gramps_live_api.host import backup
+
+    return backup.Outcome(
+        ok=True, path=str(tmp_path / "b.sqlite"), message="ok", taken_utc="t", seconds=0.1
+    )
+
+
+def test_the_in_flight_flag_is_cleared_on_every_exit(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ A flag left set refuses every later proposal for the life of the process.
+
+    That is a worse failure than the one it prevents, so the clearing is in a
+    ``finally`` and this asserts it for a path that RAISES.
+    """
+    from gramps_live_api.host import document
+
+    writer = _Writer()
+    _install_writer(monkeypatch, writer)
+
+    def explode() -> object:
+        raise RuntimeError("blessing check blew up")
+
+    monkeypatch.setattr(accessor, "blessing", explode)
+    monkeypatch.setattr(accessor, "resolve_nodes", lambda graph: document.Resolution())
+
+    plugin._present(None, None, dict(people=[dict(id="p1", given="Ada", surname="Invented")]))
+
+    assert plugin._IN_FLIGHT["present"] is False, (
+        "an exception left the guard set, so every later proposal would be refused"
+    )
+
+
+def test_the_intent_and_its_completion_share_one_file(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ A completion must finish the file it started, not name a new one.
+
+    ⚠️ Both stems were computed independently from a UTC second, so a completion
+    in the same second named an EXISTING intent file and ``write_journal`` opens
+    with ``"w"`` — **truncating an already-fsynced backup mapping after the
+    database had committed.** The stem now carries a collision-free suffix and
+    the completion reuses the intent's own.
+    """
+    from gramps_live_api.host import backup, document
+
+    writer = _Writer(say_yes=True)
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+    plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph=graph,
+        parsed=document.parse(graph),
+        resolution=document.Resolution(),
+        taken=backup.Outcome(ok=True, path=str(tmp_path / "b.sqlite"), message="ok", taken_utc="t"),
+        totals={"people": 1},
+        note=lambda level, message: None,
+        backed_up_tree=str(tmp_path),
+    )
+
+    undo = tmp_path / ".gramps-live-api-undo"
+    records = sorted(undo.glob("*.json")) if undo.exists() else []
+    assert len(records) == 1, (
+        f"the completion should finish the intent's own file, not add a second: {records}"
+    )
+    import json
+
+    written = json.loads(records[0].read_text(encoding="utf-8"))
+    assert written.get("written_utc"), "the record was never completed"
+    assert written["backup"]["path"].endswith("b.sqlite")
+
+
+def test_EVERY_pre_write_exit_discards_the_backup_not_just_cancellation(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ The second instance of an enumerated rule standing in for a bound.
+
+    Cancellation was one branch, and it was the only one that discarded. Every
+    OTHER pre-write exit left the copy on disk: the tree closed or swapped inside
+    ``confirm``'s nested loop, the intent record refusing to write, the directory
+    entry failing to flush, and any exception at all.
+
+    ⚠️ **Each leaked copy is a snapshot of a tree nobody changed**, and because
+    ``RETAIN`` counts FILES, each one evicts a real journal-linked pre-write
+    backup. Enough abandoned previews and every recovery point that could undo a
+    real write is gone -- while the directory looks healthily full.
+
+    ⭐ So the bound is *committed or discarded*, and this test walks the exits one
+    at a time rather than trusting the one that was already covered.
+    """
+    from gramps_live_api.host import backup, document
+
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+
+    def run_one(name: str, arrange) -> Path:  # noqa: ANN001
+        directory = tmp_path / name
+        directory.mkdir(parents=True)
+        copy = directory / "2026-08-24T000000Z-T.sqlite"
+        copy.write_text("a backup of a tree nobody changed", encoding="utf-8")
+
+        writer = _Writer(say_yes=True)
+        _install_writer(monkeypatch, writer)
+        monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+        arrange(writer)
+
+        plugin._write_after_backup(
+            dbstate=None,
+            uistate=None,
+            graph=graph,
+            parsed=document.parse(graph),
+            resolution=document.Resolution(),
+            taken=backup.Outcome(ok=True, path=str(copy), message="ok"),
+            totals={},
+            note=lambda level, message: None,
+            backed_up_tree=str(tmp_path),
+        )
+        assert writer.wrote == [], f"{name}: nothing may be written on this path"
+        return copy
+
+    # 1. the tree is swapped while the owner reads the dialog -- the nested GTK
+    #    loop inside ``confirm`` is real time, and this is the exit that made the
+    #    second blessing check earn its keep.
+    def swapped(writer: Any) -> None:
+        def confirm(uistate: Any, text: str) -> bool:
+            monkeypatch.setattr(
+                accessor, "blessing", lambda: document.Blessing(True, str(tmp_path / "elsewhere"))
+            )
+            return True
+
+        writer.confirm = confirm  # type: ignore[method-assign]
+
+    assert not run_one("swapped", swapped).exists(), (
+        "the tree changed inside the dialog, no write happened, and the backup "
+        "was KEPT -- it protects nothing and consumes a retention slot"
+    )
+
+    # 2. the intent record refuses. The write is correctly refused; the backup it
+    #    was taken for is then equally pointless.
+    def intent_refuses(writer: Any) -> None:
+        monkeypatch.setattr(plugin, "_record_intent", lambda *a, **k: None)
+
+    assert not run_one("intent", intent_refuses).exists(), (
+        "the intent could not be recorded so nothing was written, and the backup was KEPT"
+    )
+
+    # 3. ⛔ **NOT an exception from ``writer.write``.** An earlier version of this
+    #    test asserted that a raise there meant the tree was unchanged and the
+    #    backup should be discarded. **That premise is false**, and asserting it
+    #    made the test enforce the defect -- see the test below, which is what
+    #    this case became.
+
+
+def test_a_committed_write_KEEPS_its_backup(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ The other half of the bound, and the half that matters more.
+
+    ⚠️ A discard rule with no matching keep rule is one refactor away from
+    deleting the recovery point of a write that DID happen -- which is R4's
+    guarantee destroyed by the machinery meant to maintain it.
+    """
+    from gramps_live_api.host import backup, document
+
+    directory = tmp_path / "kept"
+    directory.mkdir(parents=True)
+    copy = directory / "2026-08-24T000000Z-T.sqlite"
+    copy.write_text("the only way back", encoding="utf-8")
+
+    writer = _Writer(say_yes=True)
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+    monkeypatch.setattr(backup, "RETAIN", 20)
+
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+    plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph=graph,
+        parsed=document.parse(graph),
+        resolution=document.Resolution(),
+        taken=backup.Outcome(ok=True, path=str(copy), message="ok"),
+        totals={},
+        note=lambda level, message: None,
+        backed_up_tree=str(tmp_path),
+    )
+
+    assert writer.wrote, "this path must actually write"
+    assert copy.exists(), (
+        "the write COMMITTED and its backup was discarded -- the tree changed "
+        "and the only way back was deleted"
+    )
+
+
+def test_a_raise_AFTER_the_commit_must_not_delete_the_backup(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ The blocking finding, and the one an earlier test asserted backwards.
+
+    ⚠️ **``writer.write`` returning is not the same claim as the transaction
+    committing**, and the gap between them is real code in the shipped Gramps
+    6.0.8. ``dbapi.transaction_commit`` runs ``self.dbapi.commit()`` -- the SQLite
+    COMMIT -- and only THEN emits signals, commits the undo database and calls
+    ``_after_commit``, which invokes ``undo_callback``, ``redo_callback`` and
+    ``undo_history_callback`` **unguarded**; the live UI sets all three to update
+    the Edit menu.
+
+    ⭐ So an exception can leave ``write()`` with **the tree durably changed**. A
+    flag set after the call reads False there, and the ``finally`` then deletes
+    the only recovery point of a write that already landed -- **R4's guarantee
+    destroyed by the machinery built to maintain it.**
+
+    The question is not *did it commit*, which cannot be known from out here. It
+    is *do we know for certain nothing was attempted*, and the answer is keep on
+    unknown: the worst case is one retention slot spent on a backup for a write
+    that failed early.
+    """
+    from gramps_live_api.host import backup, document
+
+    directory = tmp_path / "post_commit"
+    directory.mkdir(parents=True)
+    copy = directory / "2026-08-24T000000Z-T.sqlite"
+    copy.write_text("the only way back from a write that DID land", encoding="utf-8")
+
+    writer = _Writer(say_yes=True)
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+
+    def commits_then_raises(dbstate: Any, graph: Any) -> dict[str, Any]:
+        # The transaction has committed by this point; what fails afterwards is
+        # Gramps' own post-commit callback, outside anything this plugin owns.
+        raise RuntimeError("undo_history_callback failed after dbapi.commit()")
+
+    writer.write = commits_then_raises  # type: ignore[method-assign]
+
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+    plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph=graph,
+        parsed=document.parse(graph),
+        resolution=document.Resolution(),
+        taken=backup.Outcome(ok=True, path=str(copy), message="ok"),
+        totals={},
+        note=lambda level, message: None,
+        backed_up_tree=str(tmp_path),
+    )
+
+    assert copy.exists(), (
+        "the write raised AFTER the database committed, and the backup was "
+        "DELETED. The tree has changed and the only way back is gone -- and the "
+        "intent record on disk still points at the deleted file."
+    )
+
+
+def test_a_backup_KEPT_after_a_raise_is_still_pruned(
+    plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """⛔ Kept implies pruned -- one fix opening a gap in a neighbouring bound.
+
+    Pruning sat on the success path, which was correct while *kept* and
+    *succeeded* named the same set of runs. **They stopped naming the same set
+    the moment a backup was kept after a raise**, which is precisely what the
+    post-commit fix introduced.
+
+    ⚠️ So a persistent failure in Gramps' post-commit callbacks adds a full copy
+    of the tree on **every retry** -- and the owner, having been told the
+    document could not be written, retries. ``RETAIN`` would bound nothing during
+    the one situation in which these backups matter most.
+    """
+    from gramps_live_api.host import backup, document
+
+    directory = tmp_path / "kept_and_pruned"
+    directory.mkdir(parents=True)
+    # Nine older copies plus the one this run took.
+    for n in range(1, 10):
+        (directory / f"2026-08-0{n}T000000Z-T.sqlite").write_text("old", encoding="utf-8")
+    taken = directory / "2026-08-24T000000Z-T.sqlite"
+    taken.write_text("this run's copy", encoding="utf-8")
+
+    writer = _Writer(say_yes=True)
+    _install_writer(monkeypatch, writer)
+    monkeypatch.setattr(accessor, "blessing", lambda: document.Blessing(True, str(tmp_path)))
+    monkeypatch.setattr(backup, "RETAIN", 3)
+
+    def commits_then_raises(dbstate: Any, graph: Any) -> dict[str, Any]:
+        raise RuntimeError("undo_history_callback failed after dbapi.commit()")
+
+    writer.write = commits_then_raises  # type: ignore[method-assign]
+
+    graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
+    plugin._write_after_backup(
+        dbstate=None,
+        uistate=None,
+        graph=graph,
+        parsed=document.parse(graph),
+        resolution=document.Resolution(),
+        taken=backup.Outcome(ok=True, path=str(taken), message="ok"),
+        totals={},
+        note=lambda level, message: None,
+        backed_up_tree=str(tmp_path),
+    )
+
+    survivors = sorted(p.name for p in directory.glob("*.sqlite"))
+    assert taken.exists(), (
+        "the write may have committed, so this copy is the only way back and "
+        "pruning must never be what removes it"
+    )
+    assert len(survivors) == 3, (
+        f"the backup was kept after a raise and never pruned, so RETAIN bounds "
+        f"nothing on the retry path: {survivors}"
+    )

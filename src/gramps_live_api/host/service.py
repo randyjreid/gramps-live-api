@@ -105,9 +105,10 @@ def start(
         # reads two O(1) values and the next fetches exactly one person.
         snapshot=functools.partial(marshal.call, accessor.tree_status),
         person=functools.partial(_person, marshal),
+        totals=functools.partial(marshal.call, accessor.tree_totals),
         note=functools.partial(_note, paths.log_path(directory)),
         write_document=functools.partial(_document, marshal, schedule, present),
-        # ⭐ Five live reads, each one marshalled onto the GTK loop as a single
+        # ⭐ The live reads, each one marshalled onto the GTK loop as a single
         # cheap callable. Measured: a full name walk of a 2,933-person tree
         # costs ~48 ms, inside what one callback may take -- so R8's accepted
         # risk 4 is respected by measurement rather than by hope.
@@ -251,7 +252,14 @@ _READS = {
     "family_events": "list_family_events",
     "notes": "list_notes",
     "associations": "list_associations",
+    "citations": "list_citations",
+    "orphans": "find_orphans",
+    "changed": "changed_since",
 }
+
+_TWO_ARGUMENT_READS = ("citation", "notes", "citations", "changed")
+"""⚠️ Which reads take a second query parameter. Named rather than inlined,
+because the list is checked in one place and read in another."""
 
 
 def _resolve(marshal: mainthread.Marshal, graph: dict[str, Any]) -> document.Resolution:
@@ -268,7 +276,7 @@ def _read(marshal: mainthread.Marshal, which: str, first: str, second: str = "")
     helper: Callable[..., reads.Found] = getattr(accessor, _READS[which])
     # ⚠️ Two routes take a second argument -- the citation's page, and the note
     # lookup's record kind. Everything else takes one.
-    if which in ("citation", "notes"):
+    if which in _TWO_ARGUMENT_READS:
         return marshal.call(functools.partial(helper, first, second))
     return marshal.call(functools.partial(helper, first))
 

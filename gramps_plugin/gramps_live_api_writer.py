@@ -248,6 +248,10 @@ def write(dbstate, graph):
         k: [] for k in ("people", "events", "places", "families", "citations", "notes", "sources")
     }
     attached = {k: [] for k in ("people", "places", "sources", "families")}
+    # ⛔ Family event attachments are DEFERRED. The events loop runs before
+    # families exist, so the handle to attach to is not minted yet -- the same
+    # reason everything pointable is created before any pointer is written.
+    pending_family_events = []
 
     def note_created(kind, handle_, getter):
         try:
@@ -338,6 +342,13 @@ def write(dbstate, graph):
             note_created("events", event_handle, "get_event_from_handle")
             handles[spec["id"]] = event_handle
             kinds[spec["id"]] = "event"
+
+            # ⛔ A family event cannot be attached HERE. Families are created in
+            # the loop below, so the handle does not exist yet -- the same reason
+            # this file creates everything pointable before attaching pointers.
+            # The intent is recorded and honoured in a third pass.
+            if spec.get("family"):
+                pending_family_events.append((event_handle, spec["family"]))
 
             role = _event_role(spec.get("role"))
             for person_local in spec.get("people") or []:
@@ -440,6 +451,33 @@ def write(dbstate, graph):
                 person = database.get_person_from_handle(child)
                 person.add_parent_family_handle(family_handle)
                 database.commit_person(person, trans)
+
+        # --- family events, now that the families exist ----------------------
+        #
+        # ⭐ This is what closes the loop `list_family_events` opened. Before it,
+        # a marriage could only be written onto the two spouses -- so the lookup
+        # reported no marriage, one was proposed, it landed on the people, and
+        # the lookup still reported none. Forever.
+        for event_handle, family_local in pending_family_events:
+            family_handle = handles.get(family_local)
+            if not family_handle:
+                continue
+            from gramps.gen.lib import EventRoleType
+
+            ref = EventRef()
+            ref.ref = event_handle
+            # ⛔ FAMILY, ALWAYS -- the supplied role governs PERSON refs only.
+            #
+            # ⚠️ Honouring it here made two inputs indistinguishable in the
+            # dialog and different in the tree: ``_event_line`` suppresses an
+            # explicit "Primary", so role:"Primary" and no role at all render
+            # identically while writing a PRIMARY ref and a FAMILY ref
+            # respectively. **The approved text and the write disagreeing, on a
+            # difference the owner could not have seen.**
+            ref.set_role(EventRoleType(EventRoleType.FAMILY))
+            family = database.get_family_from_handle(family_handle)
+            family.add_event_ref(ref)
+            database.commit_family(family, trans)
 
         # --- citations, attached to whatever they support --------------------
         for spec in graph.get("citations") or []:

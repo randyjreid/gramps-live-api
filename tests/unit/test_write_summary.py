@@ -153,3 +153,63 @@ def test_both_family_branches_get_the_deduplicated_children() -> None:
         "there is more than one place that builds the children list; the "
         "deduplication has to be the only one"
     )
+
+
+def test_a_family_event_is_attached_after_the_families_exist() -> None:
+    """⛔ Ordering, asserted structurally because it cannot be run under CI.
+
+    The events loop runs BEFORE families are created, so an event naming a family
+    has no handle to attach to yet. The attachment is deferred to a third pass --
+    the same discipline this file already states: everything that can be pointed
+    at is created first, then the pointers are attached.
+
+    ⚠️ Attaching inside the events loop would silently do nothing, because
+    ``handles`` would not yet hold the family.
+    """
+    body = WRITER.read_text(encoding="utf-8")
+
+    assert "pending_family_events" in body, "family events are not deferred at all"
+    events_at = body.index("# --- events")
+    families_at = body.index("# --- families")
+    attach_at = body.index("for event_handle, family_local in pending_family_events")
+
+    assert events_at < families_at < attach_at, (
+        "the family-event attachment does not run after the families are created"
+    )
+    assert "family.add_event_ref(ref)" in body
+    assert "database.commit_family(family, trans)" in body
+
+
+def test_a_family_event_ref_carries_the_family_role() -> None:
+    """⛔ FAMILY, not PRIMARY.
+
+    ``_event_role`` defaults to PRIMARY, and that default is exactly what made
+    the dialog say *as Godparent* while the tree recorded something else. A family
+    event ref carries Gramps' own family role.
+    """
+    body = WRITER.read_text(encoding="utf-8")
+    attach = body[body.index("for event_handle, family_local in pending_family_events") :]
+    attach = attach[: attach.index("# --- citations")]
+
+    assert "EventRoleType.FAMILY" in attach, (
+        "a family event ref does not carry the family role: " + attach[:400]
+    )
+    # ⛔ And UNCONDITIONALLY. Honouring a supplied role here made two inputs
+    # render identically and write differently: ``_event_line`` suppresses an
+    # explicit "Primary", so role:"Primary" and no role produced the same
+    # approval text while writing a PRIMARY ref and a FAMILY ref.
+    # ⛔ Compared against CODE, not against the whole slice. An earlier version of
+    # this assertion matched the word "role" anywhere in the text and tripped on
+    # the explanatory comment above the fix -- **a test failing on prose**, which
+    # is the same passes-or-fails-for-an-unrelated-reason class the tests in this
+    # repository keep having to be rescued from.
+    code = "\n".join(line for line in attach.splitlines() if not line.strip().startswith("#"))
+
+    assert "_event_role" not in code, (
+        "the supplied role reaches the FAMILY ref; it governs person refs only"
+    )
+    # ⛔ And it is not carried to this point at all. An unused value in the
+    # pending record is one a later edit can start honouring again by accident.
+    assert "role_name" not in code, (
+        "the pending record still carries a role that nothing here may use"
+    )

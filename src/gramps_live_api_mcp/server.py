@@ -75,6 +75,10 @@ TOOL_NAMES = frozenset(
         "list_family_events",
         "list_notes",
         "list_associations",
+        "list_citations",
+        "find_orphans",
+        "tree_totals",
+        "changed_since",
     }
 )
 """The whole surface, and the tests assert the server's own answer equals this.
@@ -230,10 +234,9 @@ LIST_FAMILY_EVENTS_DESCRIPTION = (
     "one of these. Asking a person for their events and concluding there is no "
     "marriage is how a second marriage record gets entered for a couple who "
     "already have one. Use find_families first to get the family Gramps ID. "
-    "READ ONLY, and the gap it finds cannot be filled through propose_document: "
-    "an event can only be attached to PEOPLE, so a marriage proposed here would "
-    "land on the spouses and this would still report none. Tell the owner "
-    "instead."
+    "If it shows no marriage and a document says there was one, you can now "
+    "propose it: put the family local id in the event's family field and it is "
+    "written onto the family, so this lookup reports it afterwards."
 )
 
 LIST_NOTES_DESCRIPTION = (
@@ -245,6 +248,40 @@ LIST_ASSOCIATIONS_DESCRIPTION = (
     "A person's recorded associations -- godparents and similar -- with the "
     "relationship as the tree spells it. READ ONLY: associations cannot be "
     "proposed. Use it to avoid proposing somebody who is already recorded."
+)
+
+LIST_CITATIONS_DESCRIPTION = (
+    "What cites one record, and from which source. ASK THIS BEFORE ADDING A "
+    "CITATION: a record already carrying one does not need a second copy of "
+    "the same claim. It also answers the opposite question -- a record with "
+    "NO citation is a fact in the tree with nothing standing behind it. kind "
+    "is person, event, family, place or citation."
+)
+
+FIND_ORPHANS_DESCRIPTION = (
+    "Records of one kind that nothing in the tree references. A citation "
+    "attached to nothing still exists and still looks correct, and does no "
+    "work -- it cites nothing. Use it to find cleanup the owner should do by "
+    "hand. kind is citation, source, note, place or repository. READ ONLY: it "
+    "reports, it never deletes, and deletion is the owner's."
+)
+
+TREE_TOTALS_DESCRIPTION = (
+    "How many people, families, events, places, sources, citations, notes, "
+    "repositories and media the open tree holds. Every other read needs a "
+    "search term, so this is the only way to ask how big the tree is -- "
+    "useful for confirming an import landed. Counts include private records, "
+    "because an aggregate over the whole tree names nobody."
+)
+
+CHANGED_SINCE_DESCRIPTION = (
+    "What changed in the tree on or after a date, one collection at a time. "
+    "ASK THIS BEFORE CONCLUDING SOMETHING IS ALREADY ENTERED: the alternative "
+    "is diffing a stale export by hand, which is how a record gets entered "
+    "twice. since is a date like 2026-08-01; kind is people, families, "
+    "events, places, sources, citations or notes. One collection per call, "
+    "because a single sweep of all of them costs about three quarters of a "
+    "second inside the Gramps main loop."
 )
 
 PROPOSE_DOCUMENT_DESCRIPTION = """\
@@ -259,7 +296,8 @@ happens, so you never need a handle.
 
   people:    [{"id","gramps_id?","given","surname","gender"}]
   places:    [{"id","gramps_id?","title"}]
-  events:    [{"id","type","date","place":<place id>,"people":[<person ids>],"role"}]
+  events:    [{"id","type","date","place":<place id>,"people":[<person ids>],
+              "family":<family id>,"role"}]
   source:     {"id","gramps_id?","title","author","pubinfo"}
   citations: [{"id","source":<source id>,"page","attach_to":[<any ids>]}]
   families:  [{"id","gramps_id?","parents":[<person ids>],"children":[<person ids>]}]
@@ -282,13 +320,11 @@ two households. A family with a gramps_id is ADDED TO: the children you name
 join it, its recorded parents are left exactly as they are, and any parents you
 name here are ignored.
 
-*** AN EVENT CANNOT YET BE ATTACHED TO A FAMILY. *** events[].people names
-PEOPLE, and that is the only place an event can land. So a marriage you propose
-is written onto the two spouses rather than onto their family, and
-list_family_events will still report none afterwards. If find_families and
-list_family_events show a couple has no marriage record, SAY SO TO THE OWNER and
-let him add it in Gramps -- do not propose one expecting it to land on the
-family, because it will not, and the check will keep coming back empty.
+*** A MARRIAGE BELONGS ON THE FAMILY, NOT ON THE TWO SPOUSES. *** An event may
+name "family": <family id> and it is written onto that family, which is where
+Gramps keeps a marriage and where list_family_events looks for one. An event that
+names only "people" lands on those people, which is right for a birth or a
+residence and wrong for a marriage.
 
 A node with a gramps_id is ATTACHED TO, never modified. Its given/surname/gender
 are ignored: nothing already in the tree is changed, ever. If the document
@@ -850,6 +886,18 @@ class Tools:
     def list_associations(self, gramps_id: str) -> dict[str, object]:
         return self._host("/find/associations", gramps_id=gramps_id)
 
+    def list_citations(self, gramps_id: str, kind: str = "person") -> dict[str, object]:
+        return self._host("/find/citations", gramps_id=gramps_id, kind=kind)
+
+    def find_orphans(self, kind: str) -> dict[str, object]:
+        return self._host("/find/orphans", kind=kind)
+
+    def tree_totals(self) -> dict[str, object]:
+        return self._host("/totals")
+
+    def changed_since(self, since: str, kind: str = "people") -> dict[str, object]:
+        return self._host("/find/changed", since=since, kind=kind)
+
     def _store(self) -> proposals.Store:
         """The store inside the blessed copy. **The blessing is the permission.**
 
@@ -923,6 +971,22 @@ def build_server(tools: Tools) -> MCPServer:
     @server.tool(name="list_associations", description=LIST_ASSOCIATIONS_DESCRIPTION)
     def list_associations(gramps_id: str) -> dict[str, object]:
         return tools.list_associations(gramps_id)
+
+    @server.tool(name="list_citations", description=LIST_CITATIONS_DESCRIPTION)
+    def list_citations(gramps_id: str, kind: str = "person") -> dict[str, object]:
+        return tools.list_citations(gramps_id, kind)
+
+    @server.tool(name="find_orphans", description=FIND_ORPHANS_DESCRIPTION)
+    def find_orphans(kind: str) -> dict[str, object]:
+        return tools.find_orphans(kind)
+
+    @server.tool(name="tree_totals", description=TREE_TOTALS_DESCRIPTION)
+    def tree_totals() -> dict[str, object]:
+        return tools.tree_totals()
+
+    @server.tool(name="changed_since", description=CHANGED_SINCE_DESCRIPTION)
+    def changed_since(since: str, kind: str = "people") -> dict[str, object]:
+        return tools.changed_since(since, kind)
 
     @server.tool(name="propose_document", description=PROPOSE_DOCUMENT_DESCRIPTION)
     def propose_document(graph: dict[str, object]) -> dict[str, object]:
