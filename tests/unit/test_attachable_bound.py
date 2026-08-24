@@ -365,3 +365,50 @@ def test_the_MCP_INSTRUCTION_and_the_PARSER_agree_about_attached_events() -> Non
             f"the dialog shows the value supplied for {field}, which is dropped -- "
             f"the owner would approve a value the writer never applies:\n{shown}"
         )
+
+
+def test_the_INSTRUCTION_names_the_right_lookup_for_FAMILY_owned_events() -> None:
+    """⛔ Pointing a caller at the wrong lookup looks exactly like *no such event*.
+
+    ⚠️ The instruction said only *"look it up with list_events"*. A marriage is
+    owned by the FAMILY, not by either spouse -- ``EventBase.get_event_ref_list``
+    returns each object's OWN list, and ``Person.family_list`` holds family
+    handles, not the family's event refs, so nothing bridges them. A caller asking
+    ``list_events`` about a marriage gets an empty answer **whether or not the
+    marriage is there**, and creates the second marriage record for a couple who
+    already have one.
+
+    ⭐ Confirmed live before the fix: family F0001 carries its Marriage, and it is
+    reachable only through ``list_family_events``.
+
+    ⚠️ This is the finding the birth/death one was mistaken for. That one claimed
+    a store the person'"'"'s list did not cover, and was wrong because ``birth_ref``
+    is an INDEX into that very list. This one is right because a family is a
+    different object with its own list and no index back. **The difference is
+    whether an index bridges the two stores, and it is worth checking rather than
+    reasoning about.**
+    """
+    instruction = (REPOSITORY_ROOT / "src" / "gramps_live_api_mcp" / "server.py").read_text(
+        encoding="utf-8"
+    )
+    guidance = instruction[instruction.index("IF AN EVENT ALREADY EXISTS") :][:1200]
+
+    assert "list_family_events" in guidance, (
+        "the lookup guidance never names list_family_events, so a caller looking "
+        "for a marriage is sent to a tool that cannot return one"
+    )
+    # ⛔ The sentence that names the family route must itself name what is
+    # family-owned. ⚠️ A first version accepted "marriage" anywhere in the
+    # guidance and so passed against text that had stopped saying which events
+    # those are -- the word survives in a later sentence. The control was
+    # SILENT, which is the only reason this is written the narrow way.
+    route = guidance[
+        guidance.index("list_family_events") - 260 : guidance.index("list_family_events")
+    ]
+    assert "MARRIAGE" in route, (
+        "the sentence pointing at list_family_events does not say which events "
+        f"are family-owned, so naming the tool does not say when to use it: {route!r}"
+    )
+    # ⛔ Both routes named, and the person route still named -- a fix that sent
+    # everything to list_family_events would break the common case.
+    assert "list_events" in guidance

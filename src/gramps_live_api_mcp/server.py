@@ -310,13 +310,23 @@ relationship to head or marital status, an officiant's name. Use it rather than
 putting those facts only in a note: the tree's own events already carry such
 strings, and a note is prose nothing can query.
 
-*** IF AN EVENT ALREADY EXISTS, LOOK IT UP WITH list_events FIRST AND PASS ITS
-GRAMPS ID. A citation belongs ON the event it documents. Creating a second copy
-of an event that is already there is the duplicate this tool exists to prevent,
-and an event you did not look up is an event you are about to duplicate. An
-attached event is NOT modified: its type, date, place and description come from
-the tree, and anything you send for them is dropped and shown to the owner as
-dropped. An attached event also keeps the participants it has: do NOT send
+*** IF AN EVENT ALREADY EXISTS, LOOK IT UP FIRST AND PASS ITS GRAMPS ID. A
+citation belongs ON the event it documents. Creating a second copy of an event
+that is already there is the duplicate this tool exists to prevent, and an event
+you did not look up is an event you are about to duplicate.
+
+WHICH LOOKUP DEPENDS ON WHO OWNS THE EVENT, and getting this wrong looks exactly
+like the event not existing. A person's own events -- birth, death, census,
+residence, occupation, burial -- are on the PERSON: use list_events with their
+Gramps ID. A couple's events -- MARRIAGE, divorce -- are on the FAMILY, on
+neither spouse: use find_families and then list_family_events. Asking list_events
+about a marriage returns nothing whether or not the marriage is there, so a
+caller that stops at that answer creates the second marriage record for a couple
+who already have one.
+
+An attached event is NOT modified: its type, date, place and description come
+from the tree, and anything you send for them is dropped and shown to the owner
+as dropped. An attached event also keeps the participants it has: do NOT send
 "people", "family" or "role" with a gramps_id -- all three are REFUSED, and the
 whole proposal is rejected rather than partly written, because an event already
 in the tree keeps its own participants. ***
