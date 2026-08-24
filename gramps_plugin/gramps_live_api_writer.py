@@ -517,8 +517,8 @@ def write(dbstate, graph):
             note_created("citations", citation_handle, "get_citation_from_handle")
             handles[spec["id"]] = citation_handle
             kinds[spec["id"]] = "citation"
-            for local in spec.get("attach_to") or []:
-                _attach(database, trans, handles, kinds, local, "citation", citation_handle)
+            for target, kind in _attachment_targets(handles, kinds, spec.get("attach_to")):
+                _attach(database, trans, target, kind, "citation", citation_handle)
 
         # --- notes -----------------------------------------------------------
         for spec in graph.get("notes") or []:
@@ -527,8 +527,8 @@ def write(dbstate, graph):
             note.set_type(NoteType(NoteType.TRANSCRIPT))
             note_handle = database.add_note(note, trans)
             note_created("notes", note_handle, "get_note_from_handle")
-            for local in spec.get("attach_to") or []:
-                _attach(database, trans, handles, kinds, local, "note", note_handle)
+            for target, kind in _attachment_targets(handles, kinds, spec.get("attach_to")):
+                _attach(database, trans, target, kind, "note", note_handle)
 
     # ⛔ No summary is computed here, and that is not an omission.
     #
@@ -557,15 +557,40 @@ _COMMIT = {
 }
 
 
-def _attach(database, trans, handles, kinds, local, what, handle):
+def _attachment_targets(handles, kinds, locals_):
+    """The records some ``attach_to`` list points at, **deduplicated by HANDLE.**
+
+    ⛔ **By the resolved handle, not by the local id.** ``parse`` explicitly
+    permits two local ids to carry the same ``gramps_id``, so ``e1`` and ``e2``
+    can name one record -- and a citation listing both then had ``_attach`` run
+    twice on that record and ``add_citation`` the same handle twice. A supported
+    input, not an edge case: every citation, note and future attachment type
+    reaches this.
+
+    ⭐ **Through ``_unique``, which is this file's ONE deduplication.** The
+    family-child path already deduplicates resolved handles that way; the attach
+    path simply was not going through it. A second implementation here is the
+    thing being prevented, not a shortcut around it.
+
+    ⚠️ ``_unique`` keeps first-occurrence order, which matters for the same
+    reason it does for children: the document's order is usually the page's.
+    """
+    resolved = [(handles[local], kinds.get(local)) for local in (locals_ or []) if local in handles]
+    kind_of = dict(resolved)
+    return [(target, kind_of[target]) for target in _unique([target for target, _ in resolved])]
+
+
+def _attach(database, trans, target, kind, what, handle):
     """Put a citation or a note onto whatever the graph pointed at.
 
     ⚠️ **Fetch, modify, commit.** Gramps derives the backlink from the reference
     when the OWNING object is committed -- the same reason the apply tool commits
     the person to attach a note rather than committing the note.
+
+    ⛔ Takes an already-RESOLVED target, so the caller must have gone through
+    ``_attachment_targets`` -- which is where the deduplication lives. Resolving
+    here per local id is what allowed one record to be attached to twice.
     """
-    target = handles.get(local)
-    kind = kinds.get(local)
     if not target or kind not in _COMMIT:
         return
     getter, committer = _COMMIT[kind]

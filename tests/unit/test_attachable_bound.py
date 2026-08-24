@@ -479,3 +479,131 @@ def test_every_ATTACHABLE_kind_reaches_BOTH_dispatches_that_must_know_it() -> No
             f"getter for it, so _existing() cannot fetch what it was told to "
             f"attach to: {sorted(writer._BY_GRAMPS_ID)}"
         )
+
+
+class _OneRecord:
+    """One record, which counts what gets attached to it."""
+
+    def __init__(self, handle: str = "H_TARGET") -> None:
+        self.handle = handle
+        self.citations: list[str] = []
+        self.notes: list[str] = []
+
+    def get_privacy(self) -> bool:
+        return False
+
+    def get_handle(self) -> str:
+        return self.handle
+
+    def add_citation(self, handle: str) -> None:
+        self.citations.append(handle)
+
+    def add_note(self, handle: str) -> None:
+        self.notes.append(handle)
+
+
+class _TreeHoldingOneRecord:
+    """Every getter returns the SAME record, whatever it is asked for.
+
+    ⛔ **Deliberately not a hand-built ``handles`` map.** The defect is that two
+    local ids resolving to one record attach to it twice, and if the test simply
+    *asserted* that both locals share a handle it would be testing its own
+    dictionary. Here the handle comes from ``_existing()`` -- the writer's real
+    resolution -- so the shared handle is derived, not declared. (#146: a control
+    passing because the fixture encoded the premise already cost a shipped
+    non-fix on this branch.)
+    """
+
+    def __init__(self) -> None:
+        self.record = _OneRecord()
+        self.commits = 0
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("get_") and (
+            name.endswith("_from_gramps_id") or name.endswith("_from_handle")
+        ):
+            return lambda _key: self.record
+        if name.startswith("commit_"):
+
+            def commit(_obj: Any, _trans: Any) -> None:
+                self.commits += 1
+
+            return commit
+        raise AttributeError(name)
+
+
+@pytest.mark.parametrize("what", ["citation", "note"])
+def test_two_local_ids_for_ONE_record_attach_ONCE_for_every_attachable_kind(what: str) -> None:
+    """⛔ The bound: one attachment per RECORD, not per local id, for every kind.
+
+    ``parse`` explicitly permits two local ids to carry the same ``gramps_id``, so
+    this is a **supported input**. Before the fix, a citation whose ``attach_to``
+    listed both ran ``_attach`` twice on the one record and added the same handle
+    twice.
+
+    ⭐ Driven off ``document.ATTACHABLE`` so a sixth attachable kind inherits the
+    bound instead of needing to be remembered, and covering notes as well as
+    citations because both loops reach the same code.
+    """
+    specification = importlib.util.spec_from_file_location(
+        "a_writer_for_dedup", REPOSITORY_ROOT / "gramps_plugin" / "gramps_live_api_writer.py"
+    )
+    assert specification is not None and specification.loader is not None
+    writer = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(writer)
+
+    for group, kind in document.ATTACHABLE.items():
+        tree = _TreeHoldingOneRecord()
+
+        # ⛔ The handles come from the writer's OWN resolution, twice, exactly as
+        # two graph nodes carrying one gramps_id would produce them.
+        first = writer._existing(tree, kind, {"gramps_id": "X0001"})
+        second = writer._existing(tree, kind, {"gramps_id": "X0001"})
+        assert first == second, (
+            f"{kind!r}: two nodes naming one gramps_id did not resolve to one "
+            "handle, so this test would not be exercising the defect at all"
+        )
+
+        handles = {"n1": first, "n2": second}
+        kinds = {"n1": kind, "n2": kind}
+
+        targets = writer._attachment_targets(handles, kinds, ["n1", "n2"])
+        assert len(targets) == 1, (
+            f"{group!r} ({kind!r}): two local ids for ONE record produced "
+            f"{len(targets)} attachment targets"
+        )
+
+        for target, resolved_kind in targets:
+            writer._attach(tree, None, target, resolved_kind, what, "H_ATTACHED")
+
+        landed = tree.record.citations if what == "citation" else tree.record.notes
+        assert landed == ["H_ATTACHED"], (
+            f"{group!r} ({kind!r}): the same {what} was attached "
+            f"{len(landed)} times to one record: {landed}"
+        )
+
+
+def test_the_dedup_does_not_swallow_two_GENUINELY_different_records() -> None:
+    """⚠️ A dedup that attached to only the first record would pass the test above.
+
+    ⭐ That is the failure mode a bound has to exclude explicitly: over-merging is
+    invisible to a test that only counts duplicates, and it would silently drop a
+    citation the owner approved.
+    """
+    specification = importlib.util.spec_from_file_location(
+        "a_writer_for_distinct", REPOSITORY_ROOT / "gramps_plugin" / "gramps_live_api_writer.py"
+    )
+    assert specification is not None and specification.loader is not None
+    writer = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(writer)
+
+    targets = writer._attachment_targets(
+        {"a": "H1", "b": "H2", "c": "H1"},
+        {"a": "event", "b": "person", "c": "event"},
+        ["a", "b", "c"],
+    )
+
+    assert [target for target, _ in targets] == ["H1", "H2"], (
+        f"the dedup dropped or reordered a distinct record: {targets}"
+    )
+    assert targets[1][1] == "person", "a target lost its kind, so _attach would skip it"
