@@ -446,13 +446,23 @@ def test_a_citation_only_family_attachment_is_not_called_a_no_op() -> None:
     )
 
 
+# ⛔ **Two different inputs used to live in one fixture, and only one of them is
+# still representable.**
+#
+# * ``children=["pn", "pn"]`` -- ONE local id repeated in a list. Still accepted,
+#   still deduplicated by the preview, still tested below.
+# * ``pa`` and ``pb`` both carrying ``I0500`` -- TWO nodes naming one record.
+#   **``parse`` now refuses this**, so the graph cannot reach ``preview`` at all
+#   and a rendering assertion about it can no longer be written.
+#
+# ⚠️ The second test below was changed from *"previewed once"* to *"refused"*.
+# That is an edit to an existing assertion, made because the property it asserted
+# was deliberately removed: deduplicating BOTH sides keeps two descriptions of
+# one operation and holds them in step, and correcting only one side is exactly
+# what produced the preview/writer disagreement on the attach path.
 DUPLICATE_CHILD_GRAPH = dict(
-    people=[
-        node("pn", given="Wilhelmina", surname="Newcomer", gender="female"),
-        node("pa", gramps_id="I0500"),
-        node("pb", gramps_id="I0500"),
-    ],
-    families=[node("f1", gramps_id="F0100", children=["pn", "pn", "pa", "pb"])],
+    people=[node("pn", given="Wilhelmina", surname="Newcomer", gender="female")],
+    families=[node("f1", gramps_id="F0100", children=["pn", "pn"])],
 )
 
 DUPLICATE_CHILD_RESOLUTION = document.Resolution(
@@ -460,9 +470,16 @@ DUPLICATE_CHILD_RESOLUTION = document.Resolution(
         document.Resolved(
             "f1", "F0100", "family", True, "Kettleby, Bartholomew + Kettleby, Susanna"
         ),
-        document.Resolved("pa", "I0500", "person", True, "Kettleby, Tobias"),
-        document.Resolved("pb", "I0500", "person", True, "Kettleby, Tobias"),
     )
+)
+
+ALIASED_CHILD_GRAPH = dict(
+    people=[
+        node("pn", given="Wilhelmina", surname="Newcomer", gender="female"),
+        node("pa", gramps_id="I0500"),
+        node("pb", gramps_id="I0500"),
+    ],
+    families=[node("f1", gramps_id="F0100", children=["pn", "pa", "pb"])],
 )
 
 
@@ -479,20 +496,31 @@ def test_a_child_named_twice_is_previewed_once() -> None:
     assert line.count("Wilhelmina") == 1, f"the same local id was rendered twice: {line!r}"
 
 
-def test_two_local_ids_naming_one_person_are_previewed_once() -> None:
-    """⛔ The subtler half: distinct local ids, one Gramps ID, one person.
+def test_two_local_ids_naming_one_person_are_REFUSED() -> None:
+    """⛔ The subtler half is no longer rendered once -- it is refused outright.
 
-    ⚠️ ``document.preview`` never touches the database, so handle identity is not
-    available to it — but the resolved ``gramps_id`` is, and that is the same
-    fact by another name.
+    ⚠️ **This assertion was changed deliberately.** It previously required the
+    preview to deduplicate two local ids carrying one ``gramps_id``. That worked,
+    and it was the wrong shape: it left the alias in the graph and made every
+    consumer defend against it separately. The writer'"'"'s attach path did not, and
+    added a citation twice; routing it through ``_unique`` then fixed the writer
+    and left the renderer, so the dialog promised two additions and one happened.
+    **Correcting one side of a two-sided description is what creates that class.**
+
+    ⭐ Refusing removes the two-sidedness. Neither renderer nor writer can
+    disagree about an input the parser never accepted.
+
+    The refusal names **both local ids and the shared ``gramps_id``**, because the
+    caller has two nodes to find in its own graph.
     """
-    rendered = document.preview(document.parse(DUPLICATE_CHILD_GRAPH), DUPLICATE_CHILD_RESOLUTION)
-    attaching = rendered.split("ATTACHING TO EXISTING", 1)[1].split("CREATING NEW", 1)[0]
-    line = next(row for row in attaching.splitlines() if "adding as children" in row)
+    with pytest.raises(document.GraphInvalid) as refused:
+        document.parse(ALIASED_CHILD_GRAPH)
 
-    assert line.count("I0500") == 1, (
-        f"one person reached by two local ids was rendered twice: {line!r}"
+    message = str(refused.value)
+    assert "pa" in message and "pb" in message, (
+        f"the refusal does not name both local ids, so the caller must guess: {message}"
     )
+    assert "I0500" in message, f"the refusal does not name the shared gramps_id: {message}"
 
 
 def test_a_failed_completion_leaves_the_INTENT_intact(

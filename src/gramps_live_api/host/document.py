@@ -353,6 +353,98 @@ def _sequence(body: dict[str, Any], key: str) -> tuple[dict[str, Any], ...]:
     return tuple(value)
 
 
+NODE_KEYS = {
+    "people": {"id", "given", "surname", "gender"},
+    "places": {"id", "title"},
+    "events": {"id", "type", "date", "place", "people", "family", "role", "description"},
+    "source": {"id", "title", "author", "pubinfo"},
+    "citations": {"id", "source", "page", "attach_to"},
+    "families": {"id", "parents", "children"},
+    "notes": {"text", "attach_to"},
+}
+"""⛔ **Exactly what each node group accepts. Anything else is REFUSED, by name.**
+
+⚠️ **Refused rather than ignored, and rather than warned.** An unrecognised key
+used to be dropped in silence: ``people[].events`` -- a natural guess, being the
+reverse of the supported ``events[].people`` -- created no link, raised nothing,
+and appeared nowhere in the approval dialog. The owner then approved a preview
+that was **accurate about what would be written and silent about the fact he had
+asked for something else.** A warning would be the same silence one indirection
+away, because a warning in a log nobody reads is not told to anybody.
+
+⭐ **This is the inverse of R3.** R3 says no byte reaches the tree unrendered;
+this says no byte is accepted and then quietly dropped. One slightly wrong key is
+the likeliest way a real document loses a fact.
+
+⚠️ ``gramps_id`` is deliberately absent from every set and allowed separately:
+the kinds that may not carry one are refused by ``ATTACHABLE``'s complement,
+whose message says *why* rather than merely *unknown key*. **A general check must
+not shadow a specific refusal.**
+"""
+
+
+def _only_known_keys(group: str, index: int, entry: Any) -> None:
+    """⛔ Refuse a key this group does not accept, naming the key AND the node.
+
+    ⚠️ The caller has to find one node in its own graph to fix it, so the message
+    carries the group, which entry it was, that entry's ``id`` when it has one,
+    and what the group does accept.
+    """
+    if not isinstance(entry, dict):
+        return
+    allowed = NODE_KEYS[group] | {"gramps_id"}
+    unknown = sorted(key for key in entry if key not in allowed)
+    if not unknown:
+        return
+    named = entry.get("id")
+    where = f"{group}[{index}]" + (f" (id {named!r})" if isinstance(named, str) and named else "")
+    raise GraphInvalid(
+        f"{where} carries "
+        + ("keys " if len(unknown) > 1 else "a key ")
+        + ", ".join(repr(key) for key in unknown)
+        + f", which {group!r} does not accept. It would have been dropped in "
+        f"silence and nothing in the approval dialog would have shown that you "
+        f"asked for it. {group!r} accepts: "
+        + ", ".join(repr(key) for key in sorted(NODE_KEYS[group] | {"gramps_id"}))
+        + "."
+    )
+
+
+def _claim_the_record(
+    claimed: dict[tuple[str, str], str],
+    group: str,
+    kind: str,
+    local: str,
+    entry: dict[str, Any],
+) -> None:
+    """⛔ One local id per resolved record. Refuses the second claim, naming both.
+
+    ⭐ **Driven off ``ATTACHABLE``**, so a sixth attachable kind inherits the rule
+    rather than needing a branch here. A group that cannot carry a ``gramps_id``
+    is refused earlier and never reaches this.
+
+    ⚠️ The message names **both local ids and the ``gramps_id`` they share**,
+    because the caller has to find two nodes in its own graph to fix it and
+    "duplicate gramps_id" alone does not say which two.
+    """
+    if group not in ATTACHABLE:
+        return
+    gramps_id = entry.get("gramps_id")
+    if not gramps_id:
+        return
+    key = (kind, str(gramps_id))
+    first = claimed.get(key)
+    if first is not None:
+        raise GraphInvalid(
+            f"the local ids {first!r} and {local!r} both name {kind} "
+            f"{str(gramps_id)!r}. One local id per record: give the {kind} a "
+            f"single id and point everything at it, because two ids for one "
+            f"record make the approval dialog and the write disagree about how "
+            f"many times something is attached."
+        )
+    claimed[key] = local
+
+
 def parse(body: Any) -> Graph:
     """Validate a graph, or refuse it saying which part is wrong.
 
@@ -372,6 +464,21 @@ def parse(body: Any) -> Graph:
     if not isinstance(body, dict):
         raise GraphInvalid("the graph must be a JSON object")
 
+    # ⛔ **An unknown top-level key drops a WHOLE GROUP in silence**, which is the
+    # worst version of this: ``peple`` or ``event`` costs every node in it, and
+    # the preview is entirely consistent about the nodes that survived.
+    unknown_groups = sorted(key for key in body if key not in GROUPS)
+    if unknown_groups:
+        raise GraphInvalid(
+            "the graph carries "
+            + ("keys " if len(unknown_groups) > 1 else "a key ")
+            + ", ".join(repr(key) for key in unknown_groups)
+            + ", which is not a node group. Everything in it would have been "
+            "dropped in silence. The groups are: "
+            + ", ".join(repr(group) for group in GROUPS)
+            + "."
+        )
+
     people = _sequence(body, "people")
     if not people:
         raise GraphInvalid("a graph with no people has nothing to write")
@@ -385,8 +492,38 @@ def parse(body: Any) -> Graph:
     source = body.get("source")
     if source is not None and not isinstance(source, dict):
         raise GraphInvalid("'source' must be an object")
+    if source is not None:
+        # ⛔ The source is a single node rather than a list -- the one structural
+        # exception in the graph -- so it needs its own call. Index 0 because
+        # there is only ever one.
+        _only_known_keys("source", 0, source)
+
+    # ⛔ **Notes too.** They are the one group with no ``id``, so a caller giving
+    # them one -- which is the natural habit, every other node has one -- was
+    # having it silently dropped. Refused now, and the message says what a note
+    # accepts.
+    for index, one_note in enumerate(notes):
+        _only_known_keys("notes", index, one_note)
 
     known: set[str] = set()
+    # ⛔ **ONE local id per resolved record.** ``(kind, gramps_id) -> the local id
+    # that claimed it first``, so a second claim can name both in the refusal.
+    #
+    # ⚠️ **Refused at the door rather than tolerated and deduplicated downstream,
+    # because the alias is a TWO-SIDED description and every consumer has to
+    # defend against it separately.** It produced two defects on one branch: the
+    # writer attached a citation twice (fixed by routing the attach path through
+    # ``_unique``), and then the preview rendered it twice while the writer wrote
+    # once -- the preview/writer disagreement class, created *by* the first fix,
+    # because correcting one side of a two-sided description is what makes that
+    # class. Refusing removes the two-sidedness: neither renderer nor writer can
+    # disagree about an input the parser never accepted.
+    #
+    # ⭐ The alias is reachable, and it is the ordinary census shape: a document
+    # naming one person twice -- as head of household, then again in a
+    # relationship column -- gives an agent building from two places in the page
+    # two locals carrying one ``gramps_id``.
+    seen_gramps: dict[tuple[str, str], str] = {}
     kind_of: dict[str, str] = {}
     """Which kind each local id names, so an edge can be checked for TYPE and not
     merely for existence."""
@@ -397,7 +534,8 @@ def parse(body: Any) -> Graph:
         ("citations", citations),
         ("families", families),
     ):
-        for item in items:
+        for index, item in enumerate(items):
+            _only_known_keys(group, index, item)
             local = item.get("id")
             if not local:
                 raise GraphInvalid(f"every entry in {group!r} needs an 'id'")
@@ -414,6 +552,7 @@ def parse(body: Any) -> Graph:
             kind_of[local] = {"people": "person", "places": "place", "families": "family"}.get(
                 group, group[:-1]
             )
+            _claim_the_record(seen_gramps, group, kind_of[local], local, item)
     if source is not None:
         # ⛔ Held to the SAME rule as every other node group. A source carrying a
         # ``gramps_id`` but no ``id`` used to be accepted, and a non-string id
@@ -431,6 +570,12 @@ def parse(body: Any) -> Graph:
             raise GraphInvalid(f"the local id {source_id!r} is used more than once")
         known.add(source_id)
         kind_of[source_id] = "source"
+        # ⛔ The source goes through the same claim, though it is a single node
+        # and cannot collide with itself today. Driving it off ``ATTACHABLE``
+        # rather than exempting it means a second source node -- if the graph
+        # ever grows one -- inherits the rule instead of needing to be
+        # remembered.
+        _claim_the_record(seen_gramps, "source", "source", source_id, source)
 
     def check(where: str, referenced: Any, *, must_be: str | None = None) -> None:
         """A reference must exist, and where the writer needs one kind, BE it.

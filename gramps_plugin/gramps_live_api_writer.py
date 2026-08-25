@@ -572,6 +572,21 @@ def _attachment_targets(handles, kinds, locals_):
     path simply was not going through it. A second implementation here is the
     thing being prevented, not a shortcut around it.
 
+    ⛔ **``parse`` now REFUSES two local ids naming one record, so this dedup is
+    currently unreachable for that input. It stays anyway -- do not "simplify" it
+    away.** Its justification is no longer *"aliases happen"* but *"if the parse
+    rule is ever relaxed, this is what stops the relaxation from silently
+    attaching twice."* A guard left without its reason stated reads as dead code
+    to the next reader, which is how a defence gets deleted one change before the
+    rule it depended on moves.
+
+    ⚠️ It is still reachable by the *other* duplicate: one local id listed twice
+    in a single ``attach_to``. ``parse`` permits that -- it is one node, named
+    twice -- and this is what collapses it.
+
+    ⭐ ``tests/unit/test_attachable_bound.py`` asserts the belt and the braces
+    agree, so the two cannot drift apart unnoticed.
+
     ⚠️ ``_unique`` keeps first-occurrence order, which matters for the same
     reason it does for children: the document's order is usually the page's.
     """

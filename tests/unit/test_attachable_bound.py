@@ -607,3 +607,55 @@ def test_the_dedup_does_not_swallow_two_GENUINELY_different_records() -> None:
         f"the dedup dropped or reordered a distinct record: {targets}"
     )
     assert targets[1][1] == "person", "a target lost its kind, so _attach would skip it"
+
+
+def test_the_PARSE_refusal_and_the_WRITER_dedup_agree_for_every_attachable_kind() -> None:
+    """⛔ Belt and braces, asserted together so they cannot drift.
+
+    ``parse`` refuses two local ids naming one record; the writer'"'"'s
+    ``_attachment_targets`` collapses them if they ever arrive anyway. **Two
+    mechanisms for one property drift** -- that is this project'"'"'s most-recorded
+    class -- so this pins them to each other rather than testing each alone.
+
+    ⚠️ The writer'"'"'s dedup is deliberately kept although `parse` makes that input
+    unreachable. Its reason is now *"if the parse rule is relaxed, this is what
+    stops the relaxation attaching twice"*, and a guard whose reason is not
+    asserted is a guard the next reader deletes.
+    """
+    specification = importlib.util.spec_from_file_location(
+        "a_writer_for_agreement", REPOSITORY_ROOT / "gramps_plugin" / "gramps_live_api_writer.py"
+    )
+    assert specification is not None and specification.loader is not None
+    writer = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(writer)
+
+    for group, kind in document.ATTACHABLE.items():
+        # 1. parse refuses the alias, naming both locals and the shared id.
+        body: dict[str, Any] = {"people": [node("p0", given="Ada", surname="Invented")]}
+        aliased = [node("n1", gramps_id="X0001"), node("n2", gramps_id="X0001")]
+        if group == "source":
+            # ⚠️ The source is a single node and cannot alias itself, so the rule
+            # is vacuously satisfied. Asserted rather than skipped, so a future
+            # multi-source graph does not slip through unnoticed.
+            assert document.ATTACHABLE["source"] == "source"
+            continue
+        if group == "people":
+            body["people"] = body["people"] + aliased
+        else:
+            body[group] = aliased
+
+        with pytest.raises(document.GraphInvalid) as refused:
+            document.parse(body)
+        message = str(refused.value)
+        assert "n1" in message and "n2" in message and "X0001" in message, (
+            f"{group!r}: the refusal does not name both ids and the shared id: {message}"
+        )
+
+        # 2. and the writer would collapse it regardless.
+        targets = writer._attachment_targets(
+            {"n1": "H_SAME", "n2": "H_SAME"}, {"n1": kind, "n2": kind}, ["n1", "n2"]
+        )
+        assert len(targets) == 1, (
+            f"{group!r} ({kind!r}): parse refuses the alias but the writer would "
+            f"still attach twice if it ever arrived: {targets}"
+        )

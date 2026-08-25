@@ -305,6 +305,21 @@ happens, so you never need a handle.
   families:  [{"id","gramps_id?","parents":[<person ids>],"children":[<person ids>]}]
   notes:     [{"text","attach_to":[<any ids>]}]
 
+*** THE SHAPE ABOVE IS EXACT. Any other key is REFUSED, naming the key and the
+node, and so is any top-level key that is not one of those groups. Nothing is
+dropped quietly: a key this tool does not know is a fact you meant to record and
+would not have been recorded, and you would not have been told. Note in
+particular that "events" belongs on an event, not on a person -- write
+events[].people, never people[].events -- and that a note has no "id". ***
+
+*** ONE LOCAL ID PER RECORD. Do not give two local ids the same "gramps_id".
+If a document names the same person twice -- as head of household, then again in
+a relationship column -- that is ONE person: give them one local id and point
+everything at it. Two ids for one record is REFUSED, because it makes the
+approval dialog and the write disagree about how many times something is
+attached. Listing one local id twice in the same "children" or "attach_to" is
+fine; it is one record named twice, not two. ***
+
 "description" is free text on the event itself -- a census line's occupation,
 relationship to head or marital status, an officiant's name. Use it rather than
 putting those facts only in a note: the tree's own events already carry such
