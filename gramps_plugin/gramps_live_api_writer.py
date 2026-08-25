@@ -175,6 +175,10 @@ _BY_GRAMPS_ID = {
     "place": "get_place_from_gramps_id",
     "source": "get_source_from_gramps_id",
     "family": "get_family_from_gramps_id",
+    # ⛔ Events are attachable. Their handles are invisible in the UI, which is
+    # why they were excluded -- but a Gramps ID is visible and ``list_events``
+    # returns one, so the exclusion was enforcing a premise that had expired.
+    "event": "get_event_from_gramps_id",
 }
 
 
@@ -247,7 +251,7 @@ def write(dbstate, graph):
     created = {
         k: [] for k in ("people", "events", "places", "families", "citations", "notes", "sources")
     }
-    attached = {k: [] for k in ("people", "places", "sources", "families")}
+    attached = {k: [] for k in ("people", "places", "sources", "families", "events")}
     # ⛔ Family event attachments are DEFERRED. The events loop runs before
     # families exist, so the handle to attach to is not minted yet -- the same
     # reason everything pointable is created before any pointer is written.
@@ -328,13 +332,35 @@ def write(dbstate, graph):
 
         # --- events, and the people they happened to -------------------------
         for spec in graph.get("events") or []:
+            existing = _existing(database, "event", spec)
+            if existing is not None:
+                # ⛔ **Attached to, never altered.** The graph's type, date, place,
+                # description and role are deliberately NOT applied -- see
+                # ``IGNORED_WHEN_ATTACHING``, and the preview names them as
+                # dropped so the owner approves the write that actually happens.
+                #
+                # ⚠️ No ``add_event`` and no ``commit_event`` on this path: an
+                # existing event is a record the owner asked to attach TO, and
+                # editing it is the one thing attaching is defined not to do.
+                handles[spec["id"]] = existing
+                kinds[spec["id"]] = "event"
+                attached["events"].append(str(spec.get("gramps_id")))
+                continue
             event = Event()
             event.set_type(_event_type(spec.get("type")))
             parsed = _gramps_date(spec.get("date"))
             if parsed is not None:
                 event.set_date_object(parsed)
-            elif spec.get("date"):
-                event.set_description("date as written: " + str(spec["date"]))
+            # ⛔ **The description, and the unparsed-date fallback, share one
+            # field.** Gramps' Event has one description, and this file already
+            # used it to preserve a date it could not parse. Writing both would
+            # have had the later call silently discard the earlier -- so they are
+            # JOINED, and the owner sees in the preview whichever parts exist.
+            described = [str(spec["description"]).strip()] if spec.get("description") else []
+            if parsed is None and spec.get("date"):
+                described.append("date as written: " + str(spec["date"]))
+            if described:
+                event.set_description("; ".join(described))
             place_local = spec.get("place")
             if place_local and place_local in handles:
                 event.set_place_handle(handles[place_local])
@@ -491,8 +517,8 @@ def write(dbstate, graph):
             note_created("citations", citation_handle, "get_citation_from_handle")
             handles[spec["id"]] = citation_handle
             kinds[spec["id"]] = "citation"
-            for local in spec.get("attach_to") or []:
-                _attach(database, trans, handles, kinds, local, "citation", citation_handle)
+            for target, kind in _attachment_targets(handles, kinds, spec.get("attach_to")):
+                _attach(database, trans, target, kind, "citation", citation_handle)
 
         # --- notes -----------------------------------------------------------
         for spec in graph.get("notes") or []:
@@ -501,8 +527,8 @@ def write(dbstate, graph):
             note.set_type(NoteType(NoteType.TRANSCRIPT))
             note_handle = database.add_note(note, trans)
             note_created("notes", note_handle, "get_note_from_handle")
-            for local in spec.get("attach_to") or []:
-                _attach(database, trans, handles, kinds, local, "note", note_handle)
+            for target, kind in _attachment_targets(handles, kinds, spec.get("attach_to")):
+                _attach(database, trans, target, kind, "note", note_handle)
 
     # ⛔ No summary is computed here, and that is not an omission.
     #
@@ -531,15 +557,55 @@ _COMMIT = {
 }
 
 
-def _attach(database, trans, handles, kinds, local, what, handle):
+def _attachment_targets(handles, kinds, locals_):
+    """The records some ``attach_to`` list points at, **deduplicated by HANDLE.**
+
+    ⛔ **By the resolved handle, not by the local id.** ``parse`` explicitly
+    permits two local ids to carry the same ``gramps_id``, so ``e1`` and ``e2``
+    can name one record -- and a citation listing both then had ``_attach`` run
+    twice on that record and ``add_citation`` the same handle twice. A supported
+    input, not an edge case: every citation, note and future attachment type
+    reaches this.
+
+    ⭐ **Through ``_unique``, which is this file's ONE deduplication.** The
+    family-child path already deduplicates resolved handles that way; the attach
+    path simply was not going through it. A second implementation here is the
+    thing being prevented, not a shortcut around it.
+
+    ⛔ **``parse`` now REFUSES two local ids naming one record, so this dedup is
+    currently unreachable for that input. It stays anyway -- do not "simplify" it
+    away.** Its justification is no longer *"aliases happen"* but *"if the parse
+    rule is ever relaxed, this is what stops the relaxation from silently
+    attaching twice."* A guard left without its reason stated reads as dead code
+    to the next reader, which is how a defence gets deleted one change before the
+    rule it depended on moves.
+
+    ⚠️ It is still reachable by the *other* duplicate: one local id listed twice
+    in a single ``attach_to``. ``parse`` permits that -- it is one node, named
+    twice -- and this is what collapses it.
+
+    ⭐ ``tests/unit/test_attachable_bound.py`` asserts the belt and the braces
+    agree, so the two cannot drift apart unnoticed.
+
+    ⚠️ ``_unique`` keeps first-occurrence order, which matters for the same
+    reason it does for children: the document's order is usually the page's.
+    """
+    resolved = [(handles[local], kinds.get(local)) for local in (locals_ or []) if local in handles]
+    kind_of = dict(resolved)
+    return [(target, kind_of[target]) for target in _unique([target for target, _ in resolved])]
+
+
+def _attach(database, trans, target, kind, what, handle):
     """Put a citation or a note onto whatever the graph pointed at.
 
     ⚠️ **Fetch, modify, commit.** Gramps derives the backlink from the reference
     when the OWNING object is committed -- the same reason the apply tool commits
     the person to attach a note rather than committing the note.
+
+    ⛔ Takes an already-RESOLVED target, so the caller must have gone through
+    ``_attachment_targets`` -- which is where the deduplication lives. Resolving
+    here per local id is what allowed one record to be attached to twice.
     """
-    target = handles.get(local)
-    kind = kinds.get(local)
     if not target or kind not in _COMMIT:
         return
     getter, committer = _COMMIT[kind]

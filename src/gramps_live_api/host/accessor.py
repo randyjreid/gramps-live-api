@@ -358,13 +358,31 @@ def list_events(person_gramps_id: str) -> reads.Found:
     if person is None:
         return reads.Found()
     rows = []
+    # ⚠️ **``get_event_ref_list()`` ALREADY contains the birth and the death.**
+    #
+    # ⛔ A review round reported that it does not -- that Gramps keeps them in
+    # ``birth_ref``/``death_ref`` slots this loop never walked, so births and
+    # deaths had no citable Gramps ID. **That is false, and it was fixed before it
+    # was checked.** Gramps' ``Person.get_birth_ref`` is
+    # ``event_ref_list[birth_ref_index]`` (``gen/lib/person.py:814``) -- an INDEX
+    # into this very list -- and ``set_birth_ref`` appends to it. There is no
+    # state in which a birth is reachable by the slot and not by this loop.
+    #
+    # ⚠️ **The negative control fired anyway**, which is the part worth
+    # remembering. The fixture's fake ``Person`` returned the slots separately
+    # from its ref list, so it encoded the false premise; deleting the traversal
+    # then failed a test that was only ever asserting the fixture's own shape.
+    # **A control proves the code satisfies the fixture, not that the defect was
+    # real.** Confirmed against the live tree: a person's birth is returned by
+    # this loop with no slot traversal at all.
     for ref in person.get_event_ref_list():
         if _public(ref) is None:
             continue
         event = _public(database.get_event_from_handle(ref.ref))
         if event is None:
             continue
-        date = event.get_date_object()
+        # ⚠️ No local date handling any more: the shared renderer reads the
+        # date itself, and a second copy here is what let the two drift.
         place = ""
         if event.get_place_handle():
             found = _public(database.get_place_from_handle(event.get_place_handle()))
@@ -373,9 +391,21 @@ def list_events(person_gramps_id: str) -> reads.Found:
             # as the birth date above, one relation further out.
             if found is not None and not found.get_privacy():
                 place = found.get_name().get_value() or found.get_title() or ""
-        shown = " ".join(
-            part for part in (str(event.get_type()), str(date) if date else "", place) if part
-        )
+        # ⛔ **ONE renderer, shared with the approval dialog.** Not a tidy-up --
+        # this is the third time these two descriptions of an event disagreed on
+        # this branch alone: first the place, then the date's precision, then the
+        # description. Each was a real way for the caller to pick an id it could
+        # see was distinct and hand the owner a line that was not.
+        #
+        # ⚠️ Two events sharing a type, date and place differ ONLY by their
+        # description -- two Occupation rows, two Residence rows in one census --
+        # and this renderer omitted it while the dialog showed it. **The caller
+        # had to guess**, in the lookup the workflow tells it to trust.
+        #
+        # ⭐ Sharing the renderer ends the class rather than fixing its third
+        # instance: what the caller reads and what the owner approves are now the
+        # same string, produced once.
+        shown = _event_display(event, place)
         rows.append((bool(event.get_privacy()), reads.Match(event.get_gramps_id(), shown)))
     return reads.bound(rows)
 
@@ -499,15 +529,17 @@ def list_family_events(family_gramps_id: str) -> reads.Found:
         event = _public(raw)
         if event is None:
             continue
-        date = event.get_date_object()
+        # ⚠️ No local date handling any more: the shared renderer reads the
+        # date itself, and a second copy here is what let the two drift.
         place = ""
         if event.get_place_handle():
             found = _public(database.get_place_from_handle(event.get_place_handle()))
             if found is not None:
                 place = found.get_name().get_value() or found.get_title() or ""
-        shown = " ".join(
-            part for part in (str(event.get_type()), str(date) if date else "", place) if part
-        )
+        # ⛔ The same one renderer -- see ``list_events``. A family's marriage is
+        # chosen from this list exactly as a person's events are chosen from that
+        # one, so it needs the same completeness.
+        shown = _event_display(event, place)
         rows.append((False, reads.Match(event.get_gramps_id(), shown)))
     return reads.bound(rows)
 
@@ -743,6 +775,34 @@ def _display_of(database: typing.Any, kind: str, obj: typing.Any) -> str:
             # different operation from the one that runs**, which is R3's whole
             # criterion. ``document.preview`` is what renders this.
             return _family_display(database, obj)
+        if kind == "event":
+            # ⛔ **Type, date and description read from the TREE**, never from the
+            # payload that named the id.
+            #
+            # ⭐ This is the mechanism, not a nicety. A citation attaching to the
+            # wrong event is invisible unless the dialog shows what that event
+            # actually IS -- and the same read is what caught a wrong Gramps ID
+            # on the family path. ⚠️ Without a branch here a resolved event fell
+            # through to "(could not read its name)" while the preview also
+            # listed it under CREATING NEW, which is the family defect exactly.
+            # ⛔ **With its PLACE**, because the place is often the only thing
+            # telling two events apart.
+            #
+            # ⚠️ Two events of the same type and date differ only by place -- two
+            # Residence rows in one census year, for instance -- and without it
+            # the dialog shows the same string for both. **The owner cannot
+            # notice a citation landing on the wrong one**, which is exactly the
+            # identity check this display exists to provide.
+            place = ""
+            if obj.get_place_handle():
+                held = _public(database.get_place_from_handle(obj.get_place_handle()))
+                # ⛔ The place's own privacy flag, same as ``list_events``.
+                if held is not None:
+                    place = str(held.get_name().get_value() or held.get_title() or "")
+            #
+            # ⛔ Handed to the renderer, not appended after it -- see
+            # ``_event_display``, which owns the grammar for both call sites.
+            return _event_display(obj, place)
     except Exception:
         # A display string is not worth failing a lookup over. The id resolved;
         # that is the load-bearing fact.
@@ -1444,13 +1504,33 @@ def _changed_display(kind: str, obj: typing.Any, changed: int) -> str:
     return f"{_orphan_display(singular, obj)}  [changed {stamp}]"
 
 
-def _event_display(event: typing.Any) -> str:
-    """An event as the owner recognises it: what it was, and when."""
+def _event_display(event: typing.Any, place: str = "") -> str:
+    """An event as the owner recognises it: what it was, when, and where.
+
+    ⛔ **The order is ``document._event_line``'s order, deliberately** --
+    ``type date at PLACE -- description``. Both strings land in the SAME approval
+    dialog, one for an event being created and one for an event being attached
+    to, and a dialog with two grammars is a dialog the owner reads twice.
+
+    ⚠️ A first version appended the place at the call site instead, giving
+    ``-- description at PLACE`` against the preview's ``at PLACE -- description``:
+    **the preview/writer disagreement class, introduced by the fix that added the
+    place.** Passing it in keeps one renderer, so the two cannot drift.
+    """
     try:
         shown = str(event.get_type() or "Event")
         date = event.get_date_object()
         if date is not None and not date.is_empty():
-            shown += f" {date.get_year() or date}"
+            # ⛔ **The whole date, not the year.** ``list_events`` shows the caller
+            # ``str(date)``; rendering only ``get_year()`` here meant two events
+            # sharing a type, year, place and description -- two Residence rows
+            # months apart -- produced the SAME approval line from ids the caller
+            # had just been shown as different. **The owner cannot catch a
+            # citation landing on the wrong one**, which is the identity check
+            # this string exists to be.
+            shown += f" {date}"
+        if place:
+            shown += f" at {place}"
         if event.get_description():
             shown += f" -- {event.get_description()}"
         return shown

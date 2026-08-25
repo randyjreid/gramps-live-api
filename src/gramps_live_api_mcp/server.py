@@ -296,12 +296,55 @@ happens, so you never need a handle.
 
   people:    [{"id","gramps_id?","given","surname","gender"}]
   places:    [{"id","gramps_id?","title"}]
-  events:    [{"id","type","date","place":<place id>,"people":[<person ids>],
-              "family":<family id>,"role"}]
+  events:    [{"id","gramps_id?","type","date","place":<place id>,
+              "people":[<person ids>],"family":<family id>,"role","description"}]
+             -- with "gramps_id": only "citations"/notes attach; sending
+                "people", "family" or "role" is refused (see below)
   source:     {"id","gramps_id?","title","author","pubinfo"}
   citations: [{"id","source":<source id>,"page","attach_to":[<any ids>]}]
   families:  [{"id","gramps_id?","parents":[<person ids>],"children":[<person ids>]}]
   notes:     [{"text","attach_to":[<any ids>]}]
+
+*** THE SHAPE ABOVE IS EXACT. Any other key is REFUSED, naming the key and the
+node, and so is any top-level key that is not one of those groups. Nothing is
+dropped quietly: a key this tool does not know is a fact you meant to record and
+would not have been recorded, and you would not have been told. Note in
+particular that "events" belongs on an event, not on a person -- write
+events[].people, never people[].events -- and that a note has no "id". ***
+
+*** ONE LOCAL ID PER RECORD. Do not give two local ids the same "gramps_id".
+If a document names the same person twice -- as head of household, then again in
+a relationship column -- that is ONE person: give them one local id and point
+everything at it. Two ids for one record is REFUSED, because it makes the
+approval dialog and the write disagree about how many times something is
+attached. Listing one local id twice in the same "children" or "attach_to" is
+fine; it is one record named twice, not two. ***
+
+"description" is free text on the event itself -- a census line's occupation,
+relationship to head or marital status, an officiant's name. Use it rather than
+putting those facts only in a note: the tree's own events already carry such
+strings, and a note is prose nothing can query.
+
+*** IF AN EVENT ALREADY EXISTS, LOOK IT UP FIRST AND PASS ITS GRAMPS ID. A
+citation belongs ON the event it documents. Creating a second copy of an event
+that is already there is the duplicate this tool exists to prevent, and an event
+you did not look up is an event you are about to duplicate.
+
+WHICH LOOKUP DEPENDS ON WHO OWNS THE EVENT, and getting this wrong looks exactly
+like the event not existing. A person's own events -- birth, death, census,
+residence, occupation, burial -- are on the PERSON: use list_events with their
+Gramps ID. A couple's events -- MARRIAGE, divorce -- are on the FAMILY, on
+neither spouse: use find_families and then list_family_events. Asking list_events
+about a marriage returns nothing whether or not the marriage is there, so a
+caller that stops at that answer creates the second marriage record for a couple
+who already have one.
+
+An attached event is NOT modified: its type, date, place and description come
+from the tree, and anything you send for them is dropped and shown to the owner
+as dropped. An attached event also keeps the participants it has: do NOT send
+"people", "family" or "role" with a gramps_id -- all three are REFUSED, and the
+whole proposal is rejected rather than partly written, because an event already
+in the tree keeps its own participants. ***
 
 *** IF A PERSON IS ALREADY IN THE TREE, LOOK THEM UP WITH list_people FIRST AND
 PASS THEIR GRAMPS ID as "gramps_id". *** Otherwise you create a duplicate of
@@ -310,9 +353,9 @@ wrong. The same goes for the SOURCE: if you have already cited this parish
 register or this census, pass its Gramps ID rather than making a second copy of
 it.
 
-gramps_id works on people, places, the source AND families. Events, citations
-and notes are always created new -- a document asserting a fact is asserting a
-new claim about it, even between people who already exist.
+gramps_id works on people, places, the source, families AND events. Citations and
+notes are always created new -- a document asserting a fact is asserting a new
+claim about it, even about people and events that already exist.
 
 *** FOR A FAMILY, CALL find_families FIRST AND PASS ITS GRAMPS ID. *** A tree
 holds one family per couple, and creating a second splits their children across
@@ -672,11 +715,15 @@ class Tools:
         # nonexistent person passed. **A search is not an existence check.**
         missing = self._resolve_ids(parsed)
         if missing:
+            # ⛔ The advice comes from ``document.how_to_resolve_them()`` rather
+            # than being spelled again here. Two copies of one sentence is how
+            # this message went stale: events became attachable and only the tool
+            # description was updated.
             raise ToolRefusal(
                 "these Gramps IDs are not in the open tree: "
                 + ", ".join(missing)
-                + ". Look them up with find_people / find_place / find_source, or "
-                "leave gramps_id out to create a new record."
+                + ". "
+                + document.how_to_resolve_them()
             )
 
         settings = config.load(self._environ)

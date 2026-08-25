@@ -83,13 +83,52 @@ def blessing_of(tree_dir: str | None) -> Blessing:
     return Blessing(blessed=True, message=tree_dir)
 
 
-ATTACHABLE = ("people", "places", "source", "families")
-"""⭐ The three node kinds that may carry a ``gramps_id`` and mean *this one*.
+GROUPS = {
+    "people": "person",
+    "places": "place",
+    "events": "event",
+    "source": "source",
+    "citations": "citation",
+    "families": "family",
+    "notes": "note",
+}
+"""Every node group a document graph can carry, and its singular.
 
-**Events are deliberately absent**: their handles are invisible in the Gramps UI,
-so nobody could supply one and a field nobody can fill is a field that only ever
-holds a mistake. Citations and notes are always created -- a document asserting a
-fact is asserting a NEW claim about it, even about people who already exist.
+⛔ **``ATTACHABLE`` is a subset of this**, and the kinds that are always created
+are the complement -- computed, never listed twice. A group that is neither
+attachable nor refused cannot exist, because both sets come from here."""
+
+
+ATTACHABLE = {
+    "people": "person",
+    "places": "place",
+    "source": "source",
+    "families": "family",
+    "events": "event",
+}
+"""⭐ **The ONE declaration of which node kinds may carry a ``gramps_id``**, mapping
+the graph's group name to the singular this project uses in messages.
+
+⛔ **Everything else is driven off this.** ``requested`` walks it rather than
+carrying one loop per kind, the refusal for the non-attachable kinds is its
+complement, and the tool description is generated from it. **A sixth kind becomes
+attachable by being declared here** -- there is no second place to remember, which
+is what four hand-written branches had become.
+
+⭐ **Events joined this list, and the exclusion that kept them out has expired.**
+The reasoning was: *their handles are invisible in the Gramps UI, so nobody could
+supply one.* ⚠️ **That was about HANDLES.** Gramps IDs are visible, and
+``list_events`` returns them -- so the premise stopped being true when that route
+shipped, and the exclusion has since been enforcing a constraint that no longer
+exists.
+
+⛔ **The live consequence, which is why this is a correction rather than a
+widening:** a citation belonging on an event that already exists could not be
+attached to it, so the only way to record the source was to create a **second copy
+of the event** -- the exact duplication this whole feature set exists to prevent.
+
+Citations and notes remain always-created -- a document asserting a fact is
+asserting a NEW claim about it, even about people who already exist.
 
 ⭐ **Families joined this list, and that is OQ-3 closed.** A family is not a claim
 the way a citation is -- it is a record of a couple, and a tree holds one per
@@ -102,7 +141,32 @@ supplied.
 cited across many documents, and twelve copies of it is the same defect as twelve
 copies of a person."""
 
-IGNORED_WHEN_ATTACHING = ("given", "surname", "gender", "title", "author", "pubinfo", "parents")
+IGNORED_WHEN_ATTACHING = (
+    "given",
+    "surname",
+    "gender",
+    "title",
+    "author",
+    "pubinfo",
+    "parents",
+    # ⛔ An attached EVENT is not modified either. Its type, date, place,
+    # description and role describe an event that already exists and already has
+    # them -- applying the payload's would be **editing a record the owner asked
+    # to attach to**, which is the one thing attaching is defined not to do.
+    "type",
+    "date",
+    "place",
+    "description",
+)
+# ⚠️ ``role`` is deliberately NOT here, and the reasoning had to be corrected
+# once. It is REFUSED on an attached event rather than dropped -- explicitly, in
+# ``parse`` -- so there is no state in which it needs reporting as dropped.
+#
+# ⛔ **The first version of this note claimed role could never survive, having
+# tested only a non-Primary role.** ``role: "Primary"`` took a different path: the
+# with-no-carriers check only rejects non-Primary, so it was accepted, silently
+# discarded by the writer, and not reported as dropped. **A conclusion generalised
+# from one case**, which is why the refusal now names ``role`` outright.
 """Fields that describe an object, and are therefore NOT applied to one that
 already exists.
 
@@ -205,9 +269,7 @@ class Resolution:
             named = ", ".join(f"{node.gramps_id} ({node.kind})" for node in self.missing)
             return (
                 f"these Gramps IDs are not in the open tree: {named}. "
-                "Nothing was written and no dialog was shown. Look them up with "
-                "find_people / find_place / find_source, or leave gramps_id out "
-                "to create a new record."
+                "Nothing was written and no dialog was shown. " + how_to_resolve_them()
             )
         return None
 
@@ -221,25 +283,33 @@ def requested(graph: Graph) -> tuple[Requested, ...]:
     Pure, so the accessor can be handed a list of lookups rather than a graph to
     interpret.
     """
+    # ⛔ **Driven off ``ATTACHABLE``, not one branch per kind.**
+    #
+    # ⚠️ This was four hand-written loops, and a fifth kind would have been a fifth
+    # branch -- in a function whose omission is silent, because a kind nobody walks
+    # simply never resolves and its ``gramps_id`` is ignored rather than refused.
+    # **A sixth kind now inherits this by being declared.**
     out: list[Requested] = []
-    for entry in graph.people:
-        if entry.get("gramps_id"):
-            out.append(Requested(str(entry["id"]), str(entry["gramps_id"]), "person"))
-    for entry in graph.places:
-        if entry.get("gramps_id"):
-            out.append(Requested(str(entry["id"]), str(entry["gramps_id"]), "place"))
-    for entry in graph.families:
-        if entry.get("gramps_id"):
-            out.append(Requested(str(entry["id"]), str(entry["gramps_id"]), "family"))
-    if graph.source and graph.source.get("gramps_id"):
-        out.append(
-            Requested(
-                str(graph.source.get("id") or "source"),
-                str(graph.source["gramps_id"]),
-                "source",
-            )
-        )
+    for group, one in ATTACHABLE.items():
+        for entry in _entries(graph, group):
+            if entry.get("gramps_id"):
+                out.append(Requested(str(entry.get("id") or one), str(entry["gramps_id"]), one))
     return tuple(out)
+
+
+def _entries(graph: Graph, group: str) -> tuple[dict[str, Any], ...]:
+    """The nodes in one group, as a sequence whatever its shape.
+
+    ⚠️ ``source`` is a single node rather than a list -- the one structural
+    exception in the graph -- and it is smoothed over HERE so that everything
+    walking ``ATTACHABLE`` does not each have to know it.
+    """
+    value = getattr(graph, group, None)
+    if value is None:
+        return ()
+    if isinstance(value, dict):
+        return (value,)
+    return tuple(value)
 
 
 def dropped_fields(entry: dict[str, Any]) -> tuple[str, ...]:
@@ -281,6 +351,157 @@ def _sequence(body: dict[str, Any], key: str) -> tuple[dict[str, Any], ...]:
     return tuple(value)
 
 
+NODE_KEYS = {
+    "people": {"id", "given", "surname", "gender"},
+    "places": {"id", "title"},
+    "events": {"id", "type", "date", "place", "people", "family", "role", "description"},
+    "source": {"id", "title", "author", "pubinfo"},
+    "citations": {"id", "source", "page", "attach_to"},
+    "families": {"id", "parents", "children"},
+    "notes": {"text", "attach_to"},
+}
+"""⛔ **Exactly what each node group accepts. Anything else is REFUSED, by name.**
+
+⚠️ **Refused rather than ignored, and rather than warned.** An unrecognised key
+used to be dropped in silence: ``people[].events`` -- a natural guess, being the
+reverse of the supported ``events[].people`` -- created no link, raised nothing,
+and appeared nowhere in the approval dialog. The owner then approved a preview
+that was **accurate about what would be written and silent about the fact he had
+asked for something else.** A warning would be the same silence one indirection
+away, because a warning in a log nobody reads is not told to anybody.
+
+⭐ **This is the inverse of R3.** R3 says no byte reaches the tree unrendered;
+this says no byte is accepted and then quietly dropped. One slightly wrong key is
+the likeliest way a real document loses a fact.
+
+⚠️ ``gramps_id`` is deliberately absent from every set and allowed separately:
+the kinds that may not carry one are refused by ``ATTACHABLE``'s complement,
+whose message says *why* rather than merely *unknown key*. **A general check must
+not shadow a specific refusal.**
+"""
+
+
+def _only_known_keys(group: str, index: int, entry: Any) -> None:
+    """⛔ Refuse a key this group does not accept, naming the key AND the node.
+
+    ⚠️ The caller has to find one node in its own graph to fix it, so the message
+    carries the group, which entry it was, that entry's ``id`` when it has one,
+    and what the group does accept.
+    """
+    if not isinstance(entry, dict):
+        return
+    allowed = NODE_KEYS[group] | {"gramps_id"}
+    unknown = sorted(key for key in entry if key not in allowed)
+    if not unknown:
+        return
+    named = entry.get("id")
+    where = f"{group}[{index}]" + (f" (id {named!r})" if isinstance(named, str) and named else "")
+    raise GraphInvalid(
+        f"{where} carries "
+        + ("keys " if len(unknown) > 1 else "a key ")
+        + ", ".join(repr(key) for key in unknown)
+        + f", which {group!r} does not accept. It would have been dropped in "
+        f"silence and nothing in the approval dialog would have shown that you "
+        f"asked for it. {group!r} accepts: "
+        + ", ".join(repr(key) for key in sorted(NODE_KEYS[group] | {"gramps_id"}))
+        + "."
+    )
+
+
+LOOKUP_TOOLS = {
+    "person": "find_people",
+    "place": "find_place",
+    "source": "find_source",
+    "family": "find_families",
+    "event": (
+        "list_events for a person's own events, or find_families then "
+        "list_family_events for a couple's -- a marriage is owned by the family, "
+        "not by either spouse"
+    ),
+}
+"""Which tool finds a record of each kind. ⛔ **One entry per ``ATTACHABLE`` kind.**
+
+⚠️ The refusal used to name ``find_people / find_place / find_source`` only, so a
+caller with an unresolvable event or family id was told to use tools that cannot
+find one. Events and families became attachable without this sentence moving.
+"""
+
+
+def how_to_resolve_them() -> str:
+    """⛔ What to do about a ``gramps_id`` that did not resolve. **ONE copy.**
+
+    ⚠️ **Two messages said this, and one of them was wrong.** The MCP tool and
+    ``Resolution.refusal()`` carried the same sentence by duplication rather than
+    by sharing it, which is the drift shape: the advice had to change when events
+    became attachable and only the tool description was updated.
+
+    ⛔ **The second half was not merely under-specified, it was harmful.** It said
+    *"leave gramps_id out to create a new record"*, and following that literally
+    on an event being cited produces a second copy of that event -- the exact
+    duplication this whole feature exists to prevent, recommended by the feature's
+    own refusal text.
+
+    ⭐ **The rule is ONE property, not a branch per kind:** *dropping the
+    ``gramps_id`` creates a new record, and that is right only when the node also
+    DESCRIBES one.* Measured, rather than assumed -- a node carrying nothing but a
+    ``gramps_id`` renders as ``Person (no name given)``, ``Place ?``, ``Source
+    Untitled document`` or ``Event  Event`` once the id is dropped. Only a family
+    refuses, because it requires parents, children or an id to be written at all.
+
+    ⚠️ So events are **not** the sole exception, though they are the sharpest one:
+    an attached event cannot carry content by construction, since its type, date,
+    place and description are read from the tree and dropped from the payload.
+    Stating the property this way means a sixth attachable kind inherits the
+    correct half by its nature rather than by someone remembering it.
+    """
+    named = "; ".join(f"{kind} -> {tool}" for kind, tool in sorted(LOOKUP_TOOLS.items()))
+    return (
+        "Look it up again -- an id that does not resolve is usually stale or "
+        f"mistyped, and these are the tools that find one: {named}. "
+        "Do NOT simply leave the gramps_id out. That creates a NEW record, which "
+        "is right only when the node also describes one -- a person with a name, "
+        "a place with a title. A node whose only content was the gramps_id "
+        "becomes an empty placeholder; and an attached event carries no content "
+        "at all, because its type, date and place are read from the tree -- so "
+        "dropping its id writes a second copy of the very event you were citing."
+    )
+
+
+def _claim_the_record(
+    claimed: dict[tuple[str, str], str],
+    group: str,
+    kind: str,
+    local: str,
+    entry: dict[str, Any],
+) -> None:
+    """⛔ One local id per resolved record. Refuses the second claim, naming both.
+
+    ⭐ **Driven off ``ATTACHABLE``**, so a sixth attachable kind inherits the rule
+    rather than needing a branch here. A group that cannot carry a ``gramps_id``
+    is refused earlier and never reaches this.
+
+    ⚠️ The message names **both local ids and the ``gramps_id`` they share**,
+    because the caller has to find two nodes in its own graph to fix it and
+    "duplicate gramps_id" alone does not say which two.
+    """
+    if group not in ATTACHABLE:
+        return
+    gramps_id = entry.get("gramps_id")
+    if not gramps_id:
+        return
+    key = (kind, str(gramps_id))
+    first = claimed.get(key)
+    if first is not None:
+        raise GraphInvalid(
+            f"the local ids {first!r} and {local!r} both name {kind} "
+            f"{str(gramps_id)!r}. One local id per record: give the {kind} a "
+            f"single id and point everything at it, because two ids for one "
+            f"record make the approval dialog and the write disagree about how "
+            f"many times something is attached."
+        )
+    claimed[key] = local
+
+
 def parse(body: Any) -> Graph:
     """Validate a graph, or refuse it saying which part is wrong.
 
@@ -300,6 +521,21 @@ def parse(body: Any) -> Graph:
     if not isinstance(body, dict):
         raise GraphInvalid("the graph must be a JSON object")
 
+    # ⛔ **An unknown top-level key drops a WHOLE GROUP in silence**, which is the
+    # worst version of this: ``peple`` or ``event`` costs every node in it, and
+    # the preview is entirely consistent about the nodes that survived.
+    unknown_groups = sorted(key for key in body if key not in GROUPS)
+    if unknown_groups:
+        raise GraphInvalid(
+            "the graph carries "
+            + ("keys " if len(unknown_groups) > 1 else "a key ")
+            + ", ".join(repr(key) for key in unknown_groups)
+            + ", which is not a node group. Everything in it would have been "
+            "dropped in silence. The groups are: "
+            + ", ".join(repr(group) for group in GROUPS)
+            + "."
+        )
+
     people = _sequence(body, "people")
     if not people:
         raise GraphInvalid("a graph with no people has nothing to write")
@@ -313,8 +549,38 @@ def parse(body: Any) -> Graph:
     source = body.get("source")
     if source is not None and not isinstance(source, dict):
         raise GraphInvalid("'source' must be an object")
+    if source is not None:
+        # ⛔ The source is a single node rather than a list -- the one structural
+        # exception in the graph -- so it needs its own call. Index 0 because
+        # there is only ever one.
+        _only_known_keys("source", 0, source)
+
+    # ⛔ **Notes too.** They are the one group with no ``id``, so a caller giving
+    # them one -- which is the natural habit, every other node has one -- was
+    # having it silently dropped. Refused now, and the message says what a note
+    # accepts.
+    for index, one_note in enumerate(notes):
+        _only_known_keys("notes", index, one_note)
 
     known: set[str] = set()
+    # ⛔ **ONE local id per resolved record.** ``(kind, gramps_id) -> the local id
+    # that claimed it first``, so a second claim can name both in the refusal.
+    #
+    # ⚠️ **Refused at the door rather than tolerated and deduplicated downstream,
+    # because the alias is a TWO-SIDED description and every consumer has to
+    # defend against it separately.** It produced two defects on one branch: the
+    # writer attached a citation twice (fixed by routing the attach path through
+    # ``_unique``), and then the preview rendered it twice while the writer wrote
+    # once -- the preview/writer disagreement class, created *by* the first fix,
+    # because correcting one side of a two-sided description is what makes that
+    # class. Refusing removes the two-sidedness: neither renderer nor writer can
+    # disagree about an input the parser never accepted.
+    #
+    # ⭐ The alias is reachable, and it is the ordinary census shape: a document
+    # naming one person twice -- as head of household, then again in a
+    # relationship column -- gives an agent building from two places in the page
+    # two locals carrying one ``gramps_id``.
+    seen_gramps: dict[tuple[str, str], str] = {}
     kind_of: dict[str, str] = {}
     """Which kind each local id names, so an edge can be checked for TYPE and not
     merely for existence."""
@@ -325,7 +591,8 @@ def parse(body: Any) -> Graph:
         ("citations", citations),
         ("families", families),
     ):
-        for item in items:
+        for index, item in enumerate(items):
+            _only_known_keys(group, index, item)
             local = item.get("id")
             if not local:
                 raise GraphInvalid(f"every entry in {group!r} needs an 'id'")
@@ -342,6 +609,7 @@ def parse(body: Any) -> Graph:
             kind_of[local] = {"people": "person", "places": "place", "families": "family"}.get(
                 group, group[:-1]
             )
+            _claim_the_record(seen_gramps, group, kind_of[local], local, item)
     if source is not None:
         # ⛔ Held to the SAME rule as every other node group. A source carrying a
         # ``gramps_id`` but no ``id`` used to be accepted, and a non-string id
@@ -359,6 +627,12 @@ def parse(body: Any) -> Graph:
             raise GraphInvalid(f"the local id {source_id!r} is used more than once")
         known.add(source_id)
         kind_of[source_id] = "source"
+        # ⛔ The source goes through the same claim, though it is a single node
+        # and cannot collide with itself today. Driving it off ``ATTACHABLE``
+        # rather than exempting it means a second source node -- if the graph
+        # ever grows one -- inherits the rule instead of needing to be
+        # remembered.
+        _claim_the_record(seen_gramps, "source", "source", source_id, source)
 
     def check(where: str, referenced: Any, *, must_be: str | None = None) -> None:
         """A reference must exist, and where the writer needs one kind, BE it.
@@ -435,6 +709,30 @@ def parse(body: Any) -> Graph:
                         )
 
     for event in events:
+        # ⛔ **An ATTACHED event may not also name participants.**
+        #
+        # ⚠️ Without this the graph parsed, the preview rendered a ``+`` for the
+        # event under each named person, and the writer's attach path skipped both
+        # the person ``EventRef`` loop and the deferred family attachment
+        # entirely -- **so the owner approved a relationship that was never
+        # written.** That is the preview and the writer disagreeing, which is the
+        # class this project has six recorded instances of, in code added for the
+        # feature above.
+        #
+        # ⭐ **Refused rather than dropped-and-reported.** Dropping would leave the
+        # caller believing it can express participation on an existing event and
+        # leave the rendering to suppress separately; refusing makes the
+        # disagreement impossible rather than merely announced, and the message
+        # says what to do instead.
+        if event.get("gramps_id") and (
+            event.get("people") or event.get("family") or event.get("role")
+        ):
+            raise GraphInvalid(
+                f"event {event.get('id')!r} names an existing event by gramps_id and "
+                "also names 'people', 'family' or 'role'. An event already in the "
+                "tree keeps the participants it has -- attach a citation or a note "
+                "to it instead, and drop those fields."
+            )
         check(f"event {event.get('id')!r}'s place", event.get("place"), must_be="place")
         for person in event.get("people") or []:
             check(f"event {event.get('id')!r}", person, must_be="person")
@@ -479,20 +777,43 @@ def parse(body: Any) -> Graph:
     # ⛔ A ``gramps_id`` on a kind that is always created would be silently
     # ignored, and a field that is silently ignored is a field somebody relies
     # on. Refuse it instead, naming the kind.
-    for group, one, items in (
-        ("events", "event", events),
-        ("citations", "citation", citations),
-    ):
-        for item in items:
+    # ⛔ **The COMPLEMENT of ``ATTACHABLE``, computed rather than listed.**
+    #
+    # ⚠️ Two lists that must stay opposite is two things to keep in step, and this
+    # file has already paid for that shape. **Declaring a kind attachable stops it
+    # being refused here in the same edit**, and a kind that is neither declared
+    # nor refused cannot exist because the set is derived from ``GROUPS``.
+    # ⛔ Built HERE, from the parsed values, so every group in ``GROUPS`` is
+    # reachable by name rather than by a local variable happening to match.
+    #
+    # ⚠️ This used ``locals()``, and the failure was silent and immediate: the
+    # refusal fired for notes and citations and **not for events**, so a kind
+    # removed from ``ATTACHABLE`` was neither resolved nor refused — its
+    # ``gramps_id`` simply ignored. Caught by a control that did not fire when it
+    # should have, which is the only reason it was found.
+    by_group: dict[str, tuple[dict[str, Any], ...]] = {
+        "people": people,
+        "places": places,
+        "events": events,
+        "citations": citations,
+        "families": families,
+        "notes": notes,
+        "source": (source,) if isinstance(source, dict) else (),
+    }
+    missing = set(GROUPS) - set(by_group)
+    if missing:  # pragma: no cover -- the consistency test pins this
+        raise GraphInvalid(f"internal: no entries mapped for {sorted(missing)}")
+
+    for group, one in GROUPS.items():
+        if group in ATTACHABLE:
+            continue
+        for item in by_group[group]:
             if item.get("gramps_id"):
                 raise GraphInvalid(
                     f"{one} {item.get('id')!r} carries a 'gramps_id', but "
                     f"{group} are always created. Only {', '.join(ATTACHABLE)} may "
                     "name something that already exists."
                 )
-    for note in notes:
-        if note.get("gramps_id"):
-            raise GraphInvalid("a note carries a 'gramps_id', but notes are always created")
 
     return Graph(
         people=people,
@@ -576,13 +897,22 @@ def _event_line(event: dict[str, Any], named: Any) -> str:
     role = str(event.get("role") or "").strip()
     if role and role.casefold() != "primary":
         bits.append(f"as {role}")
+    # ⛔ **Rendered, because the writer applies it.** A census line's occupation,
+    # relationship to head or marital status has nowhere else structured to go,
+    # and the tree's own events already carry such strings. **A description
+    # written and not shown is the preview/writer class**, which this file has six
+    # recorded instances of.
+    described = str(event.get("description") or "").strip()
     # ⛔ The household the event JOINS, named. R3's criterion is that no byte
     # reaches the tree unrendered, and a marriage attaching to a family the owner
     # never saw named is that criterion failing -- the write is small, this line
     # is the reason the slice exists.
     if event.get("family"):
         bits.append("on the family " + named(event["family"]))
-    return ", ".join(bits)
+    line = ", ".join(bits)
+    # ⛔ Appended after the join, not as another comma-separated bit: a
+    # description is prose and reads as a trailing clause, not as another field.
+    return f"{line} -- {described}" if described else line
 
 
 def preview(graph: Graph, resolution: Resolution | None = None) -> str:
@@ -605,6 +935,7 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
     resolved = (resolution or Resolution()).by_local_id()
     people_by_id = {p.get("id"): p for p in graph.people}
     places_by_id = {p.get("id"): p for p in graph.places}
+    events_by_id = {str(e.get("id")): e for e in graph.events if e.get("id")}
     families_by_id = {f.get("id"): f for f in graph.families}
     source_id = graph.source.get("id") if graph.source else None
 
@@ -680,10 +1011,21 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
         out.append("")
         for node in attaching:
             out.append(f"  {node.gramps_id}  {node.display}")
+            # ⛔ An attached EVENT is recorded as rendered here.
+            #
+            # ⚠️ Without this it rendered under ATTACHING TO EXISTING **and again
+            # under ALSO WRITTEN**, with its citation counted twice -- the
+            # preview asserting two additions where the writer makes one. Caught
+            # by the completeness backstop before this shipped, which is that
+            # backstop doing exactly what it is for.
+            for index, event in enumerate(graph.events):
+                if event.get("id") == node.local_id:
+                    shown_events.add(index)
             entry = (
                 people_by_id.get(node.local_id)
                 or places_by_id.get(node.local_id)
                 or families_by_id.get(node.local_id)
+                or events_by_id.get(node.local_id)
                 or (graph.source if graph.source and source_id == node.local_id else {})
                 or {}
             )
@@ -962,15 +1304,24 @@ def caller_preview(graph: Graph) -> str:
     attaching_people = [p for p in graph.people if p.get("gramps_id")]
     attaching_places = [p for p in graph.places if p.get("gramps_id")]
     attaching_source = graph.source if graph.source and graph.source.get("gramps_id") else None
+    # ⛔ Events are attachable, so this preview has to say so too.
+    #
+    # ⚠️ It reported EVERY event as created new. For a proposal that correctly
+    # named an existing event, the agent's immediate answer contradicted both the
+    # approval dialog and the writer -- so a caller could abandon or "fix" a
+    # proposal that was already right, and produce the duplicate by fixing it.
+    attaching_events = [e for e in graph.events if e.get("gramps_id")]
     creating_people = [p for p in graph.people if not p.get("gramps_id")]
     creating_places = [p for p in graph.places if not p.get("gramps_id")]
     creating_source = graph.source if graph.source and not graph.source.get("gramps_id") else None
 
     out: list[str] = []
-    if attaching_people or attaching_places or attaching_source:
+    if attaching_people or attaching_places or attaching_source or attaching_events:
         out.append("ATTACHING TO EXISTING RECORDS")
         for entry in attaching_people:
             out.append(f"  person  {entry['gramps_id']}")
+        for entry in attaching_events:
+            out.append(f"  event   {entry['gramps_id']}")
         for entry in attaching_places:
             out.append(f"  place   {entry['gramps_id']}")
         if attaching_source:
@@ -998,8 +1349,19 @@ def caller_preview(graph: Graph) -> str:
             )
             out.append("")
 
+    # ⛔ Events are no longer always created new, so the count is split the same
+    # way families' already is. **Saying "always created new" about a node the
+    # caller correctly attached is a false statement about its own proposal**, and
+    # the caller acting on it produces the duplicate.
+    new_events = [e for e in graph.events if not e.get("gramps_id")]
+    if new_events:
+        out.append(f"  {len(new_events)} events (created new)")
+    if attaching_events:
+        out.append(
+            f"  {len(attaching_events)} events (attaching to an event already in the "
+            "tree; its type, date and place are left exactly as they are)"
+        )
     for label, items in (
-        ("events", graph.events),
         ("citations", graph.citations),
         ("notes", graph.notes),
     ):
