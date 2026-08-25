@@ -296,7 +296,10 @@ def test_the_MCP_INSTRUCTION_and_the_PARSER_agree_about_attached_events() -> Non
 
     # The instruction names all three as refused, in one sentence, and none of
     # them as merely dropped.
-    sentence = instruction[instruction.index("An attached event also keeps") :][:400]
+    # ⚠️ Anchor updated when the description was reordered for #151: the rules
+    # now come FIRST and the schema block is the tail, so this slices from the
+    # schema's own first line. The property asserted is unchanged.
+    sentence = instruction[instruction.index('A node with "gramps_id" is ATTACHED TO') :][:400]
     for field in refused:
         assert f'"{field}"' in sentence, f"the instruction does not name {field} as refused"
 
@@ -392,7 +395,10 @@ def test_the_INSTRUCTION_names_the_right_lookup_for_FAMILY_owned_events() -> Non
     instruction = (REPOSITORY_ROOT / "src" / "gramps_live_api_mcp" / "server.py").read_text(
         encoding="utf-8"
     )
-    guidance = instruction[instruction.index("IF AN EVENT ALREADY EXISTS") :][:1200]
+    # ⚠️ Anchor updated when the description was reordered for #151: the rules
+    # now come FIRST and the schema block is the tail, so this slices from the
+    # schema's own first line. The property asserted is unchanged.
+    guidance = instruction[instruction.index("*** LOOK IT UP BEFORE YOU CREATE") :][:1200]
 
     assert "list_family_events" in guidance, (
         "the lookup guidance never names list_family_events, so a caller looking "

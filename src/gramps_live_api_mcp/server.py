@@ -148,6 +148,34 @@ class ExportNotConfigured(ToolRefusal):
 # asserted to agree with them in both directions.
 # ---------------------------------------------------------------------------
 
+DESCRIPTION_BUDGET = 2048
+"""⛔ **How much of a tool description actually reaches the model.** MEASURED.
+
+⚠️ A description longer than this is **delivered cut, mid-sentence**, and the
+model is never told anything past the cut. ``propose_document`` ran to 5618
+characters and arrived at 2048 -- **63% lost**, and what fell past the cut was
+every *look it up before you create it* rule. A model received the exact shape of
+a graph and no instruction to look anything up, so it would duplicate a person or
+an event and hit no refusal doing it, because creating is the default and is
+legitimate.
+
+⭐ **Per tool, not shared across the schema.** Established by loading
+``propose_document`` alone: it was still cut at 2048, where a shared budget would
+have given it the whole allowance. A second tool at 1190 characters arrived
+complete. **So shortening one description is a real fix, not a proxy** -- which
+was the open question, and the answer decided the shape of the repair.
+
+⚠️ **Characters, and bytes are indistinguishable on this evidence**, because every
+description is pure ASCII (5618 characters == 5618 bytes). If one ever gains a
+non-ASCII character the two stop agreeing, and this constant should be re-measured
+rather than trusted.
+
+⛔ **Enforced by test, not by reading.** Judging a docstring short enough by eye is
+the check class that has failed repeatedly here -- the answer comes from the
+reader instead of from the thing being checked.
+"""
+
+
 LIST_PEOPLE_DESCRIPTION = f"""\
 Find people in the owner's family tree by name. Reads a Gramps XML export; \
 writes nothing and opens no database.
@@ -285,101 +313,43 @@ CHANGED_SINCE_DESCRIPTION = (
 )
 
 PROPOSE_DOCUMENT_DESCRIPTION = """\
-Propose everything a genealogical document says about people, as ONE graph.
+One document's findings as ONE graph. Writes nothing; returns a proposal id and a
+preview. Then approve_document.
 
-Writes nothing. Returns a proposal id and a preview of exactly what would be
-written. Follow it with approve_document to put it in front of the owner.
+*** LOOK IT UP BEFORE YOU CREATE. An id you did not look up is a duplicate you
+are about to make. person -> list_people. source -> find_source. family ->
+find_families. A person's OWN events (birth, death, census) -> list_events. A
+COUPLE's events (MARRIAGE, divorce) sit on the FAMILY, on neither spouse ->
+find_families then list_family_events. list_events never returns a marriage,
+present or not. ***
 
-SHAPE. Every node has a local "id" you invent (p1, e1, l1, s1, c1, f1) and other
-nodes refer to it by that id. The ids are resolved to real records when the write
-happens, so you never need a handle.
+*** A MARRIAGE GOES ON THE FAMILY: give the event "family". An event with only
+"people" lands on those people -- wrong for a marriage. A family with gramps_id
+is ADDED TO: children join it, its parents are left alone. ***
 
-  people:    [{"id","gramps_id?","given","surname","gender"}]
-  places:    [{"id","gramps_id?","title"}]
-  events:    [{"id","gramps_id?","type","date","place":<place id>,
-              "people":[<person ids>],"family":<family id>,"role","description"}]
-             -- with "gramps_id": only "citations"/notes attach; sending
-                "people", "family" or "role" is refused (see below)
-  source:     {"id","gramps_id?","title","author","pubinfo"}
-  citations: [{"id","source":<source id>,"page","attach_to":[<any ids>]}]
-  families:  [{"id","gramps_id?","parents":[<person ids>],"children":[<person ids>]}]
-  notes:     [{"text","attach_to":[<any ids>]}]
+*** THE SHAPE BELOW IS EXACT. Any other key, or a top-level key that is not a
+group, is REFUSED by name. "events" belongs on an event, not a person: write
+events[].people, never people[].events. A note has no "id". ***
 
-*** THE SHAPE ABOVE IS EXACT. Any other key is REFUSED, naming the key and the
-node, and so is any top-level key that is not one of those groups. Nothing is
-dropped quietly: a key this tool does not know is a fact you meant to record and
-would not have been recorded, and you would not have been told. Note in
-particular that "events" belongs on an event, not on a person -- write
-events[].people, never people[].events -- and that a note has no "id". ***
+*** ONE LOCAL ID PER RECORD. Two local ids carrying one "gramps_id" are REFUSED.
+A document naming one person twice -- head of household, then a relationship
+column -- is ONE person with one local id. One local id twice inside "children"
+or "attach_to" is fine. ***
 
-*** ONE LOCAL ID PER RECORD. Do not give two local ids the same "gramps_id".
-If a document names the same person twice -- as head of household, then again in
-a relationship column -- that is ONE person: give them one local id and point
-everything at it. Two ids for one record is REFUSED, because it makes the
-approval dialog and the write disagree about how many times something is
-attached. Listing one local id twice in the same "children" or "attach_to" is
-fine; it is one record named twice, not two. ***
+A node with "gramps_id" is ATTACHED TO, never modified; its other fields are
+dropped and shown as dropped. On an attached EVENT, sending "people", "family" or
+"role" is REFUSED. One missing gramps_id refuses the batch.
 
-"description" is free text on the event itself -- a census line's occupation,
-relationship to head or marital status, an officiant's name. Use it rather than
-putting those facts only in a note: the tree's own events already carry such
-strings, and a note is prose nothing can query.
+"source" is one object; other groups are lists. "id" is yours to invent.
 
-*** IF AN EVENT ALREADY EXISTS, LOOK IT UP FIRST AND PASS ITS GRAMPS ID. A
-citation belongs ON the event it documents. Creating a second copy of an event
-that is already there is the duplicate this tool exists to prevent, and an event
-you did not look up is an event you are about to duplicate.
-
-WHICH LOOKUP DEPENDS ON WHO OWNS THE EVENT, and getting this wrong looks exactly
-like the event not existing. A person's own events -- birth, death, census,
-residence, occupation, burial -- are on the PERSON: use list_events with their
-Gramps ID. A couple's events -- MARRIAGE, divorce -- are on the FAMILY, on
-neither spouse: use find_families and then list_family_events. Asking list_events
-about a marriage returns nothing whether or not the marriage is there, so a
-caller that stops at that answer creates the second marriage record for a couple
-who already have one.
-
-An attached event is NOT modified: its type, date, place and description come
-from the tree, and anything you send for them is dropped and shown to the owner
-as dropped. An attached event also keeps the participants it has: do NOT send
-"people", "family" or "role" with a gramps_id -- all three are REFUSED, and the
-whole proposal is rejected rather than partly written, because an event already
-in the tree keeps its own participants. ***
-
-*** IF A PERSON IS ALREADY IN THE TREE, LOOK THEM UP WITH list_people FIRST AND
-PASS THEIR GRAMPS ID as "gramps_id". *** Otherwise you create a duplicate of
-somebody the owner already has, which is the single most likely way to get this
-wrong. The same goes for the SOURCE: if you have already cited this parish
-register or this census, pass its Gramps ID rather than making a second copy of
-it.
-
-gramps_id works on people, places, the source, families AND events. Citations and
-notes are always created new -- a document asserting a fact is asserting a new
-claim about it, even about people and events that already exist.
-
-*** FOR A FAMILY, CALL find_families FIRST AND PASS ITS GRAMPS ID. *** A tree
-holds one family per couple, and creating a second splits their children across
-two households. A family with a gramps_id is ADDED TO: the children you name
-join it, its recorded parents are left exactly as they are, and any parents you
-name here are ignored.
-
-*** A MARRIAGE BELONGS ON THE FAMILY, NOT ON THE TWO SPOUSES. *** An event may
-name "family": <family id> and it is written onto that family, which is where
-Gramps keeps a marriage and where list_family_events looks for one. An event that
-names only "people" lands on those people, which is right for a birth or a
-residence and wrong for a marriage.
-
-A node with a gramps_id is ATTACHED TO, never modified. Its given/surname/gender
-are ignored: nothing already in the tree is changed, ever. If the document
-contradicts what is recorded, say so to the owner in conversation -- do not try
-to write the correction.
-
-If a gramps_id does not exist in the tree, the WHOLE batch is refused and nothing
-is written. Leave gramps_id out to create a new record deliberately.
-
-list_people reads the owner's XML export, which may be stale. Gramps IDs are
-stable once assigned, so an id from a stale export still points at the right
-person -- the only risk is that somebody added very recently is not in it yet.
+ people: "id","gramps_id?","given","surname","gender"
+ places: "id","gramps_id?","title"
+ events: "id","gramps_id?","type","date","role","place"(1 id),"people"(ids),
+         "family"(1 id),"description"(free text: occupation, relation to head)
+ source: "id","gramps_id?","title","author","pubinfo"
+ citations: "id","source"(1 id),"page","attach_to"(ids)
+ families: "id","gramps_id?","parents"(ids),"children"(ids)
+ notes: "text","attach_to"(ids)
 """
 
 APPROVE_DOCUMENT_DESCRIPTION = (

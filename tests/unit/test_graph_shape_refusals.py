@@ -215,7 +215,13 @@ def _advertised_shape() -> dict[str, set[str]]:
     text = (REPOSITORY_ROOT / "src" / "gramps_live_api_mcp" / "server.py").read_text(
         encoding="utf-8"
     )
-    block = text[text.index("  people:") : text.index("*** THE SHAPE ABOVE IS EXACT")]
+    # ⚠️ The schema block now sits at the END of the description, after the rules,
+    # so it is sliced from its own first line to the close of the constant rather
+    # than between two headings. That reordering is deliberate and asserted in
+    # tests/unit/test_tool_descriptions_fit.py: if the tail is ever cut again,
+    # losing the schema fails loudly where losing a rule fails silently.
+    block = text[text.index(' people: "id"') :]
+    block = block[: block.index('"""')]
     shape: dict[str, set[str]] = {}
     current: str | None = None
     for line in block.splitlines():
@@ -281,7 +287,7 @@ def test_the_description_TELLS_the_model_both_constraints() -> None:
         encoding="utf-8"
     )
 
-    assert "THE SHAPE ABOVE IS EXACT" in text, "the model is not told unknown keys are refused"
+    assert "THE SHAPE BELOW IS EXACT" in text, "the model is not told unknown keys are refused"
     assert "people[].events" in text, (
         "the likeliest wrong key is not named, and it is the one a model reaches "
         "for because it is the reverse of a supported field"
