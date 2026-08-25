@@ -715,11 +715,15 @@ class Tools:
         # nonexistent person passed. **A search is not an existence check.**
         missing = self._resolve_ids(parsed)
         if missing:
+            # ⛔ The advice comes from ``document.how_to_resolve_them()`` rather
+            # than being spelled again here. Two copies of one sentence is how
+            # this message went stale: events became attachable and only the tool
+            # description was updated.
             raise ToolRefusal(
                 "these Gramps IDs are not in the open tree: "
                 + ", ".join(missing)
-                + ". Look them up with find_people / find_place / find_source, or "
-                "leave gramps_id out to create a new record."
+                + ". "
+                + document.how_to_resolve_them()
             )
 
         settings = config.load(self._environ)

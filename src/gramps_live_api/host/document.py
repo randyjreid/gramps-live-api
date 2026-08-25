@@ -269,9 +269,7 @@ class Resolution:
             named = ", ".join(f"{node.gramps_id} ({node.kind})" for node in self.missing)
             return (
                 f"these Gramps IDs are not in the open tree: {named}. "
-                "Nothing was written and no dialog was shown. Look them up with "
-                "find_people / find_place / find_source, or leave gramps_id out "
-                "to create a new record."
+                "Nothing was written and no dialog was shown. " + how_to_resolve_them()
             )
         return None
 
@@ -407,6 +405,65 @@ def _only_known_keys(group: str, index: int, entry: Any) -> None:
         f"asked for it. {group!r} accepts: "
         + ", ".join(repr(key) for key in sorted(NODE_KEYS[group] | {"gramps_id"}))
         + "."
+    )
+
+
+LOOKUP_TOOLS = {
+    "person": "find_people",
+    "place": "find_place",
+    "source": "find_source",
+    "family": "find_families",
+    "event": (
+        "list_events for a person's own events, or find_families then "
+        "list_family_events for a couple's -- a marriage is owned by the family, "
+        "not by either spouse"
+    ),
+}
+"""Which tool finds a record of each kind. ⛔ **One entry per ``ATTACHABLE`` kind.**
+
+⚠️ The refusal used to name ``find_people / find_place / find_source`` only, so a
+caller with an unresolvable event or family id was told to use tools that cannot
+find one. Events and families became attachable without this sentence moving.
+"""
+
+
+def how_to_resolve_them() -> str:
+    """⛔ What to do about a ``gramps_id`` that did not resolve. **ONE copy.**
+
+    ⚠️ **Two messages said this, and one of them was wrong.** The MCP tool and
+    ``Resolution.refusal()`` carried the same sentence by duplication rather than
+    by sharing it, which is the drift shape: the advice had to change when events
+    became attachable and only the tool description was updated.
+
+    ⛔ **The second half was not merely under-specified, it was harmful.** It said
+    *"leave gramps_id out to create a new record"*, and following that literally
+    on an event being cited produces a second copy of that event -- the exact
+    duplication this whole feature exists to prevent, recommended by the feature's
+    own refusal text.
+
+    ⭐ **The rule is ONE property, not a branch per kind:** *dropping the
+    ``gramps_id`` creates a new record, and that is right only when the node also
+    DESCRIBES one.* Measured, rather than assumed -- a node carrying nothing but a
+    ``gramps_id`` renders as ``Person (no name given)``, ``Place ?``, ``Source
+    Untitled document`` or ``Event  Event`` once the id is dropped. Only a family
+    refuses, because it requires parents, children or an id to be written at all.
+
+    ⚠️ So events are **not** the sole exception, though they are the sharpest one:
+    an attached event cannot carry content by construction, since its type, date,
+    place and description are read from the tree and dropped from the payload.
+    Stating the property this way means a sixth attachable kind inherits the
+    correct half by its nature rather than by someone remembering it.
+    """
+    named = "; ".join(f"{kind} -> {tool}" for kind, tool in sorted(LOOKUP_TOOLS.items()))
+    return (
+        "Look it up again -- an id that does not resolve is usually stale or "
+        f"mistyped, and these are the tools that find one: {named}. "
+        "Do NOT simply leave the gramps_id out. That creates a NEW record, which "
+        "is right only when the node also describes one -- a person with a name, "
+        "a place with a title. A node whose only content was the gramps_id "
+        "becomes an empty placeholder; and an attached event carries no content "
+        "at all, because its type, date and place are read from the tree -- so "
+        "dropping its id writes a second copy of the very event you were citing."
     )
 
 

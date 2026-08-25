@@ -291,3 +291,108 @@ def test_the_description_TELLS_the_model_both_constraints() -> None:
         "the alias rule is stated without the shape that produces it, which is "
         "the census case this tool exists for"
     )
+
+
+# ---------------------------------------------------------------------------
+# What a failed lookup is told to do next
+# ---------------------------------------------------------------------------
+
+
+def test_EVERY_attachable_kind_has_a_lookup_tool_named() -> None:
+    """⛔ The bound: a kind became attachable and the advice did not follow.
+
+    ⚠️ That is exactly what happened -- events and families were made attachable
+    while the refusal still named ``find_people / find_place / find_source``, so a
+    caller holding an unresolvable event id was directed at three tools that
+    cannot find one.
+    """
+    for kind in document.ATTACHABLE.values():
+        assert kind in document.LOOKUP_TOOLS, (
+            f"{kind!r} is attachable, so its gramps_id can fail to resolve, and "
+            f"nothing tells the caller how to find one: {sorted(document.LOOKUP_TOOLS)}"
+        )
+
+
+def test_the_tools_the_advice_NAMES_actually_exist() -> None:
+    """⛔ Advice pointing at a tool that does not exist is worse than none.
+
+    ⭐ Same binding as the tool description: the text is a claim about the code,
+    and a claim nobody checks is one that goes stale silently.
+    """
+    server = (REPOSITORY_ROOT / "src" / "gramps_live_api_mcp" / "server.py").read_text(
+        encoding="utf-8"
+    )
+    named = set()
+    for tool in document.LOOKUP_TOOLS.values():
+        named.update(
+            word for word in tool.replace(",", " ").split() if word.startswith(("find_", "list_"))
+        )
+
+    assert named, "the advice names no tools at all"
+    for tool in sorted(named):
+        assert f"def {tool}(" in server, (
+            f"the refusal tells callers to use {tool!r}, which the server does not define"
+        )
+
+
+def test_the_advice_does_not_recommend_DROPPING_the_id() -> None:
+    """⛔ The half that was actively harmful, asserted so it cannot come back.
+
+    ⚠️ *"leave gramps_id out to create a new record"* is sound for a node that
+    describes a record and wrong for one that does not. Following it on an event
+    being cited writes a second copy of that event -- the duplication this feature
+    exists to prevent, recommended by the feature's own refusal.
+
+    ⭐ Stated as ONE property rather than a branch per kind, because the measured
+    behaviour is broader than *"events are special"*: a node carrying only a
+    gramps_id renders as an empty placeholder for people, places and sources too.
+    Only a family refuses, needing parents, children or an id to be written at all.
+    """
+    advice = document.how_to_resolve_them()
+
+    assert "Do NOT simply leave the gramps_id out" in advice, (
+        f"the advice no longer warns against dropping the id: {advice}"
+    )
+    assert "only when the node also describes one" in advice, (
+        "the warning is stated without the property that makes it true, so a "
+        f"reader cannot tell when dropping the id IS correct: {advice}"
+    )
+    assert "second copy" in advice, (
+        "the consequence for an event -- the one this branch exists to prevent "
+        f"-- is not named: {advice}"
+    )
+
+
+def test_BOTH_refusal_sites_carry_the_SAME_advice() -> None:
+    """⛔ Two messages saying one thing is the drift shape, and it drifted.
+
+    ⭐ Asserted by identity, not by similarity: both must contain the shared
+    function's output verbatim, so neither can be edited alone.
+    """
+    advice = document.how_to_resolve_them()
+
+    resolution = document.Resolution(nodes=(document.Resolved("n1", "X0001", "event", False),))
+    written = resolution.refusal()
+    assert written is not None and advice in written, (
+        f"Resolution.refusal() does not carry the shared advice: {written}"
+    )
+
+    # ⛔ **Comment lines are stripped before searching, and that is not fussiness.**
+    #
+    # ⚠️ A first version searched the whole file, and the negative control -- delete
+    # the call, spell the advice out again -- **passed anyway**, because a comment
+    # in that very function names ``document.how_to_resolve_them()`` in prose. The
+    # assertion was satisfied by text ABOUT the code rather than by the code. Same
+    # family as a fixture encoding the claim under test: the check succeeded for a
+    # reason unrelated to the property it names.
+    code = chr(10).join(
+        line
+        for line in (REPOSITORY_ROOT / "src" / "gramps_live_api_mcp" / "server.py")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if not line.strip().startswith("#")
+    )
+    assert "document.how_to_resolve_them()" in code, (
+        "the MCP refusal spells its own advice instead of sharing one copy, which "
+        "is how the two went out of step in the first place"
+    )
