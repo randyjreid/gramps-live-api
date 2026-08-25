@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -467,6 +468,58 @@ def how_to_resolve_them() -> str:
     )
 
 
+def _writes_anything(
+    groups: tuple[tuple[str, Sequence[dict[str, Any]]], ...],
+    source: dict[str, Any] | None,
+) -> bool:
+    """⛔ Does this graph produce **at least one committed change**?
+
+    ⭐ **The rule that replaces ``people`` non-empty**, which was a PROXY for it.
+    The proxy answered its own question correctly and then answered a different
+    one once events became attachable: a graph naming a source, a citation and an
+    existing event has plenty to write and no person in it, and was refused as
+    having *"nothing to write"*. Third proxy of its kind on this project.
+
+    A committed change is either:
+
+    * a **created** node -- any node in any group with no ``gramps_id``. Citations
+      and notes never carry one, so any citation or note is a creation; or
+    * an **attachment edge** that lands on something -- a citation's or note's
+      ``attach_to``, or children joining a family.
+
+    ⚠️ ``events[].people`` and ``events[].family`` are deliberately NOT listed.
+    They exist only on a *created* event -- ``parse`` refuses them on an attached
+    one -- so the created event already made this true, and listing them would be
+    a second reason for a fact already covered.
+
+    ⛔ **This does NOT ask whether created objects are REACHABLE.** A source
+    nobody cites is created and reachable in Gramps' own lists; a note attached to
+    nothing is an orphan, and orphans are real enough here that ``find_orphans``
+    exists. Those two want opposite answers, so reachability is not a uniform
+    property and does not belong bolted onto this one -- it is filed separately.
+    """
+    for _group, items in groups:
+        for item in items:
+            if not item.get("gramps_id"):
+                return True
+    if source is not None and not source.get("gramps_id"):
+        return True
+    # ⛔ ``children`` only. ``attach_to`` was here and was DEAD CODE: only
+    # citations and notes take it, neither may carry a ``gramps_id``, so any node
+    # with an ``attach_to`` was already counted as created above. A negative
+    # control stayed SILENT on it, which is how it was found rather than reasoned
+    # about -- and an unreachable branch inside a safety rule is exactly the thing
+    # this project keeps paying for.
+    #
+    # ⭐ ``children`` IS reachable: an existing family gaining existing people is
+    # a committed change with nothing created anywhere in the graph.
+    for _group, items in groups:
+        for item in items:
+            if item.get("children"):
+                return True
+    return False
+
+
 def _claim_the_record(
     claimed: dict[tuple[str, str], str],
     group: str,
@@ -502,7 +555,7 @@ def _claim_the_record(
     claimed[key] = local
 
 
-def parse(body: Any) -> Graph:
+def parse(body: Any, *, writes: bool = True) -> Graph:
     """Validate a graph, or refuse it saying which part is wrong.
 
     ⚠️ **Every reference is checked here, before the transaction opens.** A local
@@ -537,9 +590,6 @@ def parse(body: Any) -> Graph:
         )
 
     people = _sequence(body, "people")
-    if not people:
-        raise GraphInvalid("a graph with no people has nothing to write")
-
     places = _sequence(body, "places")
     events = _sequence(body, "events")
     citations = _sequence(body, "citations")
@@ -814,6 +864,50 @@ def parse(body: Any) -> Graph:
                     f"{group} are always created. Only {', '.join(ATTACHABLE)} may "
                     "name something that already exists."
                 )
+
+    # ⛔ **LAST, so a specific refusal is never shadowed by this one.**
+    #
+    # ⚠️ Checked first, it reported *nothing to write* for a graph whose real
+    # problem was a refused ``role`` or an unknown key -- true, and useless,
+    # because the caller needed the specific fault named. Same rule as
+    # ``gramps_id`` passing the unknown-key check so its own refusal survives.
+
+    # ⛔ **At least one committed change** -- skipped only for a READ.
+    #
+    # ⚠️ ``resolve_nodes`` and the ``/resolve`` route ask *what do these ids point
+    # at?* and write nothing, so requiring a committed change of them is a
+    # category error. **The old proxy had the same error and simply did not bite**,
+    # because a resolution usually names people; replacing it with the honest rule
+    # is what exposed it.
+    #
+    # ⭐ The polarity is deliberate: ``parse`` stays STRICT by default and a
+    # reader opts out by name, so a write path added later that forgets gets the
+    # strict answer rather than the permissive one.
+    #
+    # ⚠️ This replaces ``people`` non-empty, which was a proxy for it: a graph of
+    # a source, a citation and an existing event writes plenty and names nobody,
+    # and was refused as having "nothing to write". A caller's only escape was to
+    # bolt on an unrelated person -- who then appeared in the approval dialog,
+    # putting a record in front of the owner that had nothing to do with the
+    # proposal.
+    if writes and not _writes_anything(
+        (
+            ("people", people),
+            ("places", places),
+            ("events", events),
+            ("citations", citations),
+            ("families", families),
+            ("notes", notes),
+        ),
+        source if isinstance(source, dict) else None,
+    ):
+        raise GraphInvalid(
+            "this graph would not change the tree. Every node it names already "
+            "exists and nothing is attached to any of them, so approving it would "
+            "write nothing. Name something to create -- a person, an event, a "
+            "source -- or attach a citation or a note to something with "
+            "'attach_to'."
+        )
 
     return Graph(
         people=people,

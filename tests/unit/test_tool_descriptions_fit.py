@@ -17,7 +17,41 @@ it is the class that has failed repeatedly in this repository.
 
 from __future__ import annotations
 
-import gramps_live_api_mcp.server as server
+import importlib.util
+
+import pytest
+
+# ⚠️ **The `core` CI leg is deliberately dependency-free and ASSERTS that `mcp`
+# is not importable** -- it fails the job if it is, because a leg that has the
+# extra measures nothing. This module reads the tool descriptions, which live in
+# the optional package, so it has to skip there or it breaks collection.
+#
+# ⛔ `find_spec`, not `pytest.importorskip`, matching `test_mcp_server.py`.
+# `importorskip` swallows ANY ImportError -- a typo in our own module included --
+# and reports the file as skipped. This asks one question, *is the optional extra
+# installed?*, and skips only on that answer; every other import error still
+# fails collection, loudly.
+#
+# ⚠️ This was caught by CI and not by the local gate, and could not have been:
+# the dev environment has the extra, so the leg that proves the split is the one
+# that cannot run here.
+#
+# ⭐ The skip claims the seam-twin exemption in the words the hygiene test
+# requires, and the claim is the honest one: without the extra there is no
+# importable module to read a description FROM, so the SUBJECT is absent rather
+# than the observation. A platform skip leaves a property uncovered and owes a
+# twin; this leaves the thing being measured non-existent, and a twin would be a
+# test of nothing.
+if importlib.util.find_spec("mcp") is None:  # pragma: no cover - installed in dev
+    pytest.skip(
+        "the MCP server is an optional extra and it is not installed, so there is "
+        "nothing to cover here -- the descriptions live in "
+        "gramps_live_api_mcp.server, which cannot be imported at all. CI's mcp leg "
+        "installs '.[mcp]' and asserts these tests actually ran.",
+        allow_module_level=True,
+    )
+
+import gramps_live_api_mcp.server as server  # noqa: E402
 
 
 def _descriptions() -> dict[str, str]:

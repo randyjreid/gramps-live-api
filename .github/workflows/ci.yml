@@ -209,7 +209,14 @@ jobs:
           import sys
           import xml.etree.ElementTree as ET
 
-          MODULE = "tests.unit.test_mcp_server"
+          # ⭐ Every module that skips itself when the extra is absent belongs
+          # here. A module guarded that way and NOT listed skips on the core leg
+          # and is proved by nothing on this one -- so it can quietly stop
+          # running everywhere, which is #31 again.
+          MODULES = (
+              "tests.unit.test_mcp_server",
+              "tests.unit.test_tool_descriptions_fit",
+          )
 
           # A test case is this module's under EITHER shape, and both are
           # reached. A real test carries classname="tests.unit.test_mcp_server";
@@ -224,12 +231,12 @@ jobs:
           # whole step would go on passing while the module it names had been
           # renamed away -- a negative control caught exactly that. Equality, or
           # a class inside this module and nothing else.
-          def belongs(case: ET.Element) -> bool:
+          def belongs_to(case: ET.Element, module: str) -> bool:
               classname = case.get("classname") or ""
               return (
-                  classname == MODULE
-                  or classname.startswith(f"{MODULE}.")
-                  or (case.get("name") or "") == MODULE
+                  classname == module
+                  or classname.startswith(f"{module}.")
+                  or (case.get("name") or "") == module
               )
 
           # The path the step above wrote, read from the environment rather
@@ -238,21 +245,27 @@ jobs:
           # nothing about the property. `os.environ[...]` raises if the runner
           # ever stops providing it, which is the right direction.
           root = ET.parse(os.path.join(os.environ["RUNNER_TEMP"], "junit.xml")).getroot()
-          cases = [c for c in root.iter("testcase") if belongs(c)]
-          skipped = [c for c in cases if c.find("skipped") is not None]
-          errored = [c for c in cases if c.find("error") is not None]
+          every = list(root.iter("testcase"))
 
           def name(case: ET.Element) -> str:
               return f"{case.get('classname')}::{case.get('name')}"
 
-          if not cases:
-              sys.exit(f"::error::{MODULE} contributed no test cases; the MCP tests did not run")
-          if skipped:
-              sys.exit(f"::error::MCP tests skipped on the leg that installs the extra: {[name(c) for c in skipped]}")
-          if errored:
-              sys.exit(f"::error::MCP tests errored rather than ran: {[name(c) for c in errored]}")
+          # ⛔ Each module is judged on its OWN cases. Pooling them would let one
+          # module's healthy run vouch for another that never collected.
+          total = 0
+          for module in MODULES:
+              cases = [c for c in every if belongs_to(c, module)]
+              skipped = [c for c in cases if c.find("skipped") is not None]
+              errored = [c for c in cases if c.find("error") is not None]
+              if not cases:
+                  sys.exit(f"::error::{module} contributed no test cases; it did not run")
+              if skipped:
+                  sys.exit(f"::error::{module} skipped on the leg that installs the extra: {[name(c) for c in skipped]}")
+              if errored:
+                  sys.exit(f"::error::{module} errored rather than ran: {[name(c) for c in errored]}")
+              total += len(cases)
 
-          print(f"{len(cases)} MCP test cases ran; none skipped, none errored")
+          print(f"{total} MCP test cases ran across {len(MODULES)} modules; none skipped, none errored")
           PY
 
   pii-guard:

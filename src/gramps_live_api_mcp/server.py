@@ -320,11 +320,10 @@ preview. Then approve_document.
 are about to make. person -> list_people. source -> find_source. family ->
 find_families. A person's OWN events (birth, death, census) -> list_events. A
 COUPLE's events (MARRIAGE, divorce) sit on the FAMILY, on neither spouse ->
-find_families then list_family_events. list_events never returns a marriage,
-present or not. ***
+find_families then list_family_events. list_events never returns one. ***
 
 *** A MARRIAGE GOES ON THE FAMILY: give the event "family". An event with only
-"people" lands on those people -- wrong for a marriage. A family with gramps_id
+"people" lands on them -- wrong for a marriage. A family with gramps_id
 is ADDED TO: children join it, its parents are left alone. ***
 
 *** THE SHAPE BELOW IS EXACT. Any other key, or a top-level key that is not a
@@ -333,12 +332,13 @@ events[].people, never people[].events. A note has no "id". ***
 
 *** ONE LOCAL ID PER RECORD. Two local ids carrying one "gramps_id" are REFUSED.
 A document naming one person twice -- head of household, then a relationship
-column -- is ONE person with one local id. One local id twice inside "children"
-or "attach_to" is fine. ***
+column -- is ONE person, one local id. One local id twice inside "children" or
+"attach_to" is fine. ***
 
 A node with "gramps_id" is ATTACHED TO, never modified; its other fields are
 dropped and shown as dropped. On an attached EVENT, sending "people", "family" or
-"role" is REFUSED. One missing gramps_id refuses the batch.
+"role" is REFUSED. A gramps_id NOT IN THE TREE refuses the whole batch;
+omitting gramps_id is how you create a new record.
 
 "source" is one object; other groups are lists. "id" is yours to invent.
 

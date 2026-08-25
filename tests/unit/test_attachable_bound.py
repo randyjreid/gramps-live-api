@@ -67,7 +67,11 @@ def test_every_ATTACHABLE_kind_is_resolved_and_every_other_kind_is_REFUSED() -> 
 
     for group, one in document.ATTACHABLE.items():
         body = _minimal(group, {"id": "x1", "gramps_id": "X0001"})
-        requested = document.requested(document.parse(body))
+        # ⛔ ``writes=False``: ``requested`` is the RESOLUTION question -- which
+        # nodes carry a gramps_id -- and a resolution writes nothing, so the
+        # committed-change rule (#149) does not apply to it. Each body here is
+        # deliberately one attached node and nothing else.
+        requested = document.requested(document.parse(body, writes=False))
         wanted = "x1"
         assert any(r.local_id == wanted and r.kind == one for r in requested), (
             f"{group!r} is declared attachable and does not reach `requested`, so its "
@@ -222,6 +226,12 @@ def test_an_ATTACHED_event_DROPS_its_description_and_says_so() -> None:
         {
             "people": [node("p1", gramps_id="I0001")],
             "events": [node("e1", gramps_id="E0060", description="not applied")],
+            # ⚠️ A citation, because the graph must now produce at least one
+            # committed change (#149). Without it this attaches to two records
+            # and writes nothing -- which parse refuses, correctly. The property
+            # under test is unchanged.
+            "source": {"id": "s1", "title": "Invented Register"},
+            "citations": [node("c1", source="s1", page="p.1", attach_to=["e1"])],
         }
     )
     assert "description" in document.dropped_fields(graph.events[0]), (

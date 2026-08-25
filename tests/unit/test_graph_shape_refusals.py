@@ -402,3 +402,119 @@ def test_BOTH_refusal_sites_carry_the_SAME_advice() -> None:
         "the MCP refusal spells its own advice instead of sharing one copy, which "
         "is how the two went out of step in the first place"
     )
+
+
+# ---------------------------------------------------------------------------
+# The anchor: a graph must produce at least one committed change
+# ---------------------------------------------------------------------------
+
+
+def test_a_graph_that_would_write_NOTHING_is_refused() -> None:
+    """⛔ Every node already exists and nothing attaches to any of them."""
+    for body in (
+        {"people": [{"id": "n1", "gramps_id": "I0001"}]},
+        {
+            "people": [{"id": "n1", "gramps_id": "I0001"}],
+            "events": [{"id": "e1", "gramps_id": "E0060"}],
+        },
+        {"families": [{"id": "f1", "gramps_id": "F0001"}]},
+    ):
+        with pytest.raises(document.GraphInvalid) as refused:
+            document.parse(body)
+        assert "would not change the tree" in str(refused.value), str(refused.value)
+
+
+def test_the_shape_the_PROXY_wrongly_refused_is_accepted() -> None:
+    """⭐ The case #149 was filed for: a citation onto an existing event, no person.
+
+    ⚠️ ``people`` non-empty was a PROXY for *at least one committed change*. This
+    graph writes a source, a citation and an attachment, and names nobody -- and
+    the proxy refused it as having "nothing to write". The only workaround was to
+    bolt on an unrelated person, who then appeared in the approval dialog for no
+    reason connected to the proposal.
+    """
+    assert (
+        document.parse(
+            {
+                "source": {"id": "s1", "title": "Invented Register"},
+                "citations": [{"id": "c1", "source": "s1", "attach_to": ["e1"]}],
+                "events": [{"id": "e1", "gramps_id": "E0060"}],
+            }
+        )
+        is not None
+    )
+
+
+def test_a_RESOLUTION_is_not_held_to_the_committed_change_rule() -> None:
+    """⛔ Reading is not writing, and the old proxy made the same category error.
+
+    ⚠️ ``resolve_nodes`` and ``/resolve`` ask *what do these ids point at?*.
+    Requiring a committed change of them refuses a perfectly good lookup. The
+    proxy had this error too and merely did not bite, because a resolution
+    usually names people -- replacing it with the honest rule is what exposed it.
+
+    ⭐ Polarity is deliberate: ``parse`` is STRICT by default and a reader opts out
+    by name, so a write path added later that forgets gets the strict answer.
+    """
+    body = {"events": [{"id": "e1", "gramps_id": "E0060"}]}
+
+    with pytest.raises(document.GraphInvalid):
+        document.parse(body)
+
+    assert document.parse(body, writes=False) is not None
+
+
+def test_a_SPECIFIC_refusal_is_not_shadowed_by_the_anchor_rule() -> None:
+    """⛔ Ordering. The anchor check runs LAST.
+
+    ⚠️ Checked first, it reported *nothing to write* for a graph whose real fault
+    was a refused ``role`` -- true, and useless, because the caller needed the
+    specific fault named. Same rule as ``gramps_id`` passing the unknown-key check
+    so its own refusal survives.
+    """
+    with pytest.raises(document.GraphInvalid) as refused:
+        document.parse(
+            {
+                "people": [{"id": "p1", "gramps_id": "I0001"}],
+                "events": [{"id": "e1", "gramps_id": "E0060", "role": "Primary"}],
+            }
+        )
+    assert "role" in str(refused.value), (
+        f"the anchor rule shadowed the role refusal: {refused.value}"
+    )
+
+    with pytest.raises(document.GraphInvalid) as unknown:
+        document.parse({"people": [{"id": "p1", "gramps_id": "I0001", "nickname": "x"}]})
+    assert "nickname" in str(unknown.value), (
+        f"the anchor rule shadowed the unknown-key refusal: {unknown.value}"
+    )
+
+
+def test_an_existing_family_gaining_existing_children_IS_a_committed_change() -> None:
+    """⭐ The one attachment that creates nothing and still writes.
+
+    ⚠️ It is also the only reachable case in that half of the rule. ``attach_to``
+    was checked alongside it and was **dead code** -- only citations and notes take
+    ``attach_to``, and neither may carry a ``gramps_id``, so such a node is already
+    counted as created. A negative control stayed SILENT on that branch, which is
+    how it was found rather than reasoned about.
+    """
+    assert (
+        document.parse(
+            {
+                "people": [{"id": "p1", "gramps_id": "I0001"}],
+                "families": [{"id": "f1", "gramps_id": "F0001", "children": ["p1"]}],
+            }
+        )
+        is not None
+    )
+
+    # ⛔ The same family WITHOUT the children writes nothing, and is refused.
+    with pytest.raises(document.GraphInvalid) as refused:
+        document.parse(
+            {
+                "people": [{"id": "p1", "gramps_id": "I0001"}],
+                "families": [{"id": "f1", "gramps_id": "F0001"}],
+            }
+        )
+    assert "would not change the tree" in str(refused.value)
