@@ -127,3 +127,76 @@ def test_the_rules_come_BEFORE_the_schema_in_propose_document() -> None:
         "*** ONE LOCAL ID PER RECORD",
     ):
         assert text.index(rule) < schema, f"{rule!r} fell after the schema block"
+
+
+def test_every_lookup_the_description_names_reads_the_LIVE_TREE() -> None:
+    """⛔ A lookup rule pointing at a stale source manufactures the duplicate.
+
+    ⚠️ ``list_people`` reads the owner's XML **export** -- ``people.read_export`` --
+    which can predate a person added to the open tree. ``find_people`` queries the
+    live ``/find/people`` route. The compressed rule named the stale one **and**
+    had dropped the caveat that made it safe, so a model told to *look it up
+    first* could look, miss, and create the duplicate anyway.
+
+    ⭐ Asserted against the implementations rather than by reading the sentence:
+    every tool the rule names must reach the host, not the export.
+    """
+    import inspect
+    import re
+
+    text = server.PROPOSE_DOCUMENT_DESCRIPTION
+    rule = text[text.index("*** LOOK IT UP BEFORE YOU CREATE") :]
+    rule = rule[: rule.index("***", 3)]
+
+    named = sorted(set(re.findall(r"\b(?:find|list)_\w+", rule)))
+    assert named, "the lookup rule names no tools at all"
+
+    source = inspect.getsource(server)
+    stale = []
+    for tool in named:
+        body = re.search(rf"def {tool}\(self.*?(?=\n    def |\nclass )", source, re.S)
+        assert body, f"the rule names {tool!r}, which the server does not define"
+        if "read_export" in body.group(0):
+            stale.append(tool)
+
+    assert not stale, (
+        "the lookup rule points at tools that read the XML export rather than the "
+        f"open tree, so a recently added record can be missed and duplicated: {stale}"
+    )
+
+
+def test_the_lookup_rule_covers_every_kind_that_can_carry_a_gramps_id() -> None:
+    """⛔ A kind with no lookup named is a kind the model will duplicate.
+
+    ⚠️ ``place`` was omitted from the enumeration entirely while ``find_place``
+    existed, so an existing place had no advertised way to be found.
+    """
+    from gramps_live_api.host import document
+
+    text = server.PROPOSE_DOCUMENT_DESCRIPTION
+    rule = text[text.index("*** LOOK IT UP BEFORE YOU CREATE") :]
+    rule = rule[: rule.index("***", 3)]
+
+    for kind in document.ATTACHABLE.values():
+        if kind == "event":
+            continue  # named by ownership, asserted in test_attachable_bound
+        assert f"{kind} ->" in rule, (
+            f"{kind!r} can carry a gramps_id and the lookup rule never says how to "
+            f"find one, so a model creates a second copy instead: {rule}"
+        )
+
+
+def test_the_description_does_not_claim_family_children_are_DROPPED() -> None:
+    """⛔ The blanket claim was false, and false in the direction that loses data.
+
+    ⚠️ *"a node with gramps_id is attached to, never modified; its other fields are
+    dropped"* is true of every field except a family's ``children``, which the
+    writer commits onto the existing family. A caller believing the blanket claim
+    omits the children it meant to add, and the omission is silent.
+    """
+    text = server.PROPOSE_DOCUMENT_DESCRIPTION
+    claim = text[text.index('A node with "gramps_id" is ATTACHED TO') :][:320]
+
+    assert "children" in claim, (
+        f"the dropped-fields claim does not carve out a family's children: {claim}"
+    )

@@ -317,8 +317,8 @@ One document's findings as ONE graph. Writes nothing; returns a proposal id and 
 preview. Then approve_document.
 
 *** LOOK IT UP BEFORE YOU CREATE. An id you did not look up is a duplicate you
-are about to make. person -> list_people. source -> find_source. family ->
-find_families. A person's OWN events (birth, death, census) -> list_events. A
+will make. person -> find_people. place -> find_place. source -> find_source.
+family -> find_families. A person's OWN events (birth, death, census) -> list_events. A
 COUPLE's events (MARRIAGE, divorce) sit on the FAMILY, on neither spouse ->
 find_families then list_family_events. list_events never returns one. ***
 
@@ -332,13 +332,14 @@ events[].people, never people[].events. A note has no "id". ***
 
 *** ONE LOCAL ID PER RECORD. Two local ids carrying one "gramps_id" are REFUSED.
 A document naming one person twice -- head of household, then a relationship
-column -- is ONE person, one local id. One local id twice inside "children" or
-"attach_to" is fine. ***
+column -- is ONE person, one local id. Listing one local id twice in a list is
+fine. ***
 
 A node with "gramps_id" is ATTACHED TO, never modified; its other fields are
-dropped and shown as dropped. On an attached EVENT, sending "people", "family" or
-"role" is REFUSED. A gramps_id NOT IN THE TREE refuses the whole batch;
-omitting gramps_id is how you create a new record.
+dropped and shown as dropped -- except a family's "children", which JOIN it. On
+an attached EVENT, sending "people", "family" or
+"role" is REFUSED. A gramps_id NOT IN THE TREE refuses the batch;
+omitting it is how you create a new record.
 
 "source" is one object; other groups are lists. "id" is yours to invent.
 
