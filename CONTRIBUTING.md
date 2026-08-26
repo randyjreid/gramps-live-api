@@ -1738,6 +1738,57 @@ deciding to.**
 the artifact's own record — for a PR bot, the reviews the bot has published on that
 pull request — never from what the current session remembers doing.
 
+## ⛔ A negative control proves the code satisfies the FIXTURE
+
+**A control that fires tells you the test can distinguish the fixed code from the
+broken code.** It does not tell you the fixture models reality. **Where the
+fixture is what is in doubt, a firing control proves nothing at all.**
+
+**This cost a shipped non-fix.** A review round reported that `list_events` missed
+births and deaths, because Gramps keeps them in `birth_ref`/`death_ref` slots
+outside `get_event_ref_list()`. A traversal was written for it, privacy-gated,
+covered by a test, and backed by a control that **fired**.
+
+⛔ **The premise was false.** `Person.get_birth_ref` returns
+`event_ref_list[birth_ref_index]` — the slot is an **index into the very list
+already being walked**, and `set_birth_ref` appends to that list. A birth was
+never missing.
+
+⚠️ **The control fired because the fake `Person` held `birth`, `death` and
+`others` in separate fields.** That fake modelled a Gramps that does not exist,
+and it was the fake the test asked. Deleting the traversal then failed a test that
+was only ever asserting the fixture's own shape.
+
+### What to do instead
+
+**When a finding says data lives somewhere the code does not look, the fixture is
+not evidence.** Ask the real system:
+
+> ⭐ **Is there an index, a pointer, or a shared store bridging the two
+> locations?**
+
+That is answerable from the vendor's own source in about a minute, and it
+separates two findings that read identically:
+
+| finding | claim | verdict | why |
+| --- | --- | --- | --- |
+| birth/death slots | not in the person's ref list | **false** | `birth_ref_index` indexes into that list |
+| a marriage on a family | not in the person's ref list | **true** | a Family is a separate object with its own list, and nothing indexes back |
+
+**Both were raised by the same reviewer, in the same wording, one round apart.**
+One cost a written-gated-tested fix and a revert; the other was a real
+duplicate-producing defect. ⛔ **The only thing separating them was a question
+answered by reasoning the first time and by reading the source the second.**
+
+### The sibling failure: a fixture that cannot express the defect
+
+⚠️ **The same week, a control stayed SILENT** because a fake `Date` returned the
+year from both `__str__` and `get_year()`. A mutation truncating the display to
+the year changed no output, so the control could not fire. **A fixture that cannot
+express the defect cannot test the fix.**
+
+⭐ **Read a silent control as a finding about the fixture, not as a passing test.**
+
 ## Working against a running Gramps
 
 ⛔ **Deleting a plugin's source does not unhook a callback a running Gramps has already
