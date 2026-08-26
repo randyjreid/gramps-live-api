@@ -1780,14 +1780,41 @@ One cost a written-gated-tested fix and a revert; the other was a real
 duplicate-producing defect. ⛔ **The only thing separating them was a question
 answered by reasoning the first time and by reading the source the second.**
 
-### The sibling failure: a fixture that cannot express the defect
+### A silent control is a finding — but not always about the fixture
 
 ⚠️ **The same week, a control stayed SILENT** because a fake `Date` returned the
 year from both `__str__` and `get_year()`. A mutation truncating the display to
 the year changed no output, so the control could not fire. **A fixture that cannot
 express the defect cannot test the fix.**
 
-⭐ **Read a silent control as a finding about the fixture, not as a passing test.**
+⛔ **That was the cause THAT time, and it is not the only one.** Before blaming
+the fixture, rule out the cheaper explanations:
+
+| the control stayed silent because | how you tell |
+| --- | --- |
+| the mutation never ran | it was in a branch the test does not reach — print or break inside it |
+| the assertion checks the wrong property | it would pass on the mutated code by design |
+| setup bypasses the behaviour | a fixture or monkeypatch supplies the answer before the code runs |
+| **the fixture cannot express the defect** | mutated and unmutated code produce identical output |
+
+⭐ **Read a silent control as a finding, and diagnose which one it is.** *"The
+fixture is wrong"* is a conclusion, not a default.
+
+### ⛔ A control that FIRES is not evidence until you know WHERE it failed
+
+**A mutation that breaks an import, a fixture, or an unrelated assertion makes the
+test fail — and that failure looks exactly like the control working.** It shows
+the mutation broke *something*, not that the test distinguishes the fixed
+behaviour from the defect.
+
+⭐ **Read the failure, not the exit code.** The control is evidence only when the
+test fails **at the assertion that names the property**, with the message that
+assertion was written to print. A collection error, a `KeyError` in setup, or a
+different test failing is a control that proved nothing.
+
+⚠️ **This is the same defect as reading a gate by its output instead of its exit
+code, pointed the other way** — there, output was trusted over the real signal;
+here, a bare non-zero exit is trusted without reading what produced it.
 
 ## Working against a running Gramps
 
