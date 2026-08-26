@@ -98,8 +98,14 @@ outright. The document route has no such restriction.
 - ⚠️ **The safety property was deliberately downgraded** to make that possible. It was *unwritable by
   construction* — the live tree could not be a target at all. It is now **recoverable after**, and
   only on one route: before a **document** write, a backup is taken, verified with SQLite's own
-  integrity check, and recorded in a journal naming the backup and both timestamps. **That is a
-  weaker guarantee.** It was ruled deliberately, and the preconditions it was granted under are met.
+  integrity check, and recorded in a journal. **That is a weaker guarantee.** It was ruled
+  deliberately, and the preconditions it was granted under are met.
+- ⚠️ **A journal names both timestamps only when the write completed.** It is written *before* the
+  transaction with the backup time and an empty write time, and completed afterwards. So if SQLite
+  commits and something then raises, the tree has changed and its journal names the backup but not
+  the write. **That intent-only record is still the recovery point** — it names the backup, which is
+  what a restore needs — but it does not tell you whether anything was written, and the tree is where
+  you find out.
 - ⛔ **The backup covers the document route and nothing else.** The older note flow
   (`propose_note`/`approve`) and the `preview`/`apply` commands write without taking one, so a write
   through those paths has **no recovery point** — [`docs/restoring.md`](docs/restoring.md) says so in
