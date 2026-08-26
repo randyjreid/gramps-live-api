@@ -42,8 +42,13 @@ whether the owner said yes:
 - The older **note** flow opens a **console window the agent cannot type in**. A yes in the chat is a
   courtesy; the keystroke in that window is the approval.
 
-In both, the call that opens the approval returns immediately and knows nothing. The agent is not
-told the outcome — not written, not declined, not failed.
+In both, the call that opens the approval returns immediately and knows nothing. **The approval
+response does not reveal the decision** — not written, not declined, not failed.
+
+⚠️ **That is a property of the response, not a guarantee of secrecy.** The live-read tools are still
+there, so an agent can look afterwards — asking for a distinctively named person, or for what changed
+since a moment ago — and infer that a write happened. What it cannot do is *be told*, and it cannot
+learn anything from a refusal it could not have learned by reading.
 
 ## What the agent can do
 
@@ -167,11 +172,16 @@ model's context. That is bounded by the tree's own `priv="1"` flag, by a require
 a result cap. It is bounded by nothing else, and text that has reached a model's context has reached
 it.
 
-⚠️ **The privacy flag hides contents, not existence, and the difference is deliberate.** A listing
-never includes a private record. But a record asked for **by name** is refused with a distinct
-refusal rather than reported absent — so a caller that already has an identifier can learn that the
-record exists, while learning nothing in it. That was chosen so the owner is told *this is private*
-instead of *this is not here*, and the cost is exactly that disclosure.
+⚠️ **The privacy flag hides contents, not existence, and the difference is deliberate.** A **live**
+listing never includes a private record. But a record asked for **by name** is refused with a
+distinct refusal rather than reported absent — so a caller that already has an identifier can learn
+that the record exists, while learning nothing in it. That was chosen so the owner is told *this is
+private* instead of *this is not here*, and the cost is exactly that disclosure.
+
+⛔ **`list_people` is exempt until its export is refreshed, and it fails open.** A person marked
+private *after* that export was taken is still listed by it and still accepted as a target. That is
+why the `check` command **fails** rather than warns on a stale export — the staleness comparison is
+a privacy check, not housekeeping.
 
 ## Licence
 
