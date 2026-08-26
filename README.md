@@ -181,9 +181,10 @@ because it cannot know every genealogy format that exists; and in CI it **redact
 because a build log is as public as the repository. It does not scan for credentials.
 `CONTRIBUTING.md` has the reasoning — read it before adding a fixture or a new file type.
 
-Separately, and **by design**: the read tools put names and record text from non-private people into a
-model's context. That is bounded by the tree's own `priv="1"` flag, by a required search term, and by
-a result cap. It is bounded by nothing else, and text that has reached a model's context has reached
+Separately, and **by design**: the read tools put tree content into a model's context, and **not only
+about people**. Source titles and authors, citation pages, event descriptions, note text and the text
+of orphaned records all come back as themselves — anything a read tool can return, it returns. That is
+bounded by the tree's own `priv="1"` flag, by a required search term, and by a result cap. It is bounded by nothing else, and text that has reached a model's context has reached
 it.
 
 ⚠️ **The privacy flag hides contents, not existence, and the difference is deliberate.** A **live**
