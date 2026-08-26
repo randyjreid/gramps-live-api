@@ -518,3 +518,49 @@ def test_an_existing_family_gaining_existing_children_IS_a_committed_change() ->
             }
         )
     assert "would not change the tree" in str(refused.value)
+
+
+def test_a_citation_that_can_reach_NO_source_is_refused() -> None:
+    """⛔ It wrote nothing and the dialog promised it anyway.
+
+    ⚠️ The writer resolves ``handles.get(spec["source"]) or source_handle`` and
+    ``continue``s when both are empty. The preview meanwhile rendered
+    ``Citation -> None``, so the approval dialog promised a citation the write
+    never made -- **a promise broken on the surface the whole safety argument
+    rests on.**
+
+    ⭐ The shape it came from is worth more than the instance: the
+    committed-change rule asked whether a node was of a creatable KIND, not
+    whether it could actually BE created. A citation never carries a
+    ``gramps_id``, so it counted unconditionally.
+    """
+    with pytest.raises(document.GraphInvalid) as refused:
+        document.parse({"citations": [{"id": "c1", "page": "p.1"}]})
+    message = str(refused.value)
+    assert "c1" in message and "source" in message, message
+
+    # ⭐ Both ways a citation legitimately reaches one must still work.
+    assert (
+        document.parse(
+            {
+                "source": {"id": "s1", "title": "Invented Register"},
+                "citations": [{"id": "c1", "source": "s1", "page": "p.1"}],
+            }
+        )
+        is not None
+    )
+    assert (
+        document.parse(
+            {
+                "source": {"id": "s1", "title": "Invented Register"},
+                "citations": [{"id": "c1", "page": "p.1"}],
+            }
+        )
+        is not None
+    )
+
+
+def test_the_preview_can_no_longer_render_a_citation_pointing_at_NOTHING() -> None:
+    """⛔ The rendering was the symptom; the unreachable state is now gone."""
+    with pytest.raises(document.GraphInvalid):
+        document.parse({"citations": [{"id": "c1"}]})

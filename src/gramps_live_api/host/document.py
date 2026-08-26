@@ -599,6 +599,30 @@ def parse(body: Any, *, writes: bool = True) -> Graph:
     source = body.get("source")
     if source is not None and not isinstance(source, dict):
         raise GraphInvalid("'source' must be an object")
+    # ⛔ **A citation must be able to reach a source, or it writes nothing.**
+    #
+    # ⚠️ The writer resolves ``handles.get(spec["source"]) or source_handle`` and
+    # ``continue``s when both are empty -- so a citation naming no source, in a
+    # graph with no top-level ``source``, is silently skipped. The preview
+    # meanwhile rendered ``Citation -> None`` and the dialog promised it.
+    #
+    # ⛔ **A promise the write does not keep, on the surface the whole safety
+    # argument rests on.** Refused here so the state cannot occur, rather than
+    # taught to one consumer at a time.
+    #
+    # ⭐ The general shape it came from: the committed-change rule asked whether a
+    # node was of a creatable KIND, not whether it could actually be created.
+    # A citation never carries a ``gramps_id``, so it counted unconditionally.
+    for one_citation in citations:
+        if not one_citation.get("source") and source is None:
+            named = one_citation.get("id")
+            raise GraphInvalid(
+                f"citation {named!r} names no 'source' and the graph has no "
+                "top-level 'source' for it to fall back on, so nothing would be "
+                "written for it and the approval dialog would promise a citation "
+                "that never happens. Give it a 'source', or add the source node."
+            )
+
     if source is not None:
         # ⛔ The source is a single node rather than a list -- the one structural
         # exception in the graph -- so it needs its own call. Index 0 because
