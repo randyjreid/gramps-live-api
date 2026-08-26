@@ -14,8 +14,9 @@ preview inside Gramps and approves or cancels. Single-user, on the owner's own m
 > necessary updates — new people, events, places, the source, the citation, the image attached — as
 > ONE thing I review and approve, not twenty."*
 
-The route from here to there, and what is a plan rather than a feature, is
-[`docs/roadmap.md`](docs/roadmap.md).
+What is built and what is still a plan is set out below. ⚠️ The older
+[`docs/roadmap.md`](docs/roadmap.md) has fallen behind this page and is history rather than a current
+plan.
 
 ## The shape, in thirty seconds
 
@@ -67,9 +68,17 @@ and is the one to use.
 **The document pair** — `propose_document` files a whole graph server-side and returns an id and a
 preview; `approve_document` puts that preview in front of the owner. A graph may create people,
 places, events, families, sources, citations and notes, and may attach citations and notes to records
-that already exist. A node carrying a Gramps ID is *attached to*, never modified.
+that already exist. **One graph is one approval and one transaction.**
+
+⚠️ **A node carrying a Gramps ID keeps its own descriptive fields — that is the whole guarantee, and
+it is narrower than "not modified".** Such a record *is* committed to: an event reference can be
+added to a person, children to a family, a citation or note to any of them. What is ignored is what
+the payload says the record *is* — its name, type, date, place. Anything dropped that way is shown
+in the preview as dropped.
 
 **The older note flow** — `propose_note` and `approve`, the terminal-era path that still works.
+⛔ **Windows only:** its approval opens a console window, and on any other platform `approve` refuses
+outright. The document route has no such restriction.
 
 ## The honest status
 
@@ -113,9 +122,11 @@ registration, the approval dialog, and every live read.
 
 **Every one of these is a plan, not a feature**, and there are no dates because none exist.
 
-- **The batch spine** — several facts, one transaction, one approval. This is where *"not twenty"* in
-  the sentence above lives.
-- **The census demo itself** — the sentence at the top of this page, end to end.
+- **The census demo itself** — the sentence at the top of this page, end to end. ⚠️ *"Not twenty"* is
+  the part already standing: the document route takes a whole graph, shows one preview, and writes it
+  in one transaction. What is untested is whether a real census document survives that route
+  end to end.
+- **A dialog that shows what the tree already holds**, so a duplicate stops looking like an addition.
 - **Then**, as a pool of specified work rather than a schedule: a richer read surface, media, and
   record matching.
 
@@ -128,8 +139,11 @@ written. The ruling is
 back. The backup path exists and verifies itself; watching a restore actually come back is the
 owner's to do, and [`docs/restoring.md`](docs/restoring.md) is the procedure.
 
-[`docs/roadmap.md`](docs/roadmap.md) carries the full version: what each slice settles, what it
-releases, the rulings the owner still owes and the measurements nobody has taken.
+⛔ **[`docs/roadmap.md`](docs/roadmap.md) has not kept up with this page and should be read as
+history, not as the current plan.** It still describes three MCP tools, writes that only ever target
+a copy, and the addon as unwritten — all of which this page contradicts, and the source contradicts
+with it. It is left in place because the rulings and open questions it records are still the real
+ones.
 
 ## Running the gates
 
