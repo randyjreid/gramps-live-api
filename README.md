@@ -134,8 +134,7 @@ exactly what the server publishes.
 - **A journal that names a backup time and no write time still names the backup a restore needs, but
   it does not tell you whether anything was written — a missing write time does not mean the tree is
   unchanged.**
-  [What `INTENT ONLY` means, and what it does not](docs/restoring.md#what-intent-only-means-and-what-it-does-not)
-  has the detail.
+  [`docs/restoring.md`](docs/restoring.md#what-intent-only-means-and-what-it-does-not) has the detail.
 - ⛔ **The backup covers the document route and nothing else.** The older note flow
   (`propose_note`/`approve`) and the `preview`/`apply` commands write without taking one, so a write
   through those paths has **no recovery point** — [`docs/restoring.md`](docs/restoring.md) says so in
