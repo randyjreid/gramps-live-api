@@ -74,9 +74,22 @@ Gramps runs our code through its own CLI tool door, so it has to be able to find
 from Gramps' user plugin folder to this checkout — **from the checkout root**, so that `$PWD` is it:
 
 ```powershell
-New-Item -ItemType Directory -Force "$env:APPDATA\gramps\gramps60\plugins" | Out-Null
-New-Item -ItemType Junction -Path "$env:APPDATA\gramps\gramps60\plugins\gramps-live-api" -Target "$PWD\gramps_plugin"
+$plugins = "$env:APPDATA\gramps\gramps60\plugins"
+$link    = "$plugins\gramps-live-api"
+New-Item -ItemType Directory -Force $plugins | Out-Null
+if (Test-Path $link) {
+  "already there: $((Get-Item $link).Target)"
+} else {
+  New-Item -ItemType Junction -Path $link -Target "$PWD\gramps_plugin" | Out-Null
+  "created"
+}
 ```
+
+⚠️ **Run it twice and it says so, rather than failing.** The first version of this
+step used a bare `New-Item`, which errors with *"an item with the specified name
+already exists"* on the second run — and that reads exactly like the setup is
+broken when it is in fact already done. It prints what the junction points at, so
+a link left over from an earlier checkout is visible rather than assumed.
 
 A **junction** does not require Administrator — only a symbolic link does. If that surprises you, it
 surprised us too; it is measured, not assumed.
@@ -126,6 +139,38 @@ with two you are asked to name one rather than have this guess.
 ## The three commands
 
 Run them from the checkout, in this order.
+
+### First, settle which Python you are running
+
+⚠️ **On a stock Windows box, `python` is not Python.** It is a Microsoft Store
+stub that opens the Store instead of running anything, and the failure looks like
+the tool is broken rather than like the interpreter is missing. That cost the
+owner time on the first real setup.
+
+⛔ **And the stub does not fail loudly — it prints a sentence that reads like
+output.** Asking it for a version gives you *"Python was not found; run without
+arguments to install from the Microsoft Store…"*, which a reader skims as some
+kind of answer. So check for that text by name rather than trusting that a version
+appeared:
+
+```powershell
+if (Get-Command py -ErrorAction SilentlyContinue) {
+  "use: py -3";  py -3 --version
+} else {
+  $v = (python --version 2>&1) -join ' '
+  if ($v -match 'Microsoft Store|was not found') {
+    "NOT Python -- that is the Store stub. Install Python, or use the full path to python.exe."
+  } else { "use: python";  $v }
+}
+```
+
+⭐ **`py` is the Windows launcher, and it is never the Store stub** — if it is
+there, use it. Measured on the machine this page was written from: `py` was
+absent, `python` was the stub, and the stub answered the version question with a
+sentence rather than an error.
+
+**The commands below say `python`.** If the check above said `py -3`, use that
+instead, everywhere — or the full path to a real `python.exe`.
 
 ```powershell
 $env:PYTHONPATH = "src"
@@ -185,8 +230,22 @@ anything.
 
 ### 2. `preview` — what exactly would be written?
 
-Write the note you want as a file. Call it `op.json` and put it anywhere outside the checkout —
-`$env:USERPROFILE\op.json` will do, and is what the two commands below assume:
+Write the note you want as a file. Call it `op.json` and put it **beside the tool's own config**,
+which is already outside the checkout and is where the demo actually put it:
+
+```powershell
+New-Item -ItemType Directory -Force "$env:APPDATA\gramps-live-api" | Out-Null
+```
+
+⚠️ **One location, chosen deliberately.** This file holds family data. Anywhere
+outside the checkout keeps it out of a public repository, but the home root puts it
+alongside everything else you own, and the documentation and the practice had
+drifted apart — the page said one place and the demo used another. `$env:APPDATA\gramps-live-api`
+is where `config.json` already lives, and it wins.
+
+⭐ **`op.json` is also in `.gitignore`**, so a copy left in the checkout by accident
+cannot be committed. That is a backstop, not the instruction: the file belongs
+outside the checkout.
 
 ```json
 {
@@ -226,7 +285,7 @@ person, and if the handle names a different object the write is refused rather t
 one you meant.
 
 ```powershell
-python -m gramps_live_api preview "$env:USERPROFILE\op.json"
+python -m gramps_live_api preview "$env:APPDATA\gramps-live-api\op.json"
 ```
 
 ```
@@ -248,7 +307,7 @@ That sentence is the thing you are approving. `preview` writes nothing and opens
 ### 3. `apply` — write it, then go and look
 
 ```powershell
-python -m gramps_live_api apply "$env:USERPROFILE\op.json"
+python -m gramps_live_api apply "$env:APPDATA\gramps-live-api\op.json"
 ```
 
 ```
