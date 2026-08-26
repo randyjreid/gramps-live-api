@@ -140,47 +140,25 @@ with two you are asked to name one rather than have this guess.
 
 Run them from the checkout, in this order.
 
-### First, settle which Python you are running
-
-⚠️ **On a stock Windows box, `python` is not Python.** It is a Microsoft Store
-stub that opens the Store instead of running anything, and the failure looks like
-the tool is broken rather than like the interpreter is missing. That cost the
-owner time on the first real setup.
-
-⛔ **And the stub does not fail loudly — it prints a sentence that reads like
-output.** Asking it for a version gives you *"Python was not found; run without
-arguments to install from the Microsoft Store…"*, which a reader skims as some
-kind of answer.
-
-⚠️ **So the check has to verify three things, not one:** that the command ran at
-all, that what came back is a version, and that the version is one this project
-supports (3.10 or newer). Checking only that *something* printed is the same
-mistake the stub exploits.
+### First, make a virtual environment
 
 ```powershell
-$ok = $null; $ver = $null
-foreach ($c in @('py -3','python')) {
-  $v = (cmd /c "$c --version 2>&1") -join ' '
-  if ($LASTEXITCODE -eq 0 -and $v -match 'Python (\d+)\.(\d+)') {
-    if ([int]$Matches[1] -gt 3 -or ([int]$Matches[1] -eq 3 -and [int]$Matches[2] -ge 10)) {
-      $ok = $c; $ver = $v; break
-    }
-  }
-}
-if ($ok) { "use: $ok   ($ver)" }
-else { "No usable Python 3.10+ on PATH. Install Python 3.10 or newer, or use the full path to python.exe." }
+python -m venv .venv
+.\.venv\Scripts\python.exe --version
 ```
 
-⭐ **`py` is the Windows launcher and is never the Store stub**, so it is tried
-first — but only accepted if it actually produces a supported version, because the
-launcher can be present with no runtime behind it or with only an old one.
+⚠️ **If the first line prints a Microsoft Store message instead of doing
+anything, that is the Store alias, not Python.** On a stock Windows box `python`
+is a stub that opens the Store, and it answers questions with a sentence rather
+than an error — so it looks like output. **The failure announces itself here:
+no `.venv` appears and the second line cannot run.**
 
-Measured both ways on the machine this page was written from: with no interpreter
-on PATH it reports none usable; with a real 3.12 on PATH it reports `use: python
-(Python 3.12.13)`.
+**The remedy:** install Python 3.10 or newer from python.org, or turn the alias
+off under *Settings → Apps → Advanced app settings → App execution aliases*. If
+you have the `py` launcher, `py -3 -m venv .venv` works too and is never the stub.
 
-**The commands below say `python`.** If the check above said `py -3`, use that
-instead, everywhere — or the full path to a real `python.exe`.
+⭐ **Every command below uses `.\.venv\Scripts\python.exe`**, so once that
+second line prints a version, which interpreter you get stops being a question.
 
 ```powershell
 $env:PYTHONPATH = "src"
@@ -189,7 +167,7 @@ $env:PYTHONPATH = "src"
 ### 1. `check` — is everything in place?
 
 ```powershell
-python -m gramps_live_api check
+.\.venv\Scripts\python.exe -m gramps_live_api check
 ```
 
 You should see the runtime, the plugin, your copy, and each of the two files the check looks at:
@@ -217,7 +195,7 @@ ready
 table, the one whose `name.txt` holds your live tree's name:
 
 ```powershell
-python -m gramps_live_api check "<the Path for your LIVE tree>"
+.\.venv\Scripts\python.exe -m gramps_live_api check "<the Path for your LIVE tree>"
 ```
 
 The same report, with one line changed and a non-zero exit:
@@ -295,7 +273,7 @@ person, and if the handle names a different object the write is refused rather t
 one you meant.
 
 ```powershell
-python -m gramps_live_api preview "$env:APPDATA\gramps-live-api\op.json"
+.\.venv\Scripts\python.exe -m gramps_live_api preview "$env:APPDATA\gramps-live-api\op.json"
 ```
 
 ```
@@ -317,7 +295,7 @@ That sentence is the thing you are approving. `preview` writes nothing and opens
 ### 3. `apply` — write it, then go and look
 
 ```powershell
-python -m gramps_live_api apply "$env:APPDATA\gramps-live-api\op.json"
+.\.venv\Scripts\python.exe -m gramps_live_api apply "$env:APPDATA\gramps-live-api\op.json"
 ```
 
 ```
