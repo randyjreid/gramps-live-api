@@ -84,11 +84,11 @@ Eighteen tools, in three groups.
 
 **Live reads of the open tree** — `find_people`, `find_place`, `find_source`, `find_citation`,
 `find_families`, `find_orphans`, `list_events`, `list_family_events`, `list_citations`,
-`list_associations`, `list_notes`, `tree_totals`, `changed_since`.
+`list_associations`, `list_notes`, `tree_totals`, `changed_since`. These answer from the database
+Gramps currently has open.
 
 `find_families` is its own tool and is the one to run before adding children or a family event;
-missing it is how a second household gets created for a couple who already have one. These answer from the database
-Gramps currently has open.
+missing it is how a second household gets created for a couple who already have one.
 
 ⚠️ **One exception, and it matters:** `list_people` — kept because the older note flow needs it —
 still reads a **Gramps XML export produced by hand**. It cannot see writes made since that export was
@@ -96,14 +96,14 @@ taken, and a privacy flag set after it would not be reflected. `find_people` is 
 and is the one to use.
 
 **The document pair** — `propose_document` and `approve_document`. The first files a whole graph
-server-side and returns an id and a preview; the second opens the owner's approval.
+server-side and returns an id and a preview; the second opens the owner's approval. A graph may
+create people, places, events, families, sources, citations and notes, and may attach citations and
+notes to records that already exist. **One graph is one approval and one transaction.**
 
 **They are two different previews, and the difference is the identity check.** What comes back to
 the agent shows only the Gramps IDs it supplied. What the owner sees is rendered independently at
 approval time — the names read from the live tree, and every field the write will drop shown as
-dropped. So a wrong ID is something the owner can catch and the agent cannot paper over. A graph may create people,
-places, events, families, sources, citations and notes, and may attach citations and notes to records
-that already exist. **One graph is one approval and one transaction.**
+dropped. So a wrong ID is something the owner can catch and the agent cannot paper over.
 
 **A node carrying a Gramps ID keeps its own descriptive fields — that is the whole guarantee, and
 it is narrower than "not modified".** Such a record *is* committed to: an event reference can be
