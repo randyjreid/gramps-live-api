@@ -52,7 +52,12 @@ surface is exactly what the server says it is.
 
 **Live reads of the open tree** — people, places, sources, citations, events, family events,
 associations, notes, orphans, tree totals, and a changed-since query. These answer from the database
-Gramps currently has open, not from an export.
+Gramps currently has open.
+
+⚠️ **One exception, and it matters:** `list_people` — kept because the older note flow needs it —
+still reads a **Gramps XML export produced by hand**. It cannot see writes made since that export was
+taken, and a privacy flag set after it would not be reflected. `find_people` is the live equivalent
+and is the one to use.
 
 **The document pair** — `propose_document` files a whole graph server-side and returns an id and a
 preview; `approve_document` puts that preview in front of the owner. A graph may create people,
@@ -70,10 +75,14 @@ that already exist. A node carrying a Gramps ID is *attached to*, never modified
   Earlier work wrote only into a blessed copy. This page said *"nothing has ever been written to a
   real family tree"* for longer than it was true.
 - ⚠️ **The safety property was deliberately downgraded** to make that possible. It was *unwritable by
-  construction* — the live tree could not be a target at all. It is now **recoverable after**: a
-  backup is taken before the write, verified with SQLite's own integrity check, and recorded in a
-  journal naming the backup and both timestamps. **That is a weaker guarantee.** It was ruled
-  deliberately, and the preconditions it was granted under are met.
+  construction* — the live tree could not be a target at all. It is now **recoverable after**, and
+  only on one route: before a **document** write, a backup is taken, verified with SQLite's own
+  integrity check, and recorded in a journal naming the backup and both timestamps. **That is a
+  weaker guarantee.** It was ruled deliberately, and the preconditions it was granted under are met.
+- ⛔ **The backup covers the document route and nothing else.** The older note flow
+  (`propose_note`/`approve`) and the `preview`/`apply` commands write without taking one, so a write
+  through those paths has **no recovery point** — [`docs/restoring.md`](docs/restoring.md) says so in
+  its opening lines, and this page would otherwise have implied a protection they do not have.
 - **The approval dialog shows what would be written, not what is already there.** A proposal adding a
   second event of a kind the person already has looks exactly like a first one. Noticing that is
   currently the owner's job.
@@ -154,10 +163,15 @@ because a build log is as public as the repository. It does not scan for credent
 `CONTRIBUTING.md` has the reasoning — read it before adding a fixture or a new file type.
 
 Separately, and **by design**: the read tools put names and record text from non-private people into a
-model's context. That is bounded by the tree's own `priv="1"` flag — a private record is refused by
-name rather than reported absent, so a caller cannot read the difference back as *this record exists
-and you may not see it* — by a required search term, and by a result cap. It is bounded by nothing
-else, and text that has reached a model's context has reached it.
+model's context. That is bounded by the tree's own `priv="1"` flag, by a required search term, and by
+a result cap. It is bounded by nothing else, and text that has reached a model's context has reached
+it.
+
+⚠️ **The privacy flag hides contents, not existence, and the difference is deliberate.** A listing
+never includes a private record. But a record asked for **by name** is refused with a distinct
+refusal rather than reported absent — so a caller that already has an identifier can learn that the
+record exists, while learning nothing in it. That was chosen so the owner is told *this is private*
+instead of *this is not here*, and the cost is exactly that disclosure.
 
 ## Licence
 
