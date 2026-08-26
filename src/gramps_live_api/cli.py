@@ -216,7 +216,19 @@ def inspect(tree: str | None, environ: Mapping[str, str]) -> list[Check]:
         Check(
             "lock",
             not locked,
-            "locked -- Gramps has this tree open, and we never break its lock"
+            # ⛔ **The remedy, not just the condition.** The bare word "locked"
+            # was what the owner met on demo day: true, and it does not say what
+            # to do. A refusal that names a condition and stops makes the reader
+            # go and find the document that explains it -- which is the moment a
+            # setup gets abandoned.
+            #
+            # ⚠️ It deliberately does NOT offer to remove the lock. Breaking a
+            # lock Gramps is holding is how a tree gets corrupted, and naming the
+            # remedy is not the same as offering to perform it.
+            "locked -- Gramps has this tree open, and we never break its lock. "
+            "Close the tree in Gramps (Family Trees, then Close) and run this "
+            "again. If Gramps is not running, the lock is stale and Gramps "
+            "itself will offer to clear it next time you open that tree."
             if locked
             else "not locked",
         )
