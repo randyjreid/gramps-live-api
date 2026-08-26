@@ -25,16 +25,24 @@ ATTACHING TO EXISTING
 
 ## Mechanically checkable acceptance criteria
 
-1. For every attached **person**, the dialog shows a line naming the events that
-   person already holds, or says plainly that it holds none.
+1. For every attached **person the proposal adds an event to**, the dialog shows a
+   line naming the events that person already holds of the types the proposal
+   touches, or says plainly that it holds none of them.
+   ⚠️ **Scoped deliberately.** An earlier draft said *every* attached person,
+   which contradicted the recommendation below that a person the proposal only
+   cites gets no line. A plan cannot ask an implementation to do both.
 2. That line is rendered from the **tree**, never from the proposal.
 3. A private record contributes nothing to it — the existing privacy gate applies
    unchanged, and a test asserts a private event does not appear.
 4. The dialog states nothing about whether the proposal is a duplicate. No
    warning, no highlight, no reordering, no refusal.
-5. If the prior-event read **fails or times out**, the dialog still opens and says
-   the prior events could not be read. ⛔ It never blocks the approval and never
-   silently omits the line, because an absent line reads as *"holds nothing"*.
+5. If the prior-event read **fails**, the dialog still opens and says the prior
+   events could not be read. ⛔ It never silently omits the line, because an absent
+   line reads as *"holds nothing"*.
+   ⛔ **This deliberately does NOT promise a timeout.** A read on the GTK main
+   thread cannot be interrupted — the host's own machinery says so: *"a timeout
+   abandons the work; it does not cancel it"* — so a criterion promising one would
+   be unsatisfiable by this design. See the build-time questions.
 6. The same graph rendered twice produces the same text.
 
 ## Out of scope
@@ -77,7 +85,30 @@ same failure as text that is delivered and never seen.
 **Recommendation:** no prior-events line. There is nothing to compare against, and
 a line there is volume without signal.
 
+## Build-time questions
+
+⛔ Recorded, not answered. Specifying prose about code nobody has written is how a
+document grows while the build sits untouched.
+
+> **Define a timeout mechanism compatible with the GTK thread.** *"When a
+> prior-event lookup stalls or exceeds its deadline, this criterion cannot be met
+> by the proposed synchronous design: each Gramps read is on the GTK main thread,
+> where neither a timeout callback nor the dialog can run until the read returns.
+> The lookup would therefore block approval — and potentially the entire UI.
+> Specify a bounded/cancellable Gramps API or a cached/precomputed source rather
+> than requiring timeout behavior the stated architecture cannot provide."*
+
+⭐ The build is the cheaper reviewer here: whether a stall is reachable at all
+depends on numbers nobody has measured against a real tree.
+
 ## Falsifier
+⭐ **The owner is running a census before deciding on this plan, and that run
+outranks any further refinement here.** This plan is wrong if the run shows the
+prior-events line is not what he reaches for — if he catches duplicates some other
+way, or never has to, or if the dialog is already at the length where another line
+per person costs more attention than it saves. **A falsifier that is a demo about
+to happen is worth more than a page refined further in the abstract.**
+
 
 If the measurement in question 1 shows the reads cost enough to be felt when the
 dialog opens, **this design is wrong as written** and the work becomes *how to get

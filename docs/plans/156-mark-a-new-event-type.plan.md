@@ -27,10 +27,22 @@ chose, one approval at a time, each individually reasonable-looking.**
    noise and stops being read.
 3. "Already knows" means **the same test the writer uses** — one expression, not
    two. ⛔ Two ways of deciding what is standard is this project's most-recorded
-   defect class, and the writer's `hasattr(EventType, key)` is the one that
-   decides what actually gets written.
-4. Custom types **already present in the tree** are not marked new. A type the
-   owner has used before is his vocabulary, not an invention.
+   defect class.
+   ⚠️ **That test is three conditions, not one.** `gramps_live_api_writer.py:139`
+   requires a **non-empty** normalised key, `hasattr(EventType, key)`, **and** that
+   the attribute value `isinstance(..., int)`. An earlier draft named `hasattr`
+   alone — which would render a type as standard while the writer stored it as
+   custom, recreating the very disagreement this criterion exists to prevent. The
+   predicate must be **extracted or communicated whole**, not restated.
+4. ⚠️ **Deferred, explicitly, and the marker's meaning changes with it.** Ideally
+   a custom type **already present in the tree** would not be marked new — a type
+   the owner has used before is his vocabulary, not an invention. That needs a
+   database read, which drags this into #154's cost question.
+   ⛔ **So it is out of scope for a first implementation, and the marker therefore
+   means *"not a standard Gramps type"*, not *"never seen before"*.** An earlier
+   draft listed this as an acceptance criterion and then recommended shipping
+   without it — which would have mislabelled the owner's established vocabulary
+   while claiming to state a fact.
 5. The check runs without a database where it can, so the renderer stays testable
    under CI.
 
@@ -63,11 +75,11 @@ something the owner should look twice at — that #154 then reuses.
 
 ## Open questions, with a recommendation
 
-**1. Where does "does the tree already use this type" come from?**
-Criterion 4 needs the set of custom types already in the tree. That is a database
-read, and it puts this back into #154's cost question.
+**1. Should the deferred criterion 4 ever be built?**
+It needs the set of custom types already in the tree — a database read, which puts
+it back into #154's cost question.
 
-⭐ **Recommendation: ship criteria 1–3 and 5 without it.** Marking every
+⭐ **Recommendation: leave it deferred.** Marking every
 non-standard type as new is a small over-warning on types the owner has adopted,
 and it needs no read at all. Add criterion 4 only if that over-warning proves
 irritating in use — ⚠️ **a use-derived trigger, not a guess.**
@@ -84,6 +96,14 @@ catching it. But the dialog is the safety surface and must not depend on the age
 having noticed.
 
 ## Falsifier
+⭐ **The owner is running a census before deciding on this plan, and that run
+outranks any further refinement here.** This plan is wrong if the run produces no
+non-standard types at all — if the columns he actually wants map onto types Gramps
+already knows, the marker guards against a risk that did not materialise, and the
+right answer is the pinned vocabulary in the brief rather than code. **A falsifier
+that is a demo about to happen is worth more than a page refined further in the
+abstract.**
+
 
 If the writer's notion of a standard type cannot be reached from the renderer
 without importing Gramps into `document.py`, criterion 3 is unsatisfiable as
