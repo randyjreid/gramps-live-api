@@ -150,24 +150,34 @@ owner time on the first real setup.
 ⛔ **And the stub does not fail loudly — it prints a sentence that reads like
 output.** Asking it for a version gives you *"Python was not found; run without
 arguments to install from the Microsoft Store…"*, which a reader skims as some
-kind of answer. So check for that text by name rather than trusting that a version
-appeared:
+kind of answer.
+
+⚠️ **So the check has to verify three things, not one:** that the command ran at
+all, that what came back is a version, and that the version is one this project
+supports (3.10 or newer). Checking only that *something* printed is the same
+mistake the stub exploits.
 
 ```powershell
-if (Get-Command py -ErrorAction SilentlyContinue) {
-  "use: py -3";  py -3 --version
-} else {
-  $v = (python --version 2>&1) -join ' '
-  if ($v -match 'Microsoft Store|was not found') {
-    "NOT Python -- that is the Store stub. Install Python, or use the full path to python.exe."
-  } else { "use: python";  $v }
+$ok = $null; $ver = $null
+foreach ($c in @('py -3','python')) {
+  $v = (cmd /c "$c --version 2>&1") -join ' '
+  if ($LASTEXITCODE -eq 0 -and $v -match 'Python (\d+)\.(\d+)') {
+    if ([int]$Matches[1] -gt 3 -or ([int]$Matches[1] -eq 3 -and [int]$Matches[2] -ge 10)) {
+      $ok = $c; $ver = $v; break
+    }
+  }
 }
+if ($ok) { "use: $ok   ($ver)" }
+else { "No usable Python 3.10+ on PATH. Install Python 3.10 or newer, or use the full path to python.exe." }
 ```
 
-⭐ **`py` is the Windows launcher, and it is never the Store stub** — if it is
-there, use it. Measured on the machine this page was written from: `py` was
-absent, `python` was the stub, and the stub answered the version question with a
-sentence rather than an error.
+⭐ **`py` is the Windows launcher and is never the Store stub**, so it is tried
+first — but only accepted if it actually produces a supported version, because the
+launcher can be present with no runtime behind it or with only an old one.
+
+Measured both ways on the machine this page was written from: with no interpreter
+on PATH it reports none usable; with a real 3.12 on PATH it reports `use: python
+(Python 3.12.13)`.
 
 **The commands below say `python`.** If the check above said `py -3`, use that
 instead, everywhere — or the full path to a real `python.exe`.
