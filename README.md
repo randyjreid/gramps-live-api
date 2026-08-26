@@ -80,8 +80,7 @@ answer means.
 
 ## What the agent can do
 
-Eighteen tools, in three groups. The server publishes the list itself, and a test asserts the exposed
-surface is exactly what the server says it is.
+Eighteen tools, in three groups.
 
 **Live reads of the open tree** — `find_people`, `find_place`, `find_source`, `find_citation`,
 `find_families`, `find_orphans`, `list_events`, `list_family_events`, `list_citations`,
@@ -132,12 +131,11 @@ exactly what the server publishes.
   only on one route: before a **document** write, a backup is taken, verified with SQLite's own
   integrity check, and recorded in a journal. **That is a weaker guarantee.** It was ruled
   deliberately, and the preconditions it was granted under are met.
-- ⚠️ **A journal names both timestamps only when the write completed.** It is written *before* the
-  transaction with the backup time and an empty write time, and completed afterwards. So if SQLite
-  commits and something then raises, the tree has changed and its journal names the backup but not
-  the write. **That intent-only record is still the recovery point** — it names the backup, which is
-  what a restore needs — but it does not tell you whether anything was written, and the tree is where
-  you find out.
+- **A journal that names a backup time and no write time still names the backup a restore needs, but
+  it does not tell you whether anything was written — a missing write time does not mean the tree is
+  unchanged.**
+  [What `INTENT ONLY` means, and what it does not](docs/restoring.md#what-intent-only-means-and-what-it-does-not)
+  has the detail.
 - ⛔ **The backup covers the document route and nothing else.** The older note flow
   (`propose_note`/`approve`) and the `preview`/`apply` commands write without taking one, so a write
   through those paths has **no recovery point** — [`docs/restoring.md`](docs/restoring.md) says so in
