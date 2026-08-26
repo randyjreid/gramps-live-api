@@ -115,8 +115,14 @@ live-read tools *at the MCP layer* — their logic is exercised one layer down, 
 accessor and document modules. The wiring from an MCP call, through the HTTP listener, onto Gramps'
 main thread and back is proved by a person running it, not by the suite.
 
-⛔ **These have never run against a real tree in any automated way:** the write itself, the plugin
-registration, the approval dialog, and every live read.
+⭐ **One exception, and it is the strongest evidence here.** An integration test creates a throwaway
+Gramps database, performs the **older note flow's** write through a real `DbTxn` in a real Gramps
+process, and verifies it from a second fresh process. It runs only when pointed at an installed
+Gramps runtime, so it is skipped in CI — but it is automated, and it is real.
+
+⛔ **What that test does not cover, and nothing else does either:** the **document** route's write,
+the plugin registration, the approval dialog, and every live read. Those are exercised by a person,
+watching — never automatically, and never against the owner's own data.
 
 ## Where it is going
 
