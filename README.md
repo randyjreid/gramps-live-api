@@ -56,8 +56,10 @@ learn anything from a refusal it could not have learned by reading.
 Eighteen tools, in three groups. The server publishes the list itself, and a test asserts the exposed
 surface is exactly what the server says it is.
 
-**Live reads of the open tree** — people, places, sources, citations, events, family events,
-associations, notes, orphans, tree totals, and a changed-since query. These answer from the database
+**Live reads of the open tree** — people, places, **families**, sources, citations, events, family
+events, associations, notes, orphans, tree totals, and a changed-since query. ⚠️ The family lookup is
+its own tool and is the one to run before adding children or a family event; missing it is how a
+second household gets created for a couple who already have one. These answer from the database
 Gramps currently has open.
 
 ⚠️ **One exception, and it matters:** `list_people` — kept because the older note flow needs it —
@@ -66,7 +68,12 @@ taken, and a privacy flag set after it would not be reflected. `find_people` is 
 and is the one to use.
 
 **The document pair** — `propose_document` files a whole graph server-side and returns an id and a
-preview; `approve_document` puts that preview in front of the owner. A graph may create people,
+preview; `approve_document` opens the owner's approval.
+
+⭐ **They are two different previews, and the difference is the identity check.** What comes back to
+the agent shows only the Gramps IDs it supplied. What the owner sees is rendered independently at
+approval time — the names read from the live tree, and every field the write will drop shown as
+dropped. So a wrong ID is something the owner can catch and the agent cannot paper over. A graph may create people,
 places, events, families, sources, citations and notes, and may attach citations and notes to records
 that already exist. **One graph is one approval and one transaction.**
 
