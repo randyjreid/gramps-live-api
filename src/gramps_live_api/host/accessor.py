@@ -644,7 +644,9 @@ def resolve_nodes(graph: dict[str, typing.Any]) -> document.Resolution:
     raising, so the caller can refuse the **whole batch** naming every missing
     id at once instead of one per round trip.
     """
-    parsed = document.parse(graph)
+    # ⛔ A READ: this resolves ids and writes nothing, so the
+    # committed-change rule does not apply -- see ``document.parse``.
+    parsed = document.parse(graph, writes=False)
     if _DBSTATE is None:
         return document.Resolution(
             nodes=tuple(

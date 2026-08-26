@@ -215,7 +215,13 @@ def _advertised_shape() -> dict[str, set[str]]:
     text = (REPOSITORY_ROOT / "src" / "gramps_live_api_mcp" / "server.py").read_text(
         encoding="utf-8"
     )
-    block = text[text.index("  people:") : text.index("*** THE SHAPE ABOVE IS EXACT")]
+    # ⚠️ The schema block now sits at the END of the description, after the rules,
+    # so it is sliced from its own first line to the close of the constant rather
+    # than between two headings. That reordering is deliberate and asserted in
+    # tests/unit/test_tool_descriptions_fit.py: if the tail is ever cut again,
+    # losing the schema fails loudly where losing a rule fails silently.
+    block = text[text.index(' people: "id"') :]
+    block = block[: block.index('"""')]
     shape: dict[str, set[str]] = {}
     current: str | None = None
     for line in block.splitlines():
@@ -281,7 +287,7 @@ def test_the_description_TELLS_the_model_both_constraints() -> None:
         encoding="utf-8"
     )
 
-    assert "THE SHAPE ABOVE IS EXACT" in text, "the model is not told unknown keys are refused"
+    assert "THE SHAPE BELOW IS EXACT" in text, "the model is not told unknown keys are refused"
     assert "people[].events" in text, (
         "the likeliest wrong key is not named, and it is the one a model reaches "
         "for because it is the reverse of a supported field"
@@ -396,3 +402,190 @@ def test_BOTH_refusal_sites_carry_the_SAME_advice() -> None:
         "the MCP refusal spells its own advice instead of sharing one copy, which "
         "is how the two went out of step in the first place"
     )
+
+
+# ---------------------------------------------------------------------------
+# The anchor: a graph must produce at least one committed change
+# ---------------------------------------------------------------------------
+
+
+def test_a_graph_that_would_write_NOTHING_is_refused() -> None:
+    """⛔ Every node already exists and nothing attaches to any of them."""
+    for body in (
+        {"people": [{"id": "n1", "gramps_id": "I0001"}]},
+        {
+            "people": [{"id": "n1", "gramps_id": "I0001"}],
+            "events": [{"id": "e1", "gramps_id": "E0060"}],
+        },
+        {"families": [{"id": "f1", "gramps_id": "F0001"}]},
+    ):
+        with pytest.raises(document.GraphInvalid) as refused:
+            document.parse(body)
+        assert "would not change the tree" in str(refused.value), str(refused.value)
+
+
+def test_the_shape_the_PROXY_wrongly_refused_is_accepted() -> None:
+    """⭐ The case #149 was filed for: a citation onto an existing event, no person.
+
+    ⚠️ ``people`` non-empty was a PROXY for *at least one committed change*. This
+    graph writes a source, a citation and an attachment, and names nobody -- and
+    the proxy refused it as having "nothing to write". The only workaround was to
+    bolt on an unrelated person, who then appeared in the approval dialog for no
+    reason connected to the proposal.
+    """
+    assert (
+        document.parse(
+            {
+                "source": {"id": "s1", "title": "Invented Register"},
+                "citations": [{"id": "c1", "source": "s1", "attach_to": ["e1"]}],
+                "events": [{"id": "e1", "gramps_id": "E0060"}],
+            }
+        )
+        is not None
+    )
+
+
+def test_a_RESOLUTION_is_not_held_to_the_committed_change_rule() -> None:
+    """⛔ Reading is not writing, and the old proxy made the same category error.
+
+    ⚠️ ``resolve_nodes`` and ``/resolve`` ask *what do these ids point at?*.
+    Requiring a committed change of them refuses a perfectly good lookup. The
+    proxy had this error too and merely did not bite, because a resolution
+    usually names people -- replacing it with the honest rule is what exposed it.
+
+    ⭐ Polarity is deliberate: ``parse`` is STRICT by default and a reader opts out
+    by name, so a write path added later that forgets gets the strict answer.
+    """
+    body = {"events": [{"id": "e1", "gramps_id": "E0060"}]}
+
+    with pytest.raises(document.GraphInvalid):
+        document.parse(body)
+
+    assert document.parse(body, writes=False) is not None
+
+
+def test_a_SPECIFIC_refusal_is_not_shadowed_by_the_anchor_rule() -> None:
+    """⛔ Ordering. The anchor check runs LAST.
+
+    ⚠️ Checked first, it reported *nothing to write* for a graph whose real fault
+    was a refused ``role`` -- true, and useless, because the caller needed the
+    specific fault named. Same rule as ``gramps_id`` passing the unknown-key check
+    so its own refusal survives.
+    """
+    with pytest.raises(document.GraphInvalid) as refused:
+        document.parse(
+            {
+                "people": [{"id": "p1", "gramps_id": "I0001"}],
+                "events": [{"id": "e1", "gramps_id": "E0060", "role": "Primary"}],
+            }
+        )
+    assert "role" in str(refused.value), (
+        f"the anchor rule shadowed the role refusal: {refused.value}"
+    )
+
+    with pytest.raises(document.GraphInvalid) as unknown:
+        document.parse({"people": [{"id": "p1", "gramps_id": "I0001", "nickname": "x"}]})
+    assert "nickname" in str(unknown.value), (
+        f"the anchor rule shadowed the unknown-key refusal: {unknown.value}"
+    )
+
+
+def test_an_existing_family_gaining_existing_children_IS_a_committed_change() -> None:
+    """⭐ The one attachment that creates nothing and still writes.
+
+    ⚠️ It is also the only reachable case in that half of the rule. ``attach_to``
+    was checked alongside it and was **dead code** -- only citations and notes take
+    ``attach_to``, and neither may carry a ``gramps_id``, so such a node is already
+    counted as created. A negative control stayed SILENT on that branch, which is
+    how it was found rather than reasoned about.
+    """
+    assert (
+        document.parse(
+            {
+                "people": [{"id": "p1", "gramps_id": "I0001"}],
+                "families": [{"id": "f1", "gramps_id": "F0001", "children": ["p1"]}],
+            }
+        )
+        is not None
+    )
+
+    # ⛔ The same family WITHOUT the children writes nothing, and is refused.
+    with pytest.raises(document.GraphInvalid) as refused:
+        document.parse(
+            {
+                "people": [{"id": "p1", "gramps_id": "I0001"}],
+                "families": [{"id": "f1", "gramps_id": "F0001"}],
+            }
+        )
+    assert "would not change the tree" in str(refused.value)
+
+
+def test_a_citation_that_can_reach_NO_source_is_refused() -> None:
+    """⛔ It wrote nothing and the dialog promised it anyway.
+
+    ⚠️ The writer resolves ``handles.get(spec["source"]) or source_handle`` and
+    ``continue``s when both are empty. The preview meanwhile rendered
+    ``Citation -> None``, so the approval dialog promised a citation the write
+    never made -- **a promise broken on the surface the whole safety argument
+    rests on.**
+
+    ⭐ The shape it came from is worth more than the instance: the
+    committed-change rule asked whether a node was of a creatable KIND, not
+    whether it could actually BE created. A citation never carries a
+    ``gramps_id``, so it counted unconditionally.
+    """
+    with pytest.raises(document.GraphInvalid) as refused:
+        document.parse({"citations": [{"id": "c1", "page": "p.1"}]})
+    message = str(refused.value)
+    assert "c1" in message and "source" in message, message
+
+    # ⭐ Both ways a citation legitimately reaches one must still work.
+    assert (
+        document.parse(
+            {
+                "source": {"id": "s1", "title": "Invented Register"},
+                "citations": [{"id": "c1", "source": "s1", "page": "p.1"}],
+            }
+        )
+        is not None
+    )
+    assert (
+        document.parse(
+            {
+                "source": {"id": "s1", "title": "Invented Register"},
+                "citations": [{"id": "c1", "page": "p.1"}],
+            }
+        )
+        is not None
+    )
+
+
+def test_the_preview_can_no_longer_render_a_citation_pointing_at_NOTHING() -> None:
+    """⛔ The rendering was the symptom; the unreachable state is now gone."""
+    with pytest.raises(document.GraphInvalid):
+        document.parse({"citations": [{"id": "c1"}]})
+
+
+def test_a_SHAPE_error_is_reported_before_the_source_error() -> None:
+    """⛔ The ordering defect, reintroduced by the fix for the sourceless citation.
+
+    ⚠️ A citation that is BOTH sourceless and misspelled reported only the missing
+    source. The caller adds a source, resubmits, and meets the unknown key on the
+    next attempt -- **a specific refusal shadowed by a general one.**
+
+    ⭐ This is the SECOND instance of that class in this one rule. The first was
+    the no-write guard running early and reporting "nothing to write" for a graph
+    whose real fault was a refused ``role``. Moving that guard to the end was
+    meant to end the class; the citation check was then added ahead of the
+    structural validations and brought it straight back.
+    """
+    with pytest.raises(document.GraphInvalid) as refused:
+        document.parse({"citations": [{"id": "c1", "bogus": "x"}]})
+    assert "bogus" in str(refused.value), (
+        f"the source error shadowed the unknown key: {refused.value}"
+    )
+
+    # ⭐ And once the shape is sound, the source error is the one that fires.
+    with pytest.raises(document.GraphInvalid) as sourceless:
+        document.parse({"citations": [{"id": "c1", "page": "p.1"}]})
+    assert "source" in str(sourceless.value), str(sourceless.value)

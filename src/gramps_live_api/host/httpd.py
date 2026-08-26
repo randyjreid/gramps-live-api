@@ -398,7 +398,9 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
         if body is None:
             return
         try:
-            graph = document.parse(body)
+            # ⛔ ``writes=False``: a resolution asks what ids point at. Requiring a
+            # committed change of it would refuse a perfectly good lookup.
+            graph = document.parse(body, writes=False)
         except document.GraphInvalid as refusal:
             self._respond(
                 HTTPStatus.BAD_REQUEST,

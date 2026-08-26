@@ -792,7 +792,10 @@ def test_every_attachable_kind_is_advertised_as_attachable() -> None:
     from gramps_live_api.host import document
 
     description = mcp_server.PROPOSE_DOCUMENT_DESCRIPTION
-    shape = description.split("SHAPE.", 1)[1]
+    # ⚠️ Anchor updated when the description was reordered for #151: the rules
+    # now come FIRST and the schema block is the tail, so this slices from the
+    # schema's own first line. The property asserted is unchanged.
+    shape = description[description.index(' people: "id"') :]
 
     unadvertised = []
     for kind in document.ATTACHABLE:
@@ -834,7 +837,11 @@ def test_a_family_event_is_advertised_where_a_caller_will_read_it() -> None:
     advertises ``family``, and the family-events lookup tells a caller it can now
     fill the gap it finds.
     """
-    shape = mcp_server.PROPOSE_DOCUMENT_DESCRIPTION.split("SHAPE.", 1)[1]
+    # ⚠️ Anchor updated when the description was reordered for #151: the rules
+    # now come FIRST and the schema block is the tail, so this slices from the
+    # schema's own first line. The property asserted is unchanged.
+    shape = mcp_server.PROPOSE_DOCUMENT_DESCRIPTION
+    shape = shape[shape.index(' people: "id"') :]
     events = next(row for row in shape.splitlines() if row.strip().startswith("events:"))
     assert "family" in events or "family" in shape, (
         "the event shape does not advertise a family, so nobody will use it"

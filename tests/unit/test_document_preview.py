@@ -152,7 +152,18 @@ def test_the_preview_never_renders_what_the_caller_said_about_an_existing_node()
     The caller sent one spelling; the tree holds another. The dialog must show
     the tree's, or a wrong Gramps ID becomes invisible.
     """
-    graph = document.parse({"people": [node("p1", gramps_id="I0024", surname="Friedrich")]})
+    # ⚠️ A citation, because the graph must now produce at least one committed
+    # change (#149). Attaching to one person and writing nothing is refused, and
+    # a real proposal that attaches to somebody is attaching in order to cite
+    # them. The property under test -- the payload's surname must not be
+    # rendered -- is unchanged.
+    graph = document.parse(
+        {
+            "people": [node("p1", gramps_id="I0024", surname="Friedrich")],
+            "source": {"id": "s1", "title": "Invented Register"},
+            "citations": [node("c1", source="s1", page="p.1", attach_to=["p1"])],
+        }
+    )
     resolution = document.Resolution(
         nodes=(document.Resolved("p1", "I0024", "person", True, "Friederich, Anna"),)
     )
