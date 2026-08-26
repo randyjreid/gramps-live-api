@@ -564,3 +564,28 @@ def test_the_preview_can_no_longer_render_a_citation_pointing_at_NOTHING() -> No
     """⛔ The rendering was the symptom; the unreachable state is now gone."""
     with pytest.raises(document.GraphInvalid):
         document.parse({"citations": [{"id": "c1"}]})
+
+
+def test_a_SHAPE_error_is_reported_before_the_source_error() -> None:
+    """⛔ The ordering defect, reintroduced by the fix for the sourceless citation.
+
+    ⚠️ A citation that is BOTH sourceless and misspelled reported only the missing
+    source. The caller adds a source, resubmits, and meets the unknown key on the
+    next attempt -- **a specific refusal shadowed by a general one.**
+
+    ⭐ This is the SECOND instance of that class in this one rule. The first was
+    the no-write guard running early and reporting "nothing to write" for a graph
+    whose real fault was a refused ``role``. Moving that guard to the end was
+    meant to end the class; the citation check was then added ahead of the
+    structural validations and brought it straight back.
+    """
+    with pytest.raises(document.GraphInvalid) as refused:
+        document.parse({"citations": [{"id": "c1", "bogus": "x"}]})
+    assert "bogus" in str(refused.value), (
+        f"the source error shadowed the unknown key: {refused.value}"
+    )
+
+    # ⭐ And once the shape is sound, the source error is the one that fires.
+    with pytest.raises(document.GraphInvalid) as sourceless:
+        document.parse({"citations": [{"id": "c1", "page": "p.1"}]})
+    assert "source" in str(sourceless.value), str(sourceless.value)
