@@ -157,13 +157,15 @@ Coverage is heavy on the parts that can run without Gramps: the graph parser and
 preview renderer, the privacy gate, the backup machinery, the guard. Those have real tests, most with
 negative controls that are checked to fail when the behaviour is removed.
 
-⚠️ **The seam is thin, and exactly how thin is worth stating.** Seven of the thirteen live-read
-tools are now invoked at the MCP layer against a **fake host** — each asserted to reach its own route
-with its own parameters and its bearer token — together with the three ways the transport fails: no
-host running, a host that refuses, a host that is unreachable.
+⚠️ **The seam is thin, and exactly how thin is worth stating.** All thirteen live-read tools are
+invoked **through the registered MCP wrappers** against a **fake host** — each asserted to reach its
+own route, with its own parameters, its defaults for the arguments a caller omits, and its bearer
+token — together with the three ways the transport fails: no host running, a host that refuses, a
+host that is unreachable.
 
-⛔ **The other six are not, and neither is `propose_document` or `approve_document`.** Their logic is
-exercised one layer down, against fakes, in the accessor and document modules.
+⛔ **The five that write or read the export are not: `propose_document`, `approve_document`,
+`approve`, `propose_note` and `list_people`.** Their logic is exercised one layer down, against
+fakes, in the accessor and document modules.
 
 ⚠️ **And a fake host is not Gramps.** That a route is called with the right parameters says nothing
 about what the tree would answer. The wiring from an MCP call, through the **real** HTTP listener,
