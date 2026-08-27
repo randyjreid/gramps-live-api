@@ -97,6 +97,7 @@ and is the one to use.
 
 **The document pair** — `propose_document` and `approve_document`. The first files a whole graph
 server-side and returns an id and a preview; the second opens the owner's approval.
+[`docs/census-brief.md`](docs/census-brief.md) is the working brief for driving them over a census.
 
 **They are two different previews, and the difference is the identity check.** What comes back to
 the agent shows only the Gramps IDs it supplied. What the owner sees is rendered independently at
