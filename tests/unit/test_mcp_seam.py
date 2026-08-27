@@ -227,6 +227,36 @@ LIVE_READ_DEFAULTS: tuple[tuple[str, dict[str, Any], str, dict[str, str]], ...] 
 )
 
 
+def _assert_it_asked(tool: str, url: str, route: str, query: dict[str, str]) -> None:
+    """⛔ The route, and **each key bound to its own value**.
+
+    ⚠️ Searching for every key and every value independently anywhere in the URL
+    passes for a wrapper that **swaps its arguments**: with
+    ``since=families&kind=2026-08-01`` both keys and both values are present, so
+    every assertion holds while the host is asked an entirely different
+    question. Two of the tools here take two arguments of the same shape, which
+    is exactly where that swap is possible.
+
+    ⭐ So the query is parsed and compared as a mapping. ``urlsplit`` also means
+    the route is matched against the **path**, not found as a substring of a
+    query value.
+    """
+    from urllib.parse import parse_qs, urlsplit
+
+    parts = urlsplit(url)
+    assert parts.path == route, f"{tool} did not reach {route}: {url}"
+
+    asked = {
+        key: values[0] for key, values in parse_qs(parts.query, keep_blank_values=True).items()
+    }
+    for key, value in query.items():
+        assert key in asked, f"{tool} sent no {key}: {url}"
+        assert asked[key] == value, (
+            f"{tool} bound {key}={asked[key]!r}, expected {value!r} -- the keys and "
+            f"values can all be present and still be paired wrongly: {url}"
+        )
+
+
 def _through_the_registered_wrapper(tools: Any, tool: str, kwargs: dict[str, Any]) -> Any:
     """⛔ Call the tool the way an MCP client would, not the way we would.
 
@@ -260,12 +290,7 @@ def test_a_live_read_reaches_its_own_route_with_its_own_parameters(
 
     _through_the_registered_wrapper(tools, tool, kwargs)
 
-    assert route in host.last["url"], f"{tool} did not reach {route}: {host.last['url']}"
-    for key, value in query.items():
-        assert f"{key}=" in host.last["url"], f"{tool} sent no {key}: {host.last['url']}"
-        assert value.replace(" ", "+") in host.last["url"] or value in host.last["url"], (
-            f"{tool} sent the wrong {key}: {host.last['url']}"
-        )
+    _assert_it_asked(tool, host.last["url"], route, query)
 
 
 def test_every_live_read_carries_the_bearer_token(tmp_path: Path) -> None:
@@ -374,11 +399,7 @@ def test_a_live_read_sends_its_DEFAULT_for_an_argument_the_caller_omitted(
 
     _through_the_registered_wrapper(tools, tool, kwargs)
 
-    assert route in host.last["url"], f"{tool} did not reach {route}: {host.last['url']}"
-    for key, value in query.items():
-        assert f"{key}={value}" in host.last["url"], (
-            f"{tool} did not send its default {key}={value!r}: {host.last['url']}"
-        )
+    _assert_it_asked(tool, host.last["url"], route, query)
 
 
 @pytest.mark.parametrize("platform", ["win32", "linux", "darwin"])
