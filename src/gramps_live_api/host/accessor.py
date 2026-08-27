@@ -1319,16 +1319,29 @@ def _change_stamp(obj: typing.Any) -> int | None:
 
 _TIME_EXTENDED = r"""
     (?: [T\ ]
-        (?P<hour>\d{2}) : (?P<minute>\d{2})
-        (?: : (?P<second>\d{2}) (?: [.,] (?P<fraction>\d+) )? )?
+        (?P<hour>\d{2})
+        (?: : (?P<minute>\d{2})
+            (?: : (?P<second>\d{2}) (?: [.,] (?P<fraction>\d+) )? )?
+        )?
         (?P<offset> [Zz] | [+-]\d{2}:?\d{2} )?
     )?
+"""
+"""⭐ **Each component is optional only from the RIGHT**, which is what reduced
+precision means and is why the nesting is not flat.
+
+⚠️ Making minute and second independently optional would admit ``T12::30`` and
+``2026-08-01T12:00.5`` -- the second of which was a real finding: *a fraction
+with no seconds*, which canonicalised to half a second past noon. Second lives
+inside minute, and fraction inside second, so a lower-order component cannot
+appear without the one above it.
 """
 
 _TIME_BASIC = r"""
     (?: T
-        (?P<hour>\d{2}) (?P<minute>\d{2})
-        (?: (?P<second>\d{2}) (?: [.,] (?P<fraction>\d+) )? )?
+        (?P<hour>\d{2})
+        (?: (?P<minute>\d{2})
+            (?: (?P<second>\d{2}) (?: [.,] (?P<fraction>\d+) )? )?
+        )?
         (?P<offset> [Zz] | [+-]\d{2}:?\d{2} )?
     )?
 """
@@ -1396,7 +1409,12 @@ def _iso_for_any_interpreter(raw: str) -> str | None:
     canonical = f"{parts['year']}-{parts['month']}-{parts['day']}"
 
     if parts["hour"] is not None:
-        canonical += f"T{parts['hour']}:{parts['minute']}:{parts['second'] or '00'}"
+        # ⛔ ``or '00'`` on MINUTE as well as second. ISO permits reduced
+        # precision and ``datetime.isoformat(timespec="hours")`` emits it, so
+        # ``2026-08-01T12`` arrives here with no minute; without this it
+        # canonicalised to the string ``T12:None:00``.
+        minute = parts["minute"] or "00"
+        canonical += f"T{parts['hour']}:{minute}:{parts['second'] or '00'}"
         canonical += _six_digits(parts["fraction"])
         offset = parts["offset"]
         if offset:
