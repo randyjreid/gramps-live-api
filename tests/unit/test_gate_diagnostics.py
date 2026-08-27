@@ -123,3 +123,53 @@ def test_a_multi_line_hint_is_printed_as_lines_rather_than_as_one_string() -> No
     assert signature.parameters["rerun"].default == (), (
         "rerun should default to an empty sequence, not to a string"
     )
+
+
+def test_a_gate_whose_output_is_not_locale_decodable_still_REPORTS(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """⛔ The failure was fine; the reporting of it died.
+
+    ⚠️ ``text=True`` decodes with the **locale** encoding -- cp1252 on the box
+    this project is developed on. A tool printing a byte outside it raises
+    ``UnicodeDecodeError`` inside subprocess's own reader thread, ``stdout``
+    comes back ``None``, and slicing it raised ``TypeError: 'NoneType' object is
+    not subscriptable``. **Observed for real:** ``ruff format --check`` drew its
+    diff, the gate reported a traceback about itself, and the file that actually
+    needed formatting was never named.
+
+    ⛔ **``0x8f`` is the byte, and the choice is not arbitrary.** A first probe
+    used the UTF-8 bytes of ``U+2500`` -- and all three of them are *valid*
+    cp1252, so it decoded to mojibake, raised nothing, and the control was
+    silent. cp1252 leaves ``0x8f`` undefined; that is what makes it fail.
+
+    ⭐ **One of these two assertions does the work, and it is not the obvious
+    one.** Measured: both variants exit 3, so the exit code does not separate
+    them. **The command's output reaching stdout is what does** -- 40 characters
+    with the fix, 0 without.
+
+    ⚠️ **And the ``or ""`` guard beside the decoding is NOT bound by this test.**
+    Reverting it alone leaves all eight tests here passing, because with an
+    explicit encoding ``stdout`` is never ``None`` to begin with. It stays as
+    cheap insurance against some other path returning ``None``; it is not the
+    repair, and this docstring said it was until the control proved otherwise.
+    """
+    with pytest.raises(SystemExit) as exited:
+        gate.run(
+            "probe",
+            sys.executable,
+            "-c",
+            "import sys; sys.stdout.buffer.write(bytes([0x8f]) * 40); sys.exit(3)",
+        )
+
+    assert exited.value.code == 3, "the gate must exit on the command's own code"
+
+    printed = capsys.readouterr().out
+    # ⭐ ``splitlines`` rather than a split on an escape: getting a newline
+    # literal through this file's own authoring layers failed four times.
+    after_the_label = "".join(printed.splitlines()[1:])
+    assert len(after_the_label) >= 40, (
+        f"the failing command's own output did not reach stdout ({len(after_the_label)} "
+        f"characters); a locale-decoded pipe drops it entirely and reports a "
+        f"traceback about the reporting instead"
+    )

@@ -92,6 +92,14 @@ def equipped(tmp_path: Path, **extra: str) -> dict[str, str]:
     plugins = tmp_path / "roaming" / "gramps" / "gramps60" / "plugins" / "gramps-live-api"
     plugins.mkdir(parents=True, exist_ok=True)
     (plugins / "gramps_live_api_apply.gpr.py").write_text("", encoding="utf-8")
+    # ⛔ **The host has to reach the package, and finding the .gpr.py does not
+    # prove it can.** ``check`` reports that separately now, so a helper that
+    # equips "a registered plugin" and stops leaves every caller asserting the
+    # exit code of a setup the document route would fail on. This is the
+    # explicit-directory route the host looks at first, which is also what a
+    # copied installation is told to set.
+    source = tmp_path / "checkout" / "src"
+    (source / "gramps_live_api").mkdir(parents=True, exist_ok=True)
     export = tmp_path / "equipped.gramps"
     export.write_text("<database/>", encoding="utf-8")
     return {
@@ -99,6 +107,7 @@ def equipped(tmp_path: Path, **extra: str) -> dict[str, str]:
         "APPDATA": str(tmp_path / "roaming"),
         config.ENV_RUNTIME: str(runtime),
         config.ENV_EXPORT: str(export),
+        "GRAMPS_LIVE_API_SRC": str(source),
         **extra,
     }
 
@@ -575,3 +584,96 @@ def test_apply_sends_a_digest_of_the_operation_beside_the_sentence(tmp_path: Pat
     _, child_env = runner.runs[0]
     assert child_env[invocation.ENV_APPROVED_DIGEST] == apply.approval_digest(OPERATION)
     assert child_env[invocation.ENV_APPROVED] == schema.preview(OPERATION)
+
+
+# ---------------------------------------------------------------------------
+# ⛔ ``plugin: ok`` does not mean the document route can start
+# ---------------------------------------------------------------------------
+
+
+def _plugin_dir(environ: Mapping[str, str]) -> Path:
+    checks = {check.label: check for check in cli.inspect(None, environ)}
+    return Path(checks["plugin"].detail)
+
+
+def test_a_COPIED_installation_passes_plugin_and_FAILS_source(tmp_path: Path) -> None:
+    """⛔ The setup ``using.md`` supports, and the promise it used to make.
+
+    ⚠️ The host reaches the package by ``realpath``-ing its own directory and
+    stepping up one level, which works **because the plugin directory is a
+    junction into the checkout**. Copy the files instead and ``realpath`` lands
+    in Gramps' plugin folder, where there is no ``src`` -- so every document
+    route fails on import.
+
+    ⭐ Before this check existed, that setup produced a report with no ``NO`` on
+    it, under a page saying *"if `check` passes, this route has what it needs."*
+    """
+    environ = dict(equipped(tmp_path))
+    del environ["GRAMPS_LIVE_API_SRC"]  # a copy sets nothing
+    checks = {check.label: check for check in cli.inspect(None, environ)}
+
+    assert checks["plugin"].ok, "the .gpr.py is there -- a copy does install it"
+    assert not checks["source"].ok, (
+        "a copied installation cannot reach gramps_live_api, and the report said nothing about it"
+    )
+    assert "junction" in checks["source"].detail, (
+        f"the refusal must name the remedy, not just the condition: {checks['source'].detail}"
+    )
+
+
+def test_an_explicit_SRC_directory_satisfies_the_source_check(tmp_path: Path) -> None:
+    """⭐ The first candidate: the owner who put the checkout somewhere else."""
+    environ = equipped(tmp_path)
+    checks = {check.label: check for check in cli.inspect(None, environ)}
+
+    assert checks["source"].ok, checks["source"].detail
+    assert checks["source"].detail == environ["GRAMPS_LIVE_API_SRC"]
+
+
+def test_a_checkout_BESIDE_the_plugin_satisfies_it_with_no_environment(
+    tmp_path: Path,
+) -> None:
+    """⭐ The second candidate, and the one a junction actually produces.
+
+    ⚠️ Asserted without ``GRAMPS_LIVE_API_SRC``, because that variable would
+    satisfy the check for a different reason and the test would pass against a
+    resolver that had lost this branch entirely.
+    """
+    environ = dict(equipped(tmp_path))
+    del environ["GRAMPS_LIVE_API_SRC"]
+    beside = _plugin_dir(environ).parent / "src" / "gramps_live_api"
+    beside.mkdir(parents=True, exist_ok=True)
+
+    checks = {check.label: check for check in cli.inspect(None, environ)}
+
+    assert checks["source"].ok, checks["source"].detail
+
+
+def test_the_source_check_matches_what_the_host_actually_does() -> None:
+    """⛔ **Two spellings of one rule, pinned to each other.**
+
+    ``cli`` cannot import ``gramps_live_api_host`` -- it imports Gramps at module
+    scope -- so the candidate list is transcribed, the same way
+    ``_gramps_user_data`` transcribes Gramps' own rule. A transcription that
+    nothing checks is how the two ends stop agreeing, which is this project's
+    most-recorded defect class.
+
+    ⭐ So this reads the plugin's source and asserts the three candidates are
+    still the three candidates, in order.
+    """
+    source = (
+        Path(__file__).resolve().parents[2] / "gramps_plugin" / "gramps_live_api_host.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'named = os.environ.get("GRAMPS_LIVE_API_SRC")' in source, (
+        "the host no longer reads GRAMPS_LIVE_API_SRC first"
+    )
+    assert "here = os.path.dirname(os.path.realpath(__file__))" in source, (
+        "the host no longer resolves its own directory through the junction"
+    )
+    assert (
+        'for candidate in (named, os.path.join(os.path.dirname(here), "src"), here):' in source
+    ), (
+        "the host's candidate list changed; cli._host_source_candidates must "
+        "change with it or check will report on a rule the host no longer uses"
+    )

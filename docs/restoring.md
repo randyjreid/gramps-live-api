@@ -204,8 +204,13 @@ should be touched — not `name.txt`, not the sentinel, not `.gramps-live-api-un
 Start Gramps and open the tree **by name**:
 
 ```powershell
-& "$env:ProgramFiles\GrampsAIO64-6.0.8\gramps.exe" -O "<tree name>"
+& "$env:ProgramFiles\GrampsAIO64-<version>\gramps.exe" -O "<tree name>"
 ```
+
+⚠️ **`<version>` is yours to fill in, and this page will not guess it.** A pinned version here
+pointed at an executable that does not exist on any other installation — and the setup supports
+both version discovery and a custom `gramps_runtime`, so pinning one was wrong twice over.
+`check` prints the runtime it found; the GUI executable sits beside it in the same directory.
 
 ### What the record gives you to look at
 
@@ -260,8 +265,17 @@ A file called `lock` in the tree's directory means Gramps thinks that tree is op
 ⚠️ **The lock proves less than it looks like it proves.** It holds one line of `user@host`, with no
 process id and no timestamp, and Gramps writes it on open **without checking whether one is already
 there**. So it cannot tell you whether Gramps is genuinely running — which is exactly why deleting it
-is not a fix. Close Gramps properly and the lock goes with it. If it does not, that is a question to
-answer before restoring, not a file to remove.
+is not a fix. Close Gramps properly and the lock goes with it.
+
+⭐ **And when Gramps crashed, so there is no process to close?** That is the case this section used
+to leave with nothing to do. **Open the tree in Gramps and let Gramps decide about the lock** — it
+owns that file, it is the only thing that can tell a stale one from a live one, and clearing it is
+its call to offer, not ours to take. That is what `check` already tells you when it finds a lock;
+this page used to stop one step short of it.
+
+⛔ **What does not change: we never delete it, and never `--force-unlock`.** Not because a stale
+lock is dangerous, but because *this file cannot tell you it is stale* — no process id, no
+timestamp — so anything we did with it would be a guess about somebody else's tree.
 
 ## If there is no backup for the write you want to undo
 

@@ -189,7 +189,8 @@ def inspect(tree: str | None, environ: Mapping[str, str]) -> list[Check]:
     the live one and watch the refusal happen. That is the advisory copy of the
     rail, and the report says so.
     """
-    checks = [_runtime_check(environ), _plugin_check(environ)]
+    plugin = _plugin_check(environ)
+    checks = [_runtime_check(environ), plugin, _source_check(plugin, environ)]
     settings = config.load(environ)
     target = tree or settings.copy_path
     if target is None:
@@ -400,6 +401,60 @@ def _plugin_check(environ: Mapping[str, str]) -> Check:
     if not found:
         return Check("plugin", False, f"not installed under {root}")
     return Check("plugin", True, str(found[0].parent))
+
+
+# ⛔ The candidates the HOST plugin prepends to ``sys.path``, in its order.
+#
+# ⚠️ **Transcribed, not imported, and that is a duplication with a guard.**
+# ``gramps_live_api_host`` imports Gramps at module scope, so this half of the
+# project cannot import it -- the same reason ``_gramps_user_data`` transcribes
+# Gramps' own rule. ``test_the_source_check_matches_what_the_host_actually_does``
+# reads the plugin's source and fails if the two lists stop agreeing, because two
+# spellings of one rule is this project's most-recorded defect class.
+_HOST_SRC_ENV = "GRAMPS_LIVE_API_SRC"
+
+
+def _host_source_candidates(plugin_dir: str, environ: Mapping[str, str]) -> list[str]:
+    """Where the host plugin will look for ``gramps_live_api``, in its order."""
+    here = os.path.realpath(plugin_dir)
+    return [
+        environ.get(_HOST_SRC_ENV, ""),
+        os.path.join(os.path.dirname(here), "src"),
+        here,
+    ]
+
+
+def _source_check(plugin: Check, environ: Mapping[str, str]) -> Check:
+    """⛔ Can the host plugin reach ``gramps_live_api`` from where it is installed?
+
+    ⚠️ **``plugin: ok`` does not answer this, and used to be read as if it did.**
+    The plugin check finds a ``.gpr.py``; the host then has to import the package
+    from the checkout, which it reaches by ``realpath``-ing its own directory and
+    stepping up one level. **That works because the plugin directory is a
+    junction into the checkout.** Copy the files instead -- a setup ``using.md``
+    explicitly supports -- and ``realpath`` lands in Gramps' plugin folder, where
+    there is no ``src``, so every document route fails on import while the check
+    reports the setup ready.
+
+    ⭐ Stated as the outcome rather than as the mechanism: *is there a directory
+    on that list holding the package?* A junction, an explicit
+    ``GRAMPS_LIVE_API_SRC``, and a checkout laid out some third way all pass it
+    for the same reason the host would.
+    """
+    if not plugin.ok:
+        return Check("source", False, "no plugin to resolve from")
+    for candidate in _host_source_candidates(plugin.detail, environ):
+        if candidate and os.path.isdir(os.path.join(candidate, "gramps_live_api")):
+            return Check("source", True, candidate)
+    return Check(
+        "source",
+        False,
+        f"the host plugin cannot reach gramps_live_api from {plugin.detail} -- the "
+        f"plugin directory is meant to be a junction into the checkout, and a "
+        f"copied installation is not one. Re-make it as a junction, or set "
+        f"{_HOST_SRC_ENV} to the checkout's src directory. Until then the "
+        f"document route fails on import while everything else here passes.",
+    )
 
 
 def _gramps_user_data(environ: Mapping[str, str]) -> Path:

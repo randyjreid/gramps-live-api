@@ -170,11 +170,13 @@ $env:PYTHONPATH = "src"
 .\.venv\Scripts\python.exe -m gramps_live_api check
 ```
 
-You should see the runtime, the plugin, your copy, and each of the two files the check looks at:
+You should see the runtime, the plugin, the source it resolves to, your copy, and each of
+the two files the check looks at:
 
 ```
   ok   runtime: ...\GrampsAIO64-<version>\grampsd.exe
   ok   plugin: ...\gramps\gramps60\plugins\gramps-live-api
+  ok   source: ...\gramps-live-api\src
   ok   copy: ...\grampsdb\1a2b3c4d
   ok   name.txt: is a Gramps family tree directory
   ok   .gramps-live-api-copy: is blessed for writing by hand
@@ -369,7 +371,14 @@ Use it when what you want to write is not one note but a **document** — a smal
 places, an event, a source and a citation, written as one transaction.
 
 > ⚠️ **The setup is the same setup.** The blessed copy, the junction and `config.json` are what both
-> routes read. If `check` passes, this route has what it needs.
+> routes read.
+>
+> ⛔ **This route needs one thing the other does not: the host must be able to import the project
+> from inside Gramps.** It gets there by resolving its own plugin directory and stepping up one
+> level — which works because that directory is a **junction into the checkout**. Copy the files
+> instead and it lands in Gramps' plugin folder, where there is no `src`, and every document route
+> fails on import. `check` reports that as its own `source` line, so a passing check does now mean
+> this route has what it needs; if it says `NO`, re-make the junction or set `GRAMPS_LIVE_API_SRC`.
 
 ### What you do
 

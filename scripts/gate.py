@@ -102,7 +102,26 @@ def run(
     terminal, where it was never a leak.
     """
     print(f"  {label:<28}", end="", flush=True)
-    finished = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=False)
+    # ⛔ ``encoding``/``errors`` explicitly, NOT bare ``text=True``.
+    #
+    # ⚠️ ``text=True`` decodes with the LOCALE encoding -- cp1252 on this box --
+    # and a tool that prints anything outside it raises ``UnicodeDecodeError``
+    # **inside subprocess's reader thread**. The exception is reported there,
+    # ``stdout`` comes back ``None``, and the line below then died with
+    # ``TypeError: 'NoneType' object is not subscriptable`` -- so a real gate
+    # failure was replaced by a traceback about the reporting of it. Observed
+    # when ``ruff format --check`` drew its diff with box characters.
+    #
+    # ⭐ Same class as everything else in this function: the failure was never
+    # the problem, and the diagnostic not reaching the operator was.
+    finished = subprocess.run(
+        command,
+        cwd=ROOT,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
     if finished.returncode != 0:
         print(f"FAILED (exit {finished.returncode})")
         if operator_input:
@@ -122,8 +141,11 @@ def run(
                 for line in rerun:
                     print("        " + line)
         else:
-            sys.stdout.write(finished.stdout[-4000:])
-            sys.stderr.write(finished.stderr[-4000:])
+            # ⚠️ ``or ""`` is insurance, not the repair -- with an explicit
+            # encoding above, these are never ``None``. No test binds it, and
+            # test_gate_diagnostics says so rather than claiming coverage.
+            sys.stdout.write((finished.stdout or "")[-4000:])
+            sys.stderr.write((finished.stderr or "")[-4000:])
         raise SystemExit(finished.returncode)
     print("ok")
 
