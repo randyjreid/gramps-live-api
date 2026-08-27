@@ -99,7 +99,7 @@ def equipped(tmp_path: Path, **extra: str) -> dict[str, str]:
     # explicit-directory route the host looks at first, which is also what a
     # copied installation is told to set.
     source = tmp_path / "checkout" / "src"
-    (source / "gramps_live_api").mkdir(parents=True, exist_ok=True)
+    _lay_out_the_host_package(source)
     export = tmp_path / "equipped.gramps"
     export.write_text("<database/>", encoding="utf-8")
     return {
@@ -110,6 +110,25 @@ def equipped(tmp_path: Path, **extra: str) -> dict[str, str]:
         "GRAMPS_LIVE_API_SRC": str(source),
         **extra,
     }
+
+
+def _lay_out_the_host_package(source: Path) -> Path:
+    """A ``src`` directory holding what the host plugin actually imports.
+
+    ⛔ **An empty directory named ``gramps_live_api`` is not the package**, and
+    this helper used to make one. ``check`` reported the source ready, and host
+    startup would then have died on ``from gramps_live_api.host import accessor,
+    service`` -- so the fixture was asserting the exit code of a setup that does
+    not work, which is the same defect the check exists to catch.
+
+    ⭐ Built from ``cli.HOST_MODULES`` rather than from a list written here, so
+    the fixture cannot fall behind the requirement it is meant to satisfy.
+    """
+    host = source / "gramps_live_api" / "host"
+    host.mkdir(parents=True, exist_ok=True)
+    for module in cli.HOST_MODULES:
+        (host / f"{module}.py").write_text("", encoding="utf-8")
+    return source
 
 
 def operation_file(directory: Path, payload: object) -> str:
@@ -641,8 +660,7 @@ def test_a_checkout_BESIDE_the_plugin_satisfies_it_with_no_environment(
     """
     environ = dict(equipped(tmp_path))
     del environ["GRAMPS_LIVE_API_SRC"]
-    beside = _plugin_dir(environ).parent / "src" / "gramps_live_api"
-    beside.mkdir(parents=True, exist_ok=True)
+    _lay_out_the_host_package(_plugin_dir(environ).parent / "src")
 
     checks = {check.label: check for check in cli.inspect(None, environ)}
 
@@ -676,4 +694,91 @@ def test_the_source_check_matches_what_the_host_actually_does() -> None:
     ), (
         "the host's candidate list changed; cli._host_source_candidates must "
         "change with it or check will report on a rule the host no longer uses"
+    )
+
+
+def test_an_EMPTY_gramps_live_api_directory_does_not_satisfy_the_source_check(
+    tmp_path: Path,
+) -> None:
+    """⛔ A directory with the right name is not the package.
+
+    ⚠️ The first version of this check asked ``isdir(candidate/"gramps_live_api")``
+    and stopped. An empty or partial directory satisfied it, ``check`` printed
+    **ready**, and host startup would then have died on ``from
+    gramps_live_api.host import accessor, service`` — reporting the setup sound
+    for the one route that could not run.
+
+    ⭐ **This test's own fixture is how it was found.** ``equipped`` created
+    exactly such an empty directory, so every case exercising the check was
+    asserting the exit code of a setup that does not work.
+    """
+    environ = dict(equipped(tmp_path))
+    hollow = tmp_path / "hollow" / "src"
+    (hollow / "gramps_live_api").mkdir(parents=True, exist_ok=True)
+    environ["GRAMPS_LIVE_API_SRC"] = str(hollow)
+
+    checks = {check.label: check for check in cli.inspect(None, environ)}
+
+    assert not checks["source"].ok, (
+        "an empty directory named gramps_live_api was accepted as the package"
+    )
+    for module in cli.HOST_MODULES:
+        assert module in checks["source"].detail, (
+            f"the refusal does not say that {module} is what is missing: {checks['source'].detail}"
+        )
+
+
+def test_a_PARTIAL_package_does_not_satisfy_it_either(tmp_path: Path) -> None:
+    """⚠️ Half the modules is the likelier real failure than none of them.
+
+    A copy that ran out of disk, an interrupted sync, a checkout of an older
+    revision — each leaves some of them. ⭐ Every module is required
+    individually rather than any-of, so this asserts each one's absence in turn
+    rather than one representative.
+    """
+    for missing in cli.HOST_MODULES:
+        environ = dict(equipped(tmp_path))
+        partial = tmp_path / f"partial-{missing}" / "src"
+        host = partial / "gramps_live_api" / "host"
+        host.mkdir(parents=True, exist_ok=True)
+        for module in cli.HOST_MODULES:
+            if module != missing:
+                (host / f"{module}.py").write_text("", encoding="utf-8")
+        environ["GRAMPS_LIVE_API_SRC"] = str(partial)
+
+        checks = {check.label: check for check in cli.inspect(None, environ)}
+
+        assert not checks["source"].ok, (
+            f"a package missing {missing}.py was accepted; host startup imports it"
+        )
+
+
+def test_the_required_host_modules_are_the_ones_the_host_IMPORTS() -> None:
+    """⛔ **The requirement is DERIVED from the plugin, not enumerated beside it.**
+
+    ⚠️ A hand-written list of modules is an enumeration wearing a bound's
+    clothes: a module added to the host's startup would not join it, and the
+    check would go on passing for a setup that cannot start. This project has
+    that failure recorded more than once.
+
+    ⭐ So the plugin's own source is the authority. Every ``from
+    gramps_live_api.host import ...`` in it is collected, and this fails if
+    ``cli.HOST_MODULES`` and that set disagree in either direction — a module
+    added to the host, or one left in the tuple after the host stopped importing
+    it.
+    """
+    import re
+
+    plugin = (
+        Path(__file__).resolve().parents[2] / "gramps_plugin" / "gramps_live_api_host.py"
+    ).read_text(encoding="utf-8")
+
+    imported = set()
+    for clause in re.findall(r"from gramps_live_api\.host import ([\w, ]+)", plugin):
+        imported.update(name.strip() for name in clause.split(",") if name.strip())
+
+    assert imported, "no host imports were found at all; the pattern has stopped matching"
+    assert set(cli.HOST_MODULES) == imported, (
+        f"cli.HOST_MODULES is {sorted(cli.HOST_MODULES)} but the host plugin imports "
+        f"{sorted(imported)} -- check would report a setup ready that cannot start"
     )

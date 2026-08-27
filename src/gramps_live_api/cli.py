@@ -424,6 +424,31 @@ def _host_source_candidates(plugin_dir: str, environ: Mapping[str, str]) -> list
     ]
 
 
+HOST_MODULES = ("accessor", "backup", "document", "paths", "service")
+"""⛔ The modules the host plugin imports from ``gramps_live_api.host``.
+
+⚠️ **A directory named ``gramps_live_api`` is not the package.** An empty or
+partial one satisfied ``isdir`` and this check reported ready, while host
+startup then died on ``from gramps_live_api.host import accessor, service`` --
+the same defect this check exists to catch, one level down. **The test fixture
+that exercised the check created exactly such a directory**, which is how it was
+found.
+
+⭐ **Derived, not enumerated.** ``test_the_required_host_modules_are_the_ones_the_host_IMPORTS``
+reads every ``from gramps_live_api.host import ...`` out of the plugin's source
+and fails if this tuple and that set disagree, so a module added to the host's
+startup cannot silently escape the check.
+"""
+
+
+def _holds_the_host_package(candidate: str) -> bool:
+    """Is ``gramps_live_api`` here, and does it carry what the host imports?"""
+    host = os.path.join(candidate, "gramps_live_api", "host")
+    if not os.path.isdir(host):
+        return False
+    return all(os.path.isfile(os.path.join(host, f"{module}.py")) for module in HOST_MODULES)
+
+
 def _source_check(plugin: Check, environ: Mapping[str, str]) -> Check:
     """⛔ Can the host plugin reach ``gramps_live_api`` from where it is installed?
 
@@ -444,16 +469,18 @@ def _source_check(plugin: Check, environ: Mapping[str, str]) -> Check:
     if not plugin.ok:
         return Check("source", False, "no plugin to resolve from")
     for candidate in _host_source_candidates(plugin.detail, environ):
-        if candidate and os.path.isdir(os.path.join(candidate, "gramps_live_api")):
+        if candidate and _holds_the_host_package(candidate):
             return Check("source", True, candidate)
     return Check(
         "source",
         False,
-        f"the host plugin cannot reach gramps_live_api from {plugin.detail} -- the "
-        f"plugin directory is meant to be a junction into the checkout, and a "
-        f"copied installation is not one. Re-make it as a junction, or set "
-        f"{_HOST_SRC_ENV} to the checkout's src directory. Until then the "
-        f"document route fails on import while everything else here passes.",
+        f"the host plugin cannot reach a COMPLETE gramps_live_api from "
+        f"{plugin.detail} -- it needs gramps_live_api/host/ carrying "
+        f"{', '.join(HOST_MODULES)}. The plugin directory is meant to be a "
+        f"junction into the checkout, and a copied installation is not one. "
+        f"Re-make it as a junction, or set {_HOST_SRC_ENV} to the checkout's src "
+        f"directory. Until then the document route fails on import while "
+        f"everything else here passes.",
     )
 
 
