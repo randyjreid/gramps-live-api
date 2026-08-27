@@ -146,7 +146,12 @@ exactly what the server publishes.
   sits behind an optional `mcp` extra, and installing it brings 27–30 packages with it, measured —
   what that costs, and why the SDK anyway, is in [`docs/slice2-mcp.md`](docs/slice2-mcp.md).
 
-### What is tested, and what has never run against a real tree
+### What is tested, and against what
+
+⚠️ **Two different things get called "a real tree" on pages like this, and they are
+not the same claim.** A **real Gramps database** is one a test creates, throws away,
+and can drive automatically. **The owner's own tree** is the one that matters, and
+nothing automated ever touches it.
 
 Coverage is heavy on the parts that can run without Gramps: the graph parser and its refusals, the
 preview renderer, the privacy gate, the backup machinery, the guard. Those have real tests, most with
@@ -164,17 +169,19 @@ exercised one layer down, against fakes, in the accessor and document modules.
 about what the tree would answer. The wiring from an MCP call, through the **real** HTTP listener,
 onto Gramps' main thread and back is still proved by a person running it, not by the suite.
 
-**One exception, and it is the strongest evidence here.** An integration test creates a throwaway
-Gramps database, performs the **older note flow's** write through a real `DbTxn` in a real Gramps
-process, and verifies it from a second fresh process. It runs only when pointed at an installed
-Gramps runtime, so it is skipped in CI — but it is automated, and it is real.
+**Against a real Gramps database, one thing is covered automatically, and it is the strongest
+evidence here.** An integration test creates a **throwaway** Gramps database, performs the **older
+note flow's** write through a real `DbTxn` in a real Gramps process, and verifies it from a second
+fresh process. It runs only when pointed at an installed Gramps runtime, so it is skipped in CI — but
+it is automated, and the database is real.
 
-**What no test covers against a real tree:** the **document** route's write, the plugin
-registration, the approval dialog, and every live read. Those are exercised by a person, watching —
-and never against the owner's own data.
+**Against a real Gramps database, these are not covered at all:** the **document** route's write, the
+plugin registration, the approval dialog, and every live read. A fake host proves the MCP layer calls
+the right route; only a database can say what comes back.
 
-⚠️ **The fake-host tests above do not change that.** They prove the MCP layer calls the right route;
-only a real tree can say what comes back.
+⛔ **And against the owner's own tree, nothing is automated — not one of the above.** Every write and
+every read into the tree he actually works in is exercised by a person, watching. That is deliberate
+and it is not going to change.
 
 ## Where it is going
 
