@@ -111,3 +111,23 @@ that is not a node group. Nothing is dropped quietly. Note in particular:
 A node with a `gramps_id` is attached to, never modified — its other fields are
 dropped and shown to the owner as dropped — except a family's `children`, which
 join the existing family.
+
+## ⭐ A family event: `events[].family`
+
+**Family-level events are creatable, and this is the key that does it.** A
+marriage or a divorce belongs on the family, and an event node carries
+`family` — a family's local id, or its `gramps_id` from `find_families` — the
+same way it carries `people`:
+
+    "events": [
+      {"type": "Marriage", "date": "...", "family": "<the family's id>"}
+    ]
+
+The writer attaches it with Gramps' own family role, and commits the family. So
+`family` and `people` are the two ways an event finds its subject: **`people`
+for a person's own events — birth, death, census, residence — and `family` for
+a couple's.**
+
+⚠️ **This was believed impossible once, from a roadmap line describing a hole
+that has since been closed.** A capability nobody knows about is a capability
+nobody uses, so it is written here rather than left to be rediscovered.
