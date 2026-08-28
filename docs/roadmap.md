@@ -503,6 +503,20 @@ sentence — *"add her marriage, about 1893, in Cork"* — trips three things th
 marriage attaches canonically to a **Family** object (the `add_family` hole), *"in Cork"* is a
 **place** and no slice owns `add_place`, and the citation dependency above.
 
+> ⭐ **All three of those holes are now closed, by the document route rather than by this slice.**
+> The paragraph above is kept because its reasoning is why the demo was trimmed, and that was
+> correct at the time — but read on its own it says the tool cannot write a marriage, which is no
+> longer true and has already produced a false belief in a research log (issue #169).
+>
+> A document graph carries `people`, `places`, `events`, `source`, `citations`, `families` and
+> `notes`. So: **a marriage is an event carrying `family`** — a family's local id or its `gramps_id`
+> from `find_families` — written with Gramps' own family role; **a place is a node like any other**,
+> created in the graph or attached by `gramps_id`, and named by an event's `place`; and **a citation
+> is a node group** taking `source`, `page` and `attach_to`.
+>
+> ⚠️ What this does **not** say is that the wider sentence now works end to end unassisted. It says
+> the three structural holes it named are gone.
+
 ⚠️ **A requirement on #21 that nobody has stated:** the date model must be **wire-expressible in the
 operation vocabulary** — an agent builds it through `propose_*` arguments — not merely constructible
 in Python. #21's out-of-scope note assumed a parser would be inherited from Gramps; D1's import check
