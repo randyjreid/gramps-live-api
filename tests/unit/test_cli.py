@@ -106,6 +106,34 @@ def equipped(tmp_path: Path, **extra: str) -> dict[str, str]:
     }
 
 
+# ⛔ Captured BEFORE the autouse fixture below can replace it, so the three tests
+# that are about the gate itself call the real thing rather than the stub.
+THE_REAL_PUSH_GATE_CHECK = cli._push_gate_check
+
+
+@pytest.fixture(autouse=True)
+def _the_push_gate_is_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """⛔ Every test in this file is about the TREE, not about this clone's hooks.
+
+    ⚠️ ``check`` reports the push gate, and the gate is a property of **the
+    checkout the code was loaded from** -- not of ``environ``, so ``equipped``
+    cannot supply it. On a fresh clone, and on every CI runner, no hook is
+    installed, so a test asserting ``code == 0`` about a blessed copy was
+    asserting the exit code of a machine that simply had not run the one-line
+    install. **Four of them went red on the Linux matrix for exactly that.**
+
+    ⭐ Same argument ``equipped`` already makes about the runtime: a test about
+    the copy has to supply the rest of the picture, or it measures something else
+    entirely. The three tests that are genuinely about the gate call
+    ``_push_gate_check`` directly and are untouched by this.
+    """
+    monkeypatch.setattr(
+        cli,
+        "_push_gate_check",
+        lambda: cli.Check("push gate", True, "installed (stubbed for tree tests)"),
+    )
+
+
 def operation_file(directory: Path, payload: object) -> str:
     path = directory / "op.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -601,7 +629,7 @@ def test_check_reports_the_push_gate_as_installed_when_our_hook_is_there(
         lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "hooks\n", ""),
     )
 
-    check = cli._push_gate_check()
+    check = THE_REAL_PUSH_GATE_CHECK()
 
     assert check.ok, check.detail
     assert "--no-verify" in check.detail, (
@@ -621,7 +649,7 @@ def test_check_reports_the_push_gate_as_MISSING_and_names_the_command(
         lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "hooks\n", ""),
     )
 
-    check = cli._push_gate_check()
+    check = THE_REAL_PUSH_GATE_CHECK()
 
     assert not check.ok
     assert "NOT installed" in check.detail
@@ -651,7 +679,7 @@ def test_SOMEONE_ELSES_pre_push_hook_is_not_reported_as_this_gate(
         lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "hooks\n", ""),
     )
 
-    check = cli._push_gate_check()
+    check = THE_REAL_PUSH_GATE_CHECK()
 
     assert not check.ok, "a foreign pre-push hook was reported as this project's gate"
     assert "not this one" in check.detail, check.detail
