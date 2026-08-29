@@ -91,7 +91,13 @@ def equipped(tmp_path: Path, **extra: str) -> dict[str, str]:
     runtime.write_text("", encoding="utf-8")
     plugins = tmp_path / "roaming" / "gramps" / "gramps60" / "plugins" / "gramps-live-api"
     plugins.mkdir(parents=True, exist_ok=True)
-    (plugins / "gramps_live_api_apply.gpr.py").write_text("", encoding="utf-8")
+    # ⛔ Every file the plugin directory must hold, from cli.PLUGIN_FILES rather
+    # than from a name written here. Laying down only the apply registration
+    # equipped "a registered plugin" that registers no HOST -- so the document
+    # route could not start, and every caller was asserting the exit code of a
+    # setup that half works.
+    for name in cli.PLUGIN_FILES:
+        (plugins / name).write_text("", encoding="utf-8")
     # ⛔ **The host has to reach the package, and finding the .gpr.py does not
     # prove it can.** ``check`` reports that separately now, so a helper that
     # equips "a registered plugin" and stops leaves every caller asserting the
@@ -753,32 +759,95 @@ def test_a_PARTIAL_package_does_not_satisfy_it_either(tmp_path: Path) -> None:
         )
 
 
-def test_the_required_host_modules_are_the_ones_the_host_IMPORTS() -> None:
-    """⛔ **The requirement is DERIVED from the plugin, not enumerated beside it.**
+def test_HOST_MODULES_is_the_TRANSITIVE_closure_of_what_the_host_imports() -> None:
+    """⛔ **Two spellings of one rule, pinned to each other.**
 
-    ⚠️ A hand-written list of modules is an enumeration wearing a bound's
-    clothes: a module added to the host's startup would not join it, and the
-    check would go on passing for a setup that cannot start. This project has
-    that failure recorded more than once.
+    ``cli`` cannot import ``gramps_live_api_host`` -- it imports Gramps at module
+    scope -- so the requirement is transcribed, the same way ``_gramps_user_data``
+    transcribes Gramps' own rule. A transcription that nothing checks is how the
+    two ends stop agreeing.
 
-    ⭐ So the plugin's own source is the authority. Every ``from
-    gramps_live_api.host import ...`` in it is collected, and this fails if
-    ``cli.HOST_MODULES`` and that set disagree in either direction — a module
-    added to the host, or one left in the tuple after the host stopped importing
-    it.
+    ⚠️ **The first version walked only the plugin shim's own imports, and that
+    was not enough.** ``service`` imports ``httpd``, ``log``, ``mainthread``,
+    ``reads``, ``status`` and ``tokens`` at module scope; a tree holding the
+    shim's five and missing ``httpd.py`` passed the check and then failed inside
+    Gramps. **A closure is what the runtime needs; the first level is what is
+    easy to read.**
+
+    ⭐ So this walks the imports through every module they reach, and fails in
+    **either** direction -- a module added to the host's startup that is not in
+    the tuple, or one left in the tuple after the host stopped reaching it.
     """
-    import re
+    import ast
 
-    plugin = (
-        Path(__file__).resolve().parents[2] / "gramps_plugin" / "gramps_live_api_host.py"
-    ).read_text(encoding="utf-8")
+    root = Path(__file__).resolve().parents[2]
+    host = root / "src" / "gramps_live_api" / "host"
 
-    imported = set()
-    for clause in re.findall(r"from gramps_live_api\.host import ([\w, ]+)", plugin):
-        imported.update(name.strip() for name in clause.split(",") if name.strip())
+    def imported_by(source: str) -> set[str]:
+        found: set[str] = set()
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.ImportFrom) or not node.module:
+                continue
+            if node.module == "gramps_live_api.host":
+                found.update(alias.name for alias in node.names)
+            elif node.module.startswith("gramps_live_api.host."):
+                found.add(node.module.split(".")[-1])
+        return found
 
-    assert imported, "no host imports were found at all; the pattern has stopped matching"
-    assert set(cli.HOST_MODULES) == imported, (
-        f"cli.HOST_MODULES is {sorted(cli.HOST_MODULES)} but the host plugin imports "
-        f"{sorted(imported)} -- check would report a setup ready that cannot start"
+    plugin = (root / "gramps_plugin" / "gramps_live_api_host.py").read_text(encoding="utf-8")
+    closure = imported_by(plugin)
+    assert closure, "no host imports were found at all; the pattern has stopped matching"
+
+    pending = list(closure)
+    while pending:
+        module = host / f"{pending.pop()}.py"
+        if not module.is_file():
+            continue
+        for dependency in imported_by(module.read_text(encoding="utf-8")):
+            if dependency not in closure:
+                closure.add(dependency)
+                pending.append(dependency)
+
+    assert set(cli.HOST_MODULES) == closure, (
+        f"cli.HOST_MODULES is {sorted(cli.HOST_MODULES)} but the host's import "
+        f"closure is {sorted(closure)} -- check would report a setup ready that "
+        f"cannot start"
+    )
+
+
+def test_PLUGIN_FILES_is_what_the_plugin_directory_actually_holds() -> None:
+    """⛔ Derived from ``gramps_plugin/`` rather than written beside it."""
+    root = Path(__file__).resolve().parents[2]
+    on_disk = {path.name for path in (root / "gramps_plugin").glob("*.py")}
+
+    assert set(cli.PLUGIN_FILES) == on_disk, (
+        f"cli.PLUGIN_FILES is {sorted(cli.PLUGIN_FILES)} but gramps_plugin/ holds "
+        f"{sorted(on_disk)} -- a file added there would never be checked for"
+    )
+
+
+def test_a_plugin_directory_without_the_HOST_registration_is_refused(tmp_path: Path) -> None:
+    """⛔ Finding one ``.gpr.py`` proves something is installed, not both routes.
+
+    ⚠️ ``_PLUGIN_GLOB`` matches ``gramps_live_api_apply.gpr.py`` alone. A
+    directory holding that and **not** ``gramps_live_api_host.gpr.py`` registers
+    no host, so Gramps never starts the document route -- and every line of the
+    report read ``ok``.
+    """
+    environ = equipped(tmp_path)
+    checks = {check.label: check for check in cli.inspect(None, environ)}
+    plugin_dir = Path(checks["plugin"].detail)
+    for name in cli.PLUGIN_FILES:
+        (plugin_dir / name).write_text("", encoding="utf-8")
+
+    complete = {check.label: check for check in cli.inspect(None, environ)}
+    assert complete["source"].ok, complete["source"].detail
+
+    (plugin_dir / "gramps_live_api_host.gpr.py").unlink()
+    partial = {check.label: check for check in cli.inspect(None, environ)}
+
+    assert partial["plugin"].ok, "the apply registration is still there, so plugin stays ok"
+    assert not partial["source"].ok, "a plugin directory registering no host was reported as ready"
+    assert "gramps_live_api_host.gpr.py" in partial["source"].detail, (
+        f"the refusal does not name what is missing: {partial['source'].detail}"
     )

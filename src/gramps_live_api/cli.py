@@ -424,7 +424,38 @@ def _host_source_candidates(plugin_dir: str, environ: Mapping[str, str]) -> list
     ]
 
 
-HOST_MODULES = ("accessor", "backup", "document", "paths", "service")
+PLUGIN_FILES = (
+    "gramps_live_api_apply.gpr.py",
+    "gramps_live_api_apply.py",
+    "gramps_live_api_host.gpr.py",
+    "gramps_live_api_host.py",
+    "gramps_live_api_writer.py",
+)
+"""Every file the plugin directory must hold for BOTH routes to start.
+
+⛔ ``_PLUGIN_GLOB`` finds one of these -- the apply registration -- and finding it
+proved only that something was installed. **A directory holding that file and not
+``gramps_live_api_host.gpr.py`` registers no host at all**, so Gramps never starts
+the document route while every line of the report reads ok.
+
+⚠️ The writer is here too and is not optional: Gramps ``exec``s a plugin rather
+than importing it, so the plugin folder is not on ``sys.path``, and the host adds
+its own directory precisely so the writer can be imported by name."""
+
+HOST_MODULES = (
+    "accessor",
+    "auth",
+    "backup",
+    "document",
+    "httpd",
+    "log",
+    "mainthread",
+    "paths",
+    "reads",
+    "service",
+    "status",
+    "tokens",
+)
 """⛔ The modules the host plugin imports from ``gramps_live_api.host``.
 
 ⚠️ **A directory named ``gramps_live_api`` is not the package.** An empty or
@@ -434,10 +465,17 @@ the same defect this check exists to catch, one level down. **The test fixture
 that exercised the check created exactly such a directory**, which is how it was
 found.
 
-⭐ **Derived, not enumerated.** ``test_the_required_host_modules_are_the_ones_the_host_IMPORTS``
-reads every ``from gramps_live_api.host import ...`` out of the plugin's source
-and fails if this tuple and that set disagree, so a module added to the host's
-startup cannot silently escape the check.
+⚠️ **The shim's own five were not enough, and the gap was silent.** ``service``
+imports ``httpd``, ``log``, ``mainthread``, ``reads``, ``status`` and ``tokens``
+at module scope, and ``accessor`` reaches several of them too. A tree holding the
+five and missing ``httpd.py`` satisfied the check and then failed inside Gramps
+while importing ``service`` -- so ``check`` said ready for a route that could not
+start. This is the TRANSITIVE closure.
+
+⭐ **Derived, not enumerated.** A test walks the plugin's imports through every
+module they reach and fails if this tuple and that closure disagree in either
+direction. Measured, the closure is every module in ``host/`` -- which is the
+answer a hand-written list would have been least likely to reach.
 """
 
 
@@ -468,6 +506,18 @@ def _source_check(plugin: Check, environ: Mapping[str, str]) -> Check:
     """
     if not plugin.ok:
         return Check("source", False, "no plugin to resolve from")
+    absent = [
+        name for name in PLUGIN_FILES if not os.path.isfile(os.path.join(plugin.detail, name))
+    ]
+    if absent:
+        return Check(
+            "source",
+            False,
+            f"the plugin directory is incomplete -- it is missing "
+            f"{', '.join(absent)}. Finding one .gpr.py proves something is "
+            f"installed, not that both routes can start: without the host "
+            f"registration Gramps never starts the document route at all",
+        )
     for candidate in _host_source_candidates(plugin.detail, environ):
         if candidate and _holds_the_host_package(candidate):
             return Check("source", True, candidate)
