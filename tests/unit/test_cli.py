@@ -16,9 +16,12 @@ from __future__ import annotations
 import io
 import json
 import os
+import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+
+import pytest
 
 from gramps_live_api import cli, config, invocation
 from gramps_live_api.core import apply, schema
@@ -575,3 +578,80 @@ def test_apply_sends_a_digest_of_the_operation_beside_the_sentence(tmp_path: Pat
     _, child_env = runner.runs[0]
     assert child_env[invocation.ENV_APPROVED_DIGEST] == apply.approval_digest(OPERATION)
     assert child_env[invocation.ENV_APPROVED] == schema.preview(OPERATION)
+
+
+# ---------------------------------------------------------------------------
+# ⛔ Is the personal-data guard wired to anything?
+# ---------------------------------------------------------------------------
+
+
+def test_check_reports_the_push_gate_as_installed_when_our_hook_is_there(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⭐ Installed, and reported with its bypass named rather than hidden."""
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    (hooks / "pre-push").write_text(
+        f"#!/bin/sh\npython -m {cli.HOOK_MARKER} --range x..y .\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(cli, "CHECKOUT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "hooks\n", ""),
+    )
+
+    check = cli._push_gate_check()
+
+    assert check.ok, check.detail
+    assert "--no-verify" in check.detail, (
+        "the gate must not be reported as though it were unbypassable"
+    )
+
+
+def test_check_reports_the_push_gate_as_MISSING_and_names_the_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⛔ The state this project was actually in, and nothing said so."""
+    (tmp_path / "hooks").mkdir()
+    monkeypatch.setattr(cli, "CHECKOUT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "hooks\n", ""),
+    )
+
+    check = cli._push_gate_check()
+
+    assert not check.ok
+    assert "NOT installed" in check.detail
+    assert "cp scripts/hooks/pre-push" in check.detail, (
+        "a refusal that names a condition and stops is where a setup gets abandoned"
+    )
+
+
+def test_SOMEONE_ELSES_pre_push_hook_is_not_reported_as_this_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⛔ Present is not the same as ours.
+
+    ⚠️ A hook at that path doing something else entirely would satisfy an
+    existence check, and ``check`` would then report the personal-data gate as
+    wired up when nothing runs the guard at all. **That is worse than reporting
+    nothing**, because it is a false assurance about the one thing standing
+    between this tree and a public repository.
+    """
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    (hooks / "pre-push").write_text("#!/bin/sh\nexec npm test\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "CHECKOUT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "hooks\n", ""),
+    )
+
+    check = cli._push_gate_check()
+
+    assert not check.ok, "a foreign pre-push hook was reported as this project's gate"
+    assert "not this one" in check.detail, check.detail

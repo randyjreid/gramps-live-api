@@ -2862,7 +2862,15 @@ SAFE_EXTENSIONS = frozenset({".md", ".py", ".toml", ".yml"})
 # project has no property for. One generated file, named. Being here exempts it
 # from the type gate and from nothing else -- P1, P2 and the deny-list all
 # still run over its contents. See CONTRIBUTING.md.
-SAFE_BASENAMES = frozenset({".gitignore", "LICENSE", "uv.lock"})
+SAFE_BASENAMES = frozenset({".gitignore", "LICENSE", "pre-push", "uv.lock"})
+"""Extensionless files this project publishes, each admitted by NAME.
+
+⚠️ ``pre-push`` is a git hook, and git requires the name without a suffix -- so
+there is no extension for ``SAFE_EXTENSIONS`` to admit. It is a POSIX shell
+script: text, read by ``sh``, and every line of it is still scanned for paths and
+deny-list entries exactly like any other file. **What is waived is only the
+"prove the TYPE is safe" step**, and a shell script cannot carry a family tree
+any more than ``.gitignore`` can."""
 
 _HOW_TO_ALLOW_A_TYPE = (
     "if this type belongs in the repository, add it to SAFE_EXTENSIONS or "
