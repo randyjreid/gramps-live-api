@@ -683,3 +683,34 @@ def test_SOMEONE_ELSES_pre_push_hook_is_not_reported_as_this_gate(
 
     assert not check.ok, "a foreign pre-push hook was reported as this project's gate"
     assert "not this one" in check.detail, check.detail
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows has no executable bit to withhold")
+def test_a_NON_EXECUTABLE_hook_is_not_reported_as_a_working_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⛔ Git ignores a hook it cannot execute, and pushes anyway.
+
+    ⚠️ Git 2.43 says so explicitly and then proceeds, so reporting ``ok`` here is
+    false assurance **in exactly the state this check exists to detect**.
+
+    ⭐ And the mode is easy to lose rather than exotic: this repository's own hook
+    reached the index as ``100644``, because Windows git does not track the file
+    mode by default. CI caught it on the first Linux run.
+    """
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    hook = hooks / "pre-push"
+    hook.write_text(f"#!/bin/sh\npython -m {cli.HOOK_MARKER} .\n", encoding="utf-8")
+    hook.chmod(0o644)
+    monkeypatch.setattr(cli, "CHECKOUT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "hooks\n", ""),
+    )
+
+    check = THE_REAL_PUSH_GATE_CHECK()
+
+    assert not check.ok, "a hook git would ignore was reported as a working gate"
+    assert "NOT EXECUTABLE" in check.detail, check.detail

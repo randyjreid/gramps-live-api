@@ -457,6 +457,18 @@ def _push_gate_check() -> Check:
             "a pre-push hook is installed but it is not this one -- it does not run "
             "pii_guard. Whatever it does, the personal-data gate is not wired up",
         )
+    # ⛔ **Executable, not merely present.** Git 2.43 reports that it ignored a
+    # non-executable hook and PROCEEDS WITH THE PUSH. Reporting ok here would be
+    # false assurance in exactly the state this check exists to detect -- and the
+    # mode is easy to lose: this repository's own hook reached the index as
+    # 100644, because Windows git does not track the file mode by default.
+    if os.name != "nt" and not os.access(installed, os.X_OK):
+        return Check(
+            "push gate",
+            False,
+            f"{installed} is installed but NOT EXECUTABLE, so git ignores it and "
+            f"pushes anyway. chmod +x it",
+        )
     return Check("push gate", True, f"{installed} (bypassable with --no-verify)")
 
 

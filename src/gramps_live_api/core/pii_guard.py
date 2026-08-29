@@ -2862,15 +2862,26 @@ SAFE_EXTENSIONS = frozenset({".md", ".py", ".toml", ".yml"})
 # project has no property for. One generated file, named. Being here exempts it
 # from the type gate and from nothing else -- P1, P2 and the deny-list all
 # still run over its contents. See CONTRIBUTING.md.
-SAFE_BASENAMES = frozenset({".gitignore", "LICENSE", "pre-push", "uv.lock"})
-"""Extensionless files this project publishes, each admitted by NAME.
+SAFE_BASENAMES = frozenset({".gitignore", "LICENSE", "uv.lock"})
+"""Extensionless files this project publishes, admitted by NAME ANYWHERE.
 
-⚠️ ``pre-push`` is a git hook, and git requires the name without a suffix -- so
-there is no extension for ``SAFE_EXTENSIONS`` to admit. It is a POSIX shell
-script: text, read by ``sh``, and every line of it is still scanned for paths and
-deny-list entries exactly like any other file. **What is waived is only the
-"prove the TYPE is safe" step**, and a shell script cannot carry a family tree
-any more than ``.gitignore`` can."""
+⛔ A name belongs here only when it means the same thing in every directory. A
+``.gitignore`` is a gitignore wherever it sits; a ``LICENSE`` is a licence."""
+
+SAFE_PATHS = frozenset({"scripts/hooks/pre-push"})
+"""Extensionless files admitted at ONE PATH, and nowhere else.
+
+⛔ **``pre-push`` was briefly in ``SAFE_BASENAMES`` and that was a hole.** Git
+requires a hook's name without a suffix, so there is no extension to admit -- but
+a basename-wide exemption waives the type check for **every** tracked file called
+``pre-push``, in any directory, whatever it contains. A file of family records
+renamed ``pre-push`` would have been reported clean while the identical bytes
+named ``family.csv`` are a P2. **That defeats the fail-closed classification this
+guard is built on**, and it was opened while fixing something else.
+
+⚠️ The exemption is still only from the *prove-the-TYPE-is-safe* step. Every line
+of the file is scanned for paths and deny-list entries exactly like any other, so
+what is waived is the classification, never the content."""
 
 _HOW_TO_ALLOW_A_TYPE = (
     "if this type belongs in the repository, add it to SAFE_EXTENSIONS or "
@@ -3647,7 +3658,12 @@ def _classify_content(
         # name describes its content. It is not an exemption from being
         # classified at all: a document wearing this mode is still a document.
         return refuse("a symlink blob that is not a path")
-    if not is_symlink and suffix not in SAFE_EXTENSIONS and name not in SAFE_BASENAMES:
+    known = (
+        suffix in SAFE_EXTENSIONS
+        or name in SAFE_BASENAMES
+        or PurePosixPath(path_text).as_posix() in SAFE_PATHS
+    )
+    if not is_symlink and not known:
         return refuse(
             f"the file type cannot be proved safe -- {_HOW_TO_ALLOW_A_TYPE}", match=suffix or name
         )
