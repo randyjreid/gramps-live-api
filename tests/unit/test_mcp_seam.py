@@ -257,6 +257,28 @@ def _assert_it_asked(tool: str, url: str, route: str, query: dict[str, str]) -> 
         )
 
 
+def _refusal_reaching_an_mcp_caller(tools: Any, tool: str, kwargs: dict[str, Any]) -> str:
+    """What a client actually receives when a registered wrapper refuses.
+
+    ⛔ **Not the internal exception text.** Calling ``Tools`` directly proves what
+    ``ToolRefusal`` says; it says nothing about what survives the SDK's own
+    handling at the registered boundary. A change that replaced or truncated the
+    host's detail there would keep every direct-call assertion green while real
+    callers received something else.
+
+    ⭐ Measured: the SDK raises ``ToolError`` and the refusal's text is carried
+    inside its message, so the text is what gets asserted rather than the type.
+    """
+    import asyncio
+
+    server = mcp_server.build_server(tools)
+    try:
+        asyncio.run(server.call_tool(tool, kwargs))
+    except Exception as reached:  # noqa: BLE001 - the SDK's wrapper type is its own
+        return str(reached)
+    raise AssertionError(f"{tool} did not refuse at all; the caller got a result")
+
+
 def _through_the_registered_wrapper(tools: Any, tool: str, kwargs: dict[str, Any]) -> Any:
     """⛔ Call the tool the way an MCP client would, not the way we would.
 
@@ -333,11 +355,10 @@ def test_no_host_at_all_refuses_by_naming_the_remedy(tmp_path: Path) -> None:
     """
     tools = _tools(tmp_path, None, running=False)
 
-    with pytest.raises(mcp_server.ToolRefusal) as refused:
-        tools.find_people(name="anybody")
+    reached = _refusal_reaching_an_mcp_caller(tools, "find_people", {"name": "anybody"})
 
-    assert "not running" in str(refused.value), str(refused.value)
-    assert "Gramps" in str(refused.value), str(refused.value)
+    assert "not running" in reached, reached
+    assert "Gramps" in reached, reached
 
 
 def test_a_host_that_REFUSES_surfaces_its_own_detail(tmp_path: Path) -> None:
@@ -359,12 +380,9 @@ def test_a_host_that_REFUSES_surfaces_its_own_detail(tmp_path: Path) -> None:
     host.raises.read = lambda: json.dumps({"detail": detail}).encode("utf-8")  # type: ignore[method-assign]
     tools = _tools(tmp_path, host)
 
-    with pytest.raises(mcp_server.ToolRefusal) as refused:
-        tools.find_people(name="anybody")
+    reached = _refusal_reaching_an_mcp_caller(tools, "find_people", {"name": "anybody"})
 
-    assert detail in str(refused.value), (
-        f"the host's own reason did not reach the caller: {refused.value}"
-    )
+    assert detail in reached, f"the host's own reason did not survive to the MCP caller: {reached}"
 
 
 def test_a_host_that_is_UNREACHABLE_asks_whether_gramps_is_open(tmp_path: Path) -> None:
@@ -377,10 +395,9 @@ def test_a_host_that_is_UNREACHABLE_asks_whether_gramps_is_open(tmp_path: Path) 
     host.raises = OSError("connection refused")
     tools = _tools(tmp_path, host)
 
-    with pytest.raises(mcp_server.ToolRefusal) as refused:
-        tools.find_people(name="anybody")
+    reached = _refusal_reaching_an_mcp_caller(tools, "find_people", {"name": "anybody"})
 
-    assert "Gramps" in str(refused.value), f"the refusal does not point at Gramps: {refused.value}"
+    assert "Gramps" in reached, f"the refusal does not point at Gramps: {reached}"
 
 
 @pytest.mark.parametrize("tool, kwargs, route, query", LIVE_READ_DEFAULTS)
