@@ -144,13 +144,25 @@ join the existing family.
 ## ⭐ A family event: `events[].family`
 
 **Family-level events are creatable, and this is the key that does it.** A
-marriage or a divorce belongs on the family, and an event node carries
-`family` — a family's local id, or its `gramps_id` from `find_families` — the
-same way it carries `people`:
+marriage or a divorce belongs on the family, and an event node carries `family`
+the same way it carries `people`.
 
+⛔ **`family` names a LOCAL id, never a `gramps_id` directly.** Every reference
+names a node in the graph, so the family gets a node of its own carrying the
+`gramps_id`, and the event points at that node's local id:
+
+    "families": [
+      {"id": "f1", "gramps_id": "<from find_families>"}
+    ],
     "events": [
-      {"type": "Marriage", "date": "...", "family": "<the family's id>"}
+      {"id": "e1", "type": "Marriage", "date": "...", "family": "f1"}
     ]
+
+⚠️ **Both ids in that example are required and both were missing from the first
+version of this page.** Putting the `gramps_id` straight into `family` is
+refused — *"event 'e1''s family refers to '…', which is not in this graph"* —
+and an event with no `id` is refused before that: *"every entry in 'events'
+needs an 'id'"*. The example above is the one that parses.
 
 The writer attaches it with Gramps' own family role, and commits the family. So
 `family` and `people` are the two ways an event finds its subject: **`people`
