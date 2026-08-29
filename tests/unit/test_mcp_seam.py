@@ -315,12 +315,37 @@ def test_a_live_read_reaches_its_own_route_with_its_own_parameters(
     every tool to the same route with the wrong argument — which is exactly the
     class of defect an untested seam hides.
     """
-    host = Host()
+    # ⭐ A payload only this call could have produced, so the result assertion
+    # below cannot be satisfied by a wrapper that returned something else.
+    host = Host({"ok": True, "results": [], "echo": f"{tool}-answered"})
     tools = _tools(tmp_path, host)
 
-    _through_the_registered_wrapper(tools, tool, kwargs)
+    returned = _through_the_registered_wrapper(tools, tool, kwargs)
 
     _assert_it_asked(tool, host.last["url"], route, query)
+
+    # ⛔ **The host's answer has to come BACK, not just go out.** A wrapper that
+    # called the right method and then returned ``{}`` -- or another tool's
+    # result -- satisfied every route, query and token assertion here while an
+    # MCP client received nothing. The outbound half was tested and the return
+    # half was discarded.
+    assert returned.structured_content == {
+        "ok": True,
+        "results": [],
+        "echo": f"{tool}-answered",
+    }, (
+        f"{tool} reached its route but the host's answer did not reach the "
+        f"caller: {returned.structured_content}"
+    )
+
+    # ⛔ **GET, asserted rather than merely recorded.** The recorder captures the
+    # method and nothing looked at it. The fake accepts every verb; the real
+    # host's ``do_POST`` serves one route and 404s every live read, so a change
+    # that attached data -- turning these into POSTs -- would keep every test
+    # here green and 404 against Gramps.
+    assert host.last["method"] == "GET", (
+        f"{tool} used {host.last['method']}; the real host 404s live reads on anything but GET"
+    )
 
 
 def test_every_live_read_carries_the_bearer_token(tmp_path: Path) -> None:
