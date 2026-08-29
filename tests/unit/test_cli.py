@@ -620,9 +620,7 @@ def test_check_reports_the_push_gate_as_installed_when_our_hook_is_there(
     hooks = tmp_path / "hooks"
     hooks.mkdir()
     hook = hooks / "pre-push"
-    hook.write_text(
-        f"#!/bin/sh\npython -m {cli.HOOK_MARKER} --range x..y .\n", encoding="utf-8"
-    )
+    hook.write_text(f"#!/bin/sh\npython -m {cli.HOOK_MARKER} --range x..y .\n", encoding="utf-8")
     # ⛔ Executable, because the check now requires it. On Windows this line is
     # a no-op, which is exactly why the omission was invisible here and red on
     # every Linux runner.
