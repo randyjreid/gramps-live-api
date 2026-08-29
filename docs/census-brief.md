@@ -39,6 +39,35 @@ carrying the same `gramps_id` are refused and the whole proposal is rejected.
 
 Listing one local id twice inside `children` or `attach_to` is fine.
 
+## Before proposing a source or citation
+
+Call **`find_source`** for this document's source, and if it exists,
+**`find_citation`** on it with the page. If a citation already names the page you
+are about to enter, this document is probably already in the tree — **say so; do
+not propose it again.**
+
+⛔ **Citations are always created new; nothing matches them.** They cannot carry a
+`gramps_id`, so there is no attaching to one. Re-transcribing the same page adds a
+**second** citation rather than warning you, and nothing downstream will notice.
+
+## ⛔ When you attach to an existing event, say what could not be written
+
+An event you attach to **keeps its own fields.** Its date, place and description
+come from the tree, and anything you send for them is **dropped** — shown to the
+owner as dropped, but dropped.
+
+⚠️ So when the document says something about that event which the tree does not
+already hold — **a birthplace where the tree's event has no place**, a more
+precise date, a different place — the citation attaches and **that detail cannot
+be written at all.**
+
+**Attach anyway; do not create a second event.** But **tell the owner explicitly
+what the document carries that the existing event cannot receive**, so he can add
+it by hand in Gramps. ⛔ Silently attaching and moving on loses the fact.
+
+The same for a disagreement: if the document's birthplace differs from the tree's,
+**say so.** That is two sources disagreeing and it is his to resolve.
+
 ## Before proposing an event, look at what the person already has
 
 `list_events` on that person and say what they already hold of that type. The
