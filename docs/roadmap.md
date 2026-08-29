@@ -509,8 +509,10 @@ marriage attaches canonically to a **Family** object (the `add_family` hole), *"
 > longer true and has already produced a false belief in a research log (issue #169).
 >
 > A document graph carries `people`, `places`, `events`, `source`, `citations`, `families` and
-> `notes`. So: **a marriage is an event carrying `family`** — a family's local id or its `gramps_id`
-> from `find_families` — written with Gramps' own family role; **a place is a node like any other**,
+> `notes`. So: **a marriage is an event carrying `family`** — the **local id** of a `families` node
+> in the same graph, which is where the `gramps_id` from `find_families` goes; it is written with
+> Gramps' own family role. ⚠️ A bare `gramps_id` in `family` is refused as a dangling reference,
+> measured. **A place is a node like any other**,
 > created in the graph or attached by `gramps_id`, and named by an event's `place`; and **a citation
 > is a node group** taking `source`, `page` and `attach_to`.
 >
