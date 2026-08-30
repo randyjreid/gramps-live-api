@@ -61,8 +61,12 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
     # It was this project's own test harness that produced CRLF here, and the
     # consequence is why it is worth guarding rather than only fixing the
     # harness: four tests named a branch, never reached it, and passed anyway.
-    remote_sha=${remote_sha%"$(printf '')"}
-    local_sha=${local_sha%"$(printf '')"}
+    # ⛔ Octal, deliberately. Writing this as a backslash-r escape put a
+    # LITERAL carriage return into the script instead -- caught by this
+    # branch's own test, which asserts the committed hook holds none.
+    cr=$(printf '\015')
+    remote_sha=${remote_sha%"$cr"}
+    local_sha=${local_sha%"$cr"}
 
     # A deletion publishes nothing.
     [ "$local_sha" = "$ZERO" ] && continue

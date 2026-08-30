@@ -396,3 +396,36 @@ def test_a_new_ref_on_a_DIFFERENT_remote_is_fully_scanned(tmp_path: Path) -> Non
         f"a new ref on another remote was pushed unscanned. stdout={result.stdout!r}"
     )
     assert "PUSH REFUSED" in result.stdout, result.stdout
+
+
+def test_the_committed_hook_has_no_CARRIAGE_RETURNS() -> None:
+    """⛔ A shell script with CRLF is not a shell script on Linux.
+
+    ⚠️ **This is asserted against the COMMITTED BLOB, not the working tree.**
+    On a Windows checkout the file on disk may legitimately have CRLF; what
+    breaks is what git stores and what a Linux runner checks out. Reading the
+    working tree here would pass on the machine that caused the problem.
+
+    ⭐ Measured when it happened: every Linux leg failed with
+    ``set: Illegal option -^M`` before the file reached its second line, and
+    ``core.autocrlf`` did not prevent it. ``.gitattributes`` pins ``eol=lf``;
+    this is what notices if that pin is removed or stops applying.
+
+    ⚠️ Second time carriage returns broke this hook. The first was the harness
+    feeding CRLF on stdin, which made every comparison against the all-zero sha
+    false and let four tests pass without reaching the branch they named.
+    """
+    blob = subprocess.run(
+        # ⭐ The INDEX, not HEAD: it is what the next commit will store, and in a
+        # clean checkout -- every CI run -- it equals HEAD. Reading HEAD would
+        # make this fail on the very commit that fixes it.
+        ["git", "show", ":scripts/hooks/pre-push"],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        check=True,
+    ).stdout
+
+    assert b"\r" not in blob, (
+        "the committed hook contains carriage returns, so /bin/sh on Linux fails "
+        "on its first line -- check .gitattributes still pins eol=lf for it"
+    )

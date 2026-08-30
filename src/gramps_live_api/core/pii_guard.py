@@ -2862,11 +2862,17 @@ SAFE_EXTENSIONS = frozenset({".md", ".py", ".toml", ".yml"})
 # project has no property for. One generated file, named. Being here exempts it
 # from the type gate and from nothing else -- P1, P2 and the deny-list all
 # still run over its contents. See CONTRIBUTING.md.
-SAFE_BASENAMES = frozenset({".gitignore", "LICENSE", "uv.lock"})
+SAFE_BASENAMES = frozenset({".gitattributes", ".gitignore", "LICENSE", "uv.lock"})
 """Extensionless files this project publishes, admitted by NAME ANYWHERE.
 
 ⛔ A name belongs here only when it means the same thing in every directory. A
-``.gitignore`` is a gitignore wherever it sits; a ``LICENSE`` is a licence."""
+``.gitignore`` is a gitignore wherever it sits; a ``LICENSE`` is a licence; a
+``.gitattributes`` is git's own per-path metadata, text, and cannot carry a
+family tree any more than the other two.
+
+⚠️ **Contrast ``pre-push`` in ``SAFE_PATHS``**, which does NOT belong here: a file
+of that name means something only at one path, and admitting the name anywhere
+waived the type check for every file called ``pre-push`` in the repository."""
 
 SAFE_PATHS = frozenset({"scripts/hooks/pre-push"})
 """Extensionless files admitted at ONE PATH, and nowhere else.
