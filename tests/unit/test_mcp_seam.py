@@ -489,3 +489,53 @@ def test_the_fixture_isolates_its_state_on_EVERY_platform(tmp_path: Path, platfo
         f"test's tmp_path -- state leaks between cases and the failure surfaces "
         f"somewhere else entirely"
     )
+
+
+def test_a_refusals_REASON_reaches_an_mcp_caller(tmp_path: Path) -> None:
+    """⛔ **The property the SDK pin exists to hold, asserted so it cannot lapse.**
+
+    ⚠️ ``TargetIsPrivate`` refuses a private target **by name** rather than
+    reporting it absent, and that distinction is ruling 1's whole point. It is
+    worth nothing if the reason is discarded on the way back to the caller.
+
+    ⭐ **Measured across both SDK versions, isolated environments, same probe:**
+
+    ===========  =========================================================
+    ``2.0.0``    ``Error executing tool ...: source ... is marked private``
+    ``2.1.1``    ``Error executing tool ...``
+    ===========  =========================================================
+
+    On 2.1.1 a caller cannot tell **private** from **not found**, which inverts
+    the distinction this project is built to make. ``pyproject.toml`` pins
+    ``mcp<2.1`` for exactly that, as a stopgap -- issue #173 holds the design
+    call the owner still owes.
+
+    ⛔ **This test is what makes that pin honest.** Relaxing the bound without
+    the design change fails here, naming the property. A pin with no test is a
+    pin someone relaxes.
+
+    ⚠️ It is deliberately NOT the layer-split the other failure-path cases use.
+    Those assert what holds on **any** SDK, because a suite must not go red on a
+    dependency's behaviour; this one asserts what the **pinned** SDK must do, and
+    going red is precisely its job when the pin stops being true.
+    """
+    host = Host()
+    reason = "source X0001 is marked private in this tree"
+    host.raises = urllib.error.HTTPError(
+        url="http://127.0.0.1/find/source",
+        code=403,
+        msg="Forbidden",
+        hdrs=None,  # type: ignore[arg-type]
+        fp=None,
+    )
+    host.raises.read = lambda: json.dumps({"detail": reason}).encode("utf-8")  # type: ignore[method-assign]
+    tools = _tools(tmp_path, host)
+
+    reached = _refusal_reaching_an_mcp_caller(tools, "find_source", {"text": "Register"})
+
+    assert reason in reached, (
+        "the reason did not reach the MCP caller, so a private record is "
+        "indistinguishable from a missing one. Either the mcp pin in "
+        "pyproject.toml has been relaxed past 2.1, or the SDK changed again -- "
+        f"see issue #173. What the caller got: {reached}"
+    )
