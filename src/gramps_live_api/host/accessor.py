@@ -158,9 +158,33 @@ def _name_spellings(name: typing.Any) -> list[str]:
     """
     if _public(name) is None:
         return []
-    out = [name.get_first_name(), name.get_surname()]
+    given = name.get_first_name()
+    surnames = [name.get_surname()]
     for surname in name.get_surname_list() or []:
-        out.append(surname.get_surname())
+        surnames.append(surname.get_surname())
+
+    out = [given, *surnames]
+    # ⛔ **The JOINED spellings, in both orders.**
+    #
+    # ⚠️ Without them a full-name search finds NOBODY. ``matches_term`` asks
+    # whether the term is a substring of any ONE candidate, and the parts above
+    # are exactly that -- parts. A term spanning given and surname is a substring
+    # of neither, so it matches nothing, and empty reads as *not in the tree*,
+    # which routes to CREATE. Issue #176; the chain it feeds is #177.
+    #
+    # ⭐ Joining here rather than splitting the TERM is deliberate, and the plan
+    # argues it: ``matches_term`` serves find_place, find_source and
+    # find_citation too, so splitting would change what "contains" means for
+    # every one of them and would widen what matches with ``RESULT_CAP``
+    # downstream. This widens nothing -- a person matches only if the term really
+    # is a substring of a name they hold.
+    #
+    # ⛔ And it cannot reach either privacy bound: the private-name gate is the
+    # line above, and ``reads.bound`` drops private rows before counting.
+    for surname in surnames:
+        if given and surname:
+            out.append(f"{given} {surname}")
+            out.append(f"{surname} {given}")
     return [part for part in out if part]
 
 
