@@ -162,14 +162,23 @@ history walk. The optimisation would quietly stop optimising.
 
 ⭐ **So, stated in one place:**
 
-- The anchor advances to the scanned HEAD when **the digest matched** (criterion
-  2) **and** the coverage assertion held (criterion 4) **and** the scan was
-  clean. Those three together mean the certified prefix plus this run's range is
-  every commit reachable from the new HEAD — which is exactly what an anchor
-  claims.
-- ⛔ **The anchor is preserved, not advanced, on any other outcome**: a digest
-  mismatch, a failed coverage assertion, a scan that found something, or a scan
-  that could not complete. **An anchor written after a run that did not cover
+- The anchor advances to the scanned HEAD when **the run covered everything it
+  needed to** (criterion 4) **and** the scan was clean. It is then written with
+  **the digest in force now**.
+- ⛔ **A FULL walk always qualifies, and requiring a digest match would have
+  broken the mechanism at both ends.** On a fresh checkout there is no stored
+  digest to match, so nothing could ever write the first anchor; and after a
+  rules change criterion 2 *deliberately* produces a mismatch, so the recovering
+  full walk could not write one either. **The optimisation would never start and
+  could never recover** — every run repeating the whole-history walk while
+  looking like it was working.
+- An **anchored** run advances the anchor only when the digest matched, because
+  that is what made skipping the prefix legitimate in the first place.
+- ⛔ **The anchor is preserved, not advanced, on any other outcome**: a failed
+  coverage assertion, a scan that found something, or a scan that could not
+  complete. ⚠️ **A digest mismatch is NOT on that list** — it forces a full walk,
+  and a full walk that comes back clean and covering is exactly the run allowed
+  to write the new anchor. That is how the mechanism recovers. **An anchor written after a run that did not cover
   everything is how a gap becomes permanent** — the middle is never revisited,
   because nothing afterwards knows to look.
 
