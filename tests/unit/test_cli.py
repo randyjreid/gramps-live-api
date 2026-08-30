@@ -619,8 +619,19 @@ def test_check_reports_the_push_gate_as_installed_when_our_hook_is_there(
     """⭐ Installed, and reported with its bypass named rather than hidden."""
     hooks = tmp_path / "hooks"
     hooks.mkdir()
+    # ⛔ The CANONICAL content, because the check now compares against it. A stub
+    # carrying only the marker is exactly what "stale" means, and writing one
+    # here would assert that a stale hook is reported as the gate.
+    canonical_text = (
+        Path(__file__).resolve().parents[2] / "scripts" / "hooks" / "pre-push"
+    ).read_text(encoding="utf-8")
+    # ⛔ The fixture gets its OWN canonical copy, so CHECKOUT_ROOT stays tmp_path
+    # and the check compares two files that both live inside the fixture.
+    canonical = tmp_path / "scripts" / "hooks" / "pre-push"
+    canonical.parent.mkdir(parents=True, exist_ok=True)
+    canonical.write_text(canonical_text, encoding="utf-8")
     hook = hooks / "pre-push"
-    hook.write_text(f"#!/bin/sh\npython -m {cli.HOOK_MARKER} --range x..y .\n", encoding="utf-8")
+    hook.write_text(canonical_text, encoding="utf-8")
     # ⛔ Executable, because the check now requires it. On Windows this line is
     # a no-op, which is exactly why the omission was invisible here and red on
     # every Linux runner.
@@ -783,3 +794,36 @@ def test_an_IDENTICAL_installed_hook_is_reported_as_the_gate(
     check = THE_REAL_PUSH_GATE_CHECK()
 
     assert check.ok, f"an identical hook with CRLF was called stale: {check.detail}"
+
+
+def test_an_UNREADABLE_canonical_hook_is_refused_rather_than_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⛔ A check that cannot answer must not answer yes.
+
+    ⚠️ Swallowing the read error left the wanted content empty, and the guard
+    reading ``if wanted and ...`` then **disabled the staleness comparison
+    entirely** — so a sparse checkout or a deleted canonical file turned this
+    back into *any executable hook counts*, which is the assurance it was added
+    to remove.
+
+    ⭐ Same rule the hook itself already applies to a missing interpreter and to
+    a ref it cannot scan: cannot answer means refuse.
+    """
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    hook = hooks / "pre-push"
+    hook.write_text(f"#!/bin/sh\npython -m {cli.HOOK_MARKER} .\n", encoding="utf-8")
+    hook.chmod(0o755)
+    # ⛔ A checkout root with no scripts/hooks/pre-push in it at all.
+    monkeypatch.setattr(cli, "CHECKOUT_ROOT", tmp_path / "no-such-checkout")
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, str(hooks) + "\n", ""),
+    )
+
+    check = THE_REAL_PUSH_GATE_CHECK()
+
+    assert not check.ok, "an unreadable canonical hook disabled the staleness check"
+    assert "cannot read" in check.detail, check.detail

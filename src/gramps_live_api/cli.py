@@ -474,9 +474,20 @@ def _push_gate_check() -> Check:
         # is stored `eol=lf` and a Windows working tree legitimately holds CRLF.
         # A byte comparison would report every Windows install as stale.
         wanted = canonical.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        wanted = []
-    if wanted and body.splitlines() != wanted:
+    except OSError as failure:
+        # ⛔ **Unreadable is REFUSED, not skipped.** Swallowing this left `wanted`
+        # empty and the `if wanted and ...` guard then disabled the whole
+        # staleness comparison -- so a sparse checkout or a deleted canonical
+        # file turned the check back into "any executable hook counts", which is
+        # the assurance it was added to remove. A check that cannot answer must
+        # not answer yes.
+        return Check(
+            "push gate",
+            False,
+            f"cannot read {canonical} to compare against the installed hook "
+            f"({failure}), so whether the gate is current cannot be established",
+        )
+    if body.splitlines() != wanted:
         return Check(
             "push gate",
             False,

@@ -111,8 +111,13 @@ def _push(
     remote_sha: str,
     *,
     interpreter: object = _THIS_RUNS_PYTHON,
+    lines: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run the hook exactly as git runs it: the ref line on stdin.
+
+    ⭐ ``lines`` overrides the single ref, so a test can send the several git
+    sends on a multi-ref push — which is where the abort/findings interaction
+    lives, and which a one-line harness could never have reached.
 
     ⛔ The interpreter defaults to this test run's own Python, because the
     throwaway repository has no ``.venv`` and the hook would otherwise fall
@@ -149,7 +154,7 @@ def _push(
     # ⭐ Found by a control that stayed silent: restoring the defect this file
     # was written for did not fail anything. The measurement that settled it was
     # ``len``: 41 versus 40, NOMATCH versus MATCH.
-    line = f"refs/heads/main {local_sha} refs/heads/main {remote_sha}\n"
+    line = lines or f"refs/heads/main {local_sha} refs/heads/main {remote_sha}\n"
     finished = subprocess.run(
         [_sh(), "scripts/hooks/pre-push", "origin", "https://example.invalid/r.git"],
         cwd=repo,
@@ -428,4 +433,55 @@ def test_the_committed_hook_has_no_CARRIAGE_RETURNS() -> None:
     assert b"\r" not in blob, (
         "the committed hook contains carriage returns, so /bin/sh on Linux fails "
         "on its first line -- check .gitattributes still pins eol=lf for it"
+    )
+
+
+def test_an_ABORT_on_one_ref_does_not_hide_FINDINGS_on_another(tmp_path: Path) -> None:
+    """⛔ A multi-ref push reports every ref's outcome, not just one.
+
+    A refused ref and a ref carrying a finding are reported together: the
+    operator learns both that one ref could not be scanned and that another
+    contains personal data.
+
+    ⚠️ **What this test does NOT prove, stated because a control caught me
+    claiming it did.** The ``if``/``elif`` this change replaced is only reachable
+    when the guard itself exits 2 — and that path is not reachable from here: a
+    non-commit tip is refused *before* the guard runs, and an empty range is
+    skipped before it runs. So the abort-suppresses-findings interaction is
+    fixed defensively and **is not covered by this test**; restoring the ``elif``
+    leaves this green.
+
+    ⭐ The fix stands on its own terms — the two outcomes are independent facts
+    and reporting one must not silence the other, least of all when the silenced
+    one is *personal data was found*. But it is unproven, and saying so is worth
+    more than a test that looks like proof.
+    """
+    repo = _a_repository(tmp_path)
+    base = _head(repo)
+    (repo / "notes.md").write_text(f"a path: {PLANTED}\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "adds something that must not be published")
+    tip = _head(repo)
+
+    # ⛔ A tag on a blob aborts its ref; the branch update carries the finding.
+    blob = _git(repo, "hash-object", "-w", "notes.md").stdout.strip()
+    _git(repo, "tag", "carried", blob)
+    tag = _git(repo, "rev-parse", "carried").stdout.strip()
+
+    result = _push(
+        repo,
+        tip,
+        base,
+        lines=(
+            f"refs/tags/carried {tag} refs/tags/carried {ZERO}\n"
+            f"refs/heads/main {tip} refs/heads/main {base}\n"
+        ),
+    )
+
+    combined = result.stdout + result.stderr
+    assert result.returncode != 0, combined
+    assert "rather than a commit" in combined, f"the aborted ref was not reported: {combined}"
+    assert "found something above" in combined, (
+        "the abort suppressed the report of a real finding on the other ref -- "
+        f"which is the more serious of the two facts: {combined}"
     )
