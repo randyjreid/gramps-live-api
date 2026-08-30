@@ -443,18 +443,19 @@ than importing it, so the plugin folder is not on ``sys.path``, and the host add
 its own directory precisely so the writer can be imported by name."""
 
 HOST_MODULES = (
-    "accessor",
-    "auth",
-    "backup",
-    "document",
-    "httpd",
-    "log",
-    "mainthread",
-    "paths",
-    "reads",
-    "service",
-    "status",
-    "tokens",
+    "config",
+    "host.accessor",
+    "host.auth",
+    "host.backup",
+    "host.document",
+    "host.httpd",
+    "host.log",
+    "host.mainthread",
+    "host.paths",
+    "host.reads",
+    "host.service",
+    "host.status",
+    "host.tokens",
 )
 """⛔ The modules the host plugin imports from ``gramps_live_api.host``.
 
@@ -479,12 +480,24 @@ answer a hand-written list would have been least likely to reach.
 """
 
 
-def _holds_the_host_package(candidate: str) -> bool:
-    """Is ``gramps_live_api`` here, and does it carry what the host imports?"""
-    host = os.path.join(candidate, "gramps_live_api", "host")
-    if not os.path.isdir(host):
-        return False
-    return all(os.path.isfile(os.path.join(host, f"{module}.py")) for module in HOST_MODULES)
+def _has_the_package(candidate: str) -> bool:
+    """Does a ``gramps_live_api`` directory live here at all?
+
+    ⛔ This is where Python BINDS the package, complete or not. Once a directory
+    of that name is found on ``sys.path`` there is no falling through to a later
+    entry, so the first one found is the one that has to be whole.
+    """
+    return bool(candidate) and os.path.isdir(os.path.join(candidate, "gramps_live_api"))
+
+
+def _missing_from(candidate: str) -> list[str]:
+    """Which startup modules this candidate does not carry."""
+    package = os.path.join(candidate, "gramps_live_api")
+    return [
+        module
+        for module in HOST_MODULES
+        if not os.path.isfile(os.path.join(package, *module.split(".")) + ".py")
+    ]
 
 
 def _source_check(plugin: Check, environ: Mapping[str, str]) -> Check:
@@ -518,9 +531,31 @@ def _source_check(plugin: Check, environ: Mapping[str, str]) -> Check:
             f"installed, not that both routes can start: without the host "
             f"registration Gramps never starts the document route at all",
         )
-    for candidate in _host_source_candidates(plugin.detail, environ):
-        if candidate and _holds_the_host_package(candidate):
-            return Check("source", True, candidate)
+    # ⛔ **In the host's EFFECTIVE order, which is the REVERSE of its loop.**
+    #
+    # ⚠️ The host does ``sys.path.insert(0, candidate)`` for each in turn, so the
+    # LAST one it inserts ends up FIRST on the path. Checking them in loop order
+    # answered about the lowest-precedence directory: a valid explicit
+    # ``GRAMPS_LIVE_API_SRC`` beside a partial junction-derived ``src`` reported
+    # ready from the explicit one while the host bound the partial one and died
+    # on import. Replayed, the host resolves the plugin directory and the check
+    # named the explicit source.
+    candidates = [c for c in _host_source_candidates(plugin.detail, environ) if c]
+    effective = next((c for c in reversed(candidates) if _has_the_package(c)), None)
+
+    if effective is not None:
+        absent_modules = _missing_from(effective)
+        if not absent_modules:
+            return Check("source", True, effective)
+        return Check(
+            "source",
+            False,
+            f"the host resolves gramps_live_api from {effective} -- it is first on "
+            f"the path the host builds -- and that copy is missing "
+            f"{', '.join(absent_modules)}. Python binds a package at the first "
+            f"directory of that name and does not fall through to a later one, so "
+            f"a complete copy elsewhere does not rescue this",
+        )
     return Check(
         "source",
         False,

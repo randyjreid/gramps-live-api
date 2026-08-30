@@ -130,10 +130,11 @@ def _lay_out_the_host_package(source: Path) -> Path:
     ⭐ Built from ``cli.HOST_MODULES`` rather than from a list written here, so
     the fixture cannot fall behind the requirement it is meant to satisfy.
     """
-    host = source / "gramps_live_api" / "host"
-    host.mkdir(parents=True, exist_ok=True)
+    package = source / "gramps_live_api"
     for module in cli.HOST_MODULES:
-        (host / f"{module}.py").write_text("", encoding="utf-8")
+        target = package.joinpath(*module.split("."))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.with_suffix(".py").write_text("", encoding="utf-8")
     return source
 
 
@@ -781,32 +782,38 @@ def test_HOST_MODULES_is_the_TRANSITIVE_closure_of_what_the_host_imports() -> No
     import ast
 
     root = Path(__file__).resolve().parents[2]
-    host = root / "src" / "gramps_live_api" / "host"
 
     def imported_by(source: str) -> set[str]:
+        """Every ``gramps_live_api`` module this source names, dotted."""
         found: set[str] = set()
         for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Import):
+                found.update(
+                    alias.name for alias in node.names if alias.name.startswith("gramps_live_api")
+                )
             if not isinstance(node, ast.ImportFrom) or not node.module:
                 continue
-            if node.module == "gramps_live_api.host":
-                found.update(alias.name for alias in node.names)
-            elif node.module.startswith("gramps_live_api.host."):
-                found.add(node.module.split(".")[-1])
-        return found
+            if not node.module.startswith("gramps_live_api"):
+                continue
+            found.add(node.module)
+            found.update(f"{node.module}.{alias.name}" for alias in node.names)
+        return {name[len("gramps_live_api.") :] for name in found if "." in name}
 
     plugin = (root / "gramps_plugin" / "gramps_live_api_host.py").read_text(encoding="utf-8")
     closure = imported_by(plugin)
     assert closure, "no host imports were found at all; the pattern has stopped matching"
 
-    pending = list(closure)
+    package = root / "src" / "gramps_live_api"
+    pending, closure = list(closure), set()
     while pending:
-        module = host / f"{pending.pop()}.py"
+        name = pending.pop()
+        if name in closure:
+            continue
+        module = package.joinpath(*name.split(".")).with_suffix(".py")
         if not module.is_file():
             continue
-        for dependency in imported_by(module.read_text(encoding="utf-8")):
-            if dependency not in closure:
-                closure.add(dependency)
-                pending.append(dependency)
+        closure.add(name)
+        pending.extend(imported_by(module.read_text(encoding="utf-8")))
 
     assert set(cli.HOST_MODULES) == closure, (
         f"cli.HOST_MODULES is {sorted(cli.HOST_MODULES)} but the host's import "
@@ -850,4 +857,63 @@ def test_a_plugin_directory_without_the_HOST_registration_is_refused(tmp_path: P
     assert not partial["source"].ok, "a plugin directory registering no host was reported as ready"
     assert "gramps_live_api_host.gpr.py" in partial["source"].detail, (
         f"the refusal does not name what is missing: {partial['source'].detail}"
+    )
+
+
+def test_a_source_missing_config_py_is_refused(tmp_path: Path) -> None:
+    """⛔ The startup closure reaches OUTSIDE ``host/``, by exactly one module.
+
+    ⚠️ ``host/paths.py`` imports ``gramps_live_api.config`` at module scope, so a
+    tree carrying all twelve ``host/`` modules and no ``config.py`` satisfied the
+    old predicate and then died importing ``service`` -> ``paths`` -> ``config``.
+
+    ⭐ **One module, and a hand-written list would not have found it** -- which is
+    the argument for deriving the closure rather than enumerating it, made
+    concrete.
+    """
+    environ = dict(equipped(tmp_path))
+    source = tmp_path / "no-config" / "src"
+    _lay_out_the_host_package(source)
+    (source / "gramps_live_api" / "config.py").unlink()
+    environ["GRAMPS_LIVE_API_SRC"] = str(source)
+
+    checks = {check.label: check for check in cli.inspect(None, environ)}
+
+    assert not checks["source"].ok, "a package with no config.py was accepted"
+    assert "config" in checks["source"].detail, checks["source"].detail
+
+
+def test_the_candidate_the_HOST_would_bind_is_the_one_checked(tmp_path: Path) -> None:
+    """⛔ The host's effective order is the REVERSE of the loop that builds it.
+
+    ⚠️ ``sys.path.insert(0, candidate)`` per candidate means the **last** one
+    inserted ends up **first** on the path. Checking them in loop order answered
+    about the lowest-precedence directory: a valid explicit source beside a
+    partial junction-derived one reported **ready** from the explicit one while
+    the host bound the partial one and failed on import.
+
+    ⭐ And Python does not fall through: once a directory named
+    ``gramps_live_api`` is found, the package is bound there, so a complete copy
+    further down the path does not rescue a partial one above it.
+    """
+    environ = dict(equipped(tmp_path))
+    complete = tmp_path / "explicit" / "src"
+    _lay_out_the_host_package(complete)
+    environ["GRAMPS_LIVE_API_SRC"] = str(complete)
+
+    # A partial package beside the plugin -- the candidate the host inserts LAST,
+    # and therefore the one it actually binds.
+    plugin_dir = _plugin_dir(environ)
+    partial = plugin_dir / "gramps_live_api" / "host"
+    partial.mkdir(parents=True, exist_ok=True)
+    (partial / "accessor.py").write_text("", encoding="utf-8")
+
+    checks = {check.label: check for check in cli.inspect(None, environ)}
+
+    assert not checks["source"].ok, (
+        "check reported ready from the explicit source while the host would bind "
+        "the partial package beside the plugin"
+    )
+    assert str(plugin_dir) in checks["source"].detail, (
+        f"the refusal names the wrong directory: {checks['source'].detail}"
     )
