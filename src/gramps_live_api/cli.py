@@ -458,6 +458,19 @@ def _push_gate_check() -> Check:
             "pii_guard. Whatever it does, the personal-data gate is not wired up",
         )
 
+    # ⛔ **Executable, not merely present.** Git 2.43 reports that it ignored a
+    # non-executable hook and PROCEEDS WITH THE PUSH. Reporting ok here would be
+    # false assurance in exactly the state this check exists to detect -- and the
+    # mode is easy to lose: this repository's own hook reached the index as
+    # 100644, because Windows git does not track the file mode by default.
+    if os.name != "nt" and not os.access(installed, os.X_OK):
+        return Check(
+            "push gate",
+            False,
+            f"{installed} is installed but NOT EXECUTABLE, so git ignores it and "
+            f"pushes anyway. chmod +x it",
+        )
+
     # ⛔ **The same hook, or a STALE COPY of it?**
     #
     # ⚠️ Installation is a `cp`, and git does not refresh what was copied. Pull a
@@ -495,18 +508,6 @@ def _push_gate_check() -> Check:
             f"scripts/hooks/pre-push, so it is running an older version of the "
             f"gate. Installation is a copy and git does not refresh it. Re-copy "
             f"it: cp scripts/hooks/pre-push {installed}",
-        )
-    # ⛔ **Executable, not merely present.** Git 2.43 reports that it ignored a
-    # non-executable hook and PROCEEDS WITH THE PUSH. Reporting ok here would be
-    # false assurance in exactly the state this check exists to detect -- and the
-    # mode is easy to lose: this repository's own hook reached the index as
-    # 100644, because Windows git does not track the file mode by default.
-    if os.name != "nt" and not os.access(installed, os.X_OK):
-        return Check(
-            "push gate",
-            False,
-            f"{installed} is installed but NOT EXECUTABLE, so git ignores it and "
-            f"pushes anyway. chmod +x it",
         )
     return Check("push gate", True, f"{installed} (bypassable with --no-verify)")
 

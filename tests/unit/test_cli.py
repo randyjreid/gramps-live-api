@@ -717,6 +717,13 @@ def test_a_NON_EXECUTABLE_hook_is_not_reported_as_a_working_gate(
     hook = hooks / "pre-push"
     hook.write_text(f"#!/bin/sh\npython -m {cli.HOOK_MARKER} .\n", encoding="utf-8")
     hook.chmod(0o644)
+    # ⛔ An IDENTICAL canonical file, so this test isolates the executable
+    # bit and nothing else. Without it the staleness check answered first and
+    # the test asserted a message about the canonical being unreadable -- green
+    # on Windows, where the mode check is skipped, and red on every Linux leg.
+    canonical = tmp_path / "scripts" / "hooks" / "pre-push"
+    canonical.parent.mkdir(parents=True, exist_ok=True)
+    canonical.write_text(hook.read_text(encoding="utf-8"), encoding="utf-8")
     monkeypatch.setattr(cli, "CHECKOUT_ROOT", tmp_path)
     monkeypatch.setattr(
         cli.subprocess,
