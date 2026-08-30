@@ -106,6 +106,15 @@ Normalise before proposing: `M` → `male`, `F` → `female`. Anything you canno
 map confidently, leave out and say so — an absent gender is honest, and an
 unknown one you believed you had set is not.
 
+⛔ **This applies to people the census INTRODUCES. For a person already in the
+tree, `gender` is dropped.** An attached person keeps their own `given`,
+`surname` and `gender`; the writer ignores every one of them deliberately.
+
+⚠️ So if a matched person's sex is missing from the tree, or the census disagrees
+with it, **sending `gender` changes nothing and nothing warns you.** Say it in
+the report, the same way an attach that could not carry a birthplace is said, so
+the owner can set it by hand.
+
 ### ⛔ Almost everyone already has a Birth event. Do not create a second one.
 
 A census gives a birth year and a birthplace, and the obvious move is to propose
@@ -130,6 +139,15 @@ above said only *attach the citation* — which left the census's birth year,
 birthplace and citation with nowhere to go. **Create the Birth event**, with
 `people` pointing at that person's local node; the writer installs it as the
 person's birth reference when the slot is empty.
+
+⛔ **But an empty `list_events` does not prove there is no Birth event.** The
+privacy gate drops private records before you see them — a **public person with a
+private Birth event** reads as having none. The approval dialog omits it too, so
+the owner cannot catch the duplicate there either.
+
+⭐ So after an empty lookup on an **existing** person: **say that you found none
+and ask him to confirm in Gramps before you propose a Birth.** For a person the
+census introduces there is nothing to hide, and no confirmation is needed.
 
 ⭐ So the test is **does this person have a Birth event**, not *did the census
 introduce them*.
