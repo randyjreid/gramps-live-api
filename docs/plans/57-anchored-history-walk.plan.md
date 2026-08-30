@@ -82,10 +82,18 @@ it would be tuned against the wrong thing.
 
 ## Mechanically checkable acceptance criteria
 
-1. **An anchor that does not resolve forces a full walk.** A rebase, a
+1. **An anchor that is not an ANCESTOR of HEAD forces a full walk.** A rebase, a
    force-push, a rewritten branch, a hand-edited anchor file, an empty one, or a
    SHA from a different repository — each produces the whole-history scan, never
    a skip. One test per shape.
+
+   ⛔ **Ancestry, not resolvability, and the difference is the whole criterion.**
+   After a rebase or a force-push the old commit usually **remains in the object
+   database**, so `git rev-parse --verify` still resolves it — it verifies only
+   that the name identifies an object. An anchor that resolves but is no longer
+   reachable from `HEAD` would certify a prefix that is not in this history at
+   all, and `anchor..HEAD` would then quietly scan the wrong set. **`git
+   merge-base --is-ancestor` is the question being asked.**
 2. ⛔ **An anchor recorded under different guard rules forces a full walk.** The
    anchor record carries a digest of the guard's rule inputs; if the digest does
    not match what is in force now, the anchor is ignored. **This is criterion 1's
@@ -192,6 +200,18 @@ is three things:
   hash(the local deny-list, or a marker for its absence),
   unicodedata.unidata_version }
 ```
+
+⛔ **Hashed from what the scan ACTUALLY LOADED, and checked again when it ends.**
+Hashing the files on disk independently of the run certifies whatever they say at
+the moment of hashing — and a walk over this repository takes about 82 seconds,
+which is ample time for an editor to save, a branch to be switched, or another
+process to rewrite the deny-list. The anchor would then record rules that were
+never applied to a single commit.
+
+⭐ So the digest is taken **before** the walk, the walk uses those bytes, and the
+digest is taken **again afterwards**. If the two disagree the run is not covering
+— **the anchor is not written and the next run walks fully.** That is the same
+conservative direction every other branch of this design takes.
 
 - **The guard module** carries every pattern, table and severity. One file, one
   hash. ⚠️ Nothing else under `core/` feeds a verdict: `_specified_containers.py`
