@@ -39,6 +39,29 @@ carrying the same `gramps_id` are refused and the whole proposal is rejected.
 
 Listing one local id twice inside `children` or `attach_to` is fine.
 
+## ⛔ A read that finds nothing has not proved nothing is there
+
+**Every lookup in this brief can come back empty for reasons that have nothing to
+do with the tree being empty.** Three of them, all real:
+
+- **Privacy.** `find_people` excludes private people and does not count them, and
+  `list_events` skips a private event *or a private reference to a public one*.
+  So a private person reads as **not in the tree**, and a public person's private
+  Naturalization reads as **not recorded**.
+- **The cap.** `list_events` returns at most 25 and reports `capped: true` with
+  `withheld > 0`. It offers no paging and no type filter, so beyond 25 events an
+  absent type may simply be past the end.
+- **Staleness.** `list_people` reads an export; `find_people` reads the tree.
+  That is why this brief says use the live one.
+
+⭐ **So the rule is one rule, and it applies to every "does this already exist?"
+question here:** an empty or capped result means *nothing was returned*, never
+*nothing exists*. **Say which you have** — and when the answer decides whether
+you create a record, ask the owner to confirm in Gramps first.
+
+⚠️ **Check `capped` and `withheld` on every `list_events` result** before
+concluding a type is absent. If either says there is more, say so and stop.
+
 ## Before proposing a source or citation
 
 Call **`find_source`** for this document's source, and if it exists,
@@ -148,6 +171,14 @@ the owner cannot catch the duplicate there either.
 ⭐ So after an empty lookup on an **existing** person: **say that you found none
 and ask him to confirm in Gramps before you propose a Birth.** For a person the
 census introduces there is nothing to hide, and no confirmation is needed.
+
+⚠️ **And "the census introduces them" is itself a read that can be wrong.** A
+private person is excluded from `find_people` and not counted, so **no match does
+not prove they are new** — see the rule at the top. A name that ought to be in
+this tree and is not returned is worth saying aloud before you create a person.
+
+⛔ **The same caution covers every type, not just Birth.** A private
+Naturalization, Residence or Occupation reads as absent exactly the same way.
 
 ⭐ So the test is **does this person have a Birth event**, not *did the census
 introduce them*.
