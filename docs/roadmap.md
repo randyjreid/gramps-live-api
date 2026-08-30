@@ -538,6 +538,11 @@ slice's own ruled criterion, a link operation whose apply-code silently creates 
 writes something its schema never said. ⚠️ *Which* of those two is Gramps-native is a measurement
 this project has not taken (M3).
 
+> ⚠️ **Read with the note in slice 4½.** The **document route** creates and attaches families today
+> — a `families` node, and an event pointing at its local id — so *that* route needs no `add_family`
+> row and nothing on the census path waits on this. **What stays open is the OPERATION vocabulary**,
+> which is a different design and is not built. M3's question survives for it.
+
 **Depends on.** 4½, 5, 6.
 
 ⚠️ **This demo is the batch problem in its purest form** — `add_person` + `add_event` referencing
@@ -635,7 +640,7 @@ roadmap.
 | **multi-user** | LATER | Genuinely. Single-user is the brief's own premise. |
 | ⚠️ **the batch / provisional-reference model** | **4½**, and **ruling R1 first** | On no list. The single ordering decision; see 4½. |
 | ⚠️ **the injection widening** | **4** — ⭐ **ruling R3 MADE 2026-08-21** | On no list, and the trigger is recorded verbatim in `docs/slice2-mcp.md`. ⚠️ **R2 settled which slice it lands in:** slice 4 now reads the live tree, so the widened read tool ships there rather than at 5a. ⭐ **R3 rules D + A** — the damage is bounded at the write, fencing is defence in depth — [`rulings/R3-injection-under-live-reads.md`](rulings/R3-injection-under-live-reads.md). ⚠️ **Its two build preconditions travel with the first tool that returns tree prose.** |
-| ⚠️ **`add_family`** | **7** | On no list. Mandatory under slice 7's *own* criterion — schema alone determines the write. Measurement **M3** decides whether Gramps agrees. |
+| ⚠️ **`add_family`** | **7** | On no list. Mandatory under slice 7's *own* criterion — schema alone determines the write. Measurement **M3** decides whether Gramps agrees. ⚠️ **Scope: the OPERATION vocabulary only.** The document route already creates and attaches families, so nothing on the census path waits on this row. |
 | ⚠️ **the attribute operation** | **5** / **7**, or **never** | On no list. A census line's columns — occupation, relationship to head, marital status — are recorded partly as events and partly as `Attribute`s, and **no operation touches attributes.** Ruling **R6** decides whether the row exists at all. |
 | ⚠️ **media file custody** | **9**, and **ruling R5 first** | On no list. The first write outside the database and outside `DbTxn`. ⚠️ **R8 adds a constraint R5 must answer:** the file copy is long work, it may not run on the HTTP thread, and R8 caps what one `GLib.idle_add` callback may do on the main thread. |
 | ⚠️ **the census-line walkthrough** | **free today** | On no list. Walk one real census line, column by column, through the operation table as a paper exercise, and **make the resulting list the acceptance test of the vocabulary.** Needs no code and no ruling. |
@@ -680,7 +685,7 @@ Not rulings — things the analysis could not determine from the code and would 
 | --- | --- | --- |
 | **M1** | Does a Gramps 6.0.8 `DbTxn` **abort cleanly** when an exception is raised mid-transaction? Needs a run on this box against a scratch tree. ⚠️ **R8 does not answer it and changes where it runs:** the transaction now runs inside the Gramps process, on the GTK main thread, so the measurement must be taken there rather than in a spawned CLI. | **The all-or-nothing batch claim rests on it, so R1's recommendation is conditional on it.** |
 | ~~**M2**~~ | ⛔ **MOOT under R8.** One transcribed census household measured against #66's per-machine headroom — but R8 rules the write in-process, so there is no environment block to overflow. R2 left this conditional on the channel's plan gate; **R8 is that ruling and it decides it.** | Nothing. #66 dissolves with it. |
-| **M3** | How Gramps wants households built — is `add_family` a required vocabulary row, or do the link operations legitimately create the Family object? Needs the Gramps db API read on the box, not a guess. | Slice 7's row list. |
+| **M3** | How Gramps wants households built — is `add_family` a required vocabulary row, or do the link operations legitimately create the Family object? Needs the Gramps db API read on the box, not a guess. ⚠️ **Partly answered by evidence that did not exist when this was written:** the document route creates Family objects through `families` nodes and Gramps accepts them. What M3 still decides is the OPERATION model's row list, if that model is ever built. | Slice 7's row list. |
 | **M4** | How much of #4 remains live beyond what #52 records, against slice 5's fixtures. | Whether Phase 1's evidence-side ordering rule still binds the reshaped slice 5. |
 
 ---
