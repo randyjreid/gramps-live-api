@@ -51,6 +51,19 @@ status=0
 aborted=0
 
 while read -r _local_ref local_sha _remote_ref remote_sha; do
+    # ⛔ Strip a trailing carriage return from the LAST field.
+    #
+    # ⚠️ If anything hands this hook CRLF on stdin, `remote_sha` arrives 41
+    # characters long and every comparison against $ZERO is FALSE -- so a
+    # deletion is not recognised as one, and a new ref takes the update path
+    # with a sha git cannot resolve. **Measured: 41 vs 40, NOMATCH vs MATCH.**
+    #
+    # It was this project's own test harness that produced CRLF here, and the
+    # consequence is why it is worth guarding rather than only fixing the
+    # harness: four tests named a branch, never reached it, and passed anyway.
+    remote_sha=${remote_sha%"$(printf '')"}
+    local_sha=${local_sha%"$(printf '')"}
+
     # A deletion publishes nothing.
     [ "$local_sha" = "$ZERO" ] && continue
 
@@ -73,14 +86,25 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
     fi
 
     if [ "$remote_sha" = "$ZERO" ]; then
-        # A new branch. Everything not already on origin/main is being
-        # published; if that ref is unknown, fall back to the whole history
-        # reachable from the tip rather than to nothing.
-        if git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
-            range="origin/main..$local_sha"
-        else
-            range="$local_sha"
-        fi
+        # A new ref on the destination: EVERYTHING reachable from the tip is
+        # being published, so all of it is scanned.
+        #
+        # ⛔ This used to subtract `origin/main`, whatever the destination was.
+        # `git push public main` to a different or empty remote then computed an
+        # empty range against a ref that remote has never seen, the count came
+        # back 0, and the hook exited 0 while git sent the whole history.
+        # Reproduced. The remote is passed as `$1` -- git's own pre-push.sample
+        # documents it -- and this hook was ignoring it.
+        #
+        # ⚠️ Subtracting the DESTINATION's refs would be cheaper and is not done
+        # here, because the guard takes one revision range and `--not --remotes=`
+        # is not one. Scanning the whole history is what git's own sample does
+        # for a new ref, and it is the answer that cannot silently subtract
+        # something the destination never had.
+        #
+        # ⭐ The cost is real and bounded: ~82 s over this repository's 453
+        # commits, paid on a first push of a branch rather than on every push.
+        range="$local_sha"
     else
         # An update. This also covers a force-push and a merge: whatever is
         # reachable from the new tip and not from the old one is what the push

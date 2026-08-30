@@ -135,16 +135,34 @@ def _push(
     else:
         environment["GRAMPS_LIVE_API_PYTHON"] = str(interpreter)
 
-    return subprocess.run(
+    # ⛔ BYTES, and LF only. ``text=True`` translates the newline on Windows, so
+    # the last field arrived with a trailing carriage return — **41 characters
+    # rather than 40** — and every comparison against the all-zero sha was
+    # false.
+    #
+    # ⚠️ **Four tests named a branch of the hook, never reached it, and passed
+    # anyway:** the deletion case, the new-branch case, the tag-on-a-blob case
+    # and the other-remote case. All four fell through to the update branch's
+    # fallback, which scans the tip's whole history — so they refused for a
+    # reason that had nothing to do with what they were testing.
+    #
+    # ⭐ Found by a control that stayed silent: restoring the defect this file
+    # was written for did not fail anything. The measurement that settled it was
+    # ``len``: 41 versus 40, NOMATCH versus MATCH.
+    line = f"refs/heads/main {local_sha} refs/heads/main {remote_sha}\n"
+    finished = subprocess.run(
         [_sh(), "scripts/hooks/pre-push", "origin", "https://example.invalid/r.git"],
         cwd=repo,
-        input=f"refs/heads/main {local_sha} refs/heads/main {remote_sha}\n",
+        input=line.encode("utf-8"),
         capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
         check=False,
         env=environment,
+    )
+    return subprocess.CompletedProcess(
+        finished.args,
+        finished.returncode,
+        finished.stdout.decode("utf-8", "replace"),
+        finished.stderr.decode("utf-8", "replace"),
     )
 
 
@@ -342,3 +360,39 @@ def test_a_TAG_pointing_at_a_BLOB_is_refused_rather_than_skipped(tmp_path: Path)
     )
     combined = result.stdout + result.stderr
     assert "blob rather than a commit" in combined, combined
+
+
+def test_a_new_ref_on_a_DIFFERENT_remote_is_fully_scanned(tmp_path: Path) -> None:
+    """⛔ The destination decides what is already published, not ``origin``.
+
+    ⚠️ The hook used to subtract ``origin/main`` whatever remote it was pushing
+    to. ``git push public main`` at a different or empty remote then computed an
+    empty range **against a ref that remote has never seen** — count ``0``, hook
+    exits 0 — while git sent the entire history.
+
+    ⭐ Reproduced before fixing: with ``origin/main`` equal to ``HEAD``, the old
+    range counted **0** commits and the new one counts **2**.
+
+    Git passes the remote as ``$1``; its own ``pre-push.sample`` documents that,
+    and this hook was ignoring it. A new ref now scans everything reachable from
+    the tip, which is what that sample does and what cannot subtract something
+    the destination never had.
+    """
+    repo = _a_repository(tmp_path)
+    (repo / "notes.md").write_text(f"a path: {PLANTED}\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "adds something that must not be published")
+
+    # ⛔ The trap: a local origin/main that already contains the planted commit,
+    # while the push goes somewhere that has never seen any of it.
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    assert _git(repo, "rev-list", "--count", "origin/main..HEAD").stdout.strip() == "0", (
+        "the fixture did not build the case: origin/main must already contain the tip"
+    )
+
+    result = _push(repo, _head(repo), ZERO)
+
+    assert result.returncode != 0, (
+        f"a new ref on another remote was pushed unscanned. stdout={result.stdout!r}"
+    )
+    assert "PUSH REFUSED" in result.stdout, result.stdout
