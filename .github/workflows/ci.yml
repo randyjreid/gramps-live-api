@@ -216,6 +216,7 @@ jobs:
           MODULES = (
               "tests.unit.test_mcp_server",
               "tests.unit.test_tool_descriptions_fit",
+              "tests.unit.test_mcp_seam",
           )
 
           # A test case is this module's under EITHER shape, and both are
