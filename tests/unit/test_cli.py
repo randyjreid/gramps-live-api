@@ -717,3 +717,69 @@ def test_a_NON_EXECUTABLE_hook_is_not_reported_as_a_working_gate(
 
     assert not check.ok, "a hook git would ignore was reported as a working gate"
     assert "NOT EXECUTABLE" in check.detail, check.detail
+
+
+def test_a_STALE_installed_hook_is_not_reported_as_the_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⛔ Installation is a ``cp``, and git does not refresh what was copied.
+
+    ⚠️ Pull a fixed ``scripts/hooks/pre-push`` and the installed one keeps every
+    defect it had — while carrying the same marker, so a substring check called
+    it installed. **That is false assurance in exactly the shape this check
+    exists to prevent:** a gate reported as wired up while running last month's
+    rules.
+
+    ⭐ It caught a real one the moment it was written — the hook installed on
+    this project's own machine predated three fixes to the ref-range logic.
+
+    Content, not a version string: a version has to be remembered on every
+    change, and the bytes cannot fall out of step with themselves.
+    """
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    canonical = (Path(__file__).resolve().parents[2] / "scripts" / "hooks" / "pre-push").read_text(
+        encoding="utf-8"
+    )
+    hook = hooks / "pre-push"
+    hook.write_text(canonical + "\n# an older copy, missing later fixes\n", encoding="utf-8")
+    hook.chmod(0o755)
+    monkeypatch.setattr(cli, "CHECKOUT_ROOT", Path(__file__).resolve().parents[2])
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, str(hooks) + "\n", ""),
+    )
+
+    check = THE_REAL_PUSH_GATE_CHECK()
+
+    assert not check.ok, "a stale copy of the hook was reported as the gate"
+    assert "STALE" in check.detail, check.detail
+
+
+def test_an_IDENTICAL_installed_hook_is_reported_as_the_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⚠️ The other direction: the staleness check must not fail every install.
+
+    ⭐ Compared as text with newlines normalised, because the canonical file is
+    stored ``eol=lf`` and a Windows working tree legitimately holds CRLF — a byte
+    comparison would report **every** Windows installation as stale.
+    """
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    canonical_path = Path(__file__).resolve().parents[2] / "scripts" / "hooks" / "pre-push"
+    hook = hooks / "pre-push"
+    # ⛔ Written back with CRLF deliberately: that is what a Windows checkout has.
+    hook.write_bytes(canonical_path.read_text(encoding="utf-8").replace("\n", "\r\n").encode())
+    hook.chmod(0o755)
+    monkeypatch.setattr(cli, "CHECKOUT_ROOT", Path(__file__).resolve().parents[2])
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, str(hooks) + "\n", ""),
+    )
+
+    check = THE_REAL_PUSH_GATE_CHECK()
+
+    assert check.ok, f"an identical hook with CRLF was called stale: {check.detail}"

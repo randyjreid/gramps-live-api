@@ -457,6 +457,34 @@ def _push_gate_check() -> Check:
             "a pre-push hook is installed but it is not this one -- it does not run "
             "pii_guard. Whatever it does, the personal-data gate is not wired up",
         )
+
+    # ⛔ **The same hook, or a STALE COPY of it?**
+    #
+    # ⚠️ Installation is a `cp`, and git does not refresh what was copied. Pull a
+    # fixed `scripts/hooks/pre-push` and the installed one keeps every defect it
+    # had -- while carrying the same marker, so a substring check called it
+    # installed. **That is false assurance in the shape this check exists to
+    # prevent**: it reported a gate that was running last month's rules.
+    #
+    # ⭐ Content, not a version string. A version has to be remembered on every
+    # change; the bytes cannot fall out of step with themselves.
+    canonical = CHECKOUT_ROOT / "scripts" / "hooks" / "pre-push"
+    try:
+        # ⚠️ Compared as TEXT with newlines normalised, because the canonical file
+        # is stored `eol=lf` and a Windows working tree legitimately holds CRLF.
+        # A byte comparison would report every Windows install as stale.
+        wanted = canonical.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        wanted = []
+    if wanted and body.splitlines() != wanted:
+        return Check(
+            "push gate",
+            False,
+            f"{installed} is a STALE copy -- it differs from "
+            f"scripts/hooks/pre-push, so it is running an older version of the "
+            f"gate. Installation is a copy and git does not refresh it. Re-copy "
+            f"it: cp scripts/hooks/pre-push {installed}",
+        )
     # ⛔ **Executable, not merely present.** Git 2.43 reports that it ignored a
     # non-executable hook and PROCEEDS WITH THE PUSH. Reporting ok here would be
     # false assurance in exactly the state this check exists to detect -- and the
