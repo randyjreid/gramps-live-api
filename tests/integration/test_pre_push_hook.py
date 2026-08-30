@@ -304,3 +304,41 @@ def test_a_MISSING_interpreter_refuses_the_push_and_says_it_is_NOT_a_finding(
         "the refusal reads as though personal data was found, when the gate "
         f"simply could not run: {combined}"
     )
+
+
+def test_a_TAG_pointing_at_a_BLOB_is_refused_rather_than_skipped(tmp_path: Path) -> None:
+    """⛔ A fail-open in the gate: the object publishes and nothing scans it.
+
+    ⚠️ ``git tag`` accepts **any object**, not only a commit, so a tag can point
+    straight at a blob. ``git rev-list --count`` then answers **0**, and the
+    empty-range branch reads that as *nothing new to publish*. It is the
+    opposite — the blob **is** published, and the guard never saw it.
+
+    ⭐ Reproduced before fixing: a tag on a blob holding a drive-letter path,
+    count ``0``, hook returned **success**.
+
+    Refused rather than scanned. The guard's interface is a commit range, so
+    nothing here could scan a loose blob honestly, and a gate that cannot see
+    what a push carries must not wave it through. Same rule as the missing
+    interpreter: **cannot answer means refuse.**
+    """
+    repo = _a_repository(tmp_path)
+    (repo / "payload.txt").write_text(f"a path: {PLANTED}\n", encoding="utf-8")
+    blob = _git(repo, "hash-object", "-w", "payload.txt").stdout.strip()
+    _git(repo, "tag", "carried", blob)
+    tag = _git(repo, "rev-parse", "carried").stdout.strip()
+
+    assert _git(repo, "cat-file", "-t", tag).stdout.strip() == "blob", (
+        "the fixture did not build the case: the tag does not point at a blob"
+    )
+    assert _git(repo, "rev-list", "--count", tag).stdout.strip() == "0", (
+        "the fixture did not build the case: rev-list sees commits here"
+    )
+
+    result = _push(repo, tag, ZERO)
+
+    assert result.returncode != 0, (
+        f"a tag pointing at a blob was pushed unscanned. stdout={result.stdout!r}"
+    )
+    combined = result.stdout + result.stderr
+    assert "blob rather than a commit" in combined, combined

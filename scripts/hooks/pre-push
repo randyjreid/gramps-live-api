@@ -54,6 +54,24 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
     # A deletion publishes nothing.
     [ "$local_sha" = "$ZERO" ] && continue
 
+    # A tip that is not commit-ish. `git tag` accepts any object, so a tag can
+    # point straight at a BLOB -- and then `git rev-list --count` answers 0,
+    # which the empty-range branch below reads as "nothing new to publish". It
+    # is the opposite: the object IS published and nothing scanned it.
+    #
+    # Refused rather than scanned. The guard's interface is a commit range, so
+    # there is nothing here that could scan a loose blob honestly, and a gate
+    # that cannot see what a push carries must not wave it through. Same rule as
+    # the missing interpreter above: cannot answer means refuse.
+    if ! git rev-parse --verify --quiet "$local_sha^{commit}" >/dev/null 2>&1; then
+        kind=$(git cat-file -t "$local_sha" 2>/dev/null || echo unknown)
+        echo "PUSH REFUSED: a ref points at a $kind rather than a commit." >&2
+        echo "The guard scans commit ranges, so nothing here can scan that" >&2
+        echo "object -- and an unscannable push is refused, not assumed clean." >&2
+        status=1
+        continue
+    fi
+
     if [ "$remote_sha" = "$ZERO" ]; then
         # A new branch. Everything not already on origin/main is being
         # published; if that ref is unknown, fall back to the whole history
