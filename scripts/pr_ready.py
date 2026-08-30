@@ -44,6 +44,9 @@ BOT = "chatgpt-codex-connector[bot]"
 # ⛔ What the bot says when it has looked and found nothing. Matched
 # case-insensitively against a conversation comment, because the clean signal
 # arrives there and creates no review object at all.
+_RUNNING = frozenset({"IN_PROGRESS", "QUEUED", "PENDING"})
+"""States that are neither a pass nor a failure. Both block; only one is bad news."""
+
 CLEAN_PHRASES = ("didn't find any major issues", "didn't find any issues", "no major issues")
 
 
@@ -207,17 +210,26 @@ def _report(pull: int) -> bool:
     tally: dict[str, int] = {}
     for row in checks:
         tally[row["state"]] = tally.get(row["state"], 0) + 1
-    not_success = sorted({row["name"] for row in checks if row["state"] != "SUCCESS"})
+    # ⛔ STILL RUNNING and FAILED are different facts, and collapsing them made
+    # this print "7 check(s) not SUCCESS" for a matrix that was merely mid-run.
+    # Both block, so the exit code is the same -- but a reason line that says
+    # "failed" about a run in progress is the kind of wrong that gets acted on.
+    running = sorted({r["name"] for r in checks if r["state"] in _RUNNING})
+    failed = sorted({r["name"] for r in checks if r["state"] not in _RUNNING | {"SUCCESS"}})
     print(
         f"  5. CI                   : {len(checks)} checks  "
         + " ".join(f"{k}={v}" for k, v in sorted(tally.items()))
     )
-    for name in not_success:
-        print(f"       not SUCCESS        : {name}")
+    for name in failed:
+        print(f"       FAILED             : {name}")
+    for name in running:
+        print(f"       still running      : {name}")
     if not checks:
         failures.append("no CI checks reported at all")
-    elif not_success:
-        failures.append(f"{len(not_success)} check(s) not SUCCESS")
+    if failed:
+        failures.append(f"{len(failed)} check(s) FAILED")
+    if running:
+        failures.append(f"{len(running)} check(s) still running -- the matrix is not finished")
 
     # -- 6. how fresh is this sweep ------------------------------------------
     # ⚠️ So a run taken BEFORE a verdict landed is visible as such rather than
