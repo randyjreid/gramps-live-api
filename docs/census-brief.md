@@ -84,7 +84,7 @@ Verified against the parser and the renderer:
 
 | column | how |
 | --- | --- |
-| name, sex | the person node: given, surname, gender |
+| name, sex | the person node: given, surname, gender — ⛔ **`male` or `female`, spelled out** |
 | birth year, birthplace | the person's **existing** Birth event — see below |
 | age | the same Birth event, or a new one dated `abt <year>` |
 | immigration year | an **Immigration** event |
@@ -92,6 +92,19 @@ Verified against the parser and the renderer:
 | occupation | that person's **Census description**. ⛔ Not a separate Occupation event |
 | where living | a **Residence** event with a place |
 | relationship to head, marital status | that person's own Census description |
+
+### ⛔ `gender` takes `male` or `female`, spelled out
+
+A census column says `M` or `F`, and copying that straight across **loses the
+sex silently.** The parser accepts any string, the writer recognises only
+`male` and `female`, and **anything else is stored as unknown** — while the
+preview shows you the value you sent. So `M` renders as `M` in the dialog and
+lands as unknown in the tree.
+
+⚠️ **That is a preview/write disagreement, and the dialog will not warn you.**
+Normalise before proposing: `M` → `male`, `F` → `female`. Anything you cannot
+map confidently, leave out and say so — an absent gender is honest, and an
+unknown one you believed you had set is not.
 
 ### ⛔ Almost everyone already has a Birth event. Do not create a second one.
 
@@ -108,8 +121,18 @@ record, not a new birth.
 disagreeing.** Say so and stop; it is research, not a fix. Do not create a second
 Birth event to hold the other year.
 
-⭐ **A new Birth event is for a person the census introduces** — someone not in
-the tree until this transcription put them there.
+⭐ **A new Birth event is for a person who has none** — whether the census
+introduced them, or they were already in the tree with no Birth event recorded.
+
+⚠️ **That second case is real and an earlier version of this page had no answer
+for it.** `find_people` finds them, `list_events` returns no Birth, and the rule
+above said only *attach the citation* — which left the census's birth year,
+birthplace and citation with nowhere to go. **Create the Birth event**, with
+`people` pointing at that person's local node; the writer installs it as the
+person's birth reference when the slot is empty.
+
+⭐ So the test is **does this person have a Birth event**, not *did the census
+introduce them*.
 
 ### ⛔ Occupation goes in that person's Census description
 
