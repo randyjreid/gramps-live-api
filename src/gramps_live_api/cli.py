@@ -189,7 +189,7 @@ def inspect(tree: str | None, environ: Mapping[str, str]) -> list[Check]:
     the live one and watch the refusal happen. That is the advisory copy of the
     rail, and the report says so.
     """
-    checks = [_runtime_check(environ), _plugin_check(environ)]
+    checks = [_runtime_check(environ), _plugin_check(environ), _push_gate_check()]
     settings = config.load(environ)
     target = tree or settings.copy_path
     if target is None:
@@ -392,6 +392,124 @@ def _runtime_check(environ: Mapping[str, str]) -> Check:
     if runtime is None:
         return Check("runtime", False, f"no {config.RUNTIME_NAME} found; set gramps_runtime")
     return Check("runtime", os.path.isfile(runtime), runtime)
+
+
+CHECKOUT_ROOT = Path(__file__).resolve().parents[2]
+"""The checkout this module was loaded from.
+
+⚠️ Derived from ``__file__`` rather than from the working directory, because
+``check`` is run from anywhere and the question *is the push gate installed* is
+about **this checkout**, not about wherever the shell happens to be."""
+
+HOOK_MARKER = "gramps_live_api.core.pii_guard"
+"""What makes an installed ``pre-push`` OURS rather than merely present.
+
+⚠️ Someone else's hook at that path is not this gate, and reporting it as one
+would be worse than reporting nothing."""
+
+
+def _push_gate_check() -> Check:
+    """⛔ Is the personal-data guard actually wired to anything?
+
+    ⚠️ **It was not, and that is why this exists.** No hook, no
+    ``.pre-commit-config.yaml``, no ``core.hooksPath``, and ``CONTRIBUTING``
+    asking a contributor to remember. CI runs ``on: push``, so by the time its
+    guard job starts GitHub already holds the objects -- on a public repository
+    that is publication. **CI detects; it cannot prevent.** Issue #171.
+
+    ⭐ Git never installs a hook from a clone, by design, so this cannot install
+    itself. **What it can do is refuse to let the installation go unverified** --
+    a gate whose wiring nothing reports is the same convention one level down.
+
+    ⛔ It does not claim the hook is unbypassable. ``git push --no-verify`` skips
+    it and always will.
+    """
+    try:
+        hooks = subprocess.run(
+            ["git", "rev-parse", "--git-path", "hooks"],
+            cwd=CHECKOUT_ROOT,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return Check("push gate", False, "not a git checkout, so no hook can be installed here")
+
+    installed = CHECKOUT_ROOT / hooks / "pre-push"
+    if not installed.is_file():
+        return Check(
+            "push gate",
+            False,
+            f"NOT installed -- nothing runs pii_guard before a push, and CI only "
+            f"finds it after GitHub already has the objects. Install it: "
+            f"cp scripts/hooks/pre-push {hooks}/pre-push && chmod +x {hooks}/pre-push",
+        )
+    try:
+        body = installed.read_text(encoding="utf-8", errors="replace")
+    except OSError as failure:
+        return Check("push gate", False, f"a pre-push hook is present but unreadable: {failure}")
+
+    if HOOK_MARKER not in body:
+        return Check(
+            "push gate",
+            False,
+            "a pre-push hook is installed but it is not this one -- it does not run "
+            "pii_guard. Whatever it does, the personal-data gate is not wired up",
+        )
+
+    # ⛔ **Executable, not merely present.** Git 2.43 reports that it ignored a
+    # non-executable hook and PROCEEDS WITH THE PUSH. Reporting ok here would be
+    # false assurance in exactly the state this check exists to detect -- and the
+    # mode is easy to lose: this repository's own hook reached the index as
+    # 100644, because Windows git does not track the file mode by default.
+    if os.name != "nt" and not os.access(installed, os.X_OK):
+        return Check(
+            "push gate",
+            False,
+            f"{installed} is installed but NOT EXECUTABLE, so git ignores it and "
+            f"pushes anyway. chmod +x it",
+        )
+
+    # ⛔ **The same hook, or a STALE COPY of it?**
+    #
+    # ⚠️ Installation is a `cp`, and git does not refresh what was copied. Pull a
+    # fixed `scripts/hooks/pre-push` and the installed one keeps every defect it
+    # had -- while carrying the same marker, so a substring check called it
+    # installed. **That is false assurance in the shape this check exists to
+    # prevent**: it reported a gate that was running last month's rules.
+    #
+    # ⭐ Content, not a version string. A version has to be remembered on every
+    # change; the bytes cannot fall out of step with themselves.
+    canonical = CHECKOUT_ROOT / "scripts" / "hooks" / "pre-push"
+    try:
+        # ⚠️ Compared as TEXT with newlines normalised, because the canonical file
+        # is stored `eol=lf` and a Windows working tree legitimately holds CRLF.
+        # A byte comparison would report every Windows install as stale.
+        wanted = canonical.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as failure:
+        # ⛔ **Unreadable is REFUSED, not skipped.** Swallowing this left `wanted`
+        # empty and the `if wanted and ...` guard then disabled the whole
+        # staleness comparison -- so a sparse checkout or a deleted canonical
+        # file turned the check back into "any executable hook counts", which is
+        # the assurance it was added to remove. A check that cannot answer must
+        # not answer yes.
+        return Check(
+            "push gate",
+            False,
+            f"cannot read {canonical} to compare against the installed hook "
+            f"({failure}), so whether the gate is current cannot be established",
+        )
+    if body.splitlines() != wanted:
+        return Check(
+            "push gate",
+            False,
+            f"{installed} is a STALE copy -- it differs from "
+            f"scripts/hooks/pre-push, so it is running an older version of the "
+            f"gate. Installation is a copy and git does not refresh it. Re-copy "
+            f"it: cp scripts/hooks/pre-push {installed}",
+        )
+    return Check("push gate", True, f"{installed} (bypassable with --no-verify)")
 
 
 def _plugin_check(environ: Mapping[str, str]) -> Check:

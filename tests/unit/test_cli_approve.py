@@ -583,6 +583,22 @@ def test_check_says_when_no_export_is_configured(tmp_path: Path) -> None:
     assert "list_people" in line.detail, "what is unavailable is named, not just the setting"
 
 
+@pytest.fixture(autouse=True)
+def _the_push_gate_is_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """⛔ The same reason as in ``test_cli``: these tests are about the TREE.
+
+    ⚠️ ``check`` reports the push gate, and the gate belongs to the checkout
+    rather than to ``environ`` -- so a readiness assertion here was measuring
+    whether this clone had run a one-line install. **Green on the machine that
+    wrote it, red on every runner.**
+    """
+    monkeypatch.setattr(
+        cli,
+        "_push_gate_check",
+        lambda: cli.Check("push gate", True, "installed (stubbed for tree tests)"),
+    )
+
+
 def test_a_copy_path_only_install_is_ready_the_way_docs_using_shows_it(tmp_path: Path) -> None:
     """L5, and it is a REGRESSION AGAINST A DEMO THAT PASSED, not merely a defect.
 
