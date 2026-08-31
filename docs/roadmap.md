@@ -503,6 +503,22 @@ sentence — *"add her marriage, about 1893, in Cork"* — trips three things th
 marriage attaches canonically to a **Family** object (the `add_family` hole), *"in Cork"* is a
 **place** and no slice owns `add_place`, and the citation dependency above.
 
+> ⭐ **All three of those holes are now closed, by the document route rather than by this slice.**
+> The paragraph above is kept because its reasoning is why the demo was trimmed, and that was
+> correct at the time — but read on its own it says the tool cannot write a marriage, which is no
+> longer true and has already produced a false belief in a research log (issue #169).
+>
+> A document graph carries `people`, `places`, `events`, `source`, `citations`, `families` and
+> `notes`. So: **a marriage is an event carrying `family`** — the **local id** of a `families` node
+> in the same graph, which is where the `gramps_id` from `find_families` goes; it is written with
+> Gramps' own family role. ⚠️ A bare `gramps_id` in `family` is refused as a dangling reference,
+> measured. **A place is a node like any other**,
+> created in the graph or attached by `gramps_id`, and named by an event's `place`; and **a citation
+> is a node group** taking `source`, `page` and `attach_to`.
+>
+> ⚠️ What this does **not** say is that the wider sentence now works end to end unassisted. It says
+> the three structural holes it named are gone.
+
 ⚠️ **A requirement on #21 that nobody has stated:** the date model must be **wire-expressible in the
 operation vocabulary** — an agent builds it through `propose_*` arguments — not merely constructible
 in Python. #21's out-of-scope note assumed a parser would be inherited from Gramps; D1's import check
@@ -521,6 +537,11 @@ a defaulted relationship kind would assert biological parentage nobody agreed to
 slice's own ruled criterion, a link operation whose apply-code silently creates a Family object
 writes something its schema never said. ⚠️ *Which* of those two is Gramps-native is a measurement
 this project has not taken (M3).
+
+> ⚠️ **Read with the note in slice 6**, where the correction is. The **document route** creates and attaches families today
+> — a `families` node, and an event pointing at its local id — so *that* route needs no `add_family`
+> row and nothing on the census path waits on this. **What stays open is the OPERATION vocabulary**,
+> which is a different design and is not built. M3's question survives for it.
 
 **Depends on.** 4½, 5, 6.
 
@@ -619,11 +640,11 @@ roadmap.
 | **multi-user** | LATER | Genuinely. Single-user is the brief's own premise. |
 | ⚠️ **the batch / provisional-reference model** | **4½**, and **ruling R1 first** | On no list. The single ordering decision; see 4½. |
 | ⚠️ **the injection widening** | **4** — ⭐ **ruling R3 MADE 2026-08-21** | On no list, and the trigger is recorded verbatim in `docs/slice2-mcp.md`. ⚠️ **R2 settled which slice it lands in:** slice 4 now reads the live tree, so the widened read tool ships there rather than at 5a. ⭐ **R3 rules D + A** — the damage is bounded at the write, fencing is defence in depth — [`rulings/R3-injection-under-live-reads.md`](rulings/R3-injection-under-live-reads.md). ⚠️ **Its two build preconditions travel with the first tool that returns tree prose.** |
-| ⚠️ **`add_family`** | **7** | On no list. Mandatory under slice 7's *own* criterion — schema alone determines the write. Measurement **M3** decides whether Gramps agrees. |
+| ⚠️ **`add_family`** | **7** | On no list. Mandatory under slice 7's *own* criterion — schema alone determines the write. Measurement **M3** decides whether Gramps agrees. ⚠️ **Scope: the OPERATION vocabulary only.** The document route already creates and attaches families, so nothing on the census path waits on this row. |
 | ⚠️ **the attribute operation** | **5** / **7**, or **never** | On no list. A census line's columns — occupation, relationship to head, marital status — are recorded partly as events and partly as `Attribute`s, and **no operation touches attributes.** Ruling **R6** decides whether the row exists at all. |
 | ⚠️ **media file custody** | **9**, and **ruling R5 first** | On no list. The first write outside the database and outside `DbTxn`. ⚠️ **R8 adds a constraint R5 must answer:** the file copy is long work, it may not run on the HTTP thread, and R8 caps what one `GLib.idle_add` callback may do on the main thread. |
 | ⚠️ **the census-line walkthrough** | **free today** | On no list. Walk one real census line, column by column, through the operation table as a paper exercise, and **make the resulting list the acceptance test of the vocabulary.** Needs no code and no ruling. |
-| ⚠️ **`add_place`** | ⛔ **no owning slice** | On no list, and named as a hole: *"none owns places beyond a demo mention."* The analysis classifies places with the other additive registry rows — after the batch ruling — but assigns them to no slice, and **"places" is in the owner's own destination sentence.** |
+| ⚠️ **`add_place`** | ⛔ **no owning slice** | On no list, and named as a hole: *"none owns places beyond a demo mention."* The analysis classifies places with the other additive registry rows — after the batch ruling — but assigns them to no slice, and **"places" is in the owner's own destination sentence.** ⚠️ **Scope: the OPERATION vocabulary only.** A document graph already carries a `places` node group, created or attached by `gramps_id`, and an event names one through its `place` field — so nothing on the census path waits on this row. |
 | **the proposal TTL and session binding** | **4½**, additively | Fifteen minutes and one server run are tuned for a one-sentence note. A batch representing an hour of extraction work meets both. Constants and record fields. |
 | **#52** — #4's remainder, against slice 5's fixtures | ⛔ **undetermined** | Phase 1's own ordering rule — evidence-side fixtures wait for the guard audit — presumably still binds the reshaped slice 5. **How much of #4 remains live beyond #52 could not be determined from the code.** |
 
@@ -664,7 +685,7 @@ Not rulings — things the analysis could not determine from the code and would 
 | --- | --- | --- |
 | **M1** | Does a Gramps 6.0.8 `DbTxn` **abort cleanly** when an exception is raised mid-transaction? Needs a run on this box against a scratch tree. ⚠️ **R8 does not answer it and changes where it runs:** the transaction now runs inside the Gramps process, on the GTK main thread, so the measurement must be taken there rather than in a spawned CLI. | **The all-or-nothing batch claim rests on it, so R1's recommendation is conditional on it.** |
 | ~~**M2**~~ | ⛔ **MOOT under R8.** One transcribed census household measured against #66's per-machine headroom — but R8 rules the write in-process, so there is no environment block to overflow. R2 left this conditional on the channel's plan gate; **R8 is that ruling and it decides it.** | Nothing. #66 dissolves with it. |
-| **M3** | How Gramps wants households built — is `add_family` a required vocabulary row, or do the link operations legitimately create the Family object? Needs the Gramps db API read on the box, not a guess. | Slice 7's row list. |
+| **M3** | How Gramps wants households built — is `add_family` a required vocabulary row, or do the link operations legitimately create the Family object? Needs the Gramps db API read on the box, not a guess. ⚠️ **Partly answered by evidence that did not exist when this was written:** the document route creates Family objects through `families` nodes and Gramps accepts them. What M3 still decides is the OPERATION model's row list, if that model is ever built. | Slice 7's row list. |
 | **M4** | How much of #4 remains live beyond what #52 records, against slice 5's fixtures. | Whether Phase 1's evidence-side ordering rule still binds the reshaped slice 5. |
 
 ---
