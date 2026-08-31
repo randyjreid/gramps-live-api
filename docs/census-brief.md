@@ -48,6 +48,10 @@ do with the tree being empty.** Three of them, all real:
   `list_events` skips a private event *or a private reference to a public one*.
   So a private person reads as **not in the tree**, and a public person's private
   Naturalization reads as **not recorded**.
+  ⛔ **And it reaches inside a record you CAN see:** a public event pointing at a
+  **private place** is returned with its place rendered empty. So *"no place
+  recorded"* may mean *"a place you may not see"* — the same distinction one
+  level down, on a record that is otherwise visible.
 - **The cap.** `list_events` returns at most 25 and reports `capped: true` with
   `withheld > 0`. It offers no paging and no type filter, so beyond 25 events an
   absent type may simply be past the end.
