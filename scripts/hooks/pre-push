@@ -1,0 +1,205 @@
+#!/bin/sh
+# Refuse a push that would publish personal data.
+#
+# pii_guard is the only thing between this owner's family data and a public
+# repository, and until this hook existed nothing invoked it: no hook, no
+# pre-commit config, no core.hooksPath, and CONTRIBUTING asking a contributor to
+# remember. CI runs `on: push`, so by the time its guard job starts GitHub
+# already holds the objects -- on a public repo that is publication. CI detects;
+# it cannot prevent. See issue #171.
+#
+# Two limits, stated rather than papered over:
+#
+#   * `git push --no-verify` skips this file entirely. That is git's design and
+#     nothing here changes it.
+#   * Git never installs a hook from a clone, so this is not self-installing.
+#     `python -m gramps_live_api check` reports whether it is in place, because a
+#     gate whose installation nothing verifies is the same convention one level
+#     down.
+#
+# stdin carries one line per ref: <local ref> <local sha> <remote ref> <remote sha>
+
+set -u
+
+# ⛔ Derived, not hard-coded. A SHA-256 repository uses 64-character object ids
+# and supplies 64 zeroes for a deletion, so a 40-zero literal would not recognise
+# one -- the deletion would fall through to the update branch and be refused.
+#
+# ⚠️ NOT reproduced here: this repository is SHA-1, so the literal was correct
+# for every push it has ever seen. Derived anyway because the cost is one command
+# and the failure is silent.
+ZERO="$(git hash-object --stdin </dev/null 2>/dev/null | tr '0-9a-f' '0' || echo '0000000000000000000000000000000000000000')"
+
+# A working interpreter, or nothing. GRAMPS_LIVE_API_PYTHON overrides, for a
+# checkout whose environment is somewhere this cannot infer.
+python_bin() {
+    for candidate in "${GRAMPS_LIVE_API_PYTHON:-}"                      .venv/Scripts/python.exe                      .venv/bin/python                      python3 python; do
+        [ -n "$candidate" ] || continue
+        # ⛔ Tested, not merely found. On Windows a bare `python` resolves to the
+        # Microsoft Store shim, which exists, is executable, and fails on every
+        # invocation -- so "it is on PATH" is not the question.
+        if "$candidate" -c '' >/dev/null 2>&1; then echo "$candidate"; return 0; fi
+    done
+    return 1
+}
+
+# ⛔ Looked up on FIRST USE, not up front.
+#
+# ⚠️ Exiting here before stdin is read refused a DELETION-only push -- which
+# publishes no objects at all and which the loop below explicitly allows. The
+# gate has nothing to scan, so having nothing to scan it with cannot matter.
+# Refusing there is the cry-wolf failure: a gate that blocks operations it has no
+# business blocking is one people learn to pass --no-verify.
+PY=""
+need_python() {
+    [ -n "$PY" ] && return 0
+    if ! PY="$(python_bin)"; then
+        echo 'PUSH REFUSED: no working Python was found, so the personal-data guard' >&2
+        echo 'could not run. This is NOT a finding -- it is the gate being unable to' >&2
+        echo 'answer, which is refused rather than assumed clean.' >&2
+        echo '' >&2
+        echo 'Point at an interpreter and try again:' >&2
+        echo '' >&2
+        echo '    GRAMPS_LIVE_API_PYTHON=/path/to/python git push' >&2
+        return 1
+    fi
+    return 0
+}
+
+status=0
+aborted=0
+found=0
+
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+    # ⛔ Strip a trailing carriage return from the LAST field.
+    #
+    # ⚠️ If anything hands this hook CRLF on stdin, `remote_sha` arrives 41
+    # characters long and every comparison against $ZERO is FALSE -- so a
+    # deletion is not recognised as one, and a new ref takes the update path
+    # with a sha git cannot resolve. **Measured: 41 vs 40, NOMATCH vs MATCH.**
+    #
+    # It was this project's own test harness that produced CRLF here, and the
+    # consequence is why it is worth guarding rather than only fixing the
+    # harness: four tests named a branch, never reached it, and passed anyway.
+    # ⛔ Octal, deliberately. Writing this as a backslash-r escape put a
+    # LITERAL carriage return into the script instead -- caught by this
+    # branch's own test, which asserts the committed hook holds none.
+    cr=$(printf '\015')
+    remote_sha=${remote_sha%"$cr"}
+    local_sha=${local_sha%"$cr"}
+
+    # A deletion publishes nothing.
+    [ "$local_sha" = "$ZERO" ] && continue
+
+    # A tip that is not commit-ish. `git tag` accepts any object, so a tag can
+    # point straight at a BLOB -- and then `git rev-list --count` answers 0,
+    # which the empty-range branch below reads as "nothing new to publish". It
+    # is the opposite: the object IS published and nothing scanned it.
+    #
+    # Refused rather than scanned. The guard's interface is a commit range, so
+    # there is nothing here that could scan a loose blob honestly, and a gate
+    # that cannot see what a push carries must not wave it through. Same rule as
+    # the missing interpreter above: cannot answer means refuse.
+    # ⛔ An ANNOTATED TAG carries its own message, and nothing scans it.
+    #
+    # ⚠️ The check below peels to a commit and is satisfied, but the range scan
+    # then examines commit TREES -- the tag object itself is never read. A new
+    # annotated tag whose message holds a path is published unscanned, which is
+    # the same fail-open as the tag-on-a-blob case one line down, reached by a
+    # tag that looks entirely ordinary.
+    #
+    # ⭐ Refused rather than scanned, for the reason the whole file uses: the
+    # guard's interface is a commit range, nothing here can scan a tag object
+    # honestly, and a gate that cannot see what a push carries must not wave it
+    # through.
+    if [ "$(git cat-file -t "$local_sha" 2>/dev/null || echo unknown)" = "tag" ]; then
+        echo "PUSH REFUSED: an annotated tag carries a message this gate cannot" >&2
+        echo "scan -- it scans commit ranges, and the tag object is not one." >&2
+        echo "Push the commit, or use a lightweight tag." >&2
+        status=1
+        continue
+    fi
+
+    if ! git rev-parse --verify --quiet "$local_sha^{commit}" >/dev/null 2>&1; then
+        kind=$(git cat-file -t "$local_sha" 2>/dev/null || echo unknown)
+        echo "PUSH REFUSED: a ref points at a $kind rather than a commit." >&2
+        echo "The guard scans commit ranges, so nothing here can scan that" >&2
+        echo "object -- and an unscannable push is refused, not assumed clean." >&2
+        status=1
+        continue
+    fi
+
+    if [ "$remote_sha" = "$ZERO" ]; then
+        # A new ref on the destination: EVERYTHING reachable from the tip is
+        # being published, so all of it is scanned.
+        #
+        # ⛔ This used to subtract `origin/main`, whatever the destination was.
+        # `git push public main` to a different or empty remote then computed an
+        # empty range against a ref that remote has never seen, the count came
+        # back 0, and the hook exited 0 while git sent the whole history.
+        # Reproduced. The remote is passed as `$1` -- git's own pre-push.sample
+        # documents it -- and this hook was ignoring it.
+        #
+        # ⚠️ Subtracting the DESTINATION's refs would be cheaper and is not done
+        # here, because the guard takes one revision range and `--not --remotes=`
+        # is not one. Scanning the whole history is what git's own sample does
+        # for a new ref, and it is the answer that cannot silently subtract
+        # something the destination never had.
+        #
+        # ⭐ The cost is real and bounded: ~82 s over this repository's 453
+        # commits, paid on a first push of a branch rather than on every push.
+        range="$local_sha"
+    else
+        # An update. This also covers a force-push and a merge: whatever is
+        # reachable from the new tip and not from the old one is what the push
+        # adds. If the remote sha is not present locally the range cannot be
+        # resolved, so scan the tip's history instead of skipping.
+        if git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+            range="$remote_sha..$local_sha"
+        else
+            range="$local_sha"
+        fi
+    fi
+
+    # An empty range is not a finding and not a pass -- there is simply nothing
+    # new to publish. The guard REFUSES an empty range (exit 2), so it must be
+    # detected here rather than read as a failure.
+    count=$(git rev-list --count "$range" 2>/dev/null || echo 0)
+    [ "$count" = "0" ] && continue
+
+    # ⛔ The guard's two non-zero exits mean different things and must not be
+    # collapsed: 1 is a FINDING, 2 is the scan ABORTING. Reporting an abort as
+    # personal data sends someone hunting for data that is not there; reporting
+    # it as clean is worse.
+    need_python || { status=1; aborted=1; continue; }
+    PYTHONPATH=src "$PY" -m gramps_live_api.core.pii_guard --range "$range" .
+    case "$?" in
+        0) ;;
+        1) status=1; found=1 ;;
+        *) status=1; aborted=1 ;;
+    esac
+done
+
+# ⛔ BOTH, not one or the other. This was an `elif`, so on a multi-ref push a
+# single aborted range suppressed the report of REAL findings on another ref --
+# the operator was told the scan could not complete and never told that personal
+# data had been found. The two outcomes are independent and both get said.
+if [ "$aborted" != "0" ]; then
+    echo ''
+    echo 'PUSH REFUSED: the personal-data guard could not complete every scan above.'
+    echo 'That part is not a finding. The gate could not answer for at least one'
+    echo 'ref, so the push is refused rather than assumed clean.'
+fi
+if [ "$found" != "0" ]; then
+    echo ''
+    echo 'PUSH REFUSED: the personal-data guard found something above.'
+    echo ''
+    echo 'The findings are redacted by default. To see what matched:'
+    echo ''
+    echo '    PYTHONPATH=src python -m gramps_live_api.core.pii_guard --show-matches --range <range> .'
+    echo ''
+    echo 'Once the objects reach GitHub they are public and stay reachable, so'
+    echo 'this refusal is the last point at which it is still preventable.'
+fi
+
+exit "$status"

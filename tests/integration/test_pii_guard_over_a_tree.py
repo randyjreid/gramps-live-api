@@ -213,3 +213,26 @@ def test_every_denylist_variant_is_gitignored(variant: str) -> None:
         "the matching line even when that line is a negation, so a re-included "
         "path looks ignored"
     )
+
+
+def test_the_pre_push_exemption_is_scoped_to_ONE_PATH(tmp_path: Path) -> None:
+    """⛔ A basename-wide exemption would waive the type check everywhere.
+
+    ⚠️ ``pre-push`` has no extension, so it cannot be admitted by
+    ``SAFE_EXTENSIONS`` -- and admitting it by BASENAME exempts every tracked
+    file with that name, in any directory, whatever it holds. **A file of family
+    records renamed ``pre-push`` would have been reported clean while the
+    identical bytes named ``family.csv`` are a P2.** That defeats the fail-closed
+    classification, and it was opened while fixing something else.
+
+    ⭐ So the assertion is that the exemption lives at a PATH and not in the
+    basename set.
+    """
+    assert "pre-push" not in pii_guard.SAFE_BASENAMES, (
+        "pre-push is admitted by basename, so any file with that name is exempt "
+        "from the type check wherever it sits"
+    )
+    assert "scripts/hooks/pre-push" in pii_guard.SAFE_PATHS, (
+        "the hook is not admitted at its own path, so the repository's own gate "
+        "would refuse the file that implements it"
+    )
