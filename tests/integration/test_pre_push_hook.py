@@ -134,9 +134,20 @@ def _push(
         environment["GRAMPS_LIVE_API_PYTHON"] = sys.executable
     elif interpreter is None:
         environment["GRAMPS_LIVE_API_PYTHON"] = str(repo / "no-such-python")
-        # ⛔ Emptied so the fallbacks cannot find one either -- otherwise this
-        # asserts the behaviour of whatever happens to be installed.
-        environment["PATH"] = str(repo / "empty")
+        # ⛔ Hide PYTHON, not everything. Emptying PATH also hid **git**, so the
+        # hook refused at its commit-ish check instead -- the test then asserted
+        # a message it was not written for, and only surfaced when the
+        # interpreter lookup moved after that check.
+        #
+        # ⭐ A directory of stubs that exit non-zero goes FIRST on PATH, so the
+        # fallbacks find something and it fails, while git still works.
+        shadow = repo / "shadow"
+        shadow.mkdir(exist_ok=True)
+        for name in ("python", "python3"):
+            for path in (shadow / name, shadow / f"{name}.bat"):
+                path.write_text("#!/bin/sh" + chr(10) + "exit 1" + chr(10), encoding="utf-8")
+                path.chmod(0o755)
+        environment["PATH"] = str(shadow) + os.pathsep + environment.get("PATH", "")
     else:
         environment["GRAMPS_LIVE_API_PYTHON"] = str(interpreter)
 
@@ -485,3 +496,28 @@ def test_an_ABORT_on_one_ref_does_not_hide_FINDINGS_on_another(tmp_path: Path) -
         "the abort suppressed the report of a real finding on the other ref -- "
         f"which is the more serious of the two facts: {combined}"
     )
+
+
+def test_a_DELETION_is_allowed_even_with_no_interpreter(tmp_path: Path) -> None:
+    """⛔ A gate must not block an operation it has no business blocking.
+
+    ⚠️ The interpreter was looked up **before stdin was read**, so a push that
+    only deletes a ref was refused — and a deletion publishes no objects at all,
+    which the loop already allows explicitly. The guard had nothing to scan, so
+    having nothing to scan it *with* could not matter.
+
+    ⭐ That is the cry-wolf failure this project has recorded elsewhere: a gate
+    that fires on ordinary operations is one people learn to pass `--no-verify`,
+    and then it protects nothing at all.
+
+    The lookup happens on first use now, so this case never reaches it.
+    """
+    repo = _a_repository(tmp_path)
+
+    result = _push(repo, ZERO, _head(repo), interpreter=None)
+
+    combined = result.stdout + result.stderr
+    assert result.returncode == 0, (
+        f"a deletion-only push was refused for want of an interpreter it never needed: {combined}"
+    )
+    assert "no working Python" not in combined, combined

@@ -36,16 +36,28 @@ python_bin() {
     return 1
 }
 
-if ! PY="$(python_bin)"; then
-    echo 'PUSH REFUSED: no working Python was found, so the personal-data guard' >&2
-    echo 'could not run. This is NOT a finding -- it is the gate being unable to' >&2
-    echo 'answer, which is refused rather than assumed clean.' >&2
-    echo '' >&2
-    echo 'Point at an interpreter and try again:' >&2
-    echo '' >&2
-    echo '    GRAMPS_LIVE_API_PYTHON=/path/to/python git push' >&2
-    exit 1
-fi
+# ⛔ Looked up on FIRST USE, not up front.
+#
+# ⚠️ Exiting here before stdin is read refused a DELETION-only push -- which
+# publishes no objects at all and which the loop below explicitly allows. The
+# gate has nothing to scan, so having nothing to scan it with cannot matter.
+# Refusing there is the cry-wolf failure: a gate that blocks operations it has no
+# business blocking is one people learn to pass --no-verify.
+PY=""
+need_python() {
+    [ -n "$PY" ] && return 0
+    if ! PY="$(python_bin)"; then
+        echo 'PUSH REFUSED: no working Python was found, so the personal-data guard' >&2
+        echo 'could not run. This is NOT a finding -- it is the gate being unable to' >&2
+        echo 'answer, which is refused rather than assumed clean.' >&2
+        echo '' >&2
+        echo 'Point at an interpreter and try again:' >&2
+        echo '' >&2
+        echo '    GRAMPS_LIVE_API_PYTHON=/path/to/python git push' >&2
+        return 1
+    fi
+    return 0
+}
 
 status=0
 aborted=0
@@ -132,6 +144,7 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
     # collapsed: 1 is a FINDING, 2 is the scan ABORTING. Reporting an abort as
     # personal data sends someone hunting for data that is not there; reporting
     # it as clean is worse.
+    need_python || { status=1; aborted=1; continue; }
     PYTHONPATH=src "$PY" -m gramps_live_api.core.pii_guard --range "$range" .
     case "$?" in
         0) ;;
