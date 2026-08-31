@@ -37,6 +37,7 @@ import json
 import subprocess
 import sys
 from datetime import datetime, timezone
+from typing import Any
 
 REPOSITORY = "randyjreid/gramps-live-api"
 BOT = "chatgpt-codex-connector[bot]"
@@ -44,6 +45,9 @@ BOT = "chatgpt-codex-connector[bot]"
 # ⛔ What the bot says when it has looked and found nothing. Matched
 # case-insensitively against a conversation comment, because the clean signal
 # arrives there and creates no review object at all.
+_WHITESPACE = frozenset({chr(32), chr(9), chr(13), chr(10)})
+"""Space, tab, CR, LF -- built from ordinals so no escape layer can mangle them."""
+
 _RUNNING = frozenset({"IN_PROGRESS", "QUEUED", "PENDING"})
 """States that are neither a pass nor a failure. Both block; only one is bad news."""
 
@@ -71,8 +75,42 @@ def _gh(*arguments: str) -> str:
 
 
 def _json(*arguments: str) -> object:
+    """Decode ``gh`` output, tolerating MULTIPLE concatenated JSON documents.
+
+    ⚠️ ``gh api --paginate`` may emit one document per page — its own help says
+    so — and a single ``json.loads`` then raises ``Extra data``. That failed
+    SAFE here, because the caller turns any exception into NOT READY, but a gate
+    that breaks on large pull requests is a gate nobody can use on the ones that
+    need it most.
+
+    ⭐ Not reproduced on this ``gh``: a 30-comment thread came back as one
+    document. Handled anyway — two lines against a version-dependent hazard.
+    """
     body = _gh(*arguments).strip()
-    return json.loads(body) if body else []
+    if not body:
+        return []
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError:
+        pass
+    decoder, index, merged = json.JSONDecoder(), 0, []
+    while index < len(body):
+        page, index = decoder.raw_decode(body, index)
+        merged.extend(page if isinstance(page, list) else [page])
+        while index < len(body) and body[index] in _WHITESPACE:
+            index += 1
+    return merged
+
+
+def _names_the_head(body: str, head: str) -> bool:
+    """Does this comment quote the head SHA?
+
+    ⛔ The bot writes ``**Reviewed commit:** `<abbreviated sha>`​``, so the
+    association is explicit and does not depend on any clock. Matched against
+    every prefix length the abbreviation might use rather than one guess.
+    """
+    lowered = body.lower()
+    return any(lowered.count(head[:length].lower()) for length in range(7, len(head) + 1))
 
 
 def _when(text: str) -> datetime:
@@ -121,9 +159,19 @@ def _report(pull: int) -> bool:
 
     on_head_reviews = [r for r in by_bot(reviews) if r.get("commit_id") == head]
     on_head_inline = [c for c in by_bot(inline) if c.get("commit_id") == head]
-    # ⚠️ A REACTION CARRIES NO commit_id. Freshness can only come from its
-    # timestamp against the head's commit date -- a thumbs-up a day older than
-    # the head was read as a verdict on it once, and that is this check.
+    # ⛔ **A clean verdict must NAME the head, not merely postdate it.**
+    #
+    # ⚠️ Timestamps were the first attempt and they are not sound: a commit
+    # created locally BEFORE a verdict and pushed as the head afterwards has a
+    # committer date that predates that stale verdict, so a date comparison
+    # accepts the old comment as a verdict on the new SHA -- a false READY, which
+    # is the direction this whole script exists to stop.
+    #
+    # ⭐ The bot's clean comment names its subject: "**Reviewed commit:**
+    # `7905da6ddd`". That is evidence explicitly associated with a SHA, so the
+    # comparison is against the head's own hex rather than against a clock.
+    # A reaction carries no commit_id and can never be tied to a head, so it is
+    # corroboration only and is no longer sufficient on its own.
     fresh_reactions = [
         r
         for r in by_bot(reactions)
@@ -134,8 +182,9 @@ def _report(pull: int) -> bool:
     ]
     clean_comments = [
         c
-        for c in fresh_conversation
+        for c in by_bot(conversation)
         if any(phrase in (c.get("body") or "").lower() for phrase in CLEAN_PHRASES)
+        and _names_the_head(c.get("body") or "", head)
     ]
 
     print("  3. bot verdict on head  :")
@@ -167,31 +216,44 @@ def _report(pull: int) -> bool:
             f"  ({stale_reactions[-1].get('created_at')} <= head)"
         )
 
-    if not (clean_comments or fresh_reactions):
+    if not clean_comments:
         failures.append(
-            "no CLEAN verdict on this head -- no fresh +1 on the body and no "
-            "conversation comment saying it found nothing"
+            "no CLEAN verdict naming this head -- the bot's clean comment quotes "
+            "the commit it reviewed, and none quoting this one was found"
         )
 
     # -- 4. unresolved threads, by isResolved --------------------------------
     # ⛔ The discriminator. Not "has a reply", not "was filed" -- both were used
     # and both were wrong. A thread with a reply that is not resolved is not
     # answered, and neither is a finding recorded in an issue.
-    query = (
-        '{repository(owner:"randyjreid",name:"gramps-live-api")'
-        f"{{pullRequest(number:{pull})"
-        "{reviewThreads(first:100){nodes{id isResolved path "
-        "comments(first:1){nodes{author{login}}}}}}}}"
-    )
-    graph = json.loads(_gh("api", "graphql", "-f", f"query={query}") or "{}")
-    nodes = (
-        graph.get("data", {})
-        .get("repository", {})
-        .get("pullRequest", {})
-        .get("reviewThreads", {})
-        .get("nodes", [])
-    )
-    unresolved = [t for t in nodes if not t.get("isResolved")]
+    # ⛔ PAGINATED. `first:100` silently drops every thread after the
+    # hundredth, so an unresolved thread beyond it would be invisible and this
+    # would print READY -- the failure direction the whole file exists to stop.
+    # No pull request here has reached 100 yet; that is not a reason to rely on
+    # it, and the same reasoning is why the REST calls above are --paginate.
+    nodes: list[dict[str, Any]] = []
+    cursor = "null"
+    while True:
+        query = (
+            '{repository(owner:"randyjreid",name:"gramps-live-api")'
+            f"{{pullRequest(number:{pull})"
+            f"{{reviewThreads(first:100, after:{cursor})"
+            "{pageInfo{hasNextPage endCursor} nodes{id isResolved path "
+            "comments(first:1){nodes{author{login}}}}}}}}"
+        )
+        graph = json.loads(_gh("api", "graphql", "-f", f"query={query}") or "{}")
+        threads = (
+            graph.get("data", {})
+            .get("repository", {})
+            .get("pullRequest", {})
+            .get("reviewThreads", {})
+        )
+        nodes.extend(threads.get("nodes", []))
+        info = threads.get("pageInfo") or {}
+        if not info.get("hasNextPage"):
+            break
+        cursor = chr(34) + str(info.get("endCursor")) + chr(34)
+    unresolved = [t for t in nodes if not (t or {}).get("isResolved")]
     print(f"  4. review threads       : {len(nodes)} total, {len(unresolved)} UNRESOLVED")
     for thread in unresolved:
         started = (thread.get("comments", {}).get("nodes") or [{}])[0]
