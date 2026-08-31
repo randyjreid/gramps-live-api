@@ -134,9 +134,16 @@ tree, `gender` is dropped.** An attached person keeps their own `given`,
 `surname` and `gender`; the writer ignores every one of them deliberately.
 
 ⚠️ So if a matched person's sex is missing from the tree, or the census disagrees
-with it, **sending `gender` changes nothing and nothing warns you.** Say it in
-the report, the same way an attach that could not carry a birthplace is said, so
-the owner can set it by hand.
+with it, **sending `gender` changes nothing and nothing warns you.**
+
+⛔ **And you cannot check which it is.** No read returns a person's gender —
+`find_people` gives the name and a birth year, and nothing else — so *"the tree
+disagrees"* is not a comparison you are able to make. Do not claim it either way.
+
+⭐ **Report the census value and say it could not be compared**, so the owner can
+look. That is weaker than the birthplace rule, where the tree's value *is*
+visible, and the difference is worth keeping straight: there you report a
+conflict, here you report that a conflict cannot be seen.
 
 ### ⛔ Almost everyone already has a Birth event. Do not create a second one.
 
