@@ -1389,3 +1389,166 @@ def test_a_spelling_this_project_does_NOT_accept_is_left_alone() -> None:
     # well-SPELLED impossible date must still be refused.
     assert accessor._as_epoch("2026-13-01") is None
     assert accessor._as_epoch("2026-02-30") is None
+
+
+# ---------------------------------------------------------------------------
+# ⛔ A full-name search found NOBODY, and empty routes to CREATE (#176, #177)
+# ---------------------------------------------------------------------------
+
+
+class _Name:
+    """One Gramps ``Name``, enough of it for ``_name_spellings``."""
+
+    def __init__(
+        self,
+        given: str,
+        surname: str,
+        extra: tuple[tuple[str, str], ...] = (),
+        private: bool = False,
+    ):
+        """``extra`` is ``(prefix, component)`` pairs -- a prefix is literal name text."""
+        self._given, self._surname, self._extra, self._private = given, surname, extra, private
+
+    def get_first_name(self) -> str:
+        return self._given
+
+    def get_surname(self) -> str:
+        return self._surname
+
+    def get_surname_list(self) -> list[object]:
+        return [
+            type(
+                "S",
+                (),
+                {
+                    "get_surname": staticmethod(lambda s=s: s),
+                    "get_prefix": staticmethod(lambda p=p: p),
+                    "get_connector": staticmethod(lambda: ""),
+                },
+            )()
+            for p, s in self._extra
+        ]
+
+    def get_privacy(self) -> bool:
+        return self._private
+
+
+def _spellings(name: _Name) -> list[str]:
+    return accessor._name_spellings(name)
+
+
+def test_a_FULL_NAME_matches_in_either_order() -> None:
+    """⛔ The defect: a term spanning given AND surname matched nothing.
+
+    ``matches_term`` asks whether the term is a substring of any **one**
+    candidate, and the candidates were the name PARTS. A full name is a substring
+    of neither part, so it matched nobody — and **empty reads as *not in the
+    tree*, which routes to CREATE.** Issues #176 and #177.
+    """
+    spellings = _spellings(_Name("Given", "Surname-ish"))
+
+    assert reads.matches_term("Given Surname-ish", *spellings), spellings
+    assert reads.matches_term("Surname-ish Given", *spellings), spellings
+
+
+def test_the_PARTS_still_match_on_their_own() -> None:
+    """⚠️ The half that already worked, and must keep working.
+
+    A surname alone is how the owner searched when the full name failed, so it is
+    the behaviour he is currently relying on.
+    """
+    spellings = _spellings(_Name("Given", "Surname-ish"))
+
+    assert reads.matches_term("Surname-ish", *spellings)
+    assert reads.matches_term("Given", *spellings)
+
+
+def test_a_term_matching_NEITHER_still_matches_nothing() -> None:
+    """⛔ The direction that separates a fix from a wall.
+
+    ⚠️ Joining spellings must not widen what matches. A change that made
+    everything match would satisfy every assertion above.
+    """
+    spellings = _spellings(_Name("Given", "Surname-ish"))
+
+    assert not reads.matches_term("Nobody Here", *spellings)
+    assert not reads.matches_term("Given Elsewhere", *spellings), (
+        "a term whose second half belongs to nobody matched anyway"
+    )
+
+
+def test_an_ALTERNATE_surname_still_yields_its_own_spellings() -> None:
+    """⛔ The `Kuenkele`/`Künkele` case — one step from a duplicate mother.
+
+    ⭐ Measured on the owner's copy when ``_person_names`` was written: a person
+    whose PRIMARY surname uses an umlaut carries the ``ue`` spelling only as an
+    alternate. This function runs inside one ``Name``, so the alternate walk is
+    preserved by construction — and the joined forms are built for **every**
+    surname the name holds, not only the primary.
+    """
+    spellings = _spellings(_Name("Given", "Primary-ish", extra=(("", "Alternate-ish"),)))
+
+    assert reads.matches_term("Alternate-ish", *spellings), spellings
+    assert reads.matches_term("Given Alternate-ish", *spellings), (
+        f"the joined form was not built for the alternate surname: {spellings}"
+    )
+
+
+def test_a_PRIVATE_name_still_contributes_no_spelling_at_all() -> None:
+    """⛔ The indexing half of the privacy bound, and the subtler leak.
+
+    ⚠️ The search corpus was once built ungated, so a **private alternate
+    spelling was searchable** — the name never reached the wire, which is exactly
+    what made it hard to see: the route became an oracle for a name marked
+    private.
+
+    ⭐ Asserted here because this change adds candidates, and the one thing it
+    must never do is add one for a name that is gated.
+    """
+    assert _spellings(_Name("Given", "Surname-ish", private=True)) == []
+
+
+def test_the_privacy_BOUND_is_untouched_by_this_change() -> None:
+    """⛔ ``reads.bound`` drops private rows BEFORE counting, and still does.
+
+    ⚠️ ``matched`` must not be runnable backwards to learn that a private person
+    exists. This change is upstream of ``bound`` and adds no row; asserted rather
+    than assumed, because "my change is upstream" is a claim like any other.
+    """
+    rows = [
+        (False, reads.Match("X0001", "shown")),
+        (True, reads.Match("X0002", "private")),
+    ]
+
+    found = reads.bound(rows)
+
+    assert found.matched == 1, "a private row reached the count"
+    assert [match.gramps_id for match in found.matches] == ["X0001"]
+
+
+def test_a_surname_with_a_PREFIX_is_found_by_the_name_as_written() -> None:
+    """⛔ A prefix is literal text of the recorded name, not decoration.
+
+    ⚠️ Joining the given name to each raw surname **component** never produces
+    what the tree actually shows. A person recorded as *`<given> van <surname>`*
+    would not be found by their own name as written — and empty routes to
+    CREATE, which is the chain in #177.
+
+    ⭐ The complete surname is assembled here from prefix, component and
+    connector rather than trusting `get_surname()` to render it. This project's
+    own note says Gramps renders it that way, so the composed form may duplicate
+    what is already there — that costs one redundant candidate. Relying on the
+    reading and being wrong costs a person who cannot be found by their name.
+    """
+    # ⛔ ``get_surname()`` returns only the bare component here, so the assertions
+    # below can be satisfied ONLY by the composed form. With the full rendering
+    # in that slot this test passes without ever touching the composition -- it
+    # did, on its first run.
+    spellings = _spellings(_Name("Elowen", "Ashenmoor", extra=(("van", "Ashenmoor"),)))
+
+    assert reads.matches_term("Elowen van Ashenmoor", *spellings), spellings
+    assert reads.matches_term("van Ashenmoor", *spellings), spellings
+    # ⚠️ And the bare component still matches, so nothing is lost by composing.
+    assert reads.matches_term("Ashenmoor", *spellings), spellings
+    # ⛔ The direction that separates a fix from a wall.
+    assert not reads.matches_term("Nobody At All", *spellings)

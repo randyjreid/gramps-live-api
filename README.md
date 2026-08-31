@@ -75,8 +75,8 @@ project can do for you:
 3. **The tree carries a `.gramps-live-api-copy` sentinel**, placed by hand. Without it every write
    is refused, and that is the whole permission model.
 
-`.\.venv\Scripts\python.exe -m gramps_live_api check` reports on all three, and `docs/using.md` explains what each
-answer means.
+`.\.venv\Scripts\python.exe -m gramps_live_api check` reports on all three, and
+`docs/using.md` explains what each answer means.
 
 ## What the agent can do
 
@@ -84,26 +84,22 @@ Eighteen tools, in three groups.
 
 **Live reads of the open tree** — `find_people`, `find_place`, `find_source`, `find_citation`,
 `find_families`, `find_orphans`, `list_events`, `list_family_events`, `list_citations`,
-`list_associations`, `list_notes`, `tree_totals`, `changed_since`.
-
-`find_families` is its own tool and is the one to run before adding children or a family event;
-missing it is how a second household gets created for a couple who already have one. These answer from the database
+`list_associations`, `list_notes`, `tree_totals`, `changed_since`. These answer from the database
 Gramps currently has open.
 
-⚠️ **One exception, and it matters:** `list_people` — kept because the older note flow needs it —
-still reads a **Gramps XML export produced by hand**. It cannot see writes made since that export was
-taken, and a privacy flag set after it would not be reflected. `find_people` is the live equivalent
-and is the one to use.
+`find_families` is its own tool and is the one to run before adding children or a family event;
+missing it is how a second household gets created for a couple who already have one.
 
 **The document pair** — `propose_document` and `approve_document`. The first files a whole graph
-server-side and returns an id and a preview; the second opens the owner's approval.
+server-side and returns an id and a preview; the second opens the owner's approval. A graph may
+create people, places, events, families, sources, citations and notes, and may attach citations and
+notes to records that already exist. **One graph is one approval and one transaction.**
 
-**They are two different previews, and the difference is the identity check.** What comes back to
+**The preview the agent gets and the one the owner sees are different, and that difference is
+the identity check.** What comes back to
 the agent shows only the Gramps IDs it supplied. What the owner sees is rendered independently at
 approval time — the names read from the live tree, and every field the write will drop shown as
-dropped. So a wrong ID is something the owner can catch and the agent cannot paper over. A graph may create people,
-places, events, families, sources, citations and notes, and may attach citations and notes to records
-that already exist. **One graph is one approval and one transaction.**
+dropped. So a wrong ID is something the owner can catch and the agent cannot paper over.
 
 **A node carrying a Gramps ID keeps its own descriptive fields — that is the whole guarantee, and
 it is narrower than "not modified".** Such a record *is* committed to: an event reference can be
@@ -114,6 +110,10 @@ in the preview as dropped.
 **The older note flow** — `propose_note`, `approve`, and `list_people`: the terminal-era path that
 still works. **Windows only:** its approval opens a console window, and on any other platform
 `approve` refuses outright. The document route has no such restriction.
+
+⚠️ **`list_people` is the one tool that does not read the open tree.** It reads a **Gramps XML export
+produced by hand**, so it cannot see writes made since that export was taken, and a privacy flag set
+afterwards would not be reflected. `find_people` is the live equivalent and is the one to use.
 
 The set above is not maintained by hand against the server: `tests/unit/test_mcp_server.py`'s
 `test_the_exposed_surface_is_exactly_what_the_server_says_it_is` asserts the exposed surface is
@@ -146,25 +146,44 @@ exactly what the server publishes.
   sits behind an optional `mcp` extra, and installing it brings 27–30 packages with it, measured —
   what that costs, and why the SDK anyway, is in [`docs/slice2-mcp.md`](docs/slice2-mcp.md).
 
-### What is tested, and what has never run against a real tree
+### What is tested, and against what
+
+⚠️ **Two different things get called "a real tree" on pages like this, and they are
+not the same claim.** A **real Gramps database** is one a test creates, throws away,
+and can drive automatically. **The owner's own tree** is the one that matters, and
+nothing automated ever touches it.
 
 Coverage is heavy on the parts that can run without Gramps: the graph parser and its refusals, the
 preview renderer, the privacy gate, the backup machinery, the guard. Those have real tests, most with
 negative controls that are checked to fail when the behaviour is removed.
 
-⚠️ **What is thin is the seam.** No test invokes `propose_document`, `approve_document`, or any of the
-live-read tools *at the MCP layer* — their logic is exercised one layer down, against fakes, in the
-accessor and document modules. The wiring from an MCP call, through the HTTP listener, onto Gramps'
-main thread and back is proved by a person running it, not by the suite.
+⚠️ **The seam is thin, and exactly how thin is worth stating.** All thirteen live-read tools are
+invoked **through the registered MCP wrappers** against a **fake host** — each asserted to reach its
+own route, with its own parameters, its defaults for the arguments a caller omits, and its bearer
+token — together with the three ways the transport fails: no host running, a host that refuses, a
+host that is unreachable.
 
-**One exception, and it is the strongest evidence here.** An integration test creates a throwaway
-Gramps database, performs the **older note flow's** write through a real `DbTxn` in a real Gramps
-process, and verifies it from a second fresh process. It runs only when pointed at an installed
-Gramps runtime, so it is skipped in CI — but it is automated, and it is real.
+⛔ **The five that write or read the export are not: `propose_document`, `approve_document`,
+`approve`, `propose_note` and `list_people`.** Their logic is exercised one layer down, against
+fakes, in the accessor and document modules.
 
-**What that test does not cover, and nothing else does either:** the **document** route's write,
-the plugin registration, the approval dialog, and every live read. Those are exercised by a person,
-watching — never automatically, and never against the owner's own data.
+⚠️ **And a fake host is not Gramps.** That a route is called with the right parameters says nothing
+about what the tree would answer. The wiring from an MCP call, through the **real** HTTP listener,
+onto Gramps' main thread and back is still proved by a person running it, not by the suite.
+
+**Against a real Gramps database, one thing is covered automatically, and it is the strongest
+evidence here.** An integration test creates a **throwaway** Gramps database, performs the **older
+note flow's** write through a real `DbTxn` in a real Gramps process, and verifies it from a second
+fresh process. It runs only when pointed at an installed Gramps runtime, so it is skipped in CI — but
+it is automated, and the database is real.
+
+**Against a real Gramps database, these are not covered at all:** the **document** route's write, the
+plugin registration, the approval dialog, and every live read. A fake host proves the MCP layer calls
+the right route; only a database can say what comes back.
+
+⛔ **And against the owner's own tree, nothing is automated — not one of the above.** Every write and
+every read into the tree he actually works in is exercised by a person, watching. That is deliberate
+and it is not going to change.
 
 ## Where it is going
 
@@ -179,8 +198,7 @@ watching — never automatically, and never against the owner's own data.
   record matching.
 
 Two rulings shaped what exists now, both the owner's: **Gramps stays open**, and **the tool runs as a
-Gramps addon inside the Gramps process**. Unlike when this page was last written, that addon is
-written. The ruling is
+Gramps addon inside the Gramps process**. That addon is written. The ruling is
 [`docs/rulings/R8-channel-architecture.md`](docs/rulings/R8-channel-architecture.md).
 
 **One requirement no page can retire:** nothing should be written to a tree the owner cannot get
