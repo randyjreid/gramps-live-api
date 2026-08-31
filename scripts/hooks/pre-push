@@ -21,7 +21,14 @@
 
 set -u
 
-ZERO='0000000000000000000000000000000000000000'
+# ⛔ Derived, not hard-coded. A SHA-256 repository uses 64-character object ids
+# and supplies 64 zeroes for a deletion, so a 40-zero literal would not recognise
+# one -- the deletion would fall through to the update branch and be refused.
+#
+# ⚠️ NOT reproduced here: this repository is SHA-1, so the literal was correct
+# for every push it has ever seen. Derived anyway because the cost is one command
+# and the failure is silent.
+ZERO="$(git hash-object --stdin </dev/null 2>/dev/null | tr '0-9a-f' '0' || echo '0000000000000000000000000000000000000000')"
 
 # A working interpreter, or nothing. GRAMPS_LIVE_API_PYTHON overrides, for a
 # checkout whose environment is somewhere this cannot infer.
@@ -93,6 +100,26 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
     # there is nothing here that could scan a loose blob honestly, and a gate
     # that cannot see what a push carries must not wave it through. Same rule as
     # the missing interpreter above: cannot answer means refuse.
+    # ⛔ An ANNOTATED TAG carries its own message, and nothing scans it.
+    #
+    # ⚠️ The check below peels to a commit and is satisfied, but the range scan
+    # then examines commit TREES -- the tag object itself is never read. A new
+    # annotated tag whose message holds a path is published unscanned, which is
+    # the same fail-open as the tag-on-a-blob case one line down, reached by a
+    # tag that looks entirely ordinary.
+    #
+    # ⭐ Refused rather than scanned, for the reason the whole file uses: the
+    # guard's interface is a commit range, nothing here can scan a tag object
+    # honestly, and a gate that cannot see what a push carries must not wave it
+    # through.
+    if [ "$(git cat-file -t "$local_sha" 2>/dev/null || echo unknown)" = "tag" ]; then
+        echo "PUSH REFUSED: an annotated tag carries a message this gate cannot" >&2
+        echo "scan -- it scans commit ranges, and the tag object is not one." >&2
+        echo "Push the commit, or use a lightweight tag." >&2
+        status=1
+        continue
+    fi
+
     if ! git rev-parse --verify --quiet "$local_sha^{commit}" >/dev/null 2>&1; then
         kind=$(git cat-file -t "$local_sha" 2>/dev/null || echo unknown)
         echo "PUSH REFUSED: a ref points at a $kind rather than a commit." >&2

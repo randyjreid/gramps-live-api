@@ -521,3 +521,38 @@ def test_a_DELETION_is_allowed_even_with_no_interpreter(tmp_path: Path) -> None:
         f"a deletion-only push was refused for want of an interpreter it never needed: {combined}"
     )
     assert "no working Python" not in combined, combined
+
+
+def test_an_ANNOTATED_TAG_is_refused_because_its_message_is_not_scanned(
+    tmp_path: Path,
+) -> None:
+    """⛔ A tag object carries a message, and nothing here reads it.
+
+    ⚠️ The commit-ish check is satisfied — an annotated tag peels to a commit —
+    but the range scan then examines commit **trees**. The tag object itself is
+    never read, so a new annotated tag whose message holds a path is published
+    unscanned. Same fail-open as the tag-on-a-blob case, reached by a tag that
+    looks entirely ordinary.
+
+    ⭐ Refused rather than scanned, for the reason the whole file uses: the
+    guard's interface is a commit range, nothing here can scan a tag object
+    honestly, and **a gate that cannot see what a push carries must not wave it
+    through.**
+    """
+    repo = _a_repository(tmp_path)
+    _git(repo, "tag", "-a", "annotated", "-m", f"a path: {PLANTED}")
+    tag = _git(repo, "rev-parse", "annotated").stdout.strip()
+
+    assert _git(repo, "cat-file", "-t", tag).stdout.strip() == "tag", (
+        "the fixture did not build the case: this is not an annotated tag"
+    )
+    assert _git(repo, "rev-parse", "--verify", f"{tag}^{{commit}}").returncode == 0, (
+        "the fixture did not build the case: the tag must peel to a commit, which "
+        "is what makes it slip past the commit-ish check"
+    )
+
+    result = _push(repo, tag, ZERO)
+
+    combined = result.stdout + result.stderr
+    assert result.returncode != 0, f"an annotated tag was pushed unscanned: {combined}"
+    assert "annotated tag carries a message" in combined, combined
