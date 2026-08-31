@@ -104,8 +104,21 @@ it would be tuned against the wrong thing.
    how this fails quietly.
 4. **Coverage is asserted, not assumed:** for any accepted anchor, the commits
    scanned this run **plus** the commits the anchor certifies equal the commits
-   reachable from `HEAD`. Asserted by count, and the count is compared against
-   `git rev-list --count HEAD`.
+   reachable from `HEAD`. Asserted by count.
+
+   ⛔ **Against ONE resolved HEAD, captured before the walk and re-checked
+   after** — never against `HEAD` as a moving name. The walk takes about 82
+   seconds, which is ample for a checkout to switch branches; the scan would then
+   cover `anchor..old_head` while the count check passed against a *different*
+   `HEAD` that happened to have the same number of commits. **A count is not an
+   identity**, and two siblings of one anchor can share one.
+
+   ⭐ So the run resolves `HEAD` to a SHA at the start, uses that SHA everywhere,
+   and confirms it is still `HEAD` at the end. If it moved, the run is not
+   covering: the anchor is not written and the next run walks fully. Same
+   conservative direction as the digest re-check beside it, and for the same
+   reason — **everything the anchor certifies must be about one immutable
+   snapshot.**
 5. **Identity, since it was asked for:** for a fixed range, findings before and
    after this change are byte-identical. Cheap, and worth keeping as a regression
    guard even though it does not bind the risk.
