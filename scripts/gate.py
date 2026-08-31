@@ -114,6 +114,31 @@ def run(
     #
     # ⭐ Same class as everything else in this function: the failure was never
     # the problem, and the diagnostic not reaching the operator was.
+    #
+    # ⛔ **And that decode is only correct because the line below MAKES it
+    # correct.** Left alone, the two halves disagree about what a child speaks:
+    #
+    #   * ``ruff`` is Rust and writes UTF-8 whatever the locale says;
+    #   * ``mypy``, ``pytest`` and ``pii_guard`` are Python, and a REDIRECTED
+    #     Python stdout uses ``locale.getpreferredencoding()`` -- cp1252 here.
+    #
+    # ⚠️ **Measured on this box with the children's environment controlled:** a
+    # Python child printing ``e``-acute emits ``b'\xe9'``, and this UTF-8 decode
+    # turns that into U+FFFD -- the diagnostic is silently corrupted rather than
+    # shown. A child printing an arrow is worse: cp1252 cannot encode it, so the
+    # CHILD dies with ``UnicodeEncodeError`` and the gate reports that traceback
+    # instead of the failure it was run to find.
+    #
+    # ⭐ **The repair is a bound, not an enumeration.** Deciding per tool which
+    # ones speak UTF-8 is a list that goes stale the next time a step is added --
+    # this project's most-recorded defect class. Telling every child to speak
+    # UTF-8 makes the one decode right for all of them, including the steps
+    # nobody has written yet.
+    #
+    # ⚠️ Deliberately NOT ``_anchored_env()``: that belongs to ``pii_guard`` and
+    # anchors git on a target, which is a different question from how a child
+    # encodes its stdout.
+    child_environment = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     finished = subprocess.run(
         command,
         cwd=ROOT,
@@ -121,6 +146,7 @@ def run(
         encoding="utf-8",
         errors="replace",
         check=False,
+        env=child_environment,
     )
     if finished.returncode != 0:
         print(f"FAILED (exit {finished.returncode})")
