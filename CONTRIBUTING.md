@@ -40,6 +40,39 @@ The core leg's `Types` step runs `mypy src/gramps_live_api` rather than `mypy sr
 server cannot be type-checked where its SDK is not installed; it is checked on the mcp leg instead, and
 the workflow says why in full.
 
+### ⛔ Install the push gate first
+
+**Do this once, in every clone.** Until you do, nothing runs the personal-data
+guard before a push:
+
+```sh
+cp scripts/hooks/pre-push "$(git rev-parse --git-path hooks)/pre-push"
+chmod +x "$(git rev-parse --git-path hooks)/pre-push"
+```
+
+```powershell
+# Windows PowerShell
+$hooks = git rev-parse --git-path hooks
+Copy-Item scripts/hooks/pre-push "$hooks/pre-push"
+```
+
+**Then confirm it took:** `python -m gramps_live_api check` reports a `push gate`
+line, and says `NOT installed` with the command above if it is missing.
+
+⚠️ **Why this is not optional, and why CI is not a substitute.** The workflow runs
+`on: push`. **By the time its guard job starts, GitHub already holds the objects**
+— and this is a public repository, so that is publication. The blob stays
+reachable afterwards even if you force-push over it. **CI detects; only the hook
+prevents.** Issue #171.
+
+⛔ **Two limits, stated rather than implied away.**
+
+- **`git push --no-verify` skips the hook entirely.** That is git's design and
+  nothing here changes it. The gate is a guard rail, not a wall.
+- **Git never installs a hook from a clone**, so this cannot install itself. That
+  is why `check` reports whether it happened — a gate whose installation nothing
+  verifies is the same convention one level down.
+
 A fifth job runs the PII guard. Run it yourself before you push:
 
 ```sh
