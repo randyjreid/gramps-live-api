@@ -746,17 +746,33 @@ def test_a_PARTIAL_package_does_not_satisfy_it_either(tmp_path: Path) -> None:
     for missing in cli.HOST_MODULES:
         environ = dict(equipped(tmp_path))
         partial = tmp_path / f"partial-{missing}" / "src"
-        host = partial / "gramps_live_api" / "host"
-        host.mkdir(parents=True, exist_ok=True)
-        for module in cli.HOST_MODULES:
-            if module != missing:
-                (host / f"{module}.py").write_text("", encoding="utf-8")
+        # ⛔ Laid out through the SAME helper, then one module removed.
+        #
+        # ⚠️ This loop used to write its own files as `host / f"{module}.py"`,
+        # which with dotted names produced `host/host.service.py` and
+        # `host/config.py` -- so EVERY module read as absent and the assertion
+        # below passed for a reason that had nothing to do with the one removed.
+        # Building the complete package and deleting one is the only version that
+        # can tell "this module is missing" from "none of them are there".
+        _lay_out_the_host_package(partial)
+        (partial / "gramps_live_api").joinpath(*missing.split(".")).with_suffix(".py").unlink()
         environ["GRAMPS_LIVE_API_SRC"] = str(partial)
 
         checks = {check.label: check for check in cli.inspect(None, environ)}
 
         assert not checks["source"].ok, (
             f"a package missing {missing}.py was accepted; host startup imports it"
+        )
+        # ⛔ **ONLY the removed module, and this is the assertion that
+        # discriminates.** "Some module is missing" is satisfied by a fixture
+        # that laid none of them down correctly -- which is what the previous
+        # version did, and why it passed either way. Naming exactly one is the
+        # only claim a broken layout cannot satisfy.
+        named = [o for o in cli.HOST_MODULES if o in checks["source"].detail]
+        assert named == [missing], (
+            f"expected the refusal to name only {missing}; it named {named}. If it "
+            f"names all of them the fixture laid down no module correctly, and this "
+            f"test would pass for a reason unrelated to the one removed"
         )
 
 
