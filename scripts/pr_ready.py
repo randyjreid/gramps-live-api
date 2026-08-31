@@ -134,15 +134,21 @@ def _report(pull: int) -> bool:
         "--repo",
         REPOSITORY,
         "--json",
-        "state,headRefOid,title,baseRefName,baseRefOid,mergeable,mergeStateStatus",
+        "state,headRefOid,title,baseRefName,baseRefOid,mergeable,mergeStateStatus,isDraft",
     )
     assert isinstance(meta, dict)
     state = meta.get("state", "?")
-    print(f"  1. state                : {state}")
+    draft = bool(meta.get("isDraft"))
+    print(f"  1. state                : {state}" + ("  (DRAFT)" if draft else ""))
     if state != "OPEN":
         print("     -> not open; nothing further computed")
         print(f"  RESULT: NOT the owner's click -- the pull request is {state}")
         return False
+    if draft:
+        # ⛔ A draft can carry an explicit review, no unresolved threads and a
+        # green matrix -- it passes every check below. GitHub still refuses to
+        # merge it, so READY would be a claim the platform contradicts.
+        failures.append("the pull request is a DRAFT and GitHub will not merge it")
 
     # -- 2. the head ---------------------------------------------------------
     head = str(meta["headRefOid"])
@@ -348,6 +354,25 @@ def _report(pull: int) -> bool:
             "       ⚠️ swept within 2 minutes of the newest bot activity --"
             " a round may still be arriving"
         )
+
+    # -- 7. has anything moved WHILE this sweep ran? -------------------------
+    #
+    # ⛔ Every check above is a separate API call, and the CI query is near the
+    # end. A push, close or merge between the first call and the last would leave
+    # this printing READY about a state that no longer exists -- the same
+    # time-of-check/time-of-use gap the sweep-freshness line was added for, one
+    # level up.
+    again = _json("pr", "view", str(pull), "--repo", REPOSITORY, "--json", "state,headRefOid")
+    assert isinstance(again, dict)
+    if again.get("state") != state or str(again.get("headRefOid") or "") != head:
+        print(
+            f"  7. re-checked           : CHANGED during the sweep -- "
+            f"{state}/{head[:12]} became {again.get('state')}/"
+            f"{str(again.get('headRefOid') or '')[:12]}"
+        )
+        failures.append("the pull request changed while this sweep was running")
+    else:
+        print(f"  7. re-checked           : unchanged ({state}, {head[:12]})")
 
     if failures:
         print("  RESULT: NOT the owner's click")
