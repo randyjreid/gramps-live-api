@@ -16,9 +16,12 @@ from __future__ import annotations
 import io
 import json
 import os
+import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+
+import pytest
 
 from gramps_live_api import cli, config, invocation
 from gramps_live_api.core import apply, schema
@@ -136,6 +139,34 @@ def _lay_out_the_host_package(source: Path) -> Path:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.with_suffix(".py").write_text("", encoding="utf-8")
     return source
+
+
+# ⛔ Captured BEFORE the autouse fixture below can replace it, so the three tests
+# that are about the gate itself call the real thing rather than the stub.
+THE_REAL_PUSH_GATE_CHECK = cli._push_gate_check
+
+
+@pytest.fixture(autouse=True)
+def _the_push_gate_is_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """⛔ Every test in this file is about the TREE, not about this clone's hooks.
+
+    ⚠️ ``check`` reports the push gate, and the gate is a property of **the
+    checkout the code was loaded from** -- not of ``environ``, so ``equipped``
+    cannot supply it. On a fresh clone, and on every CI runner, no hook is
+    installed, so a test asserting ``code == 0`` about a blessed copy was
+    asserting the exit code of a machine that simply had not run the one-line
+    install. **Four of them went red on the Linux matrix for exactly that.**
+
+    ⭐ Same argument ``equipped`` already makes about the runtime: a test about
+    the copy has to supply the rest of the picture, or it measures something else
+    entirely. The three tests that are genuinely about the gate call
+    ``_push_gate_check`` directly and are untouched by this.
+    """
+    monkeypatch.setattr(
+        cli,
+        "_push_gate_check",
+        lambda: cli.Check("push gate", True, "installed (stubbed for tree tests)"),
+    )
 
 
 def operation_file(directory: Path, payload: object) -> str:
@@ -933,3 +964,230 @@ def test_the_candidate_the_HOST_would_bind_is_the_one_checked(tmp_path: Path) ->
     assert str(plugin_dir) in checks["source"].detail, (
         f"the refusal names the wrong directory: {checks['source'].detail}"
     )
+
+
+# ⛔ Is the personal-data guard wired to anything?
+# ---------------------------------------------------------------------------
+
+
+def test_check_reports_the_push_gate_as_installed_when_our_hook_is_there(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⭐ Installed, and reported with its bypass named rather than hidden."""
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    # ⛔ The CANONICAL content, because the check now compares against it. A stub
+    # carrying only the marker is exactly what "stale" means, and writing one
+    # here would assert that a stale hook is reported as the gate.
+    canonical_text = (
+        Path(__file__).resolve().parents[2] / "scripts" / "hooks" / "pre-push"
+    ).read_text(encoding="utf-8")
+    # ⛔ The fixture gets its OWN canonical copy, so CHECKOUT_ROOT stays tmp_path
+    # and the check compares two files that both live inside the fixture.
+    canonical = tmp_path / "scripts" / "hooks" / "pre-push"
+    canonical.parent.mkdir(parents=True, exist_ok=True)
+    canonical.write_text(canonical_text, encoding="utf-8")
+    hook = hooks / "pre-push"
+    hook.write_text(canonical_text, encoding="utf-8")
+    # ⛔ Executable, because the check now requires it. On Windows this line is
+    # a no-op, which is exactly why the omission was invisible here and red on
+    # every Linux runner.
+    hook.chmod(0o755)
+    monkeypatch.setattr(cli, "CHECKOUT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "hooks\n", ""),
+    )
+
+    check = THE_REAL_PUSH_GATE_CHECK()
+
+    assert check.ok, check.detail
+    assert "--no-verify" in check.detail, (
+        "the gate must not be reported as though it were unbypassable"
+    )
+
+
+def test_check_reports_the_push_gate_as_MISSING_and_names_the_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⛔ The state this project was actually in, and nothing said so."""
+    (tmp_path / "hooks").mkdir()
+    monkeypatch.setattr(cli, "CHECKOUT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "hooks\n", ""),
+    )
+
+    check = THE_REAL_PUSH_GATE_CHECK()
+
+    assert not check.ok
+    assert "NOT installed" in check.detail
+    assert "cp scripts/hooks/pre-push" in check.detail, (
+        "a refusal that names a condition and stops is where a setup gets abandoned"
+    )
+
+
+def test_SOMEONE_ELSES_pre_push_hook_is_not_reported_as_this_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⛔ Present is not the same as ours.
+
+    ⚠️ A hook at that path doing something else entirely would satisfy an
+    existence check, and ``check`` would then report the personal-data gate as
+    wired up when nothing runs the guard at all. **That is worse than reporting
+    nothing**, because it is a false assurance about the one thing standing
+    between this tree and a public repository.
+    """
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    (hooks / "pre-push").write_text("#!/bin/sh\nexec npm test\n", encoding="utf-8")
+    monkeypatch.setattr(cli, "CHECKOUT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "hooks\n", ""),
+    )
+
+    check = THE_REAL_PUSH_GATE_CHECK()
+
+    assert not check.ok, "a foreign pre-push hook was reported as this project's gate"
+    assert "not this one" in check.detail, check.detail
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows has no executable bit to withhold")
+def test_a_NON_EXECUTABLE_hook_is_not_reported_as_a_working_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⛔ Git ignores a hook it cannot execute, and pushes anyway.
+
+    ⚠️ Git 2.43 says so explicitly and then proceeds, so reporting ``ok`` here is
+    false assurance **in exactly the state this check exists to detect**.
+
+    ⭐ And the mode is easy to lose rather than exotic: this repository's own hook
+    reached the index as ``100644``, because Windows git does not track the file
+    mode by default. CI caught it on the first Linux run.
+    """
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    hook = hooks / "pre-push"
+    hook.write_text(f"#!/bin/sh\npython -m {cli.HOOK_MARKER} .\n", encoding="utf-8")
+    hook.chmod(0o644)
+    # ⛔ An IDENTICAL canonical file, so this test isolates the executable
+    # bit and nothing else. Without it the staleness check answered first and
+    # the test asserted a message about the canonical being unreadable -- green
+    # on Windows, where the mode check is skipped, and red on every Linux leg.
+    canonical = tmp_path / "scripts" / "hooks" / "pre-push"
+    canonical.parent.mkdir(parents=True, exist_ok=True)
+    canonical.write_text(hook.read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setattr(cli, "CHECKOUT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "hooks\n", ""),
+    )
+
+    check = THE_REAL_PUSH_GATE_CHECK()
+
+    assert not check.ok, "a hook git would ignore was reported as a working gate"
+    assert "NOT EXECUTABLE" in check.detail, check.detail
+
+
+def test_a_STALE_installed_hook_is_not_reported_as_the_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⛔ Installation is a ``cp``, and git does not refresh what was copied.
+
+    ⚠️ Pull a fixed ``scripts/hooks/pre-push`` and the installed one keeps every
+    defect it had — while carrying the same marker, so a substring check called
+    it installed. **That is false assurance in exactly the shape this check
+    exists to prevent:** a gate reported as wired up while running last month's
+    rules.
+
+    ⭐ It caught a real one the moment it was written — the hook installed on
+    this project's own machine predated three fixes to the ref-range logic.
+
+    Content, not a version string: a version has to be remembered on every
+    change, and the bytes cannot fall out of step with themselves.
+    """
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    canonical = (Path(__file__).resolve().parents[2] / "scripts" / "hooks" / "pre-push").read_text(
+        encoding="utf-8"
+    )
+    hook = hooks / "pre-push"
+    hook.write_text(canonical + "\n# an older copy, missing later fixes\n", encoding="utf-8")
+    hook.chmod(0o755)
+    monkeypatch.setattr(cli, "CHECKOUT_ROOT", Path(__file__).resolve().parents[2])
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, str(hooks) + "\n", ""),
+    )
+
+    check = THE_REAL_PUSH_GATE_CHECK()
+
+    assert not check.ok, "a stale copy of the hook was reported as the gate"
+    assert "STALE" in check.detail, check.detail
+
+
+def test_an_IDENTICAL_installed_hook_is_reported_as_the_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⚠️ The other direction: the staleness check must not fail every install.
+
+    ⭐ Compared as text with newlines normalised, because the canonical file is
+    stored ``eol=lf`` and a Windows working tree legitimately holds CRLF — a byte
+    comparison would report **every** Windows installation as stale.
+    """
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    canonical_path = Path(__file__).resolve().parents[2] / "scripts" / "hooks" / "pre-push"
+    hook = hooks / "pre-push"
+    # ⛔ Written back with CRLF deliberately: that is what a Windows checkout has.
+    hook.write_bytes(canonical_path.read_text(encoding="utf-8").replace("\n", "\r\n").encode())
+    hook.chmod(0o755)
+    monkeypatch.setattr(cli, "CHECKOUT_ROOT", Path(__file__).resolve().parents[2])
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, str(hooks) + "\n", ""),
+    )
+
+    check = THE_REAL_PUSH_GATE_CHECK()
+
+    assert check.ok, f"an identical hook with CRLF was called stale: {check.detail}"
+
+
+def test_an_UNREADABLE_canonical_hook_is_refused_rather_than_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⛔ A check that cannot answer must not answer yes.
+
+    ⚠️ Swallowing the read error left the wanted content empty, and the guard
+    reading ``if wanted and ...`` then **disabled the staleness comparison
+    entirely** — so a sparse checkout or a deleted canonical file turned this
+    back into *any executable hook counts*, which is the assurance it was added
+    to remove.
+
+    ⭐ Same rule the hook itself already applies to a missing interpreter and to
+    a ref it cannot scan: cannot answer means refuse.
+    """
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    hook = hooks / "pre-push"
+    hook.write_text(f"#!/bin/sh\npython -m {cli.HOOK_MARKER} .\n", encoding="utf-8")
+    hook.chmod(0o755)
+    # ⛔ A checkout root with no scripts/hooks/pre-push in it at all.
+    monkeypatch.setattr(cli, "CHECKOUT_ROOT", tmp_path / "no-such-checkout")
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, str(hooks) + "\n", ""),
+    )
+
+    check = THE_REAL_PUSH_GATE_CHECK()
+
+    assert not check.ok, "an unreadable canonical hook disabled the staleness check"
+    assert "cannot read" in check.detail, check.detail

@@ -1,0 +1,14 @@
+# ⛔ A shell script with CRLF is not a shell script on Linux.
+#
+# `scripts/hooks/pre-push` was committed with CRLF from a Windows checkout, and
+# every Linux CI leg failed with `set: Illegal option -^M` before the file
+# reached its second line. Git's own core.autocrlf did not save it, so the
+# requirement is stated here where it is checked rather than left to a setting
+# each clone configures for itself.
+#
+# ⚠️ This is the SECOND place carriage returns broke this hook. The first was the
+# test harness feeding CRLF on stdin, which made every comparison against the
+# all-zero sha false and let four tests pass without reaching the branch they
+# named. Same character, different layer.
+scripts/hooks/* text eol=lf
+*.sh text eol=lf

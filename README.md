@@ -94,6 +94,7 @@ missing it is how a second household gets created for a couple who already have 
 server-side and returns an id and a preview; the second opens the owner's approval. A graph may
 create people, places, events, families, sources, citations and notes, and may attach citations and
 notes to records that already exist. **One graph is one approval and one transaction.**
+[`docs/census-brief.md`](docs/census-brief.md) is the working brief for driving them over a census.
 
 **The preview the agent gets and the one the owner sees are different, and that difference is
 the identity check.** What comes back to
