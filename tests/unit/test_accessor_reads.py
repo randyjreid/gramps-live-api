@@ -1384,8 +1384,13 @@ class _Name:
     """One Gramps ``Name``, enough of it for ``_name_spellings``."""
 
     def __init__(
-        self, given: str, surname: str, extra: tuple[str, ...] = (), private: bool = False
+        self,
+        given: str,
+        surname: str,
+        extra: tuple[tuple[str, str], ...] = (),
+        private: bool = False,
     ):
+        """``extra`` is ``(prefix, component)`` pairs -- a prefix is literal name text."""
         self._given, self._surname, self._extra, self._private = given, surname, extra, private
 
     def get_first_name(self) -> str:
@@ -1395,7 +1400,18 @@ class _Name:
         return self._surname
 
     def get_surname_list(self) -> list[object]:
-        return [type("S", (), {"get_surname": staticmethod(lambda s=s: s)})() for s in self._extra]
+        return [
+            type(
+                "S",
+                (),
+                {
+                    "get_surname": staticmethod(lambda s=s: s),
+                    "get_prefix": staticmethod(lambda p=p: p),
+                    "get_connector": staticmethod(lambda: ""),
+                },
+            )()
+            for p, s in self._extra
+        ]
 
     def get_privacy(self) -> bool:
         return self._private
@@ -1454,7 +1470,7 @@ def test_an_ALTERNATE_surname_still_yields_its_own_spellings() -> None:
     preserved by construction — and the joined forms are built for **every**
     surname the name holds, not only the primary.
     """
-    spellings = _spellings(_Name("Given", "Primary-ish", extra=("Alternate-ish",)))
+    spellings = _spellings(_Name("Given", "Primary-ish", extra=(("", "Alternate-ish"),)))
 
     assert reads.matches_term("Alternate-ish", *spellings), spellings
     assert reads.matches_term("Given Alternate-ish", *spellings), (
@@ -1492,3 +1508,31 @@ def test_the_privacy_BOUND_is_untouched_by_this_change() -> None:
 
     assert found.matched == 1, "a private row reached the count"
     assert [match.gramps_id for match in found.matches] == ["X0001"]
+
+
+def test_a_surname_with_a_PREFIX_is_found_by_the_name_as_written() -> None:
+    """⛔ A prefix is literal text of the recorded name, not decoration.
+
+    ⚠️ Joining the given name to each raw surname **component** never produces
+    what the tree actually shows. A person recorded as *`<given> van <surname>`*
+    would not be found by their own name as written — and empty routes to
+    CREATE, which is the chain in #177.
+
+    ⭐ The complete surname is assembled here from prefix, component and
+    connector rather than trusting `get_surname()` to render it. This project's
+    own note says Gramps renders it that way, so the composed form may duplicate
+    what is already there — that costs one redundant candidate. Relying on the
+    reading and being wrong costs a person who cannot be found by their name.
+    """
+    # ⛔ ``get_surname()`` returns only the bare component here, so the assertions
+    # below can be satisfied ONLY by the composed form. With the full rendering
+    # in that slot this test passes without ever touching the composition -- it
+    # did, on its first run.
+    spellings = _spellings(_Name("Elowen", "Ashenmoor", extra=(("van", "Ashenmoor"),)))
+
+    assert reads.matches_term("Elowen van Ashenmoor", *spellings), spellings
+    assert reads.matches_term("van Ashenmoor", *spellings), spellings
+    # ⚠️ And the bare component still matches, so nothing is lost by composing.
+    assert reads.matches_term("Ashenmoor", *spellings), spellings
+    # ⛔ The direction that separates a fix from a wall.
+    assert not reads.matches_term("Nobody At All", *spellings)

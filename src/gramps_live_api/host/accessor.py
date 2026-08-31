@@ -181,11 +181,38 @@ def _name_spellings(name: typing.Any) -> list[str]:
     #
     # ⛔ And it cannot reach either privacy bound: the private-name gate is the
     # line above, and ``reads.bound`` drops private rows before counting.
+    # ⛔ The COMPLETE recorded surname, assembled here rather than assumed.
+    #
+    # ⚠️ A name may hold several surname components, each with a prefix written
+    # before it (`van`, `de`) and a connector written after it (Spanish `y`) --
+    # and those are literal text of the recorded name, not decoration. Joining
+    # the given name to each raw component separately never produces what the
+    # tree actually shows, so a search for the name as written still finds
+    # nobody, and empty routes to CREATE.
+    #
+    # ⭐ Assembled explicitly rather than trusting `get_surname()` to render it.
+    # This project's own note says `SurnameBase.get_surname` renders prefix,
+    # surname, connector -- so the composed form may duplicate it, which costs a
+    # redundant candidate and nothing else. Relying on that reading and being
+    # wrong costs a person who cannot be found by their own name.
+    composed = " ".join(
+        piece
+        for surname in name.get_surname_list() or []
+        for piece in (
+            str(getattr(surname, "get_prefix", lambda: "")() or ""),
+            str(surname.get_surname() or ""),
+            str(getattr(surname, "get_connector", lambda: "")() or ""),
+        )
+        if piece
+    ).strip()
+    if composed:
+        surnames.append(composed)
+
     for surname in surnames:
         if given and surname:
             out.append(f"{given} {surname}")
             out.append(f"{surname} {given}")
-    return [part for part in out if part]
+    return [part for part in dict.fromkeys(out) if part]
 
 
 def _name_shown(name: typing.Any) -> str:
