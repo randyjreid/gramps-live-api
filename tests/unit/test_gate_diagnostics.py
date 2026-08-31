@@ -104,10 +104,21 @@ def test_the_rerun_hint_is_offered_for_BOTH_SHELLS() -> None:
     assert '"$env:GRAMPS_LIVE_API_GATE_BASE..HEAD"' in source, (
         "the PowerShell spelling of the rerun hint is gone"
     )
-    assert '"$GRAMPS_LIVE_API_GATE_BASE..HEAD"' in source, (
+    assert "${GRAMPS_LIVE_API_GATE_BASE:?" in source, (
         "the POSIX spelling of the rerun hint is gone -- in bash the PowerShell "
         "one expands to ':GRAMPS_LIVE_API_GATE_BASE..HEAD' and git reads it as a path"
     )
+    # ⛔ **``:?``, not a bare expansion, and this is the fourth defect in one
+    # hint.** A POSIX user who follows this project's own setup line runs it as
+    # an INLINE assignment, which sets the variable for the gate process only --
+    # so it is unset in their shell afterwards and a bare ``$VAR..HEAD`` expanded
+    # to ``..HEAD``. Measured: ``git rev-list --count "..HEAD"`` returns 0, and
+    # the guard refuses an empty range, so the recovery command produced nothing.
+    #
+    # ⭐ ``${VAR:?message}`` makes the shell refuse and say why. The value cannot
+    # simply be printed instead: this text goes to stdout and CI captures it,
+    # which is the whole reason the diagnostics were withheld.
+    assert "..HEAD" in source, "the range shape is gone from the POSIX hint"
 
 
 def test_a_multi_line_hint_is_printed_as_lines_rather_than_as_one_string() -> None:

@@ -326,11 +326,27 @@ def main() -> int:
         # ⭐ Printed only when the hint is true: the helper above returns True
         # only when ``scope`` is non-empty, so ``--range`` is always the range
         # that actually ran.
+        # ⛔ ``:?`` on the POSIX line, and it is the fourth defect in this hint.
+        #
+        # ⚠️ A POSIX user who follows this project's own setup line runs it as an
+        # INLINE assignment -- ``GRAMPS_LIVE_API_GATE_BASE=<ref> python
+        # scripts/gate.py`` -- which sets the variable for the gate process only.
+        # It is unset in their shell afterwards, so the advertised rerun expanded
+        # to ``..HEAD``. Measured: ``git rev-list --count "..HEAD"`` returns 0,
+        # and the guard then refuses an empty range -- so the recovery command
+        # produced nothing at all, which is what the previous two versions of this
+        # hint were also fixed for.
+        #
+        # ⭐ ``${VAR:?message}`` makes the shell refuse and SAY SO rather than
+        # silently scanning nothing. Still paste-able as-is when the variable is
+        # set, and self-diagnosing when it is not -- which the value cannot be
+        # printed to solve, because this text goes to stdout and CI captures it.
         rerun=(
             "PowerShell:  python -m gramps_live_api.core.pii_guard --range "
             '"$env:GRAMPS_LIVE_API_GATE_BASE..HEAD" .',
             "bash/zsh:    python -m gramps_live_api.core.pii_guard --range "
-            '"$GRAMPS_LIVE_API_GATE_BASE..HEAD" .',
+            '"${GRAMPS_LIVE_API_GATE_BASE:?set it again -- an inline assignment '
+            'did not outlive the gate}..HEAD" .',
         ),
     )
 
