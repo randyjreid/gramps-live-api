@@ -538,7 +538,7 @@ slice's own ruled criterion, a link operation whose apply-code silently creates 
 writes something its schema never said. ⚠️ *Which* of those two is Gramps-native is a measurement
 this project has not taken (M3).
 
-> ⚠️ **Read with the note in slice 4½.** The **document route** creates and attaches families today
+> ⚠️ **Read with the note in slice 6**, where the correction is. The **document route** creates and attaches families today
 > — a `families` node, and an event pointing at its local id — so *that* route needs no `add_family`
 > row and nothing on the census path waits on this. **What stays open is the OPERATION vocabulary**,
 > which is a different design and is not built. M3's question survives for it.
