@@ -74,9 +74,22 @@ Gramps runs our code through its own CLI tool door, so it has to be able to find
 from Gramps' user plugin folder to this checkout — **from the checkout root**, so that `$PWD` is it:
 
 ```powershell
-New-Item -ItemType Directory -Force "$env:APPDATA\gramps\gramps60\plugins" | Out-Null
-New-Item -ItemType Junction -Path "$env:APPDATA\gramps\gramps60\plugins\gramps-live-api" -Target "$PWD\gramps_plugin"
+$plugins = "$env:APPDATA\gramps\gramps60\plugins"
+$link    = "$plugins\gramps-live-api"
+New-Item -ItemType Directory -Force $plugins | Out-Null
+if (Test-Path $link) {
+  "already there: $((Get-Item $link).Target)"
+} else {
+  New-Item -ItemType Junction -Path $link -Target "$PWD\gramps_plugin" | Out-Null
+  "created"
+}
 ```
+
+⚠️ **Run it twice and it says so, rather than failing.** The first version of this
+step used a bare `New-Item`, which errors with *"an item with the specified name
+already exists"* on the second run — and that reads exactly like the setup is
+broken when it is in fact already done. It prints what the junction points at, so
+a link left over from an earlier checkout is visible rather than assumed.
 
 A **junction** does not require Administrator — only a symbolic link does. If that surprises you, it
 surprised us too; it is measured, not assumed.
@@ -127,6 +140,26 @@ with two you are asked to name one rather than have this guess.
 
 Run them from the checkout, in this order.
 
+### First, make a virtual environment
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe --version
+```
+
+⚠️ **If the first line prints a Microsoft Store message instead of doing
+anything, that is the Store alias, not Python.** On a stock Windows box `python`
+is a stub that opens the Store, and it answers questions with a sentence rather
+than an error — so it looks like output. **The failure announces itself here:
+no `.venv` appears and the second line cannot run.**
+
+**The remedy:** install Python 3.10 or newer from python.org, or turn the alias
+off under *Settings → Apps → Advanced app settings → App execution aliases*. If
+you have the `py` launcher, `py -3 -m venv .venv` works too and is never the stub.
+
+⭐ **Every command below uses `.\.venv\Scripts\python.exe`**, so once that
+second line prints a version, which interpreter you get stops being a question.
+
 ```powershell
 $env:PYTHONPATH = "src"
 ```
@@ -134,7 +167,7 @@ $env:PYTHONPATH = "src"
 ### 1. `check` — is everything in place?
 
 ```powershell
-python -m gramps_live_api check
+.\.venv\Scripts\python.exe -m gramps_live_api check
 ```
 
 You should see the runtime, the plugin, your copy, and each of the two files the check looks at:
@@ -162,7 +195,7 @@ ready
 table, the one whose `name.txt` holds your live tree's name:
 
 ```powershell
-python -m gramps_live_api check "<the Path for your LIVE tree>"
+.\.venv\Scripts\python.exe -m gramps_live_api check "<the Path for your LIVE tree>"
 ```
 
 The same report, with one line changed and a non-zero exit:
@@ -185,8 +218,22 @@ anything.
 
 ### 2. `preview` — what exactly would be written?
 
-Write the note you want as a file. Call it `op.json` and put it anywhere outside the checkout —
-`$env:USERPROFILE\op.json` will do, and is what the two commands below assume:
+Write the note you want as a file. Call it `op.json` and put it **beside the tool's own config**,
+which is already outside the checkout and is where the demo actually put it:
+
+```powershell
+New-Item -ItemType Directory -Force "$env:APPDATA\gramps-live-api" | Out-Null
+```
+
+⚠️ **One location, chosen deliberately.** This file holds family data. Anywhere
+outside the checkout keeps it out of a public repository, but the home root puts it
+alongside everything else you own, and the documentation and the practice had
+drifted apart — the page said one place and the demo used another. `$env:APPDATA\gramps-live-api`
+is where `config.json` already lives, and it wins.
+
+⭐ **`op.json` is also in `.gitignore`**, so a copy left in the checkout by accident
+cannot be committed. That is a backstop, not the instruction: the file belongs
+outside the checkout.
 
 ```json
 {
@@ -226,7 +273,7 @@ person, and if the handle names a different object the write is refused rather t
 one you meant.
 
 ```powershell
-python -m gramps_live_api preview "$env:USERPROFILE\op.json"
+.\.venv\Scripts\python.exe -m gramps_live_api preview "$env:APPDATA\gramps-live-api\op.json"
 ```
 
 ```
@@ -248,7 +295,7 @@ That sentence is the thing you are approving. `preview` writes nothing and opens
 ### 3. `apply` — write it, then go and look
 
 ```powershell
-python -m gramps_live_api apply "$env:USERPROFILE\op.json"
+.\.venv\Scripts\python.exe -m gramps_live_api apply "$env:APPDATA\gramps-live-api\op.json"
 ```
 
 ```

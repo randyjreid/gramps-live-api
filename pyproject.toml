@@ -32,7 +32,27 @@ dependencies = []
 # kind. `docs/slice2-mcp.md` records what it costs -- measured, not estimated --
 # and why the answer is still the SDK rather than a JSON-RPC loop of our own.
 mcp = [
-  "mcp>=2.0.0",
+  # ⛔ UPPER BOUND, and it is a STOPGAP rather than the fix -- see issue #173.
+  #
+  # 2.1.1 discards the reason from a refusal. Measured, both versions, isolated
+  # environments, same probe:
+  #
+  #   2.0.0  Error executing tool find_source: source X0001 is marked private in this tree
+  #   2.1.1  Error executing tool find_source
+  #
+  # ⚠️ That is not cosmetic. `TargetIsPrivate` refuses a private target BY NAME
+  # rather than reporting it absent, which is ruling 1's whole point -- and on
+  # 2.1.1 the caller cannot tell "private" from "not found", so the distinction
+  # this project is built to make is lost at the transport.
+  #
+  # The README tells a reader to run `pip install -e ".[mcp]"`, which is exactly
+  # the command that resolved 2.1.1 before this bound existed.
+  #
+  # ⭐ The real fix is to stop depending on the SDK to carry a reason -- see
+  # #173. Until the owner rules on that, this holds the floor, and
+  # test_a_refusals_REASON_reaches_an_mcp_caller fails if the bound is relaxed
+  # without the design change: a pin with no test is a pin someone relaxes.
+  "mcp>=2.0.0,<2.1",
 ]
 dev = [
   "mypy>=1.11",

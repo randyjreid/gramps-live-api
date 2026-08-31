@@ -341,3 +341,8 @@ __marimo__/
 # right that such a block does not belong in tracked content on a public
 # repository, invented values or not. See the handover for what they proved.
 spike/
+
+# The note file the three commands read. It holds family data and belongs
+# outside the checkout entirely (docs/using.md says where). This is the backstop
+# for a copy left here by accident, not the instruction.
+op.json
