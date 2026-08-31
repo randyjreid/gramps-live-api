@@ -127,7 +127,15 @@ def _report(pull: int) -> bool:
     # ⛔ Nothing else is computed for a pull request that is not open. This is
     # the #160/#161 failure: both were merged and both were reported as awaiting
     # the click, because readiness was derived from CI and a verdict alone.
-    meta = _json("pr", "view", str(pull), "--repo", REPOSITORY, "--json", "state,headRefOid,title")
+    meta = _json(
+        "pr",
+        "view",
+        str(pull),
+        "--repo",
+        REPOSITORY,
+        "--json",
+        "state,headRefOid,title,baseRefName,baseRefOid,mergeable,mergeStateStatus",
+    )
     assert isinstance(meta, dict)
     state = meta.get("state", "?")
     print(f"  1. state                : {state}")
@@ -142,6 +150,38 @@ def _report(pull: int) -> bool:
     assert isinstance(commit, dict)
     head_when = str(((commit.get("commit") or {}).get("committer") or {}).get("date", ""))
     print(f"  2. head                 : {head[:12]}  committed {head_when}")
+
+    # -- 2b. is the BASE still where it was when this head was verified? -----
+    #
+    # ⛔ **A clean verdict and a green matrix on a stale base say nothing about
+    # what would actually merge.** The whole point of the gate is that what was
+    # reviewed is what merges, and once the base moves that stops being true --
+    # the tests that passed ran against code that is no longer underneath it.
+    #
+    # ⚠️ ``mergeStateStatus`` is NOT sufficient on its own. GitHub reports
+    # ``BEHIND`` only where the repository requires branches to be up to date;
+    # otherwise a pull request whose base has moved reports ``CLEAN``. Measured:
+    # #175 read CLEAN with a base seven commits behind. So the base OID is
+    # compared directly, and the status is used for the conflict case where it
+    # is authoritative.
+    base_ref = str(meta.get("baseRefName") or "main")
+    base_oid = str(meta.get("baseRefOid") or "")
+    current_base = _gh(
+        "api", f"repos/{REPOSITORY}/git/ref/heads/{base_ref}", "-q", ".object.sha"
+    ).strip()
+    mergeable = str(meta.get("mergeable") or "?")
+    merge_state = str(meta.get("mergeStateStatus") or "?")
+    print(f"  2b. base                : {base_ref}")
+    print(f"       verified against   : {base_oid[:12] or '(unknown)'}")
+    print(f"       {base_ref} is now      : {current_base[:12] or '(unknown)'}")
+    print(f"       mergeable          : {mergeable}  ({merge_state})")
+
+    if mergeable == "CONFLICTING" or merge_state == "DIRTY":
+        failures.append("merge conflict with base")
+    elif current_base and base_oid and current_base != base_oid:
+        failures.append(
+            f"base has moved since this head was verified ({base_oid[:12]} -> {current_base[:12]})"
+        )
 
     # -- 3. a bot verdict ON THAT HEAD ---------------------------------------
     # ⛔ All three object types, because the clean signal is not in the one that
