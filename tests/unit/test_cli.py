@@ -1321,3 +1321,29 @@ def test_PYTHONPATH_cannot_satisfy_the_source_check(tmp_path: Path) -> None:
         "PYTHONPATH satisfied the check for a route Gramps has no PYTHONPATH on: "
         f"{checks['source'].detail}"
     )
+
+
+def test_the_WORKING_DIRECTORY_cannot_satisfy_the_source_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⛔ The third route into the child, and the one ``-E`` does not close.
+
+    ⚠️ ``python -c`` prepends the current directory to ``sys.path``. Running
+    ``check`` from the checkout's ``src`` -- or any directory holding
+    ``gramps_live_api`` -- let the child import it even when the copied plugin
+    and ``GRAMPS_LIVE_API_SRC`` offered nothing.
+
+    ⭐ Three routes in: ``site``, ``PYTHONPATH``, and the working directory. Each
+    was found by review after the previous one was closed, which is what a
+    mechanism reasoned about rather than measured looks like.
+    """
+    environ = dict(equipped(tmp_path))
+    del environ["GRAMPS_LIVE_API_SRC"]
+    monkeypatch.chdir(Path(__file__).resolve().parents[2] / "src")
+
+    checks = {check.label: check for check in cli.inspect(None, environ)}
+
+    assert not checks["source"].ok, (
+        "the working directory satisfied the check for a route Gramps does not "
+        f"run from: {checks['source'].detail}"
+    )

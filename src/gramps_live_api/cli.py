@@ -721,6 +721,15 @@ def _import_as_the_host_would(plugin_directory: str, environ: Mapping[str, str])
     """
     program = (
         "import importlib, importlib.util, json, os, sys\n"
+        # ⛔ **The WORKING DIRECTORY: the third route in, and the one ``-E`` does
+        # not close.** ``python -c`` prepends the current directory to
+        # ``sys.path``, so running ``check`` from the checkout's ``src`` -- or any
+        # directory holding ``gramps_live_api`` -- let the child import it with no
+        # usable candidate from the host at all.
+        #
+        # ⚠️ ``-P`` does exactly this and arrived in 3.11; this repository's floor
+        # is 3.10, so it is done in the program and works on every version.
+        "sys.path[:] = [p for p in sys.path if p not in ('', '.', os.getcwd())]\n"
         "plugin = sys.argv[1]\n"
         "wanted = json.loads(sys.argv[2])\n"
         "host = os.path.join(plugin, 'gramps_live_api_host.py')\n"
