@@ -699,6 +699,22 @@ def _import_as_the_host_would(plugin_directory: str, environ: Mapping[str, str])
     ⚠️ **The environment is passed through**, so ``GRAMPS_LIVE_API_SRC`` means in
     the child exactly what it means in Gramps.
 
+    ⛔ **``-E -S``, and BOTH are needed.** ``check`` runs on the owner's
+    interpreter, where this package is installed; Gramps runs on its own, where
+    it is not. Without isolation the child imports through a route Gramps does
+    not have and reports ready for a setup that cannot start.
+
+    * ``-S`` drops ``site``, so the venv's own install is not visible.
+    * ``-E`` drops ``PYTHONPATH``. ⚠️ **``-S`` alone does not** -- and
+      ``docs/using.md`` tells the owner to set ``PYTHONPATH=src``, so the
+      documented setup was exactly the one that defeated it. **Measured: with
+      ``-S`` alone the package imports through ``PYTHONPATH``; with ``-E -S`` it
+      does not.**
+
+    ⭐ ``GRAMPS_LIVE_API_SRC`` still reaches the child -- ``-E`` drops only the
+    ``PYTHON*`` variables -- so the host's first candidate works as it does in
+    Gramps.
+
     ⭐ The modules imported are the host's own, and ``src/`` imports neither
     ``gramps`` nor ``gi`` -- which is why a child on an ordinary interpreter can
     answer a question about a Gramps plugin at all.
@@ -734,7 +750,15 @@ def _import_as_the_host_would(plugin_directory: str, environ: Mapping[str, str])
     )
     try:
         finished = subprocess.run(
-            [sys.executable, "-S", "-c", program, plugin_directory, json.dumps(list(HOST_MODULES))],
+            [
+                sys.executable,
+                "-E",
+                "-S",
+                "-c",
+                program,
+                plugin_directory,
+                json.dumps(list(HOST_MODULES)),
+            ],
             capture_output=True,
             encoding="utf-8",
             errors="replace",

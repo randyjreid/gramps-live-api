@@ -1299,3 +1299,25 @@ def test_the_check_runs_a_real_import_and_names_what_failed(tmp_path: Path) -> N
     assert not checks["source"].ok
     assert "RuntimeError" in checks["source"].detail, checks["source"].detail
     assert "this package is broken" in checks["source"].detail, checks["source"].detail
+
+
+def test_PYTHONPATH_cannot_satisfy_the_source_check(tmp_path: Path) -> None:
+    """⛔ ``-S`` drops ``site``; it does NOT drop ``PYTHONPATH``.
+
+    ⚠️ ``docs/using.md`` tells the owner to set ``PYTHONPATH=src``, so the
+    documented setup was precisely the one that defeated the isolation: a copied
+    plugin with no ``GRAMPS_LIVE_API_SRC`` would import the checkout through
+    ``PYTHONPATH`` and report ready for a route Gramps cannot start.
+
+    ⭐ Gramps' interpreter has neither, which is what ``-E -S`` reproduces.
+    """
+    environ = dict(equipped(tmp_path))
+    del environ["GRAMPS_LIVE_API_SRC"]
+    environ["PYTHONPATH"] = str(Path(__file__).resolve().parents[2] / "src")
+
+    checks = {check.label: check for check in cli.inspect(None, environ)}
+
+    assert not checks["source"].ok, (
+        "PYTHONPATH satisfied the check for a route Gramps has no PYTHONPATH on: "
+        f"{checks['source'].detail}"
+    )
