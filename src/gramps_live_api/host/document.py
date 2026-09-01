@@ -232,6 +232,29 @@ class Resolved:
     child is dropped by the same gated fetch every other read goes through, so it
     cannot arrive here and cannot be rendered."""
 
+    prior_events: tuple[str, ...] | None = None
+    """What this PERSON already holds, of the types the proposal touches.
+
+    ⛔ **Three states, and the third is the reason this is not a plain tuple.**
+
+    * ``None`` -- not asked, or **the read failed**. The dialog says the prior
+      events could not be read.
+    * ``()`` -- asked, and the person holds none of those types. The dialog says
+      so **in words**.
+    * non-empty -- what they hold, rendered by the accessor from the TREE.
+
+    ⚠️ **An absent line reads as "holds nothing", so it may never be the way a
+    failure is reported.** That is the plan's criterion 5 and it is why the empty
+    case is spelled out rather than skipped.
+
+    ⭐ **Filtered to the types the proposal touches**, per the plan: adding a
+    Census shows the person's existing Census events and nothing else. A dialog
+    nobody finishes reading is the elision defect in a new form.
+
+    ⛔ **Information, never judgement.** Nothing here or downstream says the word
+    duplicate, and a census disagreeing with the tree about a year is two sources
+    disagreeing -- the owner's research, not the tool's verdict."""
+
 
 @dataclass(frozen=True)
 class Resolution:
@@ -1039,6 +1062,32 @@ def _wrap(text: str, indent: str) -> list[str]:
     return out
 
 
+def types_the_proposal_touches(parsed: Graph) -> dict[str, tuple[str, ...]]:
+    """For each person the proposal ADDS AN EVENT TO, the types it adds.
+
+    ⛔ **Created events only.** ``parse`` refuses participants on an event named
+    by ``gramps_id`` -- an existing event keeps the people it has -- so an
+    attached event adds nothing to anybody and asks no question.
+
+    ⭐ **This is what scopes the prior-events line.** Adding a Census shows the
+    person's existing Census events and nothing else: the comparison the owner
+    needs, without the rest of a life. A dialog nobody finishes reading is the
+    elision defect in a new form.
+    """
+    touched: dict[str, list[str]] = {}
+    for event in parsed.events:
+        if event.get("gramps_id"):
+            continue
+        kind = str(event.get("type") or "").strip()
+        if not kind:
+            continue
+        for person in event.get("people") or []:
+            names = touched.setdefault(str(person), [])
+            if kind not in names:
+                names.append(kind)
+    return {person: tuple(kinds) for person, kinds in touched.items()}
+
+
 def _event_line(event: dict[str, Any], named: Any, date_unreadable: bool = False) -> str:
     """One event as the dialog shows it. ⛔ **Including its role.**
 
@@ -1112,6 +1161,7 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
     """
     resolved = (resolution or Resolution()).by_local_id()
     unreadable_dates = frozenset((resolution or Resolution()).unparseable_dates)
+    touched = types_the_proposal_touches(graph)
     people_by_id = {p.get("id"): p for p in graph.people}
     places_by_id = {p.get("id"): p for p in graph.places}
     events_by_id = {str(e.get("id")): e for e in graph.events if e.get("id")}
@@ -1287,6 +1337,45 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
         out.append("")
         for node in attaching:
             out.append(f"  {node.gramps_id}  {node.display}")
+            # ⛔ **What this record ALREADY holds, before what is being added.**
+            #
+            # ⚠️ The dialog showed what would be written and never what was there,
+            # so a second Census rendered exactly like a first and catching it
+            # meant knowing that person's events from memory -- for four or five
+            # people at a time, at the moment the tool is meant to help.
+            #
+            # ⛔ **Information, not judgement.** No warning, no highlight, no
+            # reordering, and the word *duplicate* appears nowhere. A census
+            # saying one year against a tree saying another is two sources
+            # disagreeing, which is the owner's research and not a verdict this
+            # can reach.
+            #
+            # ⚠️ **The "could not be read" case is SAID, never omitted.** An
+            # absent line reads as *holds nothing*, so silence would be a claim
+            # about the tree rather than an admission about the read.
+            # ⛔ **Only where the proposal ADDS an event to this person.**
+            #
+            # ⚠️ A person the proposal merely CITES has nothing to compare
+            # against, and a line there is volume without signal -- the plan says
+            # so. It also decides a correctness question: ``None`` means *not
+            # asked* as well as *the read failed*, so without this test a
+            # cited-only person would be reported as unreadable, which is false.
+            #
+            # ⭐ ``touched`` comes from the same pure function the accessor used
+            # to decide what to read, so the two cannot disagree about who was
+            # asked about.
+            if node.local_id in touched:
+                if node.prior_events is None:
+                    out.extend(_wrap("already has: (could not be read)", "        "))
+                else:
+                    out.extend(
+                        _wrap(
+                            "already has: " + " · ".join(node.prior_events)
+                            if node.prior_events
+                            else "already has: none of these",
+                            "        ",
+                        )
+                    )
             # ⛔ An attached EVENT is recorded as rendered here.
             #
             # ⚠️ Without this it rendered under ATTACHING TO EXISTING **and again

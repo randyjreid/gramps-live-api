@@ -707,6 +707,9 @@ def resolve_nodes(graph: dict[str, typing.Any]) -> document.Resolution:
         )
     database = _DBSTATE.db
     found: list[document.Resolved] = []
+    # ⭐ Computed once from the graph, not per node: it is a property of the
+    # proposal, and asking it inside the loop would walk the events N times.
+    touched = document.types_the_proposal_touches(parsed)
     for request in document.requested(parsed):
         # ⛔ The gate lives inside the fetch now, so nothing ungated arrives here.
         # ``/resolve`` used to answer found=True for a private record, which
@@ -723,9 +726,62 @@ def resolve_nodes(graph: dict[str, typing.Any]) -> document.Resolution:
                 display=_display_of(database, request.kind, obj) if obj is not None else "",
                 private=private,
                 children=_children_of(database, request.kind, obj),
+                prior_events=_prior_events_of(database, request, obj, touched),
             )
         )
     return document.Resolution(nodes=tuple(found))
+
+
+def _prior_events_of(
+    database: typing.Any,
+    request: typing.Any,
+    obj: typing.Any,
+    touched: dict[str, tuple[str, ...]],
+) -> tuple[str, ...] | None:
+    """What this person already holds, of the types the proposal adds to them.
+
+    ⛔ **Three answers, and the third is why this returns ``None`` rather than
+    ``()``.** ``None`` means *not asked, or the read failed*; ``()`` means *asked,
+    and they hold none of these*. An absent line reads as "holds nothing", so a
+    failure must never be reported by omitting one.
+
+    ⚠️ **Every fetch through ``_public``, and the type comparison is
+    case-folded** -- the graph carries the word a document used, the tree carries
+    Gramps' own spelling, and *census* must match *Census*.
+
+    ⭐ **Rendered by ``_event_display``, the renderer the dialog and the read
+    route already share.** A fourth description of an event is how the first
+    three disagreed.
+    """
+    if request.kind != "person" or obj is None:
+        return None
+    wanted = touched.get(str(request.local_id))
+    if not wanted:
+        return None
+    folded = {kind.casefold() for kind in wanted}
+    shown: list[str] = []
+    try:
+        for ref in obj.get_event_ref_list():
+            if _public(ref) is None:
+                continue
+            event = _public(database.get_event_from_handle(ref.ref))
+            if event is None:
+                continue
+            if str(event.get_type()).casefold() not in folded:
+                continue
+            place = ""
+            handle = event.get_place_handle()
+            if handle:
+                where = _public(database.get_place_from_handle(handle))
+                if where is not None and not where.get_privacy():
+                    place = where.get_name().get_value() or where.get_title() or ""
+            shown.append(_event_display(event, place))
+    except Exception:
+        # ⛔ **The dialog still opens, and says the read failed.** Criterion 5:
+        # never silently omit, because an absent line is indistinguishable from
+        # "this person holds none".
+        return None
+    return tuple(shown)
 
 
 def _children_of(database: typing.Any, kind: str, obj: typing.Any) -> tuple[str, ...]:
