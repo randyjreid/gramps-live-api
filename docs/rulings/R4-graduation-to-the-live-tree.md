@@ -1,7 +1,7 @@
 # R4 — Graduation to the live tree: blessed, with a backup taken first
 
-> ⭐ **STATUS: still holds.** It is why the owner's live tree is writable when
-> blessed by hand.
+> ⭐ **STATUS: the DECISION holds.** It is why the owner's live tree is writable
+> when blessed by hand.
 >
 > ⚠️ **But the backup it depends on covers the DOCUMENT route only.** The older
 > `propose_note`/`approve` flow and the `preview`/`apply` commands write to a

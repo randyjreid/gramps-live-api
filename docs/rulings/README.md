@@ -1,18 +1,30 @@
 # Rulings
 
 **Decisions the owner made about this project, with what each one cost.** Each
-page records a decision and does not argue it again. ⛔ **None is deprecated. All
-four still hold**, and the code assumes them.
+page records a decision and does not argue it again.
+
+⛔ **This index says what each ruling DECIDED. It does not say what the code does
+today, and the difference is not pedantry.** A ruling can be in force while the
+implementation has moved: **R7's mechanism diverged** — the shipped backup opens
+its own connection rather than using Gramps' — and **R8's scope has exceptions**,
+because the legacy `approve` console and the export-backed `list_people` predate
+it.
+
+⚠️ **An earlier draft carried a "still holds" column and was wrong about it four
+times in five review rounds**, always the same way: written from the rulings,
+never checked against the source. ⭐ **Whether a ruling is in force and whether the
+code still matches it are two questions, and only the first can be answered from
+this directory.** For the second, read the module.
 
 They are the answer to *why is it built this way?* — and to *why does it not do
 the safer-sounding thing?*, which is more often the interesting question.
 
-| | Decided | It ruled that | Still holds |
-| --- | --- | --- | --- |
-| **[R3](R3-injection-under-live-reads.md)** — injection under live reads | 2026-08-21 | Text in the tree may influence what the agent **proposes**, and that is not preventable at the read. **The damage is bounded at the write instead**: nothing reaches the tree without a human approving a rendering of it. Fencing is defence in depth, not the guarantee. | ✅ **Yes.** It is why live reads are permitted at all, and why the approval dialog must render *everything* that would be written. |
-| **[R4](R4-graduation-to-the-live-tree.md)** — graduation to the live tree | 2026-08-21 | The live tree **may** carry the `.gramps-live-api-copy` sentinel and be written to, **with a backup taken first.** Recorded explicitly as a **downgrade**: from *a bad write cannot happen* to *a bad write can be reversed*. | ✅ **Yes** — ⚠️ **and the backup it rests on covers the DOCUMENT route only.** The older `propose_note`/`approve` flow and the `preview`/`apply` commands write to a blessed tree **without taking one**, so a write through those has no recovery point and R4's *recoverable-after* is narrower than the tree it applies to. `README.md` says so in its limitations. |
-| **[R7](R7-backup-with-gramps-open.md)** — backup with Gramps open | 2026-08-21 | The backup uses `sqlite3.Connection.backup()` against the **live connection Gramps already holds**, and **restore is file replacement, not import** — an import regenerates every handle. | ✅ **The DECISION holds** — a backup is taken, per write rather than per session, on the routes that take one at all (see R4's row). ⚠️ **But the shipped code does NOT use Gramps' live connection.** `host/backup.py` opens **a second, read-only `sqlite3` connection** to the tree's file and says why: a backup copies pages and needs none of the functions and collations Gramps registers, so it avoids the `db.dbapi._Connection__connection` reach this ruling accepted as a cost. ⭐ **Read the ruling for the decision and `host/backup.py` for the mechanism.** |
-| **[R8](R8-channel-architecture.md)** — channel architecture | 2026-08-19 | The tool is a **Gramps addon inside the Gramps process**: a loopback HTTP listener on a daemon thread, all database and GTK work marshalled to the **GTK main thread**, approval in a **Gramps dialog**, and the MCP server a thin client holding no Gramps code. | ✅ **Yes.** It is the architecture. Almost every constraint in `CONTRIBUTING.md` about threads and imports comes from here. |
+| | Decided | It ruled that |
+| --- | --- | --- |
+| **[R3](R3-injection-under-live-reads.md)** — injection under live reads | 2026-08-21 | Text in the tree may influence what the agent **proposes**, and that is not preventable at the read. **The damage is bounded at the write instead**: nothing reaches the tree without a human approving a rendering of it. Fencing is defence in depth, not the guarantee. |
+| **[R4](R4-graduation-to-the-live-tree.md)** — graduation to the live tree | 2026-08-21 | The live tree **may** carry the `.gramps-live-api-copy` sentinel and be written to, **with a backup taken first.** Recorded explicitly as a **downgrade**: from *a bad write cannot happen* to *a bad write can be reversed*. |
+| **[R7](R7-backup-with-gramps-open.md)** — backup with Gramps open | 2026-08-21 | The backup uses `sqlite3.Connection.backup()` against the **live connection Gramps already holds**, and **restore is file replacement, not import** — an import regenerates every handle. |
+| **[R8](R8-channel-architecture.md)** — channel architecture | 2026-08-19 | The tool is a **Gramps addon inside the Gramps process**: a loopback HTTP listener on a daemon thread, all database and GTK work marshalled to the **GTK main thread**, approval in a **Gramps dialog**, and the MCP server a thin client holding no Gramps code. |
 
 ## Reading them without the context they were written in
 

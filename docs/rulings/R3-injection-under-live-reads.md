@@ -1,7 +1,8 @@
 # R3 — Injection under live reads: bound the damage at the write, fence as defence in depth
 
-> ⭐ **STATUS: still holds.** It is why live reads are permitted, and why the
-> approval dialog must render everything that would be written.
+> ⭐ **STATUS: the DECISION holds**, and the code matches it: nothing reaches the
+> tree without a human approving a rendering of it. It is why live reads are
+> permitted at all.
 > Index: [`README.md`](README.md).
 
 
