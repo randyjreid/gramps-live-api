@@ -4,14 +4,21 @@
 > slice 2 built and is kept for the reasoning it holds. Four things it says have
 > since changed, and they are the ones a reader will trip on:
 >
-> * **"three MCP tools"** — there are now **eighteen**: thirteen live reads, three
->   proposal and approval verbs, and `tree_totals`.
+> * **"three MCP tools"** — there are now **eighteen**, and the authoritative list
+>   is `TOOL_NAMES` in `src/gramps_live_api_mcp/server.py`: **thirteen live reads**
+>   (`tree_totals` and `changed_since` among them), **four proposal and approval
+>   verbs** (`propose_note`, `approve`, `propose_document`, `approve_document`),
+>   and **`list_people`**, which is the odd one out below.
 > * **"the copy"** — a write no longer targets a copy only. `R4` permits the live
 >   tree, blessed by hand, **with a backup taken first**; see
 >   [`rulings/R4-graduation-to-the-live-tree.md`](rulings/R4-graduation-to-the-live-tree.md).
 > * **"a console"** — a document write is approved in a **dialog inside Gramps**,
 >   rendered from the stored graph. The console flow described here is slice 2's.
-> * **an XML export** — the reads run against the **open tree**, in-process.
+> * **an XML export** — the live reads run against the **open tree**, in-process.
+>   ⚠️ **`list_people` is the exception and still reads a Gramps XML export**, so
+>   it carries the staleness and privacy caveat the root `README.md` documents.
+>   *"the reads moved in-process"* is true of thirteen of them, not of all
+>   fourteen.
 >
 > ⭐ The trust model below — binding separated from approval, the operation never
 > travelling through the agent — is unchanged and is still the argument.
