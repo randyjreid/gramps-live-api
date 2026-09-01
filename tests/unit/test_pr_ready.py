@@ -237,3 +237,68 @@ def test_the_backstop_line_only_ADVISES() -> None:
 
     assert pr_ready._judge(eight_rounds_but_otherwise_perfect, "a" * 40) == []
     assert pr_ready._round_note(8)
+
+
+def _review(body: str = "**Reviewed commit:** `abc123`") -> dict[str, object]:
+    return {"body": body}
+
+
+def test_a_CLEAN_round_is_counted__it_creates_no_review_object() -> None:
+    """⛔ The undercount, on real numbers.
+
+    A clean round arrives as a conversation comment and creates no review object,
+    so counting review objects missed every one. ⚠️ **Measured on merged pull
+    requests: #164 had 10 review objects and 2 clean comments -- 12 rounds
+    counted as 10; #159 was 7 of 8.** #175 counted 8 of 8, which is precisely why
+    the bug was invisible: not one of its rounds was ever clean.
+    """
+    reviews = [_review() for _ in range(10)]
+    clean = [
+        _comment(
+            "2026-08-31T09:51:56Z",
+            "Codex Review: Didn't find any major issues. Hooray! **Reviewed commit:** `ad5b704dac`",
+        ),
+        _comment(
+            "2026-08-31T11:10:39Z",
+            "Codex Review: Didn't find any major issues. **Reviewed commit:** `8d2bc15ade`",
+        ),
+    ]
+
+    assert pr_ready._round_count(reviews, clean) == 12
+
+
+def test_the_marker_is_the_discriminator__not_the_clean_phrasing() -> None:
+    """⭐ Every artifact the bot publishes names the commit it reviewed.
+
+    ⚠️ Matching the clean PHRASES instead would be an enumeration that goes stale
+    the moment the bot varies its wording -- and it already varies the sentence
+    after it ("Hooray!" / "Keep them coming!").
+    """
+    chatter = [_comment("2026-08-31T10:00:00Z", "some bot message that reviewed nothing")]
+
+    assert pr_ready._round_count([], chatter) == 0
+    assert pr_ready._round_count([], [_comment("x", "**Reviewed commit:** `deadbee`")]) == 1
+
+
+def test_a_review_object_counts_even_WITHOUT_the_marker() -> None:
+    """⚠️ Asymmetric on purpose: a review IS a round; a comment only announces one.
+
+    Undercounting is the failure being repaired, so the side that can only ever
+    undercount gets the benefit of the doubt.
+    """
+    assert pr_ready._round_count([_review(body="")], []) == 1
+
+
+def test_the_undercount_would_have_hidden_the_backstop() -> None:
+    """⛔ The two defects compose: a low count silences the advisory.
+
+    Four findings-rounds and one clean round is five, which fires. Counting
+    review objects alone says four, which does not -- so a pull request at the
+    backstop looks like one below it.
+    """
+    four_with_findings = [_review() for _ in range(4)]
+    one_clean = [_comment("x", "**Reviewed commit:** `abc1234`")]
+
+    assert pr_ready._round_count(four_with_findings, one_clean) == 5
+    assert pr_ready._round_note(pr_ready._round_count(four_with_findings, one_clean))
+    assert not pr_ready._round_note(len(four_with_findings))

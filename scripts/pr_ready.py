@@ -58,6 +58,10 @@ BOT = "chatgpt-codex-connector[bot]"
 # ⛔ The backstop is the OWNER'S call, so this number only ever prints.
 BACKSTOP = 5
 
+# ⛔ What every bot artifact carries, findings review and clean comment alike:
+# "**Reviewed commit:** `<sha>`". Matched case-insensitively.
+ROUND_MARKER = "reviewed commit"
+
 # ⛔ What the bot says when it has looked and found nothing. Matched
 # case-insensitively against a conversation comment, because the clean signal
 # arrives there and creates no review object at all.
@@ -166,6 +170,36 @@ def _still_current(comments: list[dict[str, Any]], latest_request: str) -> list[
 def _is_bot(login: object) -> bool:
     """⛔ Either spelling. See ``BOT_LOGINS``."""
     return str(login or "") in BOT_LOGINS
+
+
+def _round_count(bot_reviews: list[dict[str, Any]], bot_conversation: list[dict[str, Any]]) -> int:
+    """How many rounds the bot has actually published.
+
+    ⛔ **A CLEAN round creates no review object.** This file says so a few
+    hundred lines up -- the clean signal arrives as a conversation comment plus a
+    reaction -- and then counted review objects anyway, so every clean round was
+    invisible to the backstop. **Measured on merged pull requests: #164 counted
+    10 where 12 rounds had run, #159 counted 7 of 8.** #175 counted 8 of 8, which
+    is exactly why it looked right: not one of its rounds was ever clean.
+
+    ⭐ **The discriminator is the bot's own marker, not the clean phrases.**
+    Every artifact it publishes -- findings review and clean comment alike --
+    carries ``Reviewed commit:``. Measured: 10 of 10 review bodies on #164. So one
+    rule covers both object types, and it does not go stale when the wording of a
+    clean verdict changes.
+
+    ⚠️ **A review object counts even without the marker.** A review IS a round;
+    a conversation comment is only a round if it announces one. The asymmetry is
+    deliberate -- undercounting is the failure this repairs, so the side that can
+    only ever undercount is the side that gets the benefit of the doubt.
+
+    ⚠️ **If one round ever published BOTH, this counts two.** That overcounts
+    toward surfacing the backstop earlier, which for an advisory is the harmless
+    direction: it costs a conversation with the owner, where undercounting costs
+    another #175.
+    """
+    announced = [c for c in bot_conversation if ROUND_MARKER in (c.get("body") or "").lower()]
+    return len(bot_reviews) + len(announced)
 
 
 def _round_note(rounds: int) -> str:
@@ -377,7 +411,7 @@ def _report(pull: int) -> bool:
     accepted_clean = _still_current(clean_comments, latest_trigger)
     superseded_clean = [c for c in clean_comments if c not in accepted_clean]
 
-    print("  3. bot verdict on head  :")
+    print("  2. bot verdict on head  :")
     print(
         f"       reviews on head    : {len(on_head_reviews)}"
         + (f"  ({on_head_reviews[-1].get('submitted_at')})" if on_head_reviews else "")
@@ -437,7 +471,7 @@ def _report(pull: int) -> bool:
     # where continuing is always defensible. **An unimplemented ceiling cannot
     # fire**, which is the same defect as every other one here: a judgement
     # remembered instead of run.
-    rounds = len(by_bot(reviews))
+    rounds = _round_count(by_bot(reviews), by_bot(conversation))
     print(f"  3. bot review rounds    : {rounds} total, {len(on_head_reviews)} on this head")
     note = _round_note(rounds)
     if note:
