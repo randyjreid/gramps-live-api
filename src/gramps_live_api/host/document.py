@@ -1067,8 +1067,20 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
     source_id = graph.source.get("id") if graph.source else None
 
     shown_events: set[int] = set()
-    shown_citations: set[int] = set()
-    shown_notes: set[int] = set()
+    # ⛔ **EDGES, not nodes, and that distinction is the whole of #167.**
+    #
+    # ⚠️ These were ``set[int]`` -- the citation's index -- so a citation was
+    # marked shown once it had been drawn ANYWHERE. **The writer applies one
+    # attachment per id in ``attach_to``**, so a citation naming twelve targets is
+    # twelve edges; rendering it under one of them satisfied a node-level backstop
+    # while eleven attachments went unmentioned. **Measured live: five of twelve
+    # rendered, twelve written.**
+    #
+    # ⭐ A node-level backstop cannot detect a missing edge. Keyed on
+    # ``(index, target)``, ``ALSO WRITTEN`` can fire for the targets that were
+    # never drawn, and it now names them.
+    shown_citations: set[tuple[int, Any]] = set()
+    shown_notes: set[tuple[int, Any]] = set()
 
     def named_node(local_id: Any) -> str:
         """A node's name -- from the tree if it exists there, else from the graph."""
@@ -1092,6 +1104,34 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
             return _named(entry)
         if local_id == source_id and graph.source:
             return str(graph.source.get("title") or "the source")
+        # ⭐ **An EVENT and a CITATION can both be attachment targets**, and until
+        # the backstop started naming targets neither had ever needed a name.
+        #
+        # ⚠️ Falling through to ``str(local_id)`` printed the graph's internal
+        # handle -- *"attached to c1"* -- which tells the owner an attachment
+        # exists and nothing he can recognise or refuse. **A target he cannot
+        # read is not a target he was shown.**
+        event = events_by_id.get(str(local_id))
+        if event is not None:
+            return _event_line(event, named_node)
+        for citation in graph.citations:
+            if citation.get("id") != local_id:
+                continue
+            page = citation.get("page")
+            # ⛔ ``or source_id`` -- **the writer's own fallback, mirrored.**
+            #
+            # ⚠️ ``parse`` accepts a citation with no ``source`` when the graph
+            # supplies a top-level one, and the writer then uses that
+            # (``handles.get(spec.get("source")) or source_handle``). Without the
+            # fallback the preview named the source **"None"** -- and it did so at
+            # all three citation-rendering sites, the two older ones included, so
+            # an ordinary sourceless citation already rendered as
+            # ``+ Citation -> None`` before this branch existed.
+            return (
+                "the citation of "
+                + named_node(citation.get("source") or source_id)
+                + (f"  p.{page}" if page else "")
+            )
         return str(local_id)
 
     def attached_to(local_id: Any, indent: str) -> list[str]:
@@ -1104,17 +1144,42 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
             # is what R3 requires, but not where the owner is looking for it.
             if local_id not in (event.get("people") or []) and event.get("family") != local_id:
                 continue
+            # ⛔ **Whether this is the FIRST record to reach this event**, captured
+            # before the event is marked shown.
+            first_reach = index not in shown_events
             shown_events.add(index)
             out.extend(_wrap("+ " + _event_line(event, named_node), indent))
+            # ⛔ **The event's OWN attachments, under the event, ONCE.**
+            #
+            # ⚠️ This is the omission #167 reported. A created event is drawn here
+            # as a line beneath a person, and nothing then asked what is attached
+            # to the event itself -- so a citation supporting it was never
+            # rendered, while the writer attached it. **An event reached the
+            # walk as CONTENT and never as a node.**
+            #
+            # ⛔ **Once, because the writer attaches once.** A marriage naming two
+            # people is drawn under both -- correctly, both take part -- but its
+            # citation is ONE edge, and drawing it under each of them said the
+            # write makes two attachments where it makes one. **That is the same
+            # over-reporting this change exists to remove, reintroduced by the
+            # repair**, and the event line repeating is not the same thing: the
+            # event genuinely involves both people.
+            #
+            # ⭐ One level, and it cannot recurse: ``parse`` requires an event's
+            # ``people`` to be persons and its ``family`` to be a family, so no
+            # event can match another event's id and the loop above cannot re-enter.
+            event_id = event.get("id")
+            if first_reach and event_id is not None:
+                out.extend(attached_to(event_id, indent + "    "))
         for index, citation in enumerate(graph.citations):
             if local_id not in (citation.get("attach_to") or []):
                 continue
-            shown_citations.add(index)
+            shown_citations.add((index, local_id))
             page = citation.get("page")
             out.extend(
                 _wrap(
                     "+ Citation -> "
-                    + named_node(citation.get("source"))
+                    + named_node(citation.get("source") or source_id)
                     + (f"  p.{page}" if page else ""),
                     indent,
                 )
@@ -1122,10 +1187,37 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
         for index, note in enumerate(graph.notes):
             if local_id not in (note.get("attach_to") or []):
                 continue
-            shown_notes.add(index)
+            shown_notes.add((index, local_id))
             out.extend(_wrap("+ Note:", indent))
             out.extend(_wrap(note.get("text") or "(empty)", indent + "    "))
         return out
+
+    def undrawn(index: int, entry: dict[str, Any], drawn: set[tuple[int, Any]]) -> list[Any]:
+        """The ``attach_to`` targets of ``entry`` that no section has rendered.
+
+        ⛔ **The writer applies one attachment per id**, so the question the
+        backstop must ask is *which of this node's edges went unmentioned* — not
+        *was this node mentioned*.
+
+        ⚠️ An empty ``attach_to`` yields one pseudo-target, ``None``, so a citation
+        or note attached to nothing still reaches ``ALSO WRITTEN`` rather than
+        being silently satisfied by having no edges to miss.
+
+        ⛔ **De-duplicated, because the WRITER de-duplicates.** ``parse``
+        deliberately accepts one local id listed twice in a single ``attach_to`` --
+        it is one node, named twice -- and ``_attachment_targets`` collapses it
+        through ``_unique`` so exactly one edge is written. Naming it twice here
+        would state two attachments where the write makes one.
+
+        ⚠️ **First-occurrence order is kept**, for the same reason the writer keeps
+        it and the family-child path keeps it: the document's order is usually the
+        page's, and criterion A6 requires one graph to render one way.
+        """
+        seen: list[Any] = []
+        for target in list(entry.get("attach_to") or []) or [None]:
+            if target not in seen:
+                seen.append(target)
+        return [target for target in seen if (index, target) not in drawn]
 
     out: list[str] = []
     out.append("THIS IS WHAT WOULD BE WRITTEN TO YOUR TREE")
@@ -1191,12 +1283,27 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
                 # attach_to names the family IS committed onto it -- ``family``
                 # is in the writer's commit table -- and ``attached_to`` renders
                 # exactly that, three lines below, contradicting it.
+                # ⛔ **The bullet goes in the TEXT; the indent is spaces.**
+                #
+                # ⚠️ Passing ``"      + "`` as the indent put it on the
+                # CONTINUATION lines too -- ``_wrap`` uses one string for both --
+                # so a child list long enough to wrap rendered as two bullets and
+                # **a surname on its own read as an extra child**:
+                #
+                #     + adding as children: I0001  Beta Testcase, I0002  Gamma
+                #     + Testcase
+                #
+                # ⭐ Three children named, four apparently added, at the moment the
+                # owner is counting them. **The dialog asserting a person who does
+                # not exist is the preview/write class reached by formatting** --
+                # and this was the only call site passing a bullet as an indent;
+                # every other puts it in the text exactly like this.
                 out.extend(
                     _wrap(
-                        "adding as children: " + ", ".join(joining)
+                        "+ adding as children: " + ", ".join(joining)
                         if joining
-                        else "no children named for this family",
-                        "      + ",
+                        else "+ no children named for this family",
+                        "      ",
                     )
                 )
             dropped = dropped_fields(entry)
@@ -1259,22 +1366,34 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
             continue
         leftovers.extend(_wrap("Event     " + _event_line(event, named_node), "  "))
         leftovers.extend(attached_to(event.get("id"), "      "))
+    # ⛔ **Per EDGE, and the target is NAMED.**
+    #
+    # ⚠️ *"Citation -> Parish register p.7"* with no target told the owner an
+    # attachment exists and not what it lands on, which is the half of the
+    # statement he needs in order to refuse it.
     for index, citation in enumerate(graph.citations):
-        if index in shown_citations:
+        missing = undrawn(index, citation, shown_citations)
+        if not missing:
             continue
         page = citation.get("page")
+        where = ", ".join(
+            named_node(target) if target is not None else "nothing" for target in missing
+        )
         leftovers.extend(
             _wrap(
                 "Citation  -> "
-                + named_node(citation.get("source"))
-                + (f"  p.{page}" if page else ""),
+                + named_node(citation.get("source") or source_id)
+                + (f"  p.{page}" if page else "")
+                + "  on: "
+                + where,
                 "  ",
             )
         )
     for index, note in enumerate(graph.notes):
-        if index in shown_notes:
+        missing = undrawn(index, note, shown_notes)
+        if not missing:
             continue
-        target = ", ".join(str(x) for x in (note.get("attach_to") or [])) or "nothing"
+        target = ", ".join(named_node(one) if one is not None else "nothing" for one in missing)
         leftovers.extend(_wrap(f"Note      (attached to {target}):", "  "))
         leftovers.extend(_wrap(note.get("text") or "(empty)", "      "))
     if leftovers:

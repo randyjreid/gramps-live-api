@@ -160,7 +160,7 @@ def test_the_preview_never_renders_what_the_caller_said_about_an_existing_node()
     graph = document.parse(
         {
             "people": [node("p1", gramps_id="I0024", surname="Friedrich")],
-            "source": {"id": "s1", "title": "Invented Register"},
+            "source": node("s1", title="Invented Register"),
             "citations": [node("c1", source="s1", page="p.1", attach_to=["p1"])],
         }
     )
@@ -866,3 +866,331 @@ def test_a_role_carried_only_by_a_null_person_is_refused() -> None:
                 events=[node("e1", type="Marriage", family="f1", people=[None], role="Witness")],
             )
         )
+
+
+# -- #184: a wrapped child name must not read as another child ----------------
+
+
+def _family_gaining(children: list[str]) -> str:
+    """The dialog for an existing family gaining ``children``, by display name.
+
+    ⭐ Rendered by running ``preview``, which is pure -- no tree, no Gramps.
+    """
+    locals_ = [f"p{index}" for index, _ in enumerate(children, start=1)]
+    graph = document.parse(
+        {
+            "source": node("s1", title="Invented Register"),
+            "people": [
+                {"id": local, "gramps_id": f"I000{index}"}
+                for index, local in enumerate(locals_, start=1)
+            ],
+            "families": [{"id": "f1", "gramps_id": "F0001", "children": locals_}],
+        }
+    )
+    nodes = [document.Resolved("f1", "F0001", "family", True, "Household of Invented")]
+    nodes += [
+        document.Resolved(local, f"I000{index}", "person", True, display)
+        for index, (local, display) in enumerate(zip(locals_, children, strict=True), start=1)
+    ]
+    return document.preview(graph, document.Resolution(nodes=tuple(nodes)))
+
+
+def _child_bullets(text: str) -> list[str]:
+    """Every line that reads as a bullet under the family."""
+    return [line for line in text.splitlines() if line.strip().startswith("+ ")]
+
+
+def test_a_child_list_long_enough_to_wrap_renders_as_ONE_entry() -> None:
+    """⛔ The defect: a continuation line carried the bullet, so a wrapped surname
+    read as an additional child.
+
+    ⚠️ The names are long ON PURPOSE. A short list cannot show this, which is why
+    it survived -- every existing case fits on one line.
+    """
+    text = _family_gaining(
+        [
+            "Bartholomew Fitzwilliam-Invented",
+            "Wilhelmina Featherstonehaugh-Invented",
+            "Crispin Winterbourne-Invented",
+        ]
+    )
+
+    # ⛔ EVERY bullet, not only the ones saying "adding as children".
+    #
+    # ⚠️ A first version of this test filtered on that phrase and **passed with
+    # the defect restored** -- the continuation bullet does not repeat the phrase,
+    # so the count stayed at one. It was a silent control: true for a reason
+    # unrelated to the property it names. This graph produces exactly one bullet,
+    # so counting all of them is what binds.
+    assert len(_child_bullets(text)) == 1, text
+
+
+def test_the_rendered_child_count_equals_the_count_NAMED() -> None:
+    """⭐ The criterion the owner set: what he counts must be what is written.
+
+    ⚠️ Asserted on the NAMES rather than on bullet count alone -- a renderer could
+    satisfy a count check and still split a name across lines.
+    """
+    names = [
+        "Bartholomew Fitzwilliam-Invented",
+        "Wilhelmina Featherstonehaugh-Invented",
+        "Crispin Winterbourne-Invented",
+    ]
+
+    text = _family_gaining(names)
+    lines = text.splitlines()
+    first = next(index for index, line in enumerate(lines) if "adding as children" in line)
+
+    # ⚠️ EVERY continuation, not just the next one. The list wraps to three lines
+    # here, and a version of this test that joined only the first missed a name
+    # and failed for a reason that had nothing to do with the defect.
+    whole = lines[first]
+    for line in lines[first + 1 :]:
+        if not line.strip() or line.lstrip().startswith("+ "):
+            break
+        whole += " " + line.strip()
+
+    for name in names:
+        assert name in whole, f"{name!r} missing or split\n{text}"
+    assert whole.count("I000") == len(names)
+
+
+def test_a_continuation_line_does_NOT_begin_a_new_bullet() -> None:
+    """⛔ The mechanism, bound directly rather than through its symptom.
+
+    ``_wrap`` indents every line with one string. Passing a bullet as that string
+    is what made a continuation read as another entry, so this asserts the
+    continuation hangs instead.
+    """
+    text = _family_gaining(
+        [
+            "Bartholomew Fitzwilliam-Invented",
+            "Wilhelmina Featherstonehaugh-Invented",
+            "Crispin Winterbourne-Invented",
+        ]
+    )
+    lines = text.splitlines()
+    first = next(i for i, line in enumerate(lines) if "adding as children" in line)
+
+    assert lines[first + 1].strip(), "expected the list to wrap; lengthen the names"
+    assert not lines[first + 1].lstrip().startswith("+ "), text
+
+
+def test_a_SHORT_child_list_is_unchanged() -> None:
+    """⚠️ The control. The fix must not alter the line everybody already reads."""
+    text = _family_gaining(["Anna Invented"])
+
+    assert "      + adding as children: I0001  Anna Invented" in text
+
+
+# -- #167: a citation must render at EVERY target the writer will attach it to --
+
+
+def graph_of(**groups) -> document.Graph:
+    """A parsed graph, assembled from keyword groups.
+
+    ⛔ **Keyword arguments rather than a dict literal, for the same reason
+    ``node`` uses them** -- and this one was learned the hard way. ``pii_guard``'s
+    P2 signature scores quoted key/value pairs by DENSITY over a whole file, so a
+    block of fixtures written as literals tipped this file past the threshold and
+    the guard reported a **pre-existing** line as the highest scorer. The fixtures
+    that caused it were the new ones.
+    """
+    return document.parse(dict(groups))
+
+
+REGISTER = node("s1", title="Invented Register")
+
+
+def test_a_citation_renders_at_BOTH_an_existing_and_a_created_target() -> None:
+    """⛔ The reported defect, in miniature.
+
+    ⚠️ Live, one citation attached to twelve targets rendered on the five
+    pre-existing events and on **none of the seven created ones**, while the
+    writer attached all twelve. A created event was reached by the walk as
+    CONTENT under a person and never as a node, so nothing asked what was
+    attached to the event itself.
+    """
+    graph = graph_of(
+        source=REGISTER,
+        people=[node("p1", given="Anon", surname="Invented")],
+        events=[
+            node("e_old", gramps_id="E9999"),
+            node("e_new", type="Census", date="1900", people=["p1"]),
+        ],
+        citations=[node("c1", source="s1", page="7", attach_to=["e_old", "e_new"])],
+    )
+    resolution = document.Resolution(
+        nodes=(document.Resolved("e_old", "E9999", "event", True, "Census, 1900"),)
+    )
+
+    rendered = document.preview(graph, resolution)
+    lines = rendered.splitlines()
+
+    # ⛔ Asserted STRUCTURALLY -- under the created event, more deeply indented.
+    #
+    # ⚠️ A first version counted citation lines and expected two. **It passed with
+    # the nested render deleted**, because the edge-level backstop then printed
+    # the missing edge in ALSO WRITTEN -- two lines either way. Counting could not
+    # tell which mechanism drew it, which is the silent-control shape this project
+    # keeps paying for.
+    created = next(i for i, line in enumerate(lines) if line.strip() == "+ Census, 1900")
+    below = lines[created + 1]
+    depth = lambda text: len(text) - len(text.lstrip())  # noqa: E731
+
+    assert "Citation" in below, rendered
+    assert depth(below) > depth(lines[created]), (
+        f"the citation is not nested under the event it supports:\n{rendered}"
+    )
+    assert "ALSO WRITTEN" not in rendered, (
+        "the edge was drawn in place, so the backstop must not also report it"
+    )
+
+
+def test_the_backstop_fires_for_an_undrawn_CITATION_edge() -> None:
+    """⛔ A node-level backstop cannot detect a missing edge.
+
+    ⚠️ ``shown_citations`` recorded that a citation had been drawn ANYWHERE, so a
+    citation naming twelve targets and rendered under one satisfied it while
+    eleven attachments went unmentioned. Keyed on ``(index, target)`` instead.
+
+    ⭐ A citation has no render site, and the writer's commit table accepts one as
+    an attachment target -- so a citation attached to a citation is the edge the
+    backstop must catch.
+    """
+    graph = graph_of(
+        source=REGISTER,
+        people=[node("p1", given="Anon", surname="Invented")],
+        citations=[
+            node("c1", source="s1", attach_to=["p1"]),
+            node("c2", source="s1", page="9", attach_to=["p1", "c1"]),
+        ],
+    )
+
+    rendered = document.preview(graph)
+
+    assert "ALSO WRITTEN" in rendered, rendered
+    assert "the citation of Invented Register" in rendered, rendered
+
+
+def test_an_undrawn_edge_names_its_target_rather_than_a_local_id() -> None:
+    """⛔ A target the owner cannot read is not a target he was shown.
+
+    ⚠️ ``attached to c1`` tells him an attachment exists and nothing he can
+    recognise or refuse -- the graph's internal handle, printed at the one moment
+    it matters.
+    """
+    graph = graph_of(
+        source=REGISTER,
+        people=[node("p1", given="Anon", surname="Invented")],
+        citations=[node("c1", source="s1", attach_to=["p1"])],
+        notes=[note("A REMARK ON THE CITATION.", ["c1"])],
+    )
+
+    rendered = document.preview(graph)
+
+    assert "A REMARK ON THE CITATION." in rendered
+    assert "attached to c1" not in rendered, rendered
+    assert "the citation of Invented Register" in rendered, rendered
+
+
+def test_a_citation_attached_ONLY_to_created_records_still_appears() -> None:
+    """⚠️ The pre-existing backstop already caught this, and must keep catching it.
+
+    ⭐ It is why the defect survived to a real document: the reported case needed a
+    MULTI-target citation, one landing on a node with a render site and one
+    without. A single-target citation was never at risk.
+    """
+    graph = graph_of(
+        source=REGISTER,
+        people=[node("p1", given="Anon", surname="Invented")],
+        events=[node("e1", type="Census", date="1900", people=["p1"])],
+        citations=[node("c1", source="s1", page="7", attach_to=["e1"])],
+    )
+
+    rendered = document.preview(graph)
+
+    assert "Citation" in rendered
+    assert "Invented Register" in rendered
+
+
+def test_an_events_citation_is_drawn_ONCE_however_many_people_it_names() -> None:
+    """⛔ The writer attaches once, so the preview must state it once.
+
+    ⚠️ The first version of the nested render drew the event's attachments under
+    every record that reached the event, so a marriage naming two people showed
+    its one citation twice -- **two attachments claimed where the write makes
+    one.** That is this change's own defect class, reintroduced by the repair.
+
+    ⭐ The event LINE repeating is not the same thing and is correct: both people
+    genuinely take part in it.
+    """
+    graph = graph_of(
+        source=REGISTER,
+        people=[
+            node("p1", given="Anon", surname="Invented"),
+            node("p2", given="Other", surname="Invented"),
+        ],
+        events=[node("e1", type="Marriage", date="1900", people=["p1", "p2"])],
+        citations=[node("c1", source="s1", page="7", attach_to=["e1"])],
+    )
+
+    rendered = document.preview(graph)
+
+    assert sum(1 for line in rendered.splitlines() if "Marriage" in line) == 2, rendered
+    assert sum(1 for line in rendered.splitlines() if "Citation" in line) == 1, rendered
+
+
+def test_a_target_named_TWICE_is_reported_once() -> None:
+    """⛔ ``parse`` accepts one id listed twice; the writer collapses it.
+
+    ⚠️ ``_attachment_targets`` passes the resolved handles through ``_unique`` and
+    writes a single edge, so naming it twice in ALSO WRITTEN would state two
+    attachments where one happens.
+    """
+    graph = graph_of(
+        source=REGISTER,
+        people=[node("p1", given="Anon", surname="Invented")],
+        citations=[
+            node("c1", source="s1", attach_to=["p1"]),
+            node("c2", source="s1", page="9", attach_to=["c1", "c1"]),
+        ],
+    )
+
+    rendered = document.preview(graph)
+
+    # ⛔ UNWRAPPED before counting.
+    #
+    # ⚠️ A first version counted on the raw text and **passed with the
+    # de-duplication removed**, because the doubled target wrapped across two
+    # lines and the searched string was split. ``test_a1_every_note_body_is_
+    # rendered_in_full`` already unwraps for exactly this reason -- and it is the
+    # same hazard the sibling commit on this branch fixes in the renderer itself.
+    unwrapped = " ".join(rendered.split())
+
+    assert unwrapped.count("the citation of Invented Register") == 1, rendered
+
+
+def test_a_citation_with_no_source_names_the_graphs_source_not_None() -> None:
+    """⛔ ``parse`` accepts a sourceless citation when the graph supplies a source.
+
+    The writer then uses it -- ``handles.get(spec.get("source")) or
+    source_handle`` -- so the preview must name the same thing.
+
+    ⚠️ **All three citation-rendering sites were affected, not just the new one.**
+    An ordinary sourceless citation already rendered as ``+ Citation -> None``
+    before this branch existed; the target formatter added a second place to say
+    it. Fixing only the new one would have left the dialog contradicting itself.
+    """
+    graph = graph_of(
+        source=REGISTER,
+        people=[node("p1", given="Anon", surname="Invented")],
+        citations=[node("c1", attach_to=["p1"])],
+        notes=[note("A REMARK.", ["c1"])],
+    )
+
+    rendered = document.preview(graph)
+
+    assert "None" not in rendered, rendered
+    assert "+ Citation -> Invented Register" in rendered, rendered
+    assert "the citation of Invented Register" in rendered, rendered
