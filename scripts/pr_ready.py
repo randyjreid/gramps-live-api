@@ -144,11 +144,31 @@ def _when(text: str) -> datetime:
 def _latest_request(comments: list[dict[str, Any]]) -> str:
     """When a new review round was most recently ASKED FOR, or ``""``.
 
-    ⚠️ Every author, not only the bot -- the request is posted by whoever is
-    driving the gate, and it is their comment that invalidates an older verdict.
+    ⛔ **The BOT'S own comments are excluded, and skipping that made this rule
+    defeat itself.**
+
+    ⚠️ Every clean verdict the bot posts carries an *About Codex* footer that
+    documents how to ask for a round -- so it contains the trigger phrase. With
+    every author counted, a clean verdict registered as a **request timestamped
+    identically to itself**, could not postdate it, and was ruled superseded.
+    **No pull request could ever have been READY again.** Observed on this
+    script's own pull request at 2026-09-01T01:55:03Z, on the fifth round.
+
+    ⭐ The reasoning that produced the bug was right about *who posts requests* --
+    a human driving the gate, never the bot -- and wrong about what else contains
+    the phrase. **Documentation of a trigger is not a trigger**, and the author is
+    what separates them.
+
+    ⚠️ A HUMAN comment carrying the phrase is a request even when it is meant as
+    prose, and that is not a flaw here: the bot matches a substring too, so such a
+    comment really does start a round. It is why CONTRIBUTING forbids the phrase
+    in prose at all.
     """
     stamps = [
-        str(c.get("created_at") or "") for c in comments if TRIGGER in (c.get("body") or "").lower()
+        str(c.get("created_at") or "")
+        for c in comments
+        if TRIGGER in (c.get("body") or "").lower()
+        and not _is_bot((c.get("user") or {}).get("login"))
     ]
     return max(stamps, default="")
 

@@ -46,14 +46,60 @@ def test_the_phrase_is_not_written_literally_in_the_source() -> None:
         assert pr_ready.TRIGGER not in path.read_text(encoding="utf-8")
 
 
-def test_a_request_is_found_whoever_posted_it() -> None:
-    """⚠️ Not filtered to the bot -- the request comes from whoever drives the gate."""
+def test_a_request_from_any_HUMAN_counts() -> None:
+    """The request comes from whoever drives the gate -- not only from one account."""
     comments = [
         _comment("2026-08-31T10:00:00Z", "some unrelated note"),
         _comment("2026-08-31T11:00:00Z", f"please {pr_ready.TRIGGER} now"),
         _comment("2026-08-31T10:30:00Z", pr_ready.TRIGGER.upper()),
     ]
     assert pr_ready._latest_request(comments) == "2026-08-31T11:00:00Z"
+
+
+def test_the_BOTS_own_verdict_is_not_a_request__it_defeated_the_whole_rule() -> None:
+    """⛔ Every clean verdict carries a footer documenting how to ask for a round.
+
+    ⚠️ With every author counted, that verdict registered as a request timestamped
+    **identically to itself**, could not postdate it, and was ruled superseded --
+    so **no pull request could ever be READY again.** Observed live on this
+    script's own pull request, round five, at 2026-09-01T01:55:03Z.
+
+    ⭐ Documentation of a trigger is not a trigger, and the author is what
+    separates them.
+    """
+    verdict = {
+        "created_at": "2026-09-01T01:55:03Z",
+        "user": {"login": "chatgpt-codex-connector[bot]"},
+        "body": (
+            "Codex Review: Didn't find any major issues. :tada:\n\n"
+            "**Reviewed commit:** `569be32888`\n\n"
+            "<details> <summary>About Codex in GitHub</summary>\n"
+            "Reviews are triggered when you\n- Open a pull request for review\n"
+            f'- Mark a draft as ready\n- Comment "{pr_ready.TRIGGER}".\n'
+        ),
+    }
+
+    assert pr_ready._latest_request([verdict]) == ""
+    assert pr_ready._still_current([verdict], pr_ready._latest_request([verdict])) == [verdict]
+
+
+def test_a_HUMAN_request_still_supersedes_a_bot_verdict_that_precedes_it() -> None:
+    """⚠️ The fix must not disarm the rule it repairs."""
+    verdict = {
+        "created_at": "2026-09-01T01:55:03Z",
+        "user": {"login": "chatgpt-codex-connector[bot]"},
+        "body": f'Didn\'t find any major issues. Comment "{pr_ready.TRIGGER}".',
+    }
+    request = {
+        "created_at": "2026-09-01T02:10:00Z",
+        "user": {"login": "randyjreid"},
+        "body": pr_ready.TRIGGER,
+    }
+
+    latest = pr_ready._latest_request([verdict, request])
+
+    assert latest == "2026-09-01T02:10:00Z"
+    assert pr_ready._still_current([verdict], latest) == []
 
 
 def test_no_request_at_all_leaves_the_other_evidence_standing() -> None:
