@@ -1,5 +1,33 @@
 # Slice 2: an agent puts a note on a person, and you approve it at a console
 
+> ⛔ **A RECORD OF SLICE 2, NOT THE CURRENT DESIGN.** It is accurate about what
+> slice 2 built and is kept for the reasoning it holds. Four things it says have
+> since changed, and they are the ones a reader will trip on:
+>
+> * **"three MCP tools"** — there are now **eighteen**, and the authoritative list
+>   is `TOOL_NAMES` in `src/gramps_live_api_mcp/server.py`: **thirteen live reads**
+>   (`tree_totals` and `changed_since` among them), **four proposal and approval
+>   verbs** (`propose_note`, `approve`, `propose_document`, `approve_document`),
+>   and **`list_people`**, which is the odd one out below.
+> * **"the copy"** — a write no longer targets a copy only. `R4` permits the live
+>   tree, blessed by hand; see
+>   [`rulings/R4-graduation-to-the-live-tree.md`](rulings/R4-graduation-to-the-live-tree.md).
+>   ⛔ **R4's backup requirement does NOT cover the flow on this page.**
+>   `propose_note`/`approve` writes **without taking one**, so a write through the
+>   flow described below has **no recovery point**. The root `README.md` records
+>   that in its limitations.
+> * **"a console"** — a document write is approved in a **dialog inside Gramps**,
+>   rendered from the stored graph. The console flow described here is slice 2's.
+> * **an XML export** — the live reads run against the **open tree**, in-process.
+>   ⚠️ **`list_people` is the exception and still reads a Gramps XML export**, so
+>   it carries the staleness and privacy caveat the root `README.md` documents.
+>   *"the reads moved in-process"* is true of thirteen of them, not of all
+>   fourteen.
+>
+> ⭐ The trust model below — binding separated from approval, the operation never
+> travelling through the agent — is unchanged and is still the argument.
+
+
 Slice 1 worked and its demo passed, and demo day showed one thing the project had documented instead
 of building. `docs/using.md` told you to open a Gramps XML export in a text editor and find a
 person's line. You did not do it — the file is gzipped XML holding thousands of people, and handles

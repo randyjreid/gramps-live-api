@@ -1,5 +1,11 @@
 # Phase 1 — `core/schema`
 
+> ⛔ **A RECORD OF WHAT PHASE 1 WAS SPECIFIED TO BE, NOT CURRENT INTENT.** It is
+> undated and written in the imperative, which reads as a live plan; it is not
+> one. What shipped is in `src/gramps_live_api/core/`, and the tests are the
+> current statement of behaviour.
+
+
 **Milestone:** `Phase 1 - core/schema` · **Tracking issue:** #19
 
 This is the authoritative specification for Phase 1. It was drafted before the phase began, redacted,

@@ -139,6 +139,34 @@ will actually be committed, and the price is that unstaged edits are invisible t
 dirty tree and then committing gives you a clean answer about the *previous* content -- this
 document has been caught by exactly that once already.
 
+## ⛔ What may live at the repository root
+
+**A person's first look at this project is the root listing.** Beside the source directories and
+the build files, the only **documentation pages** there are `README.md`, `CONTRIBUTING.md` and
+`LICENSE`. ⛔ **No other page belongs at the root, and in particular none addressed to the owner
+rather than to a reader.**
+
+⚠️ **Two handover files had accumulated there and both had gone false.** One said *"nothing is
+matched against people already in your tree — run the same document twice and you get two
+families"*, which `gramps_id` attachment had made untrue; the other said events may not carry a
+`gramps_id`, which `ATTACHABLE` had made untrue. **Each contradicted the README on a capability the
+README is careful about**, and a visitor has no way to tell which page is current.
+
+⭐ **The failure mode is specific and worth naming: session state is written in the present tense.**
+*"There are TWO dialogs stacked on screen"*, *"branch not pushed"*, *"not verified — your click"*.
+It reads as current documentation for exactly as long as it takes to check, and checking is what a
+stranger cannot do.
+
+**So:**
+
+- **A note to whoever picks the work up next belongs in the pull request**, which is dated, attached
+  to a diff, and closes.
+- **A decision belongs in `docs/rulings/`**, which records what was decided and what it cost.
+- **An unfinished thought belongs in an issue.**
+- ⛔ **A page that will be false in a week does not belong in a public repository at all**, unless it
+  says at the top what it is a record of — see the headers on `docs/slice2-mcp.md` and
+  `docs/slice-a-demo.md` for the shape.
+
 ## Test-first
 
 Red, green, refactor. **No line of production code without a failing test that demanded it**, and

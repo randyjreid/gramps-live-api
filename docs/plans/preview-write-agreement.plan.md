@@ -1,5 +1,14 @@
 # #106 — making the preview and the write agree by construction
 
+> ⛔ **AN UNAPPROVED PLAN. NOTHING HERE IS BUILT, AND NOTHING HERE IS DECIDED.**
+> It sets out options with a recommendation so the owner can choose; he has not.
+>
+> ⚠️ Two of the defects that motivated it have since been fixed piecemeal — see
+> #167 and #185 — so the problem it describes is **smaller** than when it was
+> written, and the argument for the structural fix is correspondingly weaker.
+> **That is a reason to re-read it before acting, not a reason to act.**
+
+
 ⚠️ **A PLAN, awaiting the owner's approval. Nothing here is built.** ⛔ **And it is deliberately a set
 of options with a recommendation, not a design** — the choice belongs to the owner.
 

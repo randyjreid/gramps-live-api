@@ -1,5 +1,16 @@
 # R8 — Channel architecture: an in-process HTTP host inside Gramps
 
+> ⭐ **STATUS: the DECISION holds**, and it is the architecture of the document
+> route and the live reads. Most of `CONTRIBUTING.md`'s rules about threads and
+> imports come from here.
+>
+> ⚠️ **Two older surfaces predate it and still contradict parts of it:** `approve`
+> spawns a **separate console CLI** rather than approving in a Gramps dialog, and
+> `list_people` reads an **XML export** rather than the open tree in-process.
+> ⛔ **They are exceptions to the scope, not a retraction of the ruling.**
+> Index: [`README.md`](README.md).
+
+
 **Ruled 2026-08-19.** This page records a decision. It is not a proposal and it is not argued again
 here.
 

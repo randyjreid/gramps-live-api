@@ -1,5 +1,16 @@
 # R4 — Graduation to the live tree: blessed, with a backup taken first
 
+> ⭐ **STATUS: the DECISION holds.** It is why the owner's live tree is writable
+> when blessed by hand.
+>
+> ⚠️ **But the backup it depends on covers the DOCUMENT route only.** The older
+> `propose_note`/`approve` flow and the `preview`/`apply` commands write to a
+> blessed tree **without taking one**, so a write through those has **no recovery
+> point** and this ruling's *recoverable-after* guarantee does not reach them.
+> The root `README.md` records that in its limitations.
+> Index: [`README.md`](README.md).
+
+
 **Ruled 2026-08-21.** This page records a decision. It is not a proposal and it is not argued again
 here. The case that was put is in `.claude/decisions/R4-graduation-to-the-live-tree.md`.
 

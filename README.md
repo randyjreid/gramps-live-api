@@ -140,9 +140,12 @@ exactly what the server publishes.
   (`propose_note`/`approve`) and the `preview`/`apply` commands write without taking one, so a write
   through those paths has **no recovery point** — [`docs/restoring.md`](docs/restoring.md) says so in
   its opening lines, and this page would otherwise have implied a protection they do not have.
-- **The approval dialog shows what would be written, not what is already there.** A proposal adding a
-  second event of a kind the person already has looks exactly like a first one. Noticing that is
-  currently the owner's job.
+- **The approval dialog's `already has:` line is read through the privacy gate, like every other
+  read.** For each attached person the proposal adds an event to, the dialog lists what they already
+  hold of the types being added, so a second event of a kind they already have no longer looks like
+  a first. ⚠️ **A record the tree marks private is not in that list, and the agent's own lookup
+  cannot see it either** — the two checks share one blind spot rather than covering each other. A
+  public person with a private Birth event reads as holding none, on both sides.
 - **The core has `dependencies = []`** and runs on the standard library alone. The official MCP SDK
   sits behind an optional `mcp` extra, and installing it brings 27–30 packages with it, measured —
   what that costs, and why the SDK anyway, is in [`docs/slice2-mcp.md`](docs/slice2-mcp.md).
@@ -194,7 +197,9 @@ and it is not going to change.
   the part already standing: the document route takes a whole graph, shows one preview, and writes it
   in one transaction. What is untested is whether a real census document survives that route
   end to end.
-- **A dialog that shows what the tree already holds**, so a duplicate stops looking like an addition.
+- ⭐ **A dialog that shows what the tree already holds — this has shipped**, and is listed above under
+  what the dialog does rather than here. What remains of it is the blind spot: a record the tree marks
+  private is invisible to that line, and to the agent's own lookup, so the two share it.
 - **Then**, as a pool of specified work rather than a schedule: a richer read surface, media, and
   record matching.
 

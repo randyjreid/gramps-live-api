@@ -97,13 +97,35 @@ The same for a disagreement: if the document's birthplace differs from the tree'
 
 ## Before proposing an event, look at what the person already has
 
-`list_events` on that person and say what they already hold of that type. The
-approval dialog shows what would be WRITTEN, not what is already there — so a
-second Naturalization renders exactly like a first one. Until the dialog shows
-prior events, this check is manual and it is yours.
+`list_events` on that person and say what they already hold of that type.
+
+⭐ **The dialog now shows this too, and the check is still yours.** For every
+attached person the proposal adds an event to, it lists what they already hold of
+the types being added:
+
+```
+  I0001  <the person>
+        already has: Census, 1880 · Census, 1890
+      + Census, 1900
+```
+
+⛔ **That does not replace your lookup, and the reason is timing.** The dialog is
+shown at **approval**, when the proposal is already built. **You need the answer
+BEFORE you propose**, because it decides what you propose — whether to attach a
+citation to the Birth event that is there, or to create one.
+
+⭐ **So they are two independent checks, and that is worth more than one.** You
+read the tree before proposing; the dialog reads it again at approval, and
+renders from the tree rather than from your proposal. ⚠️ **If the two disagree,
+that is information** — something changed in between, or a record is private.
+
+⚠️ **The dialog's line has the SAME privacy blind spot yours does** — see the
+Birth-event rule below. It is a second reading, not a second pair of eyes.
 
 If the census disagrees with the tree — a naturalisation year two years apart —
 that is two sources disagreeing, not a duplicate. Say so; do not resolve it.
+⛔ Neither you nor the dialog calls anything a duplicate: the dialog states what
+is there and says nothing about whether it matches.
 
 ## Which census columns go where
 
@@ -153,8 +175,12 @@ conflict, here you report that a conflict cannot be seen.
 
 A census gives a birth year and a birthplace, and the obvious move is to propose
 a Birth event carrying them. **For almost every person in this tree that is
-wrong** — they already have one, and a second Birth event is not a correction,
-it is a duplicate the dialog renders exactly like a first.
+wrong** — they already have one, and a second Birth event is not a correction.
+
+⚠️ **The dialog will now show the owner the Birth event they already hold**, on
+an `already has:` line, so this is no longer invisible to him. ⛔ **It is still
+your job not to propose it.** He is reading four or five people at approval time;
+you are looking at one, before the proposal exists.
 
 So: `list_events` on that person, find the Birth event, and **attach the citation
 to the one that is there.** The census is a *source for* the birth you already
@@ -176,8 +202,13 @@ person's birth reference when the slot is empty.
 
 ⛔ **But an empty `list_events` does not prove there is no Birth event.** The
 privacy gate drops private records before you see them — a **public person with a
-private Birth event** reads as having none. The approval dialog omits it too, so
-the owner cannot catch the duplicate there either.
+private Birth event** reads as having none.
+
+⛔ **And the dialog's new `already has:` line does NOT close this.** It is read
+through the same privacy gate, so it will say *none of these* about exactly the
+person you could not see either. ⚠️ **The two checks share this blind spot**, so
+agreement between them is not confirmation here — the owner cannot catch that
+duplicate at approval any more than you can before it.
 
 ⭐ So after an empty lookup on an **existing** person: **say that you found none
 and ask him to confirm in Gramps before you propose a Birth.** For a person the
