@@ -1191,12 +1191,27 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
                 # attach_to names the family IS committed onto it -- ``family``
                 # is in the writer's commit table -- and ``attached_to`` renders
                 # exactly that, three lines below, contradicting it.
+                # ⛔ **The bullet goes in the TEXT; the indent is spaces.**
+                #
+                # ⚠️ Passing ``"      + "`` as the indent put it on the
+                # CONTINUATION lines too -- ``_wrap`` uses one string for both --
+                # so a child list long enough to wrap rendered as two bullets and
+                # **a surname on its own read as an extra child**:
+                #
+                #     + adding as children: I0001  Beta Testcase, I0002  Gamma
+                #     + Testcase
+                #
+                # ⭐ Three children named, four apparently added, at the moment the
+                # owner is counting them. **The dialog asserting a person who does
+                # not exist is the preview/write class reached by formatting** --
+                # and this was the only call site passing a bullet as an indent;
+                # every other puts it in the text exactly like this.
                 out.extend(
                     _wrap(
-                        "adding as children: " + ", ".join(joining)
+                        "+ adding as children: " + ", ".join(joining)
                         if joining
-                        else "no children named for this family",
-                        "      + ",
+                        else "+ no children named for this family",
+                        "      ",
                     )
                 )
             dropped = dropped_fields(entry)

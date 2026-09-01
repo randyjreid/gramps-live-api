@@ -866,3 +866,118 @@ def test_a_role_carried_only_by_a_null_person_is_refused() -> None:
                 events=[node("e1", type="Marriage", family="f1", people=[None], role="Witness")],
             )
         )
+
+
+# -- #184: a wrapped child name must not read as another child ----------------
+
+
+def _family_gaining(children: list[str]) -> str:
+    """The dialog for an existing family gaining ``children``, by display name.
+
+    ⭐ Rendered by running ``preview``, which is pure -- no tree, no Gramps.
+    """
+    locals_ = [f"p{index}" for index, _ in enumerate(children, start=1)]
+    graph = document.parse(
+        {
+            "source": {"id": "s1", "title": "Invented Register"},
+            "people": [
+                {"id": local, "gramps_id": f"I000{index}"}
+                for index, local in enumerate(locals_, start=1)
+            ],
+            "families": [{"id": "f1", "gramps_id": "F0001", "children": locals_}],
+        }
+    )
+    nodes = [document.Resolved("f1", "F0001", "family", True, "Household of Invented")]
+    nodes += [
+        document.Resolved(local, f"I000{index}", "person", True, display)
+        for index, (local, display) in enumerate(zip(locals_, children, strict=True), start=1)
+    ]
+    return document.preview(graph, document.Resolution(nodes=tuple(nodes)))
+
+
+def _child_bullets(text: str) -> list[str]:
+    """Every line that reads as a bullet under the family."""
+    return [line for line in text.splitlines() if line.strip().startswith("+ ")]
+
+
+def test_a_child_list_long_enough_to_wrap_renders_as_ONE_entry() -> None:
+    """⛔ The defect: a continuation line carried the bullet, so a wrapped surname
+    read as an additional child.
+
+    ⚠️ The names are long ON PURPOSE. A short list cannot show this, which is why
+    it survived -- every existing case fits on one line.
+    """
+    text = _family_gaining(
+        [
+            "Bartholomew Fitzwilliam-Invented",
+            "Wilhelmina Featherstonehaugh-Invented",
+            "Crispin Winterbourne-Invented",
+        ]
+    )
+
+    # ⛔ EVERY bullet, not only the ones saying "adding as children".
+    #
+    # ⚠️ A first version of this test filtered on that phrase and **passed with
+    # the defect restored** -- the continuation bullet does not repeat the phrase,
+    # so the count stayed at one. It was a silent control: true for a reason
+    # unrelated to the property it names. This graph produces exactly one bullet,
+    # so counting all of them is what binds.
+    assert len(_child_bullets(text)) == 1, text
+
+
+def test_the_rendered_child_count_equals_the_count_NAMED() -> None:
+    """⭐ The criterion the owner set: what he counts must be what is written.
+
+    ⚠️ Asserted on the NAMES rather than on bullet count alone -- a renderer could
+    satisfy a count check and still split a name across lines.
+    """
+    names = [
+        "Bartholomew Fitzwilliam-Invented",
+        "Wilhelmina Featherstonehaugh-Invented",
+        "Crispin Winterbourne-Invented",
+    ]
+
+    text = _family_gaining(names)
+    lines = text.splitlines()
+    first = next(index for index, line in enumerate(lines) if "adding as children" in line)
+
+    # ⚠️ EVERY continuation, not just the next one. The list wraps to three lines
+    # here, and a version of this test that joined only the first missed a name
+    # and failed for a reason that had nothing to do with the defect.
+    whole = lines[first]
+    for line in lines[first + 1 :]:
+        if not line.strip() or line.lstrip().startswith("+ "):
+            break
+        whole += " " + line.strip()
+
+    for name in names:
+        assert name in whole, f"{name!r} missing or split\n{text}"
+    assert whole.count("I000") == len(names)
+
+
+def test_a_continuation_line_does_NOT_begin_a_new_bullet() -> None:
+    """⛔ The mechanism, bound directly rather than through its symptom.
+
+    ``_wrap`` indents every line with one string. Passing a bullet as that string
+    is what made a continuation read as another entry, so this asserts the
+    continuation hangs instead.
+    """
+    text = _family_gaining(
+        [
+            "Bartholomew Fitzwilliam-Invented",
+            "Wilhelmina Featherstonehaugh-Invented",
+            "Crispin Winterbourne-Invented",
+        ]
+    )
+    lines = text.splitlines()
+    first = next(i for i, line in enumerate(lines) if "adding as children" in line)
+
+    assert lines[first + 1].strip(), "expected the list to wrap; lengthen the names"
+    assert not lines[first + 1].lstrip().startswith("+ "), text
+
+
+def test_a_SHORT_child_list_is_unchanged() -> None:
+    """⚠️ The control. The fix must not alter the line everybody already reads."""
+    text = _family_gaining(["Anna Invented"])
+
+    assert "      + adding as children: I0001  Anna Invented" in text
