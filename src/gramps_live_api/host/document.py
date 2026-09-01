@@ -1135,9 +1135,12 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
             # is what R3 requires, but not where the owner is looking for it.
             if local_id not in (event.get("people") or []) and event.get("family") != local_id:
                 continue
+            # ⛔ **Whether this is the FIRST record to reach this event**, captured
+            # before the event is marked shown.
+            first_reach = index not in shown_events
             shown_events.add(index)
             out.extend(_wrap("+ " + _event_line(event, named_node), indent))
-            # ⛔ **The event's OWN attachments, under the event.**
+            # ⛔ **The event's OWN attachments, under the event, ONCE.**
             #
             # ⚠️ This is the omission #167 reported. A created event is drawn here
             # as a line beneath a person, and nothing then asked what is attached
@@ -1145,11 +1148,19 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
             # rendered, while the writer attached it. **An event reached the
             # walk as CONTENT and never as a node.**
             #
+            # ⛔ **Once, because the writer attaches once.** A marriage naming two
+            # people is drawn under both -- correctly, both take part -- but its
+            # citation is ONE edge, and drawing it under each of them said the
+            # write makes two attachments where it makes one. **That is the same
+            # over-reporting this change exists to remove, reintroduced by the
+            # repair**, and the event line repeating is not the same thing: the
+            # event genuinely involves both people.
+            #
             # ⭐ One level, and it cannot recurse: ``parse`` requires an event's
             # ``people`` to be persons and its ``family`` to be a family, so no
             # event can match another event's id and the loop above cannot re-enter.
             event_id = event.get("id")
-            if event_id is not None:
+            if first_reach and event_id is not None:
                 out.extend(attached_to(event_id, indent + "    "))
         for index, citation in enumerate(graph.citations):
             if local_id not in (citation.get("attach_to") or []):
@@ -1182,9 +1193,22 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
         ⚠️ An empty ``attach_to`` yields one pseudo-target, ``None``, so a citation
         or note attached to nothing still reaches ``ALSO WRITTEN`` rather than
         being silently satisfied by having no edges to miss.
+
+        ⛔ **De-duplicated, because the WRITER de-duplicates.** ``parse``
+        deliberately accepts one local id listed twice in a single ``attach_to`` --
+        it is one node, named twice -- and ``_attachment_targets`` collapses it
+        through ``_unique`` so exactly one edge is written. Naming it twice here
+        would state two attachments where the write makes one.
+
+        ⚠️ **First-occurrence order is kept**, for the same reason the writer keeps
+        it and the family-child path keeps it: the document's order is usually the
+        page's, and criterion A6 requires one graph to render one way.
         """
-        targets = list(entry.get("attach_to") or []) or [None]
-        return [target for target in targets if (index, target) not in drawn]
+        seen: list[Any] = []
+        for target in list(entry.get("attach_to") or []) or [None]:
+            if target not in seen:
+                seen.append(target)
+        return [target for target in seen if (index, target) not in drawn]
 
     out: list[str] = []
     out.append("THIS IS WHAT WOULD BE WRITTEN TO YOUR TREE")

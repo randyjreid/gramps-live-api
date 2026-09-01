@@ -1112,3 +1112,60 @@ def test_a_citation_attached_ONLY_to_created_records_still_appears() -> None:
 
     assert "Citation" in rendered
     assert "Invented Register" in rendered
+
+
+def test_an_events_citation_is_drawn_ONCE_however_many_people_it_names() -> None:
+    """⛔ The writer attaches once, so the preview must state it once.
+
+    ⚠️ The first version of the nested render drew the event's attachments under
+    every record that reached the event, so a marriage naming two people showed
+    its one citation twice -- **two attachments claimed where the write makes
+    one.** That is this change's own defect class, reintroduced by the repair.
+
+    ⭐ The event LINE repeating is not the same thing and is correct: both people
+    genuinely take part in it.
+    """
+    graph = graph_of(
+        source=REGISTER,
+        people=[
+            node("p1", given="Anon", surname="Invented"),
+            node("p2", given="Other", surname="Invented"),
+        ],
+        events=[node("e1", type="Marriage", date="1900", people=["p1", "p2"])],
+        citations=[node("c1", source="s1", page="7", attach_to=["e1"])],
+    )
+
+    rendered = document.preview(graph)
+
+    assert sum(1 for line in rendered.splitlines() if "Marriage" in line) == 2, rendered
+    assert sum(1 for line in rendered.splitlines() if "Citation" in line) == 1, rendered
+
+
+def test_a_target_named_TWICE_is_reported_once() -> None:
+    """⛔ ``parse`` accepts one id listed twice; the writer collapses it.
+
+    ⚠️ ``_attachment_targets`` passes the resolved handles through ``_unique`` and
+    writes a single edge, so naming it twice in ALSO WRITTEN would state two
+    attachments where one happens.
+    """
+    graph = graph_of(
+        source=REGISTER,
+        people=[node("p1", given="Anon", surname="Invented")],
+        citations=[
+            node("c1", source="s1", attach_to=["p1"]),
+            node("c2", source="s1", page="9", attach_to=["c1", "c1"]),
+        ],
+    )
+
+    rendered = document.preview(graph)
+
+    # ⛔ UNWRAPPED before counting.
+    #
+    # ⚠️ A first version counted on the raw text and **passed with the
+    # de-duplication removed**, because the doubled target wrapped across two
+    # lines and the searched string was split. ``test_a1_every_note_body_is_
+    # rendered_in_full`` already unwraps for exactly this reason -- and it is the
+    # same hazard the sibling commit on this branch fixes in the renderer itself.
+    unwrapped = " ".join(rendered.split())
+
+    assert unwrapped.count("the citation of Invented Register") == 1, rendered
