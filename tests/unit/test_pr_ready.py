@@ -121,7 +121,7 @@ def _good(**overrides: object) -> dict[str, object]:
 
 
 def test_a_fully_good_snapshot_is_the_only_thing_that_passes() -> None:
-    assert pr_ready._judge(_good(), "a" * 40) == []
+    assert pr_ready._judge(_good(), "a" * 40, "b" * 40) == []
 
 
 def test_every_field_is_REQUIRED_not_merely_checked() -> None:
@@ -135,7 +135,7 @@ def test_every_field_is_REQUIRED_not_merely_checked() -> None:
         snapshot = _good()
         del snapshot[field]
 
-        reasons = pr_ready._judge(snapshot, "a" * 40)
+        reasons = pr_ready._judge(snapshot, "a" * 40, "b" * 40)
 
         assert len(reasons) == 1, f"{field}: expected one reason, got {reasons}"
         assert field in reasons[0]
@@ -148,7 +148,7 @@ def test_BLOCKED_does_not_pass__the_tenth_defect() -> None:
     branch protection awaiting an approval or a required check -- printed READY
     for a pull request GitHub refuses to merge.
     """
-    reasons = pr_ready._judge(_good(mergeStateStatus="BLOCKED"), "a" * 40)
+    reasons = pr_ready._judge(_good(mergeStateStatus="BLOCKED"), "a" * 40, "b" * 40)
 
     assert reasons and "BLOCKED" in reasons[0]
 
@@ -156,12 +156,12 @@ def test_BLOCKED_does_not_pass__the_tenth_defect() -> None:
 def test_only_CLEAN_passes__every_other_merge_state_blocks() -> None:
     """⭐ The allowlist, asserted as one. A list of BAD states cannot be completed."""
     for status in ("BEHIND", "BLOCKED", "DIRTY", "DRAFT", "HAS_HOOKS", "UNKNOWN", "UNSTABLE"):
-        assert pr_ready._judge(_good(mergeStateStatus=status), "a" * 40), status
+        assert pr_ready._judge(_good(mergeStateStatus=status), "a" * 40, "b" * 40), status
 
 
 def test_UNKNOWN_mergeability_blocks_and_says_to_run_again() -> None:
     """⚠️ Not rare -- GitHub computes it asynchronously. It blocks, and it clears."""
-    reasons = pr_ready._judge(_good(mergeable="UNKNOWN"), "a" * 40)
+    reasons = pr_ready._judge(_good(mergeable="UNKNOWN"), "a" * 40, "b" * 40)
 
     assert reasons and "run again" in reasons[0]
 
@@ -175,24 +175,24 @@ def test_a_base_that_moved_blocks__the_ninth_defect() -> None:
     """
     moved = _good(baseRef={"name": "main", "target": {"oid": "c" * 40}})
 
-    reasons = pr_ready._judge(moved, "a" * 40)
+    reasons = pr_ready._judge(moved, "a" * 40, "b" * 40)
 
     assert reasons and "base has moved" in reasons[0]
 
 
 def test_a_head_that_moved_during_the_sweep_blocks() -> None:
     """The evidence gathered earlier is about a commit that is no longer the head."""
-    reasons = pr_ready._judge(_good(headRefOid="d" * 40), "a" * 40)
+    reasons = pr_ready._judge(_good(headRefOid="d" * 40), "a" * 40, "b" * 40)
 
     assert reasons and "the head moved" in reasons[0]
 
 
 def test_a_draft_blocks_however_green_everything_else_is() -> None:
-    assert pr_ready._judge(_good(isDraft=True), "a" * 40)
+    assert pr_ready._judge(_good(isDraft=True), "a" * 40, "b" * 40)
 
 
 def test_a_closed_pull_request_blocks() -> None:
-    assert pr_ready._judge(_good(state="MERGED"), "a" * 40)
+    assert pr_ready._judge(_good(state="MERGED"), "a" * 40, "b" * 40)
 
 
 # ------------------------------------------------------------- the bot's name
@@ -235,7 +235,7 @@ def test_the_backstop_line_only_ADVISES() -> None:
     """
     eight_rounds_but_otherwise_perfect = _good()
 
-    assert pr_ready._judge(eight_rounds_but_otherwise_perfect, "a" * 40) == []
+    assert pr_ready._judge(eight_rounds_but_otherwise_perfect, "a" * 40, "b" * 40) == []
     assert pr_ready._round_note(8)
 
 
@@ -302,3 +302,38 @@ def test_the_undercount_would_have_hidden_the_backstop() -> None:
     assert pr_ready._round_count(four_with_findings, one_clean) == 5
     assert pr_ready._round_note(pr_ready._round_count(four_with_findings, one_clean))
     assert not pr_ready._round_note(len(four_with_findings))
+
+
+def test_the_base_moving_DURING_the_sweep_blocks() -> None:
+    """⛔ The head was compared against its provisional value and the base was not.
+
+    ⚠️ The evidence -- a verdict and a green matrix -- is about code sitting on a
+    particular base. Nothing checked the base was still that one when the verdict
+    was pronounced, so a base advancing mid-sweep left READY printed over stale
+    evidence.
+    """
+    gathered_against = "b" * 40
+    moved_to = "e" * 40
+    snapshot = _good(baseRefOid=moved_to, baseRef={"name": "main", "target": {"oid": moved_to}})
+
+    reasons = pr_ready._judge(snapshot, "a" * 40, gathered_against)
+
+    assert any("moved WHILE this sweep ran" in reason for reason in reasons), reasons
+
+
+def test_the_two_base_questions_are_DIFFERENT_and_both_asked() -> None:
+    """⭐ up-to-date, and did-it-move-mid-sweep. One check cannot answer both.
+
+    ⚠️ ``baseRefOid`` is a SNAPSHOT, not the live ref -- measured across five
+    merged pull requests, where it read f385d3d / 9c31e67 / 9e14bca / a59df02 /
+    a59df02 while the live tip read a3ba58a for every one of them. So comparing
+    the two is a real question about staleness; it is simply not the same
+    question as whether the base shifted underneath this sweep.
+    """
+    behind = _good(baseRefOid="f" * 40)
+    assert any(
+        "since this head was verified" in r for r in pr_ready._judge(behind, "a" * 40, "b" * 40)
+    )
+
+    moved = _good(baseRefOid="e" * 40, baseRef={"name": "main", "target": {"oid": "e" * 40}})
+    assert any("WHILE this sweep ran" in r for r in pr_ready._judge(moved, "a" * 40, "b" * 40))

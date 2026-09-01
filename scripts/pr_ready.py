@@ -266,7 +266,19 @@ def _metadata(pull: int) -> dict[str, Any]:
     return pull_request
 
 
-def _judge(meta: dict[str, Any], expected_head: str) -> list[str]:
+def _base_tip(meta: dict[str, Any]) -> str:
+    """The LIVE tip of the base branch, as of this read.
+
+    ⛔ Not ``baseRefOid``. **They are different facts and the difference is
+    measurable:** across five merged pull requests ``baseRefOid`` read
+    ``f385d3d``, ``9c31e67``, ``9e14bca``, ``a59df02``, ``a59df02`` -- each frozen
+    near its own pull request -- while this value read ``a3ba58a`` for every one
+    of them, the live tip.
+    """
+    return str(((meta.get("baseRef") or {}).get("target") or {}).get("oid") or "")
+
+
+def _judge(meta: dict[str, Any], expected_head: str, expected_base_tip: str) -> list[str]:
     """The verdict on one metadata snapshot. ⛔ **Every field required.**
 
     ⚠️ A field that is absent is not a field that is fine. GitHub omits what it
@@ -274,6 +286,17 @@ def _judge(meta: dict[str, Any], expected_head: str) -> list[str]:
     value would simply read as *not good* -- which happens to be right here, but
     only by luck. **It is asserted instead**, so a schema change is a loud error
     rather than a quiet verdict.
+
+    ⭐ **Two DIFFERENT questions are asked about the base, and this file used to
+    ask only one.** ``baseRefOid`` against the live tip asks *is this branch up to
+    date?* -- finding 9. ``expected_base_tip`` against the live tip asks *did the
+    base move WHILE the evidence was being gathered?*, which is the same question
+    already asked of the head via ``expected_head``.
+
+    ⚠️ **The head was compared against its provisional value and the base was
+    not.** That asymmetry was the gap: the evidence -- a verdict and a green
+    matrix -- is about code sitting on a particular base, and nothing checked
+    that it was still the same base when the verdict was pronounced.
     """
     missing = [field for field in METADATA_FIELDS if field not in meta]
     if missing:
@@ -289,14 +312,20 @@ def _judge(meta: dict[str, Any], expected_head: str) -> list[str]:
             f"the head moved while this sweep ran ({expected_head[:12]} -> "
             f"{str(meta['headRefOid'])[:12]}) -- the evidence above is about the old one"
         )
-    live_base = str(((meta.get("baseRef") or {}).get("target") or {}).get("oid") or "")
+    live_base = _base_tip(meta)
     if not live_base:
         failures.append("the base branch tip could not be read")
-    elif live_base != str(meta["baseRefOid"]):
-        failures.append(
-            f"base has moved since this head was verified ({str(meta['baseRefOid'])[:12]} "
-            f"-> {live_base[:12]}) -- the tests that passed ran under different code"
-        )
+    else:
+        if live_base != str(meta["baseRefOid"]):
+            failures.append(
+                f"base has moved since this head was verified ({str(meta['baseRefOid'])[:12]} "
+                f"-> {live_base[:12]}) -- the tests that passed ran under different code"
+            )
+        if expected_base_tip and live_base != expected_base_tip:
+            failures.append(
+                f"the base moved WHILE this sweep ran ({expected_base_tip[:12]} -> "
+                f"{live_base[:12]}) -- the verdict and checks above are about the old base"
+            )
     if meta["mergeable"] != GOOD_MERGEABLE:
         # ⚠️ UNKNOWN is not rare: GitHub computes mergeability asynchronously and
         # answers UNKNOWN until it has. It blocks, and it clears on a re-run.
@@ -338,6 +367,8 @@ def _report(pull: int) -> bool:
         return False
 
     head = str(provisional["headRefOid"])
+    # ⛔ Kept so the FINAL read can be compared against it, exactly as the head is.
+    base_tip_when_gathering = _base_tip(provisional)
     commit = _json("api", f"repos/{REPOSITORY}/commits/{head}")
     assert isinstance(commit, dict)
     head_when = str(((commit.get("commit") or {}).get("committer") or {}).get("date", ""))
@@ -595,7 +626,7 @@ def _report(pull: int) -> bool:
     print(
         f"       mergeable          : {final.get('mergeable')}  ({final.get('mergeStateStatus')})"
     )
-    failures.extend(_judge(final, head))
+    failures.extend(_judge(final, head, base_tip_when_gathering))
 
     if failures:
         print("  RESULT: NOT the owner's click")
