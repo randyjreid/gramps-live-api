@@ -53,6 +53,13 @@ _RUNNING = frozenset({"IN_PROGRESS", "QUEUED", "PENDING"})
 
 CLEAN_PHRASES = ("didn't find any major issues", "didn't find any issues", "no major issues")
 
+# ⛔ **Assembled from parts so this file never CONTAINS the phrase it looks for.**
+#
+# ⚠️ The bot matches a substring, and this source is rendered in its own pull
+# request's diff. A literal here would be a review request written into a file --
+# the same reason CONTRIBUTING forbids the phrase in prose.
+TRIGGER = "@" + "codex" + " " + "review"
+
 
 def _gh(*arguments: str) -> str:
     """One ``gh`` call.
@@ -115,6 +122,32 @@ def _names_the_head(body: str, head: str) -> bool:
 
 def _when(text: str) -> datetime:
     return datetime.fromisoformat(text.replace("Z", "+00:00"))
+
+
+def _latest_request(comments: list[dict[str, Any]]) -> str:
+    """When a new review round was most recently ASKED FOR, or ``""``.
+
+    ⚠️ Every author, not only the bot -- the request is posted by whoever is
+    driving the gate, and it is their comment that invalidates an older verdict.
+    """
+    stamps = [
+        str(c.get("created_at") or "") for c in comments if TRIGGER in (c.get("body") or "").lower()
+    ]
+    return max(stamps, default="")
+
+
+def _still_current(comments: list[dict[str, Any]], latest_request: str) -> list[dict[str, Any]]:
+    """Those comments that POSTDATE the most recent request for a round.
+
+    ⛔ Lexicographic comparison is correct here and only here: every timestamp
+    GitHub returns is the same fixed-width UTC format, so string order is time
+    order. It would not be for mixed offsets, and nothing in this file has any.
+
+    ⭐ With ``latest_request`` empty -- the automatic review on open, never
+    re-triggered -- every comment postdates it and the caller's other evidence
+    stands alone. That is deliberate: there is no request to be stale against.
+    """
+    return [c for c in comments if str(c.get("created_at") or "") > latest_request]
 
 
 def _report(pull: int) -> bool:
@@ -233,6 +266,29 @@ def _report(pull: int) -> bool:
         and _names_the_head(c.get("body") or "", head)
     ]
 
+    # ⛔ **A clean verdict must postdate the TRIGGER THAT ASKED FOR IT.**
+    #
+    # ⚠️ Naming the head is not enough, because a round can be requested without
+    # changing the head -- which is this project's ordinary path, not an edge
+    # case: every finding that is disputed or filed rather than fixed produces no
+    # push, and the procedure then requires a re-trigger on the same SHA. The
+    # previous round's clean comment still names that head, so it satisfies the
+    # check above while the NEW round is still running, and READY is printed
+    # before the findings land.
+    #
+    # ⭐ CONTRIBUTING already stated this for a human operator -- *"when the head
+    # has not changed, baseline the review count and wait for it to increase"* --
+    # and this script did not implement it. **The script and the written
+    # procedure disagreed, and the procedure was right.**
+    #
+    # ⚠️ A one-shot sweep cannot "capture and wait", so the same rule is applied
+    # to what is already recorded: the accepted verdict must be NEWER than the
+    # most recent request. With no request at all -- the automatic review on
+    # open -- there is nothing to postdate, and naming the head stands alone.
+    latest_trigger = _latest_request(conversation)
+    accepted_clean = _still_current(clean_comments, latest_trigger)
+    superseded_clean = [c for c in clean_comments if c not in accepted_clean]
+
     print("  3. bot verdict on head  :")
     print(
         f"       reviews on head    : {len(on_head_reviews)}"
@@ -262,10 +318,22 @@ def _report(pull: int) -> bool:
             f"  ({stale_reactions[-1].get('created_at')} <= head)"
         )
 
+    print(f"       last round requested: {latest_trigger or '(never -- automatic review only)'}")
+    if superseded_clean:
+        print(
+            f"       SUPERSEDED clean    : {len(superseded_clean)}"
+            f"  ({superseded_clean[-1].get('created_at')} <= the request above)"
+        )
+
     if not clean_comments:
         failures.append(
             "no CLEAN verdict naming this head -- the bot's clean comment quotes "
             "the commit it reviewed, and none quoting this one was found"
+        )
+    elif not accepted_clean:
+        failures.append(
+            "the CLEAN verdict predates the most recent review request -- a round "
+            "was asked for after it, so that verdict is about an earlier round"
         )
 
     # -- 4. unresolved threads, by isResolved --------------------------------
