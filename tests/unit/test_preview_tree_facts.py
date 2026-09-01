@@ -551,3 +551,50 @@ def test_a_private_child_REFERENCE_is_dropped_even_when_the_person_is_public() -
     database = _Database(family, {"h1": _Child("I0001"), "h2": _Child("I0002")})
 
     assert accessor._children_of(database, "family", family) == ("I0001",)
+
+
+def test_a_whitespace_only_description_joins_exactly_as_the_writer_joins_it() -> None:
+    """⛔ The writer decides list membership on the RAW value, then strips.
+
+    ``described = [str(spec["description"]).strip()] if spec.get("description")
+    else []`` -- so ``"   "`` is truthy, contributes an empty element, and the
+    stored string begins ``"; "``. Deciding it on the stripped value here dropped
+    that separator and the dialog showed a description one character different
+    from the one written.
+
+    ⭐ Mirrored rather than tidied: the preview shows what will be stored.
+    """
+    graph = document.parse(
+        dict(
+            source=REGISTER,
+            people=[node("q1", given="Anon", surname="Invented")],
+            events=[
+                node("e1", type="Census", date="12 Brumaire", description="   ", people=["q1"])
+            ],
+        )
+    )
+
+    unwrapped = " ".join(
+        document.preview(graph, document.Resolution(unparseable_dates=("e1",))).split()
+    )
+
+    assert "-- ; date as written: 12 Brumaire" in unwrapped, unwrapped
+
+
+def test_a_real_description_is_unaffected_by_that() -> None:
+    """⚠️ The control: the ordinary case must not gain a stray separator."""
+    graph = document.parse(
+        dict(
+            source=REGISTER,
+            people=[node("q1", given="Anon", surname="Invented")],
+            events=[
+                node("e1", type="Census", date="12 Brumaire", description="weaver", people=["q1"])
+            ],
+        )
+    )
+
+    unwrapped = " ".join(
+        document.preview(graph, document.Resolution(unparseable_dates=("e1",))).split()
+    )
+
+    assert "-- weaver; date as written: 12 Brumaire" in unwrapped, unwrapped
