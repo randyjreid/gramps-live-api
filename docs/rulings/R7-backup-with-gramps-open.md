@@ -1,5 +1,10 @@
 # R7 — Backup with Gramps open: SQLite's backup API against the live connection
 
+> ⭐ **STATUS: still holds.** It is what makes R4's *recoverable-after* true, and
+> why the backup is per write rather than per session.
+> Index: [`README.md`](README.md).
+
+
 **Ruled 2026-08-21.** This page records a decision. It is not a proposal and it is not argued again
 here. The case that was put is in `.claude/decisions/R7-undo-and-backup-with-gramps-open.md`.
 

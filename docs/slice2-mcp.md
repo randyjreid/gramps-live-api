@@ -1,5 +1,22 @@
 # Slice 2: an agent puts a note on a person, and you approve it at a console
 
+> ⛔ **A RECORD OF SLICE 2, NOT THE CURRENT DESIGN.** It is accurate about what
+> slice 2 built and is kept for the reasoning it holds. Four things it says have
+> since changed, and they are the ones a reader will trip on:
+>
+> * **"three MCP tools"** — there are now **eighteen**: thirteen live reads, three
+>   proposal and approval verbs, and `tree_totals`.
+> * **"the copy"** — a write no longer targets a copy only. `R4` permits the live
+>   tree, blessed by hand, **with a backup taken first**; see
+>   [`rulings/R4-graduation-to-the-live-tree.md`](rulings/R4-graduation-to-the-live-tree.md).
+> * **"a console"** — a document write is approved in a **dialog inside Gramps**,
+>   rendered from the stored graph. The console flow described here is slice 2's.
+> * **an XML export** — the reads run against the **open tree**, in-process.
+>
+> ⭐ The trust model below — binding separated from approval, the operation never
+> travelling through the agent — is unchanged and is still the argument.
+
+
 Slice 1 worked and its demo passed, and demo day showed one thing the project had documented instead
 of building. `docs/using.md` told you to open a Gramps XML export in a text editor and find a
 person's line. You did not do it — the file is gzipped XML holding thousands of people, and handles

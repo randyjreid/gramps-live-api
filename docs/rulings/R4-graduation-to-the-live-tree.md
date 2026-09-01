@@ -1,5 +1,10 @@
 # R4 — Graduation to the live tree: blessed, with a backup taken first
 
+> ⭐ **STATUS: still holds.** It is why the owner's live tree is writable when
+> blessed by hand, and why a backup is taken first.
+> Index: [`README.md`](README.md).
+
+
 **Ruled 2026-08-21.** This page records a decision. It is not a proposal and it is not argued again
 here. The case that was put is in `.claude/decisions/R4-graduation-to-the-live-tree.md`.
 

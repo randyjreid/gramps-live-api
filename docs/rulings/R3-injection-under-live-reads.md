@@ -1,5 +1,10 @@
 # R3 — Injection under live reads: bound the damage at the write, fence as defence in depth
 
+> ⭐ **STATUS: still holds.** It is why live reads are permitted, and why the
+> approval dialog must render everything that would be written.
+> Index: [`README.md`](README.md).
+
+
 **Ruled 2026-08-21.** This page records a decision. It is not a proposal and it is not argued again
 here. The case that was put is in `.claude/decisions/R3-injection-under-live-reads.md`.
 

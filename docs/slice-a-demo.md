@@ -1,5 +1,10 @@
 # Slice A — the host answers
 
+> ⛔ **A RECORD OF SLICE A, NOT CURRENT INSTRUCTIONS.** It describes what that
+> slice demonstrated, at the time it was demonstrated. Read
+> [`../README.md`](../README.md) for what exists now.
+
+
 Four things to do at a keyboard with Gramps running. **No agent is involved anywhere in this**, and
 nothing here writes to a tree.
 

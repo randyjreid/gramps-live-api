@@ -1,5 +1,10 @@
 # R8 — Channel architecture: an in-process HTTP host inside Gramps
 
+> ⭐ **STATUS: still holds.** It is the architecture in use. Most of
+> `CONTRIBUTING.md`'s rules about threads and imports come from here.
+> Index: [`README.md`](README.md).
+
+
 **Ruled 2026-08-19.** This page records a decision. It is not a proposal and it is not argued again
 here.
 
