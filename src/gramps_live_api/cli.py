@@ -654,41 +654,129 @@ def _source_check(plugin: Check, environ: Mapping[str, str]) -> Check:
             f"installed, not that both routes can start: without the host "
             f"registration Gramps never starts the document route at all",
         )
-    # ⛔ **In the host's EFFECTIVE order, which is the REVERSE of its loop.**
+    # ⛔ **RUN the resolution. Do not replay it.**
     #
-    # ⚠️ The host does ``sys.path.insert(0, candidate)`` for each in turn, so the
-    # LAST one it inserts ends up FIRST on the path. Checking them in loop order
-    # answered about the lowest-precedence directory: a valid explicit
-    # ``GRAMPS_LIVE_API_SRC`` beside a partial junction-derived ``src`` reported
-    # ready from the explicit one while the host bound the partial one and died
-    # on import. Replayed, the host resolves the plugin directory and the check
-    # named the explicit source.
-    candidates = [c for c in _host_source_candidates(plugin.detail, environ) if c]
-    effective = next((c for c in reversed(candidates) if _has_the_package(c)), None)
+    # ⚠️ Five defects came out of re-implementing Python's import resolution here,
+    # each a layer deeper than the last: an empty ``gramps_live_api`` directory
+    # counted as the package, then the transitive closure and ``config``, then the
+    # loop order, then the de-duplication that interacts with that order, then the
+    # namespace-package portion. **Every one was a place the replay and the real
+    # thing disagreed** -- and #174 was filed unreproduced precisely because the
+    # sixth would be too.
+    #
+    # ⭐ So the answer is not a sixth patch. **The child runs the host's OWN
+    # ``_put_the_package_on_the_path`` and then imports**, which is the resolution
+    # rather than a model of it. Order, de-duplication, namespace packages and
+    # ``__init__`` semantics all come from Python, because Python is doing them.
+    outcome = _import_as_the_host_would(plugin.detail, environ)
+    if outcome.ok:
+        return Check("source", True, outcome.detail)
+    return Check("source", False, outcome.detail)
 
-    if effective is not None:
-        absent_modules = _missing_from(effective)
-        if not absent_modules:
-            return Check("source", True, effective)
-        return Check(
-            "source",
-            False,
-            f"the host resolves gramps_live_api from {effective} -- it is first on "
-            f"the path the host builds -- and that copy is missing "
-            f"{', '.join(absent_modules)}. Python binds a package at the first "
-            f"directory of that name and does not fall through to a later one, so "
-            f"a complete copy elsewhere does not rescue this",
+
+@dataclass(frozen=True)
+class _Imported:
+    """What a child process found when it imported the way the host does."""
+
+    ok: bool
+    detail: str
+
+
+def _import_as_the_host_would(plugin_directory: str, environ: Mapping[str, str]) -> _Imported:
+    """Ask a CHILD process to do exactly what the host does, and report.
+
+    ⛔ **A subprocess, and that is the whole answer to "does this pollute
+    ``check``?"** The path manipulation, the imports and any module-level code all
+    happen in a process that exits immediately afterwards. ``check``'s own
+    ``sys.path`` and ``sys.modules`` are untouched, so a later check cannot be
+    influenced by what this one imported -- and importantly, a **broken** copy
+    cannot be half-imported into the process that is diagnosing it.
+
+    ⚠️ **The child loads the real plugin file by path and calls its real
+    function.** Not a copy of the loop, not a re-derived candidate list: if the
+    host's path rule changes, this changes with it, because it is the same code.
+
+    ⚠️ **The environment is passed through**, so ``GRAMPS_LIVE_API_SRC`` means in
+    the child exactly what it means in Gramps.
+
+    ⭐ The modules imported are the host's own, and ``src/`` imports neither
+    ``gramps`` nor ``gi`` -- which is why a child on an ordinary interpreter can
+    answer a question about a Gramps plugin at all.
+    """
+    program = (
+        "import importlib, importlib.util, json, os, sys\n"
+        "plugin = sys.argv[1]\n"
+        "wanted = json.loads(sys.argv[2])\n"
+        "host = os.path.join(plugin, 'gramps_live_api_host.py')\n"
+        "report = {}\n"
+        "try:\n"
+        "    spec = importlib.util.spec_from_file_location('_check_host', host)\n"
+        "    module = importlib.util.module_from_spec(spec)\n"
+        "    spec.loader.exec_module(module)\n"
+        "    module._put_the_package_on_the_path()\n"
+        "except Exception as failure:\n"
+        "    report['setup'] = f'{type(failure).__name__}: {failure}'\n"
+        "    print(json.dumps(report))\n"
+        "    raise SystemExit(0)\n"
+        "failed = {}\n"
+        "try:\n"
+        "    package = importlib.import_module('gramps_live_api')\n"
+        "    report['origin'] = getattr(package, '__file__', None) or '(namespace package)'\n"
+        "except Exception as failure:\n"
+        "    failed['gramps_live_api'] = f'{type(failure).__name__}: {failure}'\n"
+        "for name in wanted:\n"
+        "    try:\n"
+        "        importlib.import_module('gramps_live_api.' + name)\n"
+        "    except Exception as failure:\n"
+        "        failed[name] = f'{type(failure).__name__}: {failure}'\n"
+        "report['failed'] = failed\n"
+        "print(json.dumps(report))\n"
+    )
+    try:
+        finished = subprocess.run(
+            [sys.executable, "-S", "-c", program, plugin_directory, json.dumps(list(HOST_MODULES))],
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            env={**environ},
+            timeout=60,
+            check=False,
         )
-    return Check(
-        "source",
+    except Exception as failure:  # noqa: BLE001 - any failure means "cannot say yes"
+        return _Imported(False, f"the import could not be attempted: {failure}")
+    # ⛔ Its OUTPUT, not its exit code. A traceback on stderr with a zero exit is
+    # the shape this has to survive, and an unparseable answer is not a pass.
+    try:
+        report = json.loads((finished.stdout or "").strip().splitlines()[-1])
+    except Exception:
+        detail = (finished.stderr or finished.stdout or "").strip()[-400:]
+        return _Imported(False, f"the import attempt returned nothing usable: {detail!r}")
+
+    if "setup" in report:
+        return _Imported(
+            False,
+            f"the host's own path setup did not run from {plugin_directory} -- "
+            f"{report['setup']}. That is the code Gramps executes, so the document "
+            f"route would fail the same way.",
+        )
+    failed = report.get("failed") or {}
+    if not failed:
+        # ⛔ The DIRECTORY, which is what this check has always reported and what
+        # a reader can act on -- but **derived from the file Python actually
+        # bound**, not from a candidate this process guessed at.
+        origin = str(report.get("origin") or "")
+        directory = os.path.dirname(os.path.dirname(origin)) if origin.endswith(".py") else ""
+        return _Imported(True, directory or origin or plugin_directory)
+    named = ", ".join(f"{name} ({why})" for name, why in sorted(failed.items()))
+    origin = report.get("origin")
+    where = f" It resolved gramps_live_api from {origin}." if origin else ""
+    return _Imported(
         False,
-        f"the host plugin cannot reach a COMPLETE gramps_live_api from "
-        f"{plugin.detail} -- it needs gramps_live_api/host/ carrying "
-        f"{', '.join(HOST_MODULES)}. The plugin directory is meant to be a "
-        f"junction into the checkout, and a copied installation is not one. "
-        f"Re-make it as a junction, or set {_HOST_SRC_ENV} to the checkout's src "
-        f"directory. Until then the document route fails on import while "
-        f"everything else here passes.",
+        f"the host plugin cannot import {named} from {plugin_directory}.{where} "
+        f"The plugin directory is meant to be a junction into the checkout, and a "
+        f"copied installation is not one. Re-make it as a junction, or set "
+        f"{_HOST_SRC_ENV} to the checkout's src directory. Until then the document "
+        f"route fails on import while everything else here passes.",
     )
 
 

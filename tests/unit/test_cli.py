@@ -101,6 +101,19 @@ def equipped(tmp_path: Path, **extra: str) -> dict[str, str]:
     # setup that half works.
     for name in cli.PLUGIN_FILES:
         (plugins / name).write_text("", encoding="utf-8")
+    # ⛔ **The host registration is laid down for REAL, not as an empty file.**
+    #
+    # ⚠️ ``_source_check`` no longer models Python's import resolution -- it runs
+    # the host's own ``_put_the_package_on_the_path`` in a child process and
+    # imports. An empty stub has no such function, so every caller would be
+    # asserting the exit code of a plugin directory that cannot set up a path at
+    # all, which is a different question from the one each test is asking.
+    #
+    # ⭐ Copying the real file makes these fixtures MORE faithful, not less: the
+    # candidate order, the de-duplication and the ``realpath`` step are now the
+    # ones Gramps executes, and a change to that rule reaches these tests by
+    # itself.
+    _lay_the_real_host_registration(plugins)
     # ⛔ **The host has to reach the package, and finding the .gpr.py does not
     # prove it can.** ``check`` reports that separately now, so a helper that
     # equips "a registered plugin" and stops leaves every caller asserting the
@@ -121,6 +134,23 @@ def equipped(tmp_path: Path, **extra: str) -> dict[str, str]:
     }
 
 
+def _lay_the_real_host_registration(plugin_directory: Path) -> None:
+    """Copy the REAL ``gramps_live_api_host.py`` into a fake plugin directory.
+
+    ⛔ ``_source_check`` runs that file's own ``_put_the_package_on_the_path`` in
+    a child process and then imports. An empty stub has no such function, so a
+    fixture leaving one behind makes every caller assert the exit code of a
+    plugin directory that cannot set up a path at all.
+
+    ⭐ Spelled once, because two fixtures lay plugin files down and **one of them
+    overwrote the other's real copy** with an empty stub.
+    """
+    source = Path(__file__).resolve().parents[2] / "gramps_plugin" / "gramps_live_api_host.py"
+    (plugin_directory / "gramps_live_api_host.py").write_text(
+        source.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+
+
 def _lay_out_the_host_package(source: Path) -> Path:
     """A ``src`` directory holding what the host plugin actually imports.
 
@@ -138,6 +168,21 @@ def _lay_out_the_host_package(source: Path) -> Path:
         target = package.joinpath(*module.split("."))
         target.parent.mkdir(parents=True, exist_ok=True)
         target.with_suffix(".py").write_text("", encoding="utf-8")
+    # ⛔ **``__init__.py`` at every level, because that is what makes it a
+    # PACKAGE rather than a namespace portion** -- and the difference decides
+    # which directory wins.
+    #
+    # ⚠️ This fixture used to omit them, and nothing noticed while the check
+    # modelled resolution by looking for a directory of the right name. **The
+    # real import does not agree**: a directory with no ``__init__.py`` is a
+    # namespace portion, the search CONTINUES past it, and a regular package
+    # further down the path wins. That is #174's fifth defect, and it surfaced
+    # the moment the check started importing instead of inferring.
+    #
+    # ⭐ The shipped package has them, so writing them here makes the fixture
+    # faithful rather than lenient.
+    for directory in {package, *(package.joinpath(*m.split(".")).parent for m in cli.HOST_MODULES)}:
+        (directory / "__init__.py").write_text("", encoding="utf-8")
     return source
 
 
@@ -893,6 +938,8 @@ def test_a_plugin_directory_without_the_HOST_registration_is_refused(tmp_path: P
     plugin_dir = Path(checks["plugin"].detail)
     for name in cli.PLUGIN_FILES:
         (plugin_dir / name).write_text("", encoding="utf-8")
+    # ⛔ The loop above just overwrote the real registration with an empty stub.
+    _lay_the_real_host_registration(plugin_dir)
 
     complete = {check.label: check for check in cli.inspect(None, environ)}
     assert complete["source"].ok, complete["source"].detail
@@ -939,9 +986,17 @@ def test_the_candidate_the_HOST_would_bind_is_the_one_checked(tmp_path: Path) ->
     partial junction-derived one reported **ready** from the explicit one while
     the host bound the partial one and failed on import.
 
-    ⭐ And Python does not fall through: once a directory named
-    ``gramps_live_api`` is found, the package is bound there, so a complete copy
-    further down the path does not rescue a partial one above it.
+    ⭐ And a REGULAR package does not fall through: once a directory named
+    ``gramps_live_api`` **holding an ``__init__.py``** is found, the package is
+    bound there, so a complete copy further down the path does not rescue it.
+
+    ⛔ **The qualifier is load-bearing and this test used to omit it.** It said
+    *"once a directory named gramps_live_api is found"*, full stop, and built its
+    partial package with no ``__init__.py`` -- which makes it a **namespace
+    portion**, and Python then CONTINUES the search and binds the complete copy
+    further down. The assertion passed only because the check being tested held
+    the same false belief. **Running the import instead of modelling it is what
+    surfaced this**, which is #174's whole argument.
     """
     environ = dict(equipped(tmp_path))
     complete = tmp_path / "explicit" / "src"
@@ -954,6 +1009,9 @@ def test_the_candidate_the_HOST_would_bind_is_the_one_checked(tmp_path: Path) ->
     partial = plugin_dir / "gramps_live_api" / "host"
     partial.mkdir(parents=True, exist_ok=True)
     (partial / "accessor.py").write_text("", encoding="utf-8")
+    # ⛔ A REGULAR package, so Python binds here and does not fall through.
+    (plugin_dir / "gramps_live_api" / "__init__.py").write_text("", encoding="utf-8")
+    (partial / "__init__.py").write_text("", encoding="utf-8")
 
     checks = {check.label: check for check in cli.inspect(None, environ)}
 
@@ -1191,3 +1249,53 @@ def test_an_UNREADABLE_canonical_hook_is_refused_rather_than_skipped(
 
     assert not check.ok, "an unreadable canonical hook disabled the staleness check"
     assert "cannot read" in check.detail, check.detail
+
+
+def test_a_NAMESPACE_portion_does_not_bind_and_python_falls_through(tmp_path: Path) -> None:
+    """⭐ #174's fifth defect, asserted as the behaviour rather than the belief.
+
+    ⛔ A directory named ``gramps_live_api`` with **no ``__init__.py``** is a
+    namespace portion. Python records it and **continues the search**, so a
+    complete regular package further down the path binds instead.
+
+    ⚠️ The replaced check believed the opposite -- *"Python binds a package at the
+    first directory of that name and does not fall through"* -- and refused a
+    setup that in fact works. **Running the import is what settled it**, and this
+    test exists so nobody reinstates the belief.
+    """
+    environ = dict(equipped(tmp_path))
+    complete = tmp_path / "explicit" / "src"
+    _lay_out_the_host_package(complete)
+    environ["GRAMPS_LIVE_API_SRC"] = str(complete)
+
+    # A bare directory of the right name beside the plugin: a namespace portion,
+    # NOT a package, and therefore not what binds.
+    (_plugin_dir(environ) / "gramps_live_api").mkdir(parents=True, exist_ok=True)
+
+    checks = {check.label: check for check in cli.inspect(None, environ)}
+
+    assert checks["source"].ok, (
+        "an empty directory is a namespace portion, so the host falls through to "
+        f"the complete package and the route works: {checks['source'].detail}"
+    )
+
+
+def test_the_check_runs_a_real_import_and_names_what_failed(tmp_path: Path) -> None:
+    """⛔ The refusal quotes Python's own error, not a model's conclusion.
+
+    ⭐ That is the whole point of #174: five defects came from re-deriving import
+    resolution, so the check now reports what the interpreter said.
+    """
+    environ = dict(equipped(tmp_path))
+    broken = tmp_path / "explicit" / "src" / "gramps_live_api"
+    broken.mkdir(parents=True, exist_ok=True)
+    (broken / "__init__.py").write_text(
+        "raise RuntimeError('this package is broken')\n", encoding="utf-8"
+    )
+    environ["GRAMPS_LIVE_API_SRC"] = str(tmp_path / "explicit" / "src")
+
+    checks = {check.label: check for check in cli.inspect(None, environ)}
+
+    assert not checks["source"].ok
+    assert "RuntimeError" in checks["source"].detail, checks["source"].detail
+    assert "this package is broken" in checks["source"].detail, checks["source"].detail
