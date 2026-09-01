@@ -100,3 +100,140 @@ def test_the_case_that_was_live_during_the_session_that_found_this() -> None:
     current = pr_ready._still_current([earlier_round, the_clean_one], request)
 
     assert current == [the_clean_one]
+
+
+# ------------------------------------------------------- the final judgement
+
+
+def _good(**overrides: object) -> dict[str, object]:
+    """A metadata snapshot GitHub would call mergeable, before any override."""
+    snapshot: dict[str, object] = {
+        "state": "OPEN",
+        "isDraft": False,
+        "headRefOid": "a" * 40,
+        "baseRefOid": "b" * 40,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN",
+        "baseRef": {"name": "main", "target": {"oid": "b" * 40}},
+    }
+    snapshot.update(overrides)
+    return snapshot
+
+
+def test_a_fully_good_snapshot_is_the_only_thing_that_passes() -> None:
+    assert pr_ready._judge(_good(), "a" * 40) == []
+
+
+def test_every_field_is_REQUIRED_not_merely_checked() -> None:
+    """⛔ An absent field is not a field that is fine.
+
+    ⚠️ GitHub omits what it cannot answer. Comparing a missing value against a
+    good one happens to block, but only by luck -- so absence is named instead,
+    and a schema change becomes a loud error rather than a quiet verdict.
+    """
+    for field in pr_ready.METADATA_FIELDS:
+        snapshot = _good()
+        del snapshot[field]
+
+        reasons = pr_ready._judge(snapshot, "a" * 40)
+
+        assert len(reasons) == 1, f"{field}: expected one reason, got {reasons}"
+        assert field in reasons[0]
+
+
+def test_BLOCKED_does_not_pass__the_tenth_defect() -> None:
+    """⛔ The finding that proved an enumeration cannot stand in for a bound.
+
+    The version this replaces rejected only CONFLICTING and DIRTY, so BLOCKED --
+    branch protection awaiting an approval or a required check -- printed READY
+    for a pull request GitHub refuses to merge.
+    """
+    reasons = pr_ready._judge(_good(mergeStateStatus="BLOCKED"), "a" * 40)
+
+    assert reasons and "BLOCKED" in reasons[0]
+
+
+def test_only_CLEAN_passes__every_other_merge_state_blocks() -> None:
+    """⭐ The allowlist, asserted as one. A list of BAD states cannot be completed."""
+    for status in ("BEHIND", "BLOCKED", "DIRTY", "DRAFT", "HAS_HOOKS", "UNKNOWN", "UNSTABLE"):
+        assert pr_ready._judge(_good(mergeStateStatus=status), "a" * 40), status
+
+
+def test_UNKNOWN_mergeability_blocks_and_says_to_run_again() -> None:
+    """⚠️ Not rare -- GitHub computes it asynchronously. It blocks, and it clears."""
+    reasons = pr_ready._judge(_good(mergeable="UNKNOWN"), "a" * 40)
+
+    assert reasons and "run again" in reasons[0]
+
+
+def test_a_base_that_moved_blocks__the_ninth_defect() -> None:
+    """⛔ The live base tip rides in the SAME answer as the one it is compared to.
+
+    ⚠️ mergeStateStatus alone cannot catch this: GitHub reports BEHIND only where
+    the repository requires up-to-date branches, and otherwise says CLEAN. #175
+    read CLEAN with its base seven commits behind.
+    """
+    moved = _good(baseRef={"name": "main", "target": {"oid": "c" * 40}})
+
+    reasons = pr_ready._judge(moved, "a" * 40)
+
+    assert reasons and "base has moved" in reasons[0]
+
+
+def test_a_head_that_moved_during_the_sweep_blocks() -> None:
+    """The evidence gathered earlier is about a commit that is no longer the head."""
+    reasons = pr_ready._judge(_good(headRefOid="d" * 40), "a" * 40)
+
+    assert reasons and "the head moved" in reasons[0]
+
+
+def test_a_draft_blocks_however_green_everything_else_is() -> None:
+    assert pr_ready._judge(_good(isDraft=True), "a" * 40)
+
+
+def test_a_closed_pull_request_blocks() -> None:
+    assert pr_ready._judge(_good(state="MERGED"), "a" * 40)
+
+
+# ------------------------------------------------------------- the bot's name
+
+
+def test_BOTH_spellings_of_the_bot_are_recognised() -> None:
+    """⛔ REST appends [bot]; GraphQL does not. The same account either way.
+
+    ⚠️ This mismatch already returned an empty count for a pull request with
+    eight rounds -- an empty read presented as an absence.
+    """
+    assert pr_ready._is_bot("chatgpt-codex-connector[bot]")
+    assert pr_ready._is_bot("chatgpt-codex-connector")
+    assert not pr_ready._is_bot("randyjreid")
+    assert not pr_ready._is_bot(None)
+
+
+# ------------------------------------------------------------- the round count
+
+
+def test_the_backstop_line_is_silent_below_five() -> None:
+    for rounds in range(pr_ready.BACKSTOP):
+        assert pr_ready._round_note(rounds) == "", rounds
+
+
+def test_the_backstop_line_fires_AT_five_and_above() -> None:
+    """⚠️ #175 passed five unnoticed and ran to eight, because the count lived in
+    nobody's head. Each round was defensible on its own; the aggregate was not.
+    """
+    assert "5 bot rounds" in pr_ready._round_note(5)
+    assert "8 bot rounds" in pr_ready._round_note(8)
+    assert "owner's call" in pr_ready._round_note(5)
+
+
+def test_the_backstop_line_only_ADVISES() -> None:
+    """⛔ It prints. It is not among the things that can block.
+
+    The backstop is the owner's decision; a script enforcing it would be taking
+    that decision rather than informing it.
+    """
+    eight_rounds_but_otherwise_perfect = _good()
+
+    assert pr_ready._judge(eight_rounds_but_otherwise_perfect, "a" * 40) == []
+    assert pr_ready._round_note(8)

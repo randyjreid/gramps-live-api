@@ -40,16 +40,29 @@ from datetime import datetime, timezone
 from typing import Any
 
 REPOSITORY = "randyjreid/gramps-live-api"
+
+# ⛔ **The SAME account, spelled differently by the two APIs.** REST appends the
+# ``[bot]`` suffix; GraphQL does not.
+#
+# ⚠️ **That mismatch already hid a count once.** A filter written with the REST
+# spelling and run against GraphQL matched nothing, and reported ZERO bot rounds
+# on a pull request that had had eight -- an empty result reading as an absence,
+# which is this project's recorded defect class.
+#
+# ⭐ So membership is asked of a set rather than of one literal, and no caller
+# has to remember which API it is holding.
+BOT_LOGINS = frozenset({"chatgpt-codex-connector[bot]", "chatgpt-codex-connector"})
 BOT = "chatgpt-codex-connector[bot]"
+"""The REST spelling, kept for callers that build a REST query string."""
+
+# ⛔ The backstop is the OWNER'S call, so this number only ever prints.
+BACKSTOP = 5
 
 # ⛔ What the bot says when it has looked and found nothing. Matched
 # case-insensitively against a conversation comment, because the clean signal
 # arrives there and creates no review object at all.
 _WHITESPACE = frozenset({chr(32), chr(9), chr(13), chr(10)})
 """Space, tab, CR, LF -- built from ordinals so no escape layer can mangle them."""
-
-_RUNNING = frozenset({"IN_PROGRESS", "QUEUED", "PENDING"})
-"""States that are neither a pass nor a failure. Both block; only one is bad news."""
 
 CLEAN_PHRASES = ("didn't find any major issues", "didn't find any issues", "no major issues")
 
@@ -150,79 +163,154 @@ def _still_current(comments: list[dict[str, Any]], latest_request: str) -> list[
     return [c for c in comments if str(c.get("created_at") or "") > latest_request]
 
 
+def _is_bot(login: object) -> bool:
+    """⛔ Either spelling. See ``BOT_LOGINS``."""
+    return str(login or "") in BOT_LOGINS
+
+
+def _round_note(rounds: int) -> str:
+    """The backstop line, or ``""``. ⛔ **Advisory. It never blocks.**
+
+    ⚠️ The five-round backstop is the owner's decision about whether the work is
+    still worth reviewing. A script that enforced it would be taking that
+    decision instead of informing it -- and the failure this repairs was not a
+    missing rule, it was a count nobody could see.
+    """
+    if rounds < BACKSTOP:
+        return ""
+    return f"⚠ {rounds} bot rounds -- the backstop is the owner's call"
+
+
+# ⛔ **The ONLY state GitHub calls good.** Everything else -- BEHIND, BLOCKED,
+# DIRTY, DRAFT, HAS_HOOKS, UNKNOWN, UNSTABLE -- blocks.
+#
+# ⚠️ **An allowlist, deliberately, and this is the whole lesson of the twelve.**
+# The version this replaces named the two BAD states it thought of, so every
+# state nobody thought of passed -- BLOCKED printed READY for a pull request
+# GitHub refuses to merge. **A list of bad states cannot be completed. A list of
+# good ones is the entire check.**
+#
+# ⚠️ The trade, stated rather than discovered later: ``UNSTABLE`` (a non-required
+# check failing) and ``HAS_HOOKS`` block here, and a reader may consider one of
+# those mergeable. **Erring toward a false NOT-READY is the direction this script
+# exists to choose** -- it costs a re-run; the other direction costs a bad merge.
+GOOD_MERGE_STATE = "CLEAN"
+GOOD_MERGEABLE = "MERGEABLE"
+
+METADATA_FIELDS = ("state", "isDraft", "headRefOid", "baseRefOid", "mergeable", "mergeStateStatus")
+
+
+def _metadata(pull: int) -> dict[str, Any]:
+    """⭐ **ONE call for every fact the verdict rests on**, including the live base.
+
+    ⛔ The three checks this replaces each took their own snapshot at a different
+    moment -- the open/draft read at the start, the base comparison in the middle,
+    the re-read at the end -- so a pull request could satisfy all three while
+    never having been in a mergeable state at any single instant. Findings 6, 8
+    and 9 were that gap, three times, differing only in which field went stale.
+
+    ⚠️ **The window is not closed, it is SHRUNK** -- from the whole sweep to one
+    request. A final read is still a snapshot, and something can change the
+    instant after GitHub answers. That is as small as this can be made without
+    holding a lock GitHub does not offer, and it is smaller than any arrangement
+    of separate reads can be.
+
+    ⭐ GraphQL rather than ``gh pr view`` because ``baseRef{target{oid}}`` rides
+    along: the live base tip and the base the head was verified against come back
+    **in the same answer**, which is what makes the comparison meaningful.
+    """
+    query = (
+        '{repository(owner:"randyjreid",name:"gramps-live-api")'
+        f"{{pullRequest(number:{pull})"
+        "{state isDraft headRefOid baseRefOid mergeable mergeStateStatus "
+        "baseRef{name target{oid}}}}}"
+    )
+    graph = json.loads(_gh("api", "graphql", "-f", f"query={query}") or "{}")
+    pull_request = ((graph.get("data") or {}).get("repository") or {}).get("pullRequest")
+    if not pull_request:
+        raise RuntimeError(f"no pull request #{pull} in the graph response")
+    return pull_request
+
+
+def _judge(meta: dict[str, Any], expected_head: str) -> list[str]:
+    """The verdict on one metadata snapshot. ⛔ **Every field required.**
+
+    ⚠️ A field that is absent is not a field that is fine. GitHub omits what it
+    cannot answer, and ``.get()`` returning ``None`` compared against a good
+    value would simply read as *not good* -- which happens to be right here, but
+    only by luck. **It is asserted instead**, so a schema change is a loud error
+    rather than a quiet verdict.
+    """
+    missing = [field for field in METADATA_FIELDS if field not in meta]
+    if missing:
+        return [f"the metadata read did not answer: {', '.join(missing)}"]
+
+    failures: list[str] = []
+    if meta["state"] != "OPEN":
+        failures.append(f"the pull request is {meta['state']}, not OPEN")
+    if meta["isDraft"]:
+        failures.append("the pull request is a DRAFT and GitHub will not merge it")
+    if str(meta["headRefOid"]) != expected_head:
+        failures.append(
+            f"the head moved while this sweep ran ({expected_head[:12]} -> "
+            f"{str(meta['headRefOid'])[:12]}) -- the evidence above is about the old one"
+        )
+    live_base = str(((meta.get("baseRef") or {}).get("target") or {}).get("oid") or "")
+    if not live_base:
+        failures.append("the base branch tip could not be read")
+    elif live_base != str(meta["baseRefOid"]):
+        failures.append(
+            f"base has moved since this head was verified ({str(meta['baseRefOid'])[:12]} "
+            f"-> {live_base[:12]}) -- the tests that passed ran under different code"
+        )
+    if meta["mergeable"] != GOOD_MERGEABLE:
+        # ⚠️ UNKNOWN is not rare: GitHub computes mergeability asynchronously and
+        # answers UNKNOWN until it has. It blocks, and it clears on a re-run.
+        failures.append(
+            f"mergeable is {meta['mergeable']}, not {GOOD_MERGEABLE}"
+            + (
+                " -- GitHub has not computed it yet; run again"
+                if meta["mergeable"] == "UNKNOWN"
+                else ""
+            )
+        )
+    if meta["mergeStateStatus"] != GOOD_MERGE_STATE:
+        failures.append(f"mergeStateStatus is {meta['mergeStateStatus']}, not {GOOD_MERGE_STATE}")
+    return failures
+
+
 def _report(pull: int) -> bool:
     """Print the evidence for one pull request. True only if it is the click."""
     failures: list[str] = []
     swept = datetime.now(timezone.utc)
     print(f"=== PR #{pull} " + "=" * 52)
 
-    # -- 1. state, FIRST -----------------------------------------------------
-    # ⛔ Nothing else is computed for a pull request that is not open. This is
-    # the #160/#161 failure: both were merged and both were reported as awaiting
-    # the click, because readiness was derived from CI and a verdict alone.
-    meta = _json(
-        "pr",
-        "view",
-        str(pull),
-        "--repo",
-        REPOSITORY,
-        "--json",
-        "state,headRefOid,title,baseRefName,baseRefOid,mergeable,mergeStateStatus,isDraft",
-    )
-    assert isinstance(meta, dict)
-    state = meta.get("state", "?")
-    draft = bool(meta.get("isDraft"))
-    print(f"  1. state                : {state}" + ("  (DRAFT)" if draft else ""))
+    # -- 1. which head is the evidence ABOUT? --------------------------------
+    #
+    # ⛔ **Provisional, and it decides nothing.** Gathering evidence needs a SHA
+    # to filter on, so one read happens first -- but every field it returns is
+    # read again at the end, and it is that later answer the verdict rests on.
+    #
+    # ⚠️ The early exit for a closed pull request is the #160/#161 failure and it
+    # stays: both were MERGED and both were reported as awaiting the click,
+    # because readiness was derived from CI and a verdict without ever reading
+    # ``state``. Stopping here costs nothing and says something useful.
+    provisional = _metadata(pull)
+    state = str(provisional.get("state") or "?")
     if state != "OPEN":
+        print(f"  1. state                : {state}")
         print("     -> not open; nothing further computed")
         print(f"  RESULT: NOT the owner's click -- the pull request is {state}")
         return False
-    if draft:
-        # ⛔ A draft can carry an explicit review, no unresolved threads and a
-        # green matrix -- it passes every check below. GitHub still refuses to
-        # merge it, so READY would be a claim the platform contradicts.
-        failures.append("the pull request is a DRAFT and GitHub will not merge it")
 
-    # -- 2. the head ---------------------------------------------------------
-    head = str(meta["headRefOid"])
+    head = str(provisional["headRefOid"])
     commit = _json("api", f"repos/{REPOSITORY}/commits/{head}")
     assert isinstance(commit, dict)
     head_when = str(((commit.get("commit") or {}).get("committer") or {}).get("date", ""))
-    print(f"  2. head                 : {head[:12]}  committed {head_when}")
+    print(f"  1. head under review    : {head[:12]}  committed {head_when}")
+    print("       (state and mergeability are judged at step 7, not here)")
 
-    # -- 2b. is the BASE still where it was when this head was verified? -----
-    #
-    # ⛔ **A clean verdict and a green matrix on a stale base say nothing about
-    # what would actually merge.** The whole point of the gate is that what was
-    # reviewed is what merges, and once the base moves that stops being true --
-    # the tests that passed ran against code that is no longer underneath it.
-    #
-    # ⚠️ ``mergeStateStatus`` is NOT sufficient on its own. GitHub reports
-    # ``BEHIND`` only where the repository requires branches to be up to date;
-    # otherwise a pull request whose base has moved reports ``CLEAN``. Measured:
-    # #175 read CLEAN with a base seven commits behind. So the base OID is
-    # compared directly, and the status is used for the conflict case where it
-    # is authoritative.
-    base_ref = str(meta.get("baseRefName") or "main")
-    base_oid = str(meta.get("baseRefOid") or "")
-    current_base = _gh(
-        "api", f"repos/{REPOSITORY}/git/ref/heads/{base_ref}", "-q", ".object.sha"
-    ).strip()
-    mergeable = str(meta.get("mergeable") or "?")
-    merge_state = str(meta.get("mergeStateStatus") or "?")
-    print(f"  2b. base                : {base_ref}")
-    print(f"       verified against   : {base_oid[:12] or '(unknown)'}")
-    print(f"       {base_ref} is now      : {current_base[:12] or '(unknown)'}")
-    print(f"       mergeable          : {mergeable}  ({merge_state})")
-
-    if mergeable == "CONFLICTING" or merge_state == "DIRTY":
-        failures.append("merge conflict with base")
-    elif current_base and base_oid and current_base != base_oid:
-        failures.append(
-            f"base has moved since this head was verified ({base_oid[:12]} -> {current_base[:12]})"
-        )
-
-    # -- 3. a bot verdict ON THAT HEAD ---------------------------------------
+    # -- 2. a bot verdict ON THAT HEAD ---------------------------------------
     # ⛔ All three object types, because the clean signal is not in the one that
     # is easiest to query: it arrives as a conversation comment plus a reaction
     # and creates NO review object.
@@ -234,7 +322,7 @@ def _report(pull: int) -> bool:
     assert isinstance(conversation, list) and isinstance(reactions, list)
 
     def by_bot(rows: list) -> list:
-        return [r for r in rows if (r.get("user") or {}).get("login") == BOT]
+        return [r for r in rows if _is_bot((r.get("user") or {}).get("login"))]
 
     on_head_reviews = [r for r in by_bot(reviews) if r.get("commit_id") == head]
     on_head_inline = [c for c in by_bot(inline) if c.get("commit_id") == head]
@@ -336,6 +424,25 @@ def _report(pull: int) -> bool:
             "was asked for after it, so that verdict is about an earlier round"
         )
 
+    # -- 3. how many rounds has this had? ------------------------------------
+    #
+    # ⛔ **This PRINTS. It never blocks**, and the difference is the whole point:
+    # the five-round backstop is the owner's decision about whether the work is
+    # still worth reviewing, and a script that enforced it would be taking that
+    # decision rather than informing it.
+    #
+    # ⚠️ **It exists because the count lived in nobody's head.** #175 passed
+    # round five unnoticed and ran to EIGHT -- every round producing genuine
+    # findings, none ever clean -- because each round was read on its own merits,
+    # where continuing is always defensible. **An unimplemented ceiling cannot
+    # fire**, which is the same defect as every other one here: a judgement
+    # remembered instead of run.
+    rounds = len(by_bot(reviews))
+    print(f"  3. bot review rounds    : {rounds} total, {len(on_head_reviews)} on this head")
+    note = _round_note(rounds)
+    if note:
+        print(f"       {note}")
+
     # -- 4. unresolved threads, by isResolved --------------------------------
     # ⛔ The discriminator. Not "has a reply", not "was filed" -- both were used
     # and both were wrong. A thread with a reply that is not resolved is not
@@ -378,34 +485,43 @@ def _report(pull: int) -> bool:
     if unresolved:
         failures.append(f"{len(unresolved)} unresolved review thread(s)")
 
-    # -- 5. CI, counted from JSON --------------------------------------------
+    # -- 5. CI, as EVIDENCE -- the verdict on it comes from step 7 -----------
+    #
     # ⛔ From JSON, never from columns. An awk pipe over `gh pr checks` output
     # read six RED legs as green and that reached a report.
-    checks = _json("pr", "checks", str(pull), "--repo", REPOSITORY, "--json", "name,state")
+    #
+    # ⛔ **This no longer decides anything, and that is finding 11's repair.**
+    # The version this replaces classified states itself against a hand-written
+    # set of in-flight ones, so ``SKIPPED`` and ``NEUTRAL`` -- legitimate, common,
+    # and neither a pass nor a failure -- were counted as failures and would have
+    # blocked a pull request indefinitely.
+    #
+    # ⭐ ``mergeStateStatus`` at step 7 already carries GitHub's own answer:
+    # ``CLEAN`` means mergeable with passing checks, ``UNSTABLE`` means a check is
+    # not passing, ``BLOCKED`` means protection is unsatisfied. **Classifying the
+    # states here as well was a second way of deciding one question** -- this
+    # project's most-recorded defect class -- and the two could disagree.
+    #
+    # ⚠️ ``bucket`` rather than ``state`` for the display, so the printed line is
+    # right about what it shows: gh categorises every state into pass, fail,
+    # pending, skipping or cancel, and does not go stale when a state is added.
+    checks = _json("pr", "checks", str(pull), "--repo", REPOSITORY, "--json", "name,state,bucket")
     assert isinstance(checks, list)
     tally: dict[str, int] = {}
     for row in checks:
-        tally[row["state"]] = tally.get(row["state"], 0) + 1
-    # ⛔ STILL RUNNING and FAILED are different facts, and collapsing them made
-    # this print "7 check(s) not SUCCESS" for a matrix that was merely mid-run.
-    # Both block, so the exit code is the same -- but a reason line that says
-    # "failed" about a run in progress is the kind of wrong that gets acted on.
-    running = sorted({r["name"] for r in checks if r["state"] in _RUNNING})
-    failed = sorted({r["name"] for r in checks if r["state"] not in _RUNNING | {"SUCCESS"}})
+        bucket = str(row.get("bucket") or row.get("state") or "?")
+        tally[bucket] = tally.get(bucket, 0) + 1
     print(
         f"  5. CI                   : {len(checks)} checks  "
         + " ".join(f"{k}={v}" for k, v in sorted(tally.items()))
     )
-    for name in failed:
-        print(f"       FAILED             : {name}")
-    for name in running:
-        print(f"       still running      : {name}")
+    for row in sorted(checks, key=lambda r: str(r.get("name") or "")):
+        if str(row.get("bucket") or "") not in ("pass", "skipping"):
+            print(f"       {str(row.get('bucket') or '?'):<18} : {row.get('name')}")
     if not checks:
+        # ⚠️ Kept as a failure: no checks at all is not a green matrix, and
+        # mergeStateStatus can read CLEAN on a repository with no protection.
         failures.append("no CI checks reported at all")
-    if failed:
-        failures.append(f"{len(failed)} check(s) FAILED")
-    if running:
-        failures.append(f"{len(running)} check(s) still running -- the matrix is not finished")
 
     # -- 6. how fresh is this sweep ------------------------------------------
     # ⚠️ So a run taken BEFORE a verdict landed is visible as such rather than
@@ -423,24 +539,29 @@ def _report(pull: int) -> bool:
             " a round may still be arriving"
         )
 
-    # -- 7. has anything moved WHILE this sweep ran? -------------------------
+    # -- 7. ONE final metadata read -- and it is the verdict ------------------
     #
-    # ⛔ Every check above is a separate API call, and the CI query is near the
-    # end. A push, close or merge between the first call and the last would leave
-    # this printing READY about a state that no longer exists -- the same
-    # time-of-check/time-of-use gap the sweep-freshness line was added for, one
-    # level up.
-    again = _json("pr", "view", str(pull), "--repo", REPOSITORY, "--json", "state,headRefOid")
-    assert isinstance(again, dict)
-    if again.get("state") != state or str(again.get("headRefOid") or "") != head:
-        print(
-            f"  7. re-checked           : CHANGED during the sweep -- "
-            f"{state}/{head[:12]} became {again.get('state')}/"
-            f"{str(again.get('headRefOid') or '')[:12]}"
-        )
-        failures.append("the pull request changed while this sweep was running")
-    else:
-        print(f"  7. re-checked           : unchanged ({state}, {head[:12]})")
+    # ⛔ **Every check above is evidence. This is the judgement**, and it is one
+    # API call so that the six fields cannot disagree with each other about when
+    # they were true. Three separate snapshots -- open/draft at the start, the
+    # base in the middle, a re-read at the end -- let a pull request satisfy all
+    # three without ever having been mergeable at any single instant.
+    #
+    # ⚠️ **The window is shrunk, NOT closed.** A final read is still a snapshot;
+    # something can change the instant after GitHub answers. One request is as
+    # small as this can be made, and it is not zero.
+    final = _metadata(pull)
+    print(f"  7. final metadata read  : state={final.get('state')} draft={final.get('isDraft')}")
+    print(f"       head               : {str(final.get('headRefOid') or '')[:12]}")
+    print(
+        f"       base {str((final.get('baseRef') or {}).get('name') or '?'):<14}: "
+        f"{str(final.get('baseRefOid') or '')[:12]} verified, "
+        f"{str(((final.get('baseRef') or {}).get('target') or {}).get('oid') or '')[:12]} now"
+    )
+    print(
+        f"       mergeable          : {final.get('mergeable')}  ({final.get('mergeStateStatus')})"
+    )
+    failures.extend(_judge(final, head))
 
     if failures:
         print("  RESULT: NOT the owner's click")
