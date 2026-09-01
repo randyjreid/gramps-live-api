@@ -1,7 +1,14 @@
 # R7 — Backup with Gramps open: SQLite's backup API against the live connection
 
-> ⭐ **STATUS: still holds.** It is what makes R4's *recoverable-after* true, and
-> why the backup is per write rather than per session.
+> ⭐ **STATUS: the decision holds.** It is what makes R4's *recoverable-after*
+> true, and why the backup is per write rather than per session.
+>
+> ⚠️ **The shipped code took the decision and not the mechanism.**
+> `src/gramps_live_api/host/backup.py` opens **a second, read-only `sqlite3`
+> connection** rather than using Gramps' own, and records why: a backup copies
+> pages and needs none of the functions and collations Gramps registers, so it
+> does not pay the `db.dbapi._Connection__connection` cost this ruling accepted.
+> ⭐ **This page for the decision; that module for what runs.**
 > Index: [`README.md`](README.md).
 
 

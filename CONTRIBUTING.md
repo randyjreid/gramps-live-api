@@ -141,9 +141,10 @@ document has been caught by exactly that once already.
 
 ## ⛔ What may live at the repository root
 
-**A person's first look at this project is the root listing.** It holds `README.md`,
-`CONTRIBUTING.md`, `LICENSE`, and the build files. **Nothing else, and in particular no page
-addressed to the owner rather than to a reader.**
+**A person's first look at this project is the root listing.** Beside the source directories and
+the build files, the only **documentation pages** there are `README.md`, `CONTRIBUTING.md` and
+`LICENSE`. ⛔ **No other page belongs at the root, and in particular none addressed to the owner
+rather than to a reader.**
 
 ⚠️ **Two handover files had accumulated there and both had gone false.** One said *"nothing is
 matched against people already in your tree — run the same document twice and you get two
