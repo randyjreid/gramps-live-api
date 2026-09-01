@@ -172,6 +172,33 @@ def _is_bot(login: object) -> bool:
     return str(login or "") in BOT_LOGINS
 
 
+def _request_arrived_mid_sweep(before: str, after: str) -> str:
+    """A reason, or ``""``. ⛔ **The trigger is evidence, and evidence goes stale.**
+
+    ⚠️ The latest request is read while gathering, and the verdict is pronounced
+    several calls later -- thread pagination and the checks query both run in
+    between. A round requested inside that gap was invisible, so the earlier
+    clean comment stayed accepted and READY printed while a new round was
+    starting. **That is the twelfth defect again, one level up:** the rule was
+    applied to a snapshot instead of to the state at the verdict.
+
+    ⭐ So this is the third mid-sweep comparison, and they are all one shape --
+    head, base, and now the request -- each captured while gathering and checked
+    against the final moment.
+
+    ⚠️ **The window is not zero and cannot be.** A request landing after the
+    final read is still missed; that residual is the one the ruling on #179
+    accepted explicitly. What changes is its size: from the whole sweep down to
+    one call, which is the same bound every other field here gets.
+    """
+    if after and after != before:
+        return (
+            f"a review round was requested while this sweep ran ({after}) -- the "
+            "clean verdict above is about the round before it"
+        )
+    return ""
+
+
 def _round_count(bot_reviews: list[dict[str, Any]], bot_conversation: list[dict[str, Any]]) -> int:
     """How many rounds the bot has actually published.
 
@@ -641,6 +668,15 @@ def _report(pull: int) -> bool:
         f"       mergeable          : {final.get('mergeable')}  ({final.get('mergeStateStatus')})"
     )
     failures.extend(_judge(final, head, base_tip_when_gathering))
+
+    # ⛔ The request is evidence too, and it was read several calls ago.
+    final_conversation = _json("api", f"repos/{REPOSITORY}/issues/{pull}/comments", "--paginate")
+    assert isinstance(final_conversation, list)
+    trigger_now = _latest_request(final_conversation)
+    print(f"       last request now   : {trigger_now or '(none)'}")
+    moved = _request_arrived_mid_sweep(latest_trigger, trigger_now)
+    if moved:
+        failures.append(moved)
 
     if failures:
         print("  RESULT: NOT the owner's click")

@@ -361,3 +361,31 @@ def test_a_missing_LIVE_base_tip_is_refused_too() -> None:
     unreadable = _good(baseRef={"name": "main", "target": None})
 
     assert pr_ready._judge(unreadable, "a" * 40, "b" * 40)
+
+
+def test_a_round_requested_MID_SWEEP_blocks() -> None:
+    """⛔ The twelfth defect one level up: the rule applied to a stale snapshot.
+
+    The latest request is read while gathering; the verdict is pronounced several
+    calls later. A request landing in that gap was invisible, so the earlier clean
+    comment stayed accepted and READY printed while a new round was starting.
+    """
+    reason = pr_ready._request_arrived_mid_sweep("2026-09-01T01:20:41Z", "2026-09-01T01:34:49Z")
+
+    assert "requested while this sweep ran" in reason
+
+
+def test_an_unchanged_request_does_not_block() -> None:
+    assert pr_ready._request_arrived_mid_sweep("2026-09-01T01:20:41Z", "2026-09-01T01:20:41Z") == ""
+
+
+def test_no_request_at_either_end_does_not_block() -> None:
+    """⭐ The automatic review on open, never re-triggered."""
+    assert pr_ready._request_arrived_mid_sweep("", "") == ""
+
+
+def test_a_FIRST_request_arriving_mid_sweep_blocks_too() -> None:
+    """⚠️ From none to one is the same event, and an early-return on empty would
+    have missed exactly the case where a round starts during the sweep.
+    """
+    assert pr_ready._request_arrived_mid_sweep("", "2026-09-01T01:34:49Z")
