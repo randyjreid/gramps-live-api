@@ -22,7 +22,7 @@ one reader who could. The recurring ones:
 | You will see | It means |
 | --- | --- |
 | **`R1`, `R2`, `R5`, `R6`** | earlier rulings **not published here**. They are referenced, not reproduced. |
-| **`slice 1`, `slice 2`, `slice 3`, `Slice A`** | development stages. Slices 1 and 2 have their own pages in `docs/`, both marked as records. |
+| **`slice 1`, `slice 2`, `slice 3`, `Slice A`** | development stages, mapped in `docs/roadmap.md`. ⚠️ Slice 1's page is `docs/using.md`, which is **current usage documentation and not a record**; `docs/slice2-mcp.md` and `docs/slice-a-demo.md` **are** records and say so at the top. |
 | **a bare `#25`, `#103`, `#104`** | GitHub issues and pull requests in this repository. |
 | **`.claude/decisions/…`** | the case that was *put* to the owner before he ruled. ⛔ **Not in this repository** — the ruling is the published half. |
 | **`accepted risk 4`** | numbered residuals inside R8 itself. |

@@ -197,7 +197,9 @@ and it is not going to change.
   the part already standing: the document route takes a whole graph, shows one preview, and writes it
   in one transaction. What is untested is whether a real census document survives that route
   end to end.
-- **A dialog that shows what the tree already holds**, so a duplicate stops looking like an addition.
+- ⭐ **A dialog that shows what the tree already holds — this has shipped**, and is listed above under
+  what the dialog does rather than here. What remains of it is the blind spot: a record the tree marks
+  private is invisible to that line, and to the agent's own lookup, so the two share it.
 - **Then**, as a pool of specified work rather than a schedule: a richer read surface, media, and
   record matching.
 

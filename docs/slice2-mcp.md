@@ -10,8 +10,12 @@
 >   verbs** (`propose_note`, `approve`, `propose_document`, `approve_document`),
 >   and **`list_people`**, which is the odd one out below.
 > * **"the copy"** — a write no longer targets a copy only. `R4` permits the live
->   tree, blessed by hand, **with a backup taken first**; see
+>   tree, blessed by hand; see
 >   [`rulings/R4-graduation-to-the-live-tree.md`](rulings/R4-graduation-to-the-live-tree.md).
+>   ⛔ **R4's backup requirement does NOT cover the flow on this page.**
+>   `propose_note`/`approve` writes **without taking one**, so a write through the
+>   flow described below has **no recovery point**. The root `README.md` records
+>   that in its limitations.
 > * **"a console"** — a document write is approved in a **dialog inside Gramps**,
 >   rendered from the stored graph. The console flow described here is slice 2's.
 > * **an XML export** — the live reads run against the **open tree**, in-process.
