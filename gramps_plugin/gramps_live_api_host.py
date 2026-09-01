@@ -25,6 +25,7 @@ observable from the other. The stdlib used here is deliberately ancient -- ``os`
 nothing else would catch a call that arrived after the floor.
 """
 
+import dataclasses
 import os
 import sys
 import traceback
@@ -206,6 +207,21 @@ def _present(dbstate, uistate, graph):
             writer.tell(uistate, "Nothing was written", refusal)
             return
 
+        # ⛔ **The date verdict is the WRITER'S, and it is obtained by asking the
+        # writer.** A date Gramps cannot read is not stored as a date -- the
+        # writer folds it into the description -- and the preview drew it as a
+        # date field anyway, so the owner approved a field the record would not
+        # have.
+        #
+        # ⚠️ **It happens HERE and not in the accessor**, and the boundary decides
+        # that, not preference: the parser is ``gramps.gen.datehandler`` and
+        # nothing under ``src/`` may import ``gramps``. This file already may.
+        #
+        # ⭐ **``_gramps_date`` and nothing else.** A second implementation of
+        # *does this parse* is this project's most-recorded defect class, and it
+        # would sit on the one surface where the preview and the write must agree.
+        resolution = _with_date_verdicts(resolution, parsed, writer, note)
+
         note("INFO", "document: showing " + document.summary(parsed))
 
         # ⛔ The blessing is checked BEFORE the backup. A tree that may not be
@@ -306,6 +322,42 @@ def _present(dbstate, uistate, graph):
         # later proposal for the lifetime of the process, which is a worse
         # failure than the one it prevents.
         _IN_FLIGHT["present"] = False
+
+
+def _with_date_verdicts(resolution, parsed, writer, note):
+    """``resolution``, plus the local ids of events whose date Gramps cannot read.
+
+    ⛔ **Asks the writer, and parses nothing itself.** ``_gramps_date`` is the
+    function the write will use; a second copy of that judgement here is exactly
+    the disagreement this whole change exists to remove.
+
+    ⚠️ **Every failure answers *readable*, which renders as the dialog always
+    has.** A verdict this could not obtain must not invent an unreadable date and
+    move a real one into the description -- that would be a new wrong preview in
+    place of the old one. **Silence degrades to the previous behaviour, never past
+    it.**
+    """
+    unreadable = []
+    try:
+        for event in parsed.events:
+            local_id = event.get("id")
+            text = event.get("date")
+            if not local_id or not text:
+                continue
+            # ⛔ An event ALREADY in the tree keeps the date it has -- ``parse``
+            # refuses participants on one and the writer never touches its
+            # fields -- so its date is not being written and not being previewed
+            # as written.
+            if event.get("gramps_id"):
+                continue
+            if writer._gramps_date(text) is None:
+                unreadable.append(str(local_id))
+    except Exception:
+        note("INFO", "document: could not obtain date verdicts; dates render as before")
+        return resolution
+    if not unreadable:
+        return resolution
+    return dataclasses.replace(resolution, unparseable_dates=tuple(unreadable))
 
 
 def _take_backup(tree_dir, note):
