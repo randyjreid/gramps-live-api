@@ -1118,9 +1118,18 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
             if citation.get("id") != local_id:
                 continue
             page = citation.get("page")
+            # ⛔ ``or source_id`` -- **the writer's own fallback, mirrored.**
+            #
+            # ⚠️ ``parse`` accepts a citation with no ``source`` when the graph
+            # supplies a top-level one, and the writer then uses that
+            # (``handles.get(spec.get("source")) or source_handle``). Without the
+            # fallback the preview named the source **"None"** -- and it did so at
+            # all three citation-rendering sites, the two older ones included, so
+            # an ordinary sourceless citation already rendered as
+            # ``+ Citation -> None`` before this branch existed.
             return (
                 "the citation of "
-                + named_node(citation.get("source"))
+                + named_node(citation.get("source") or source_id)
                 + (f"  p.{page}" if page else "")
             )
         return str(local_id)
@@ -1170,7 +1179,7 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
             out.extend(
                 _wrap(
                     "+ Citation -> "
-                    + named_node(citation.get("source"))
+                    + named_node(citation.get("source") or source_id)
                     + (f"  p.{page}" if page else ""),
                     indent,
                 )
@@ -1373,7 +1382,7 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
         leftovers.extend(
             _wrap(
                 "Citation  -> "
-                + named_node(citation.get("source"))
+                + named_node(citation.get("source") or source_id)
                 + (f"  p.{page}" if page else "")
                 + "  on: "
                 + where,

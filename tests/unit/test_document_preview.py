@@ -1169,3 +1169,28 @@ def test_a_target_named_TWICE_is_reported_once() -> None:
     unwrapped = " ".join(rendered.split())
 
     assert unwrapped.count("the citation of Invented Register") == 1, rendered
+
+
+def test_a_citation_with_no_source_names_the_graphs_source_not_None() -> None:
+    """⛔ ``parse`` accepts a sourceless citation when the graph supplies a source.
+
+    The writer then uses it -- ``handles.get(spec.get("source")) or
+    source_handle`` -- so the preview must name the same thing.
+
+    ⚠️ **All three citation-rendering sites were affected, not just the new one.**
+    An ordinary sourceless citation already rendered as ``+ Citation -> None``
+    before this branch existed; the target formatter added a second place to say
+    it. Fixing only the new one would have left the dialog contradicting itself.
+    """
+    graph = graph_of(
+        source=REGISTER,
+        people=[node("p1", given="Anon", surname="Invented")],
+        citations=[node("c1", attach_to=["p1"])],
+        notes=[note("A REMARK.", ["c1"])],
+    )
+
+    rendered = document.preview(graph)
+
+    assert "None" not in rendered, rendered
+    assert "+ Citation -> Invented Register" in rendered, rendered
+    assert "the citation of Invented Register" in rendered, rendered
