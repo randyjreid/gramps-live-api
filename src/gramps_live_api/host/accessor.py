@@ -722,9 +722,63 @@ def resolve_nodes(graph: dict[str, typing.Any]) -> document.Resolution:
                 found=obj is not None,
                 display=_display_of(database, request.kind, obj) if obj is not None else "",
                 private=private,
+                children=_children_of(database, request.kind, obj),
             )
         )
     return document.Resolution(nodes=tuple(found))
+
+
+def _children_of(database: typing.Any, kind: str, obj: typing.Any) -> tuple[str, ...]:
+    """The Gramps IDs a FAMILY already holds as children. ``()`` for anything else.
+
+    ⛔ **The tree's answer to a question the renderer cannot ask.** ``write``
+    appends only children a family does not already hold, and the preview listed
+    every named child -- so it promised additions the write skips. This is the
+    fact that closes that gap, handed across the ``preview(graph, resolution)``
+    seam as plain data.
+
+    ⚠️ **Through ``_public``, like every other fetch in this module.** A private
+    child is dropped rather than reported, so it cannot reach the renderer and
+    cannot be named in a dialog. **A child dropped here is classified as *being
+    added*, which is the safe direction**: the dialog then says the write will do
+    something it may not, rather than concealing a person the owner may not see.
+    A private child the agent names is refused before any of this, by
+    ``Resolution.refusal``.
+
+    ⚠️ **One extra read per child of one family**, on the main thread. R8's
+    accepted risk 4 caps per-callback work; a household holds a handful of
+    children, and this runs only for a family the graph names by ``gramps_id``.
+    """
+    if kind != "family" or obj is None:
+        return ()
+    ids: list[str] = []
+    try:
+        # ⛔ **Iterated straight off the getter and gated per reference**, which
+        # is the shape every other ref walk in this module uses -- and the shape
+        # #103's ratchet can see. Binding the list to a variable first put the
+        # gate on the elements while the ratchet looked at the variable, so it
+        # reported ``childref`` ungated. **It was right to**: a reader cannot
+        # tell the two apart either.
+        #
+        # ⚠️ A ``ChildRef`` carries its own ``priv``: the person can be public
+        # while their MEMBERSHIP of this family is not. Reading the person alone
+        # would answer *already a child* from a reference the tree marks private.
+        #
+        # ⭐ A dropped reference classifies that child as *being added*, which is
+        # the safe direction: the dialog claims an addition that may not happen
+        # rather than disclosing a private membership.
+        for ref in obj.get_child_ref_list():
+            if _public(ref) is None:
+                continue
+            child = _public(database.get_person_from_handle(ref.ref))
+            if child is None:
+                continue
+            gramps_id = child.get_gramps_id()
+            if gramps_id:
+                ids.append(str(gramps_id))
+    except Exception:
+        return ()
+    return tuple(ids)
 
 
 NOTE_KINDS = ("person", "place", "source", "family")

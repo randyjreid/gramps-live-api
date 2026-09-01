@@ -212,12 +212,48 @@ class Resolved:
     person is private*, which is ruling 1's second enforcement point; reporting
     it as found would confirm its existence to the agent, which was the leak."""
 
+    children: tuple[str, ...] = ()
+    """The Gramps IDs a FAMILY already holds as children. Empty for every other kind.
+
+    ⛔ **What the writer knows and the renderer could not.** ``write`` appends only
+    children the family does not already hold::
+
+        known = {ref.ref for ref in family.get_child_ref_list()}
+        for child in children:
+            if child in known:
+                continue
+
+    The preview listed every named child, so it promised additions the write
+    skips. **The renderer cannot ask the tree**, and this is the tree's answer
+    handed to it as data -- which is what the ``preview(graph, resolution)`` seam
+    is for.
+
+    ⚠️ **Gramps IDs only, and the renderer only ever tests membership.** A private
+    child is dropped by the same gated fetch every other read goes through, so it
+    cannot arrive here and cannot be rendered."""
+
 
 @dataclass(frozen=True)
 class Resolution:
     """Every requested node, looked up."""
 
     nodes: tuple[Resolved, ...] = ()
+
+    unparseable_dates: tuple[str, ...] = ()
+    """Local ids of events whose ``date`` **Gramps' own parser cannot read.**
+
+    ⛔ **Not a node lookup, and deliberately not on ``Resolved``.** A created event
+    carries no ``gramps_id``, so it is never *requested* and never resolves -- yet
+    it is exactly the event whose date the owner is about to approve.
+
+    ⚠️ **The verdict is the WRITER'S, obtained by calling the writer's own
+    function.** Nothing here parses a date. Two implementations of *does this
+    parse* would be this project's most-recorded defect class, on the one surface
+    where the preview and the write must agree.
+
+    ⭐ Empty means *no event has an unreadable date*, which is also the honest
+    answer where the verdict could not be obtained: the dialog then renders
+    exactly as it did before this field existed."""
 
     @property
     def missing(self) -> tuple[Resolved, ...]:
@@ -1003,7 +1039,7 @@ def _wrap(text: str, indent: str) -> list[str]:
     return out
 
 
-def _event_line(event: dict[str, Any], named: Any) -> str:
+def _event_line(event: dict[str, Any], named: Any, date_unreadable: bool = False) -> str:
     """One event as the dialog shows it. ⛔ **Including its role.**
 
     ⚠️ **``role`` is an input the writer APPLIES** -- ``set_role`` puts it on
@@ -1017,7 +1053,17 @@ def _event_line(event: dict[str, Any], named: Any) -> str:
     line teaches the reader to skip the field that matters.
     """
     bits = [str(event.get("type") or "Event")]
-    if event.get("date"):
+    # ⛔ **A date Gramps cannot read is NOT stored as a date**, so it must not be
+    # shown as one. The writer folds it into the description instead::
+    #
+    #     if parsed is None and spec.get("date"):
+    #         described.append("date as written: " + str(spec["date"]))
+    #
+    # ⚠️ The preview drew it as a date field regardless, so the owner approved
+    # *"Census, 12 Brumaire An VII"* and the record received **no date at all**.
+    # ⭐ The verdict is the writer's own, carried in ``Resolution``; this renderer
+    # never parses anything.
+    if event.get("date") and not date_unreadable:
         bits.append(str(event["date"]))
     if event.get("place"):
         bits.append("at " + named(event["place"]))
@@ -1030,6 +1076,11 @@ def _event_line(event: dict[str, Any], named: Any) -> str:
     # written and not shown is the preview/writer class**, which this file has six
     # recorded instances of.
     described = str(event.get("description") or "").strip()
+    # ⛔ **Joined exactly as the writer joins it**, semicolon included, so the
+    # dialog shows the description string the event will actually carry.
+    if date_unreadable and event.get("date"):
+        written = "date as written: " + str(event["date"])
+        described = f"{described}; {written}" if described else written
     # ⛔ The household the event JOINS, named. R3's criterion is that no byte
     # reaches the tree unrendered, and a marriage attaching to a family the owner
     # never saw named is that criterion failing -- the write is small, this line
@@ -1060,6 +1111,7 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
     this renderer did not walk used to render **nowhere at all**; now it cannot.
     """
     resolved = (resolution or Resolution()).by_local_id()
+    unreadable_dates = frozenset((resolution or Resolution()).unparseable_dates)
     people_by_id = {p.get("id"): p for p in graph.people}
     places_by_id = {p.get("id"): p for p in graph.places}
     events_by_id = {str(e.get("id")): e for e in graph.events if e.get("id")}
@@ -1113,7 +1165,7 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
         # read is not a target he was shown.**
         event = events_by_id.get(str(local_id))
         if event is not None:
-            return _event_line(event, named_node)
+            return _event_line(event, named_node, str(local_id) in unreadable_dates)
         for citation in graph.citations:
             if citation.get("id") != local_id:
                 continue
@@ -1148,7 +1200,12 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
             # before the event is marked shown.
             first_reach = index not in shown_events
             shown_events.add(index)
-            out.extend(_wrap("+ " + _event_line(event, named_node), indent))
+            out.extend(
+                _wrap(
+                    "+ " + _event_line(event, named_node, str(event.get("id")) in unreadable_dates),
+                    indent,
+                )
+            )
             # ⛔ **The event's OWN attachments, under the event, ONCE.**
             #
             # ⚠️ This is the omission #167 reported. A created event is drawn here
@@ -1264,8 +1321,20 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
                 # that never touches the database can get. Two distinct NEW
                 # people become two distinct records anyway, so the local id is
                 # the right key for them.
+                #
+                # ⛔ **And SPLIT, because the writer skips children the family
+                # already holds.** ``node.children`` carries those Gramps IDs,
+                # read from the tree by the accessor.
+                #
+                # ⚠️ **Already-there children are shown, never omitted.** Dropping
+                # them silently loses the distinction between *the agent did not
+                # propose this person* and *the agent proposed them and they were
+                # already here* -- and that difference is what tells the owner
+                # whether the agent's lookups worked at all.
+                already_there = set(node.children)
                 seen_children: set[Any] = set()
-                joining = []
+                joining: list[str] = []
+                present: list[str] = []
                 for child in entry.get("children") or []:
                     resolved_child = resolved.get(child)
                     key = (
@@ -1276,7 +1345,10 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
                     if key in seen_children:
                         continue
                     seen_children.add(key)
-                    joining.append(named_node(child))
+                    # ⭐ A child being CREATED cannot already be in the family: it
+                    # has no Gramps ID, so ``key`` is its local id and can never
+                    # match. The membership test is safe for both kinds.
+                    (present if key in already_there else joining).append(named_node(child))
                 # ⛔ This line speaks about CHILDREN and nothing else. Saying
                 # "nothing would be added to this family" was a claim about the
                 # whole operation, and it was false: a citation or a note whose
@@ -1298,14 +1370,32 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
                 # not exist is the preview/write class reached by formatting** --
                 # and this was the only call site passing a bullet as an indent;
                 # every other puts it in the text exactly like this.
-                out.extend(
-                    _wrap(
-                        "+ adding as children: " + ", ".join(joining)
-                        if joining
-                        else "+ no children named for this family",
-                        "      ",
+                # ⛔ Three cases, not two, and the middle one is the ORIGINAL
+                # sentence kept intact: a graph naming no children at all still
+                # says exactly what it always said. The third case only exists
+                # because a graph CAN name children and add none of them.
+                if joining:
+                    children_line = "+ adding as children: " + ", ".join(joining)
+                elif not (entry.get("children") or []):
+                    children_line = "+ no children named for this family"
+                else:
+                    children_line = (
+                        "+ no children would be added -- every one named is already here"
                     )
-                )
+                out.extend(_wrap(children_line, "      "))
+                # ⛔ A SEPARATE line, and only when there is something to say.
+                #
+                # ⚠️ It is not a warning and must not read as one. The agent
+                # naming somebody already recorded is the ordinary result of a
+                # correct lookup; the owner needs to see it happened, not to be
+                # told it was wrong.
+                if present:
+                    out.extend(
+                        _wrap(
+                            "+ already in this family, so not added again: " + ", ".join(present),
+                            "      ",
+                        )
+                    )
             dropped = dropped_fields(entry)
             if dropped:
                 out.extend(
@@ -1364,7 +1454,13 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
     for index, event in enumerate(graph.events):
         if index in shown_events:
             continue
-        leftovers.extend(_wrap("Event     " + _event_line(event, named_node), "  "))
+        leftovers.extend(
+            _wrap(
+                "Event     "
+                + _event_line(event, named_node, str(event.get("id")) in unreadable_dates),
+                "  ",
+            )
+        )
         leftovers.extend(attached_to(event.get("id"), "      "))
     # ⛔ **Per EDGE, and the target is NAMED.**
     #
