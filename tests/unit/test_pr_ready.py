@@ -337,3 +337,27 @@ def test_the_two_base_questions_are_DIFFERENT_and_both_asked() -> None:
 
     moved = _good(baseRefOid="e" * 40, baseRef={"name": "main", "target": {"oid": "e" * 40}})
     assert any("WHILE this sweep ran" in r for r in pr_ready._judge(moved, "a" * 40, "b" * 40))
+
+
+def test_a_MISSING_provisional_base_tip_is_refused_not_skipped() -> None:
+    """⛔ An unanswerable check is refused. Skipping it is a fail-open.
+
+    ⚠️ The condition was ``if expected_base_tip and ...``, so a provisional
+    response with a null ``baseRef.target`` -- a partial answer, or a base ref
+    deleted and recreated mid-sweep -- silently disabled the comparison while
+    every other field looked fine. **The condition was true for a reason
+    unrelated to the property it names.**
+
+    ⭐ ``scripts/hooks/pre-push`` already answers this the right way: it refuses a
+    push whose objects it cannot scan rather than assuming them clean.
+    """
+    reasons = pr_ready._judge(_good(), "a" * 40, "")
+
+    assert reasons and "not captured" in reasons[0]
+
+
+def test_a_missing_LIVE_base_tip_is_refused_too() -> None:
+    """The same rule at the other end -- neither side may be silently absent."""
+    unreadable = _good(baseRef={"name": "main", "target": None})
+
+    assert pr_ready._judge(unreadable, "a" * 40, "b" * 40)

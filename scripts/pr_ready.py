@@ -321,7 +321,21 @@ def _judge(meta: dict[str, Any], expected_head: str, expected_base_tip: str) -> 
                 f"base has moved since this head was verified ({str(meta['baseRefOid'])[:12]} "
                 f"-> {live_base[:12]}) -- the tests that passed ran under different code"
             )
-        if expected_base_tip and live_base != expected_base_tip:
+        # ⛔ **An unanswerable check is REFUSED, never skipped.**
+        #
+        # ⚠️ This read ``if expected_base_tip and ...``, so a provisional response
+        # with a null ``baseRef.target`` -- a partial answer, or a base ref
+        # deleted and recreated mid-sweep -- silently disabled the comparison and
+        # left READY printable. **The condition was true for a reason unrelated
+        # to the property it names**, which is this project's most-repeated
+        # defect, and ``scripts/hooks/pre-push`` already answers it the right way:
+        # a gate that cannot see what it is judging must not wave it through.
+        if not expected_base_tip:
+            failures.append(
+                "the base tip was not captured when the evidence was gathered, so "
+                "nothing can show the verdict and checks apply to the base below"
+            )
+        elif live_base != expected_base_tip:
             failures.append(
                 f"the base moved WHILE this sweep ran ({expected_base_tip[:12]} -> "
                 f"{live_base[:12]}) -- the verdict and checks above are about the old base"
