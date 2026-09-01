@@ -1246,6 +1246,15 @@ ACCEPTED_ISO_SPELLINGS = {
     # what it looks like              what it must canonicalise to
     "2026-08-01": "2026-08-01",
     "20260801": "2026-08-01",
+    # ⭐ Reduced precision, hour only. ``datetime.isoformat(timespec="hours")``
+    # emits the first of these, and all three supported interpreters parse it --
+    # so the tightened grammar refusing it was a regression the tightening
+    # introduced, not a spelling this project had chosen to turn away.
+    "2026-08-01T12": "2026-08-01T12:00:00",
+    "20260801T12": "2026-08-01T12:00:00",
+    "2026-08-01 12": "2026-08-01T12:00:00",
+    "2026-08-01T12Z": "2026-08-01T12:00:00+00:00",
+    "2026-08-01T12+02:00": "2026-08-01T12:00:00+02:00",
     "2026-08-01T12:00": "2026-08-01T12:00:00",
     "20260801T1200": "2026-08-01T12:00:00",
     "2026-08-01T12:00:00": "2026-08-01T12:00:00",
@@ -1325,6 +1334,13 @@ REFUSED_ISO_SPELLINGS = {
     "202608-01": "hybrid notation -- no hyphen, then one",
     "2026-08-01Z": "an offset with no time: became a naive midnight carrying +00:00",
     "2026-08-01T12:00.5": "a fraction with no seconds: became half a second past noon",
+    # ⛔ The edge the hour-only form opens, closed in the same change that opens
+    # it. Reduced precision drops components from the RIGHT; these drop from the
+    # middle, or land on no boundary at all.
+    "2026-08-01T12::30": "a second with no minute",
+    "2026-08-01T12.5": "a fraction hung directly on the hour",
+    "20260801T123": "basic notation on no component boundary",
+    "2026-08-01T1": "a one-digit hour",
     "20260801 120000": "a space separator in basic notation",
     "not a date": "not a date",
     "01/08/2026": "not ISO at all",

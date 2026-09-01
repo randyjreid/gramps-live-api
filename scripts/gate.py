@@ -29,6 +29,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -53,7 +54,34 @@ from gramps_live_api.core.pii_guard import (  # noqa: E402
 )
 
 
-def run(label: str, *command: str, operator_input: bool = False, rerun: str = "") -> None:
+def carries_operator_input(configured: bool, scope: Sequence[str]) -> bool:
+    """Does the command line built from ``scope`` actually carry what someone typed?
+
+    ⛔ **Third iteration of one boolean, and each earlier one was NEARLY right.**
+    ``bool(scope)`` alone discarded pii_guard's own already-redacted findings on
+    the ordinary failure path, where the baseline is this file's constant.
+    ``configured`` alone withholds them when ``GRAMPS_LIVE_API_GATE_BASE``
+    resolves to ``HEAD``: ``scope`` is then empty, the command carries no
+    operator value at all, and the findings are suppressed anyway.
+
+    ⚠️ **And that case had no way out.** The rerun hint offered with it adds
+    ``--range <base>..HEAD``, which the guard refuses outright -- *"the given
+    range covers no commits"* -- so an operator with staged personal data was
+    handed a suppressed diagnostic and an unrunnable command.
+
+    ⭐ The question is not *was a baseline configured* nor *is there a scope*.
+    It is **whether the value someone typed reaches this command line**, and that
+    needs both: configured, and a scope that carries it.
+    """
+    return configured and bool(scope)
+
+
+def run(
+    label: str,
+    *command: str,
+    operator_input: bool = False,
+    rerun: Sequence[str] = (),
+) -> None:
     """One gate. ⛔ Its RETURN CODE is the verdict; its output is not consulted.
 
     ⛔ **``operator_input=True`` means this command line carried something a
@@ -74,7 +102,52 @@ def run(label: str, *command: str, operator_input: bool = False, rerun: str = ""
     terminal, where it was never a leak.
     """
     print(f"  {label:<28}", end="", flush=True)
-    finished = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=False)
+    # ⛔ ``encoding``/``errors`` explicitly, NOT bare ``text=True``.
+    #
+    # ⚠️ ``text=True`` decodes with the LOCALE encoding -- cp1252 on this box --
+    # and a tool that prints anything outside it raises ``UnicodeDecodeError``
+    # **inside subprocess's reader thread**. The exception is reported there,
+    # ``stdout`` comes back ``None``, and the line below then died with
+    # ``TypeError: 'NoneType' object is not subscriptable`` -- so a real gate
+    # failure was replaced by a traceback about the reporting of it. Observed
+    # when ``ruff format --check`` drew its diff with box characters.
+    #
+    # ⭐ Same class as everything else in this function: the failure was never
+    # the problem, and the diagnostic not reaching the operator was.
+    #
+    # ⛔ **And that decode is only correct because the line below MAKES it
+    # correct.** Left alone, the two halves disagree about what a child speaks:
+    #
+    #   * ``ruff`` is Rust and writes UTF-8 whatever the locale says;
+    #   * ``mypy``, ``pytest`` and ``pii_guard`` are Python, and a REDIRECTED
+    #     Python stdout uses ``locale.getpreferredencoding()`` -- cp1252 here.
+    #
+    # ⚠️ **Measured on this box with the children's environment controlled:** a
+    # Python child printing ``e``-acute emits ``b'\xe9'``, and this UTF-8 decode
+    # turns that into U+FFFD -- the diagnostic is silently corrupted rather than
+    # shown. A child printing an arrow is worse: cp1252 cannot encode it, so the
+    # CHILD dies with ``UnicodeEncodeError`` and the gate reports that traceback
+    # instead of the failure it was run to find.
+    #
+    # ⭐ **The repair is a bound, not an enumeration.** Deciding per tool which
+    # ones speak UTF-8 is a list that goes stale the next time a step is added --
+    # this project's most-recorded defect class. Telling every child to speak
+    # UTF-8 makes the one decode right for all of them, including the steps
+    # nobody has written yet.
+    #
+    # ⚠️ Deliberately NOT ``_anchored_env()``: that belongs to ``pii_guard`` and
+    # anchors git on a target, which is a different question from how a child
+    # encodes its stdout.
+    child_environment = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    finished = subprocess.run(
+        command,
+        cwd=ROOT,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        env=child_environment,
+    )
     if finished.returncode != 0:
         print(f"FAILED (exit {finished.returncode})")
         if operator_input:
@@ -91,10 +164,14 @@ def run(label: str, *command: str, operator_input: bool = False, rerun: str = ""
             # it produced "command not found".
             if rerun:
                 print("    re-run it yourself to see them:")
-                print("        " + rerun)
+                for line in rerun:
+                    print("        " + line)
         else:
-            sys.stdout.write(finished.stdout[-4000:])
-            sys.stderr.write(finished.stderr[-4000:])
+            # ⚠️ ``or ""`` is insurance, not the repair -- with an explicit
+            # encoding above, these are never ``None``. No test binds it, and
+            # test_gate_diagnostics says so rather than claiming coverage.
+            sys.stdout.write((finished.stdout or "")[-4000:])
+            sys.stderr.write((finished.stderr or "")[-4000:])
         raise SystemExit(finished.returncode)
     print("ok")
 
@@ -261,14 +338,41 @@ def main() -> int:
         "gramps_live_api.core.pii_guard",
         *scope,
         ".",
-        # ⛔ ``configured``, not ``bool(scope)``. ``scope`` is non-empty whenever
-        # the branch has commits, so keying on it discarded pii_guard's own --
-        # already redacted -- findings on the ordinary failure path, where the
-        # baseline is this file's constant and nothing was operator-supplied.
-        operator_input=configured,
+        # ⛔ Neither ``configured`` nor ``bool(scope)`` alone -- see the helper.
+        operator_input=carries_operator_input(configured, scope),
+        # ⛔ **Both shells, because the contributor setup and CI use both.**
+        #
+        # ⚠️ ``$env:NAME`` is PowerShell-only. Run in bash it expands to
+        # ``:GRAMPS_LIVE_API_GATE_BASE..HEAD``, which git then reads as a PATH --
+        # *"path 'GRAMPS_LIVE_API_GATE_BASE..HEAD' does not exist"* -- so the
+        # advertised recovery command produced an error instead of the withheld
+        # diagnostics. **An instruction that cannot be followed is what the
+        # finding this replaced was about.**
+        #
+        # ⭐ Printed only when the hint is true: the helper above returns True
+        # only when ``scope`` is non-empty, so ``--range`` is always the range
+        # that actually ran.
+        # ⛔ ``:?`` on the POSIX line, and it is the fourth defect in this hint.
+        #
+        # ⚠️ A POSIX user who follows this project's own setup line runs it as an
+        # INLINE assignment -- ``GRAMPS_LIVE_API_GATE_BASE=<ref> python
+        # scripts/gate.py`` -- which sets the variable for the gate process only.
+        # It is unset in their shell afterwards, so the advertised rerun expanded
+        # to ``..HEAD``. Measured: ``git rev-list --count "..HEAD"`` returns 0,
+        # and the guard then refuses an empty range -- so the recovery command
+        # produced nothing at all, which is what the previous two versions of this
+        # hint were also fixed for.
+        #
+        # ⭐ ``${VAR:?message}`` makes the shell refuse and SAY SO rather than
+        # silently scanning nothing. Still paste-able as-is when the variable is
+        # set, and self-diagnosing when it is not -- which the value cannot be
+        # printed to solve, because this text goes to stdout and CI captures it.
         rerun=(
-            "python -m gramps_live_api.core.pii_guard "
-            '--range "$env:GRAMPS_LIVE_API_GATE_BASE..HEAD" .'
+            "PowerShell:  python -m gramps_live_api.core.pii_guard --range "
+            '"$env:GRAMPS_LIVE_API_GATE_BASE..HEAD" .',
+            "bash/zsh:    python -m gramps_live_api.core.pii_guard --range "
+            '"${GRAMPS_LIVE_API_GATE_BASE:?set it again -- an inline assignment '
+            'did not outlive the gate}..HEAD" .',
         ),
     )
 
