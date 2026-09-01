@@ -1124,12 +1124,23 @@ def _event_line(event: dict[str, Any], named: Any, date_unreadable: bool = False
     # and the tree's own events already carry such strings. **A description
     # written and not shown is the preview/writer class**, which this file has six
     # recorded instances of.
-    described = str(event.get("description") or "").strip()
-    # ⛔ **Joined exactly as the writer joins it**, semicolon included, so the
-    # dialog shows the description string the event will actually carry.
+    # ⛔ **Built as a LIST and joined, because that is what the writer does**::
+    #
+    #     described = [str(spec["description"]).strip()] if spec.get("description") else []
+    #     if parsed is None and spec.get("date"):
+    #         described.append("date as written: " + str(spec["date"]))
+    #     event.set_description("; ".join(described))
+    #
+    # ⚠️ **The list membership is decided on the RAW value and the strip happens
+    # after**, so a whitespace-only description contributes an empty element and
+    # the stored string begins ``"; "``. Deciding it on the stripped value here
+    # dropped that separator, and the dialog showed a description one character
+    # different from the one written. ⭐ **Mirrored rather than tidied: the
+    # preview's job is to show what will be stored, quirk included.**
+    parts = [str(event["description"]).strip()] if event.get("description") else []
     if date_unreadable and event.get("date"):
-        written = "date as written: " + str(event["date"])
-        described = f"{described}; {written}" if described else written
+        parts.append("date as written: " + str(event["date"]))
+    described = "; ".join(parts)
     # ⛔ The household the event JOINS, named. R3's criterion is that no byte
     # reaches the tree unrendered, and a marriage attaching to a family the owner
     # never saw named is that criterion failing -- the write is small, this line
