@@ -367,3 +367,37 @@ def test_a_read_that_RAISES_answers_None_and_not_empty() -> None:
 
     assert resolution.nodes[0].prior_events is None
     assert "could not be read" in document.preview(document.parse(_ADDING_A_CENSUS), resolution)
+
+
+def test_an_event_with_NO_type_still_asks_about_its_people() -> None:
+    """⛔ The writer stores it as ``Event``, so it adds one and must be compared.
+
+    ⚠️ Skipping it excluded that person from ``touched``, so nothing read their
+    prior events and the dialog omitted the line -- while the write went ahead.
+    **The comparison was withheld precisely where the type is least informative.**
+    """
+    untyped = document.parse(
+        dict(
+            source=REGISTER,
+            people=[node("p1", gramps_id="I0001")],
+            events=[node("e1", date="1900", people=["p1"])],
+        )
+    )
+
+    assert document.types_the_proposal_touches(untyped) == {"p1": ("Event",)}
+
+
+def test_an_untyped_event_gets_the_already_has_line() -> None:
+    """⭐ End to end: the writer's fallback type is what the accessor looks up."""
+    database = _Database(_Person([_Ref("h1")]), {"h1": _Event("Event", "AN UNTYPED ONE")})
+
+    resolution = _resolve(
+        database,
+        dict(
+            source=REGISTER,
+            people=[node("p1", gramps_id="I0001")],
+            events=[node("e1", date="1900", people=["p1"])],
+        ),
+    )
+
+    assert "AN UNTYPED ONE" in " ".join(resolution.nodes[0].prior_events or ())

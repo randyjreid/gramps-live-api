@@ -1078,9 +1078,17 @@ def types_the_proposal_touches(parsed: Graph) -> dict[str, tuple[str, ...]]:
     for event in parsed.events:
         if event.get("gramps_id"):
             continue
-        kind = str(event.get("type") or "").strip()
-        if not kind:
-            continue
+        # ⛔ **``Event`` when none is given, because that is what gets WRITTEN.**
+        #
+        # ⚠️ Skipping an untyped event excluded its people from ``touched``, so
+        # nothing read their prior events and the dialog omitted the line -- while
+        # the writer stored the event anyway: ``_event_type`` falls back to
+        # ``EventType((CUSTOM, "Event"))``. **A person could receive another
+        # Event with the comparison silently withheld.**
+        #
+        # ⭐ The same fallback ``_event_line`` already uses two functions away,
+        # which is where it should have been read from in the first place.
+        kind = str(event.get("type") or "").strip() or "Event"
         for person in event.get("people") or []:
             names = touched.setdefault(str(person), [])
             if kind not in names:
