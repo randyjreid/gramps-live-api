@@ -160,7 +160,7 @@ def test_the_preview_never_renders_what_the_caller_said_about_an_existing_node()
     graph = document.parse(
         {
             "people": [node("p1", gramps_id="I0024", surname="Friedrich")],
-            "source": {"id": "s1", "title": "Invented Register"},
+            "source": node("s1", title="Invented Register"),
             "citations": [node("c1", source="s1", page="p.1", attach_to=["p1"])],
         }
     )
@@ -879,7 +879,7 @@ def _family_gaining(children: list[str]) -> str:
     locals_ = [f"p{index}" for index, _ in enumerate(children, start=1)]
     graph = document.parse(
         {
-            "source": {"id": "s1", "title": "Invented Register"},
+            "source": node("s1", title="Invented Register"),
             "people": [
                 {"id": local, "gramps_id": f"I000{index}"}
                 for index, local in enumerate(locals_, start=1)
@@ -981,3 +981,134 @@ def test_a_SHORT_child_list_is_unchanged() -> None:
     text = _family_gaining(["Anna Invented"])
 
     assert "      + adding as children: I0001  Anna Invented" in text
+
+
+# -- #167: a citation must render at EVERY target the writer will attach it to --
+
+
+def graph_of(**groups) -> document.Graph:
+    """A parsed graph, assembled from keyword groups.
+
+    ⛔ **Keyword arguments rather than a dict literal, for the same reason
+    ``node`` uses them** -- and this one was learned the hard way. ``pii_guard``'s
+    P2 signature scores quoted key/value pairs by DENSITY over a whole file, so a
+    block of fixtures written as literals tipped this file past the threshold and
+    the guard reported a **pre-existing** line as the highest scorer. The fixtures
+    that caused it were the new ones.
+    """
+    return document.parse(dict(groups))
+
+
+REGISTER = node("s1", title="Invented Register")
+
+
+def test_a_citation_renders_at_BOTH_an_existing_and_a_created_target() -> None:
+    """⛔ The reported defect, in miniature.
+
+    ⚠️ Live, one citation attached to twelve targets rendered on the five
+    pre-existing events and on **none of the seven created ones**, while the
+    writer attached all twelve. A created event was reached by the walk as
+    CONTENT under a person and never as a node, so nothing asked what was
+    attached to the event itself.
+    """
+    graph = graph_of(
+        source=REGISTER,
+        people=[node("p1", given="Anon", surname="Invented")],
+        events=[
+            node("e_old", gramps_id="E9999"),
+            node("e_new", type="Census", date="1900", people=["p1"]),
+        ],
+        citations=[node("c1", source="s1", page="7", attach_to=["e_old", "e_new"])],
+    )
+    resolution = document.Resolution(
+        nodes=(document.Resolved("e_old", "E9999", "event", True, "Census, 1900"),)
+    )
+
+    rendered = document.preview(graph, resolution)
+    lines = rendered.splitlines()
+
+    # ⛔ Asserted STRUCTURALLY -- under the created event, more deeply indented.
+    #
+    # ⚠️ A first version counted citation lines and expected two. **It passed with
+    # the nested render deleted**, because the edge-level backstop then printed
+    # the missing edge in ALSO WRITTEN -- two lines either way. Counting could not
+    # tell which mechanism drew it, which is the silent-control shape this project
+    # keeps paying for.
+    created = next(i for i, line in enumerate(lines) if line.strip() == "+ Census, 1900")
+    below = lines[created + 1]
+    depth = lambda text: len(text) - len(text.lstrip())  # noqa: E731
+
+    assert "Citation" in below, rendered
+    assert depth(below) > depth(lines[created]), (
+        f"the citation is not nested under the event it supports:\n{rendered}"
+    )
+    assert "ALSO WRITTEN" not in rendered, (
+        "the edge was drawn in place, so the backstop must not also report it"
+    )
+
+
+def test_the_backstop_fires_for_an_undrawn_CITATION_edge() -> None:
+    """⛔ A node-level backstop cannot detect a missing edge.
+
+    ⚠️ ``shown_citations`` recorded that a citation had been drawn ANYWHERE, so a
+    citation naming twelve targets and rendered under one satisfied it while
+    eleven attachments went unmentioned. Keyed on ``(index, target)`` instead.
+
+    ⭐ A citation has no render site, and the writer's commit table accepts one as
+    an attachment target -- so a citation attached to a citation is the edge the
+    backstop must catch.
+    """
+    graph = graph_of(
+        source=REGISTER,
+        people=[node("p1", given="Anon", surname="Invented")],
+        citations=[
+            node("c1", source="s1", attach_to=["p1"]),
+            node("c2", source="s1", page="9", attach_to=["p1", "c1"]),
+        ],
+    )
+
+    rendered = document.preview(graph)
+
+    assert "ALSO WRITTEN" in rendered, rendered
+    assert "the citation of Invented Register" in rendered, rendered
+
+
+def test_an_undrawn_edge_names_its_target_rather_than_a_local_id() -> None:
+    """⛔ A target the owner cannot read is not a target he was shown.
+
+    ⚠️ ``attached to c1`` tells him an attachment exists and nothing he can
+    recognise or refuse -- the graph's internal handle, printed at the one moment
+    it matters.
+    """
+    graph = graph_of(
+        source=REGISTER,
+        people=[node("p1", given="Anon", surname="Invented")],
+        citations=[node("c1", source="s1", attach_to=["p1"])],
+        notes=[note("A REMARK ON THE CITATION.", ["c1"])],
+    )
+
+    rendered = document.preview(graph)
+
+    assert "A REMARK ON THE CITATION." in rendered
+    assert "attached to c1" not in rendered, rendered
+    assert "the citation of Invented Register" in rendered, rendered
+
+
+def test_a_citation_attached_ONLY_to_created_records_still_appears() -> None:
+    """⚠️ The pre-existing backstop already caught this, and must keep catching it.
+
+    ⭐ It is why the defect survived to a real document: the reported case needed a
+    MULTI-target citation, one landing on a node with a render site and one
+    without. A single-target citation was never at risk.
+    """
+    graph = graph_of(
+        source=REGISTER,
+        people=[node("p1", given="Anon", surname="Invented")],
+        events=[node("e1", type="Census", date="1900", people=["p1"])],
+        citations=[node("c1", source="s1", page="7", attach_to=["e1"])],
+    )
+
+    rendered = document.preview(graph)
+
+    assert "Citation" in rendered
+    assert "Invented Register" in rendered
