@@ -182,8 +182,9 @@ writes nothing and opens no database.
 
 Returns, for each person: their name, their birth year where the record gives \
 one, a birth label carrying the record's own shape (a range stays a range), \
-their Gramps ID and their handle. Both identifiers are needed by propose_note \
-and must be passed on exactly as they come back.
+their Gramps ID and their handle. propose_note needs only the Gramps ID and \
+resolves the handle itself; the handle is returned for a caller that wants to \
+pass it, and if you do pass one it must go on exactly as it came back.
 
 A search term is required -- there is no way to list everybody -- and at most \
 {people.RESULT_CAP} people are returned. The reply says how many matched, so \
@@ -197,8 +198,18 @@ Propose a note for a person. **Nothing is written by this call.**
 
 note_type must be one of: {schema._one_of(schema.NOTE_TYPES)}
 
-gramps_id and handle must both come from list_people, unedited: they are two \
-halves of one reference and are checked against each other at the write.
+gramps_id is all you need to pass. The handle is resolved here, from the same \
+lookup that reads the person's privacy flag, so there is no handle to hunt for.
+
+*** That lookup reads the EXPORT, not the open tree. A person added since the \
+export was taken is not in it, and this refuses by name rather than guess -- \
+their privacy flag cannot be read, and that flag is what bounds this tool. So a \
+Gramps ID from find_people, which searches the OPEN tree, can still be refused \
+here. The refusal says so and the remedy is to export again.
+
+handle is optional, for a caller that already holds one. Supply it and it is \
+used as given and still checked against the Gramps ID at the write; if you pass \
+one it must come from list_people, unedited.
 
 The tree's schema lets a reference point at any of these nine object types: \
 {schema._one_of(schema.OBJECT_TYPES)}. This server attaches a note to a \
@@ -513,7 +524,7 @@ class Tools:
         }
 
     def propose_note(
-        self, gramps_id: str, handle: str, note_type: str, text: str
+        self, gramps_id: str, note_type: str, text: str, handle: str = ""
     ) -> dict[str, object]:
         """File a note for approval and return what may be said about it.
 
@@ -521,6 +532,19 @@ class Tools:
         can arrive from a stale export, from something somebody wrote down, or
         from a caller that never listed at all, so a private person has to be
         unreachable through this path independently of the other one.
+
+        ⭐ **The handle is optional because this function already knows it.**
+        Issue #64: the one write verb predating the document route demanded a
+        value no live read publishes, so reaching it meant going through the
+        export-backed listing and carrying a handle by hand. The lookup below
+        runs either way, to read the privacy flag, and the record it returns
+        carries the handle -- **requiring the caller to supply what this was
+        about to compute was the whole gap.**
+
+        ⚠️ **A supplied handle is used as given, not overridden.** A caller
+        holding one from elsewhere is asserting something, and gramps_id and
+        handle are checked against each other at the write -- so quietly
+        replacing it would discard that check rather than perform it.
         """
         person = people.find(people.read_export(self._export()), gramps_id)
         if person is None:
@@ -540,7 +564,9 @@ class Tools:
 
         operation = schema.AddNote(
             target=schema.ObjectRef(
-                object_type=apply.TARGET_OBJECT_TYPE, handle=handle, gramps_id=gramps_id
+                object_type=apply.TARGET_OBJECT_TYPE,
+                handle=handle or person.handle,
+                gramps_id=gramps_id,
             ),
             note_type=note_type,
             text=text,
@@ -951,8 +977,10 @@ def build_server(tools: Tools) -> MCPServer:
         return tools.list_people(name)
 
     @server.tool(name="propose_note", description=PROPOSE_NOTE_DESCRIPTION)
-    def propose_note(gramps_id: str, handle: str, note_type: str, text: str) -> dict[str, object]:
-        return tools.propose_note(gramps_id, handle, note_type, text)
+    def propose_note(
+        gramps_id: str, note_type: str, text: str, handle: str = ""
+    ) -> dict[str, object]:
+        return tools.propose_note(gramps_id, note_type, text, handle)
 
     @server.tool(name="find_people", description=FIND_PEOPLE_DESCRIPTION)
     def find_people(name: str) -> dict[str, object]:

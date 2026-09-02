@@ -270,9 +270,14 @@ when it imports, so the value in your copy is the attribute without it.
 you decompress it — and a real tree is megabytes holding thousands of people. That, and the fact that
 this document's own author would not do it, is issue #64 and the whole reason slice 2 exists.
 
-Both halves are required, and they are checked against each other: the Gramps ID is what resolves the
-person, and if the handle names a different object the write is refused rather than guessing which
-one you meant.
+Both halves are required **in an operation file**, and they are checked against each other: the
+Gramps ID is what resolves the person, and if the handle names a different object the write is
+refused rather than guessing which one you meant.
+
+⭐ **The MCP tool no longer needs the handle.** `propose_note` takes a Gramps ID and resolves the
+handle from the same lookup that reads the person's privacy flag (#64). Passing one is still allowed,
+and a supplied handle is used as given so the cross-check above still happens. This paragraph is
+about the operation file you write by hand.
 
 ```powershell
 .\.venv\Scripts\python.exe -m gramps_live_api preview "$env:APPDATA\gramps-live-api\op.json"
