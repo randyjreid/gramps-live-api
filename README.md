@@ -9,16 +9,92 @@ The application is [Gramps](https://gramps-project.org/), a genealogy program. T
 document, works out what it says, and proposes the whole of it as one graph; the owner reads a
 preview inside Gramps and approves or cancels. Single-user, on the owner's own machine.
 
-**Where it is going** is one sentence, the owner's own:
+Give the agent a genealogical record or document: a census page, or a birth, marriage or death
+certificate. It reads it, works out what it says about people in the user's tree, checks what is
+already recorded, and proposes every change at once: new people, events, places, the source, the
+citation. The user reads the whole thing in one dialog and approves it or cancels it. One decision,
+not twenty.
 
-> *"I photograph or transcribe a census record. I want an agent to read it, work out what it says
-> about people in my tree, work out what is already recorded and what is not, and make all the
-> necessary updates — new people, events, places, the source, the citation, the image attached — as
-> ONE thing I review and approve, not twenty."*
+What is built and what is still a plan is set out below, and
+[`docs/STATUS.md`](docs/STATUS.md) is the dated statement of where the project stands.
 
-What is built and what is still a plan is set out below. The older
-[`docs/roadmap.md`](docs/roadmap.md) has fallen behind this page and is history rather than a current
-plan.
+## What it looks like
+
+**This is the whole product.** A census page produces one dialog, and the owner reads it before
+anything is written. Below is a real render — invented names, produced by the same `preview()` the
+dialog calls, so it is exactly what the window shows.
+
+```
+THIS IS WHAT WOULD BE WRITTEN TO YOUR TREE
+==============================================================
+
+ATTACHING TO EXISTING
+
+  I0042  Aubertin, Theodore (b. 1861)
+        already has: Census, 1880 · Census, 1890
+      + Census, 1900-06-04, at Invented Township -- occupation:
+      wheelwright
+      + Citation -> Invented County Census, 1900  p.sheet 4B, line 12
+
+  F0007  Aubertin, Theodore + Aubertin, Marguerite
+      + adding as children: Emil Aubertin
+
+CREATING NEW
+
+  Source  Invented County Census, 1900
+
+  Person  Marguerite Aubertin   [unknown]
+      + Census, 1900-06-04, at Invented Township
+      + Citation -> Invented County Census, 1900  p.sheet 4B, line 12
+
+  Person  Emil Aubertin   [unknown]
+      + Census, 1900-06-04, at Invented Township
+      + Citation -> Invented County Census, 1900  p.sheet 4B, line 12
+
+  Place   Invented Township
+
+--------------------------------------------------------------
+
+  The people under CREATING NEW are made fresh. Nothing is matched by name
+  -- if one of them is already in your tree, you get a second copy.
+
+Nothing already in your tree is modified. Existing objects are only
+added to.
+
+Write it writes all of the above, in ONE transaction.
+Cancel writes nothing at all.
+```
+
+**What to notice.** The name beside `I0042` is read from the tree, not from the proposal — so a
+wrong identifier shows up as the wrong person. `already has:` lists what that record holds of the
+types being added, so a second Census does not look like a first. A field the write would drop — a
+name supplied alongside a Gramps ID, say — is listed as dropped rather than written over what Gramps
+already holds. And one graph is one approval, and one transaction.
+
+## How it fits together
+
+```mermaid
+flowchart LR
+    A["agent"] -->|stdio| B["MCP server<br/>no Gramps code"]
+    B -->|"loopback HTTP<br/>127.0.0.1, bearer token"| C["host<br/>inside Gramps"]
+    C -->|GLib.idle_add| D["GTK main thread"]
+    D --> E["approval dialog"]
+    E -->|"owner clicks write"| F[("the tree")]
+```
+
+**Two things to take from it.** ⛔ **The agent never holds a handle to the dialog** — it can ask for
+one to open, and it cannot type in it, read it, or learn what was decided. ⛔ **No WRITE reaches the
+tree until the owner clicks**, and along this route the click is the only path to `F`.
+
+⚠️ **"Along this route" is doing real work in that sentence.** The diagram is the **document** route,
+and it is not the only way into the tree: the `apply` CLI command and the older `approve` console
+flow both write, by other paths, and neither takes a backup. They are described further down. **The
+click is what gates a document write, not every write this project can perform.**
+
+⚠️ **Reads do reach the database before the click, and the distinction is the whole safety property.**
+The dialog's text is built by reading the tree — the name behind each Gramps ID, what those records
+already hold — the totals are read, and a verified backup is taken, all before the window opens. That
+is what makes the preview worth reading. **What the click gates is the write, not the access.**
 
 ## The shape, in thirty seconds
 
@@ -77,8 +153,11 @@ project can do for you:
 3. **The tree carries a `.gramps-live-api-copy` sentinel**, placed by hand. Without it every write
    is refused, and that is the whole permission model.
 
-`.\.venv\Scripts\python.exe -m gramps_live_api check` reports on all three, and
-`docs/using.md` explains what each answer means.
+⚠️ **`.\.venv\Scripts\python.exe -m gramps_live_api check` does not report on the first of
+those, and cannot.** It reads the filesystem: the tree directory, the sentinel, the installed
+runtime, the plugin, and the push hook. It never contacts a running host — and it treats the tree's
+`lock` file as a **failure**, because a locked tree is one Gramps is holding, and it will not break
+that lock. **Run it with the tree CLOSED.** `docs/using.md` explains what each answer means.
 
 ## What the agent can do
 
@@ -152,6 +231,10 @@ exactly what the server publishes.
   sits behind an optional `mcp` extra, and installing it brings 27–30 packages with it, measured —
   what that costs, and why the SDK anyway, is in [`docs/slice2-mcp.md`](docs/slice2-mcp.md).
 
+**Eight active issues.** The rest are review findings nobody has hit, labelled `untriggered` and not
+scheduled — 63 of the 71 open. [`docs/STATUS.md`](docs/STATUS.md) ranks the eight and says why the
+63 are a decision rather than a backlog.
+
 ### What is tested, and against what
 
 ⚠️ **Two different things get called "a real tree" on pages like this, and they are
@@ -213,8 +296,9 @@ Gramps addon inside the Gramps process**. That addon is written. The ruling is
 back. The backup path exists and verifies itself; watching a restore actually come back is the
 owner's to do, and [`docs/restoring.md`](docs/restoring.md) is the procedure.
 
-**[`docs/roadmap.md`](docs/roadmap.md) has not kept up with this page and should be read as
-history, not as the current plan.** It still describes three MCP tools, writes that only ever target
+**[`docs/STATUS.md`](docs/STATUS.md) is the current statement of where the project stands.**
+[`docs/roadmap.md`](docs/roadmap.md) has not kept up with this page and should be read as
+history, not as the current plan. It still describes three MCP tools, writes that only ever target
 a copy, and the addon as unwritten — all of which this page contradicts, and the source contradicts
 with it. It is left in place because the rulings and open questions it records are still the real
 ones.
