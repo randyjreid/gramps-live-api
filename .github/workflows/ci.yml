@@ -130,8 +130,22 @@ jobs:
       # `tests/unit/test_mcp_server.py` skips at module level here, by design and
       # by name. That it does NOT skip on the leg below is asserted there, not
       # read off this log.
+      # ⛔ **The runner always walks the WHOLE history, never an anchor.** The
+      # local suite may skip a prefix a recorded anchor already proved clean
+      # (#57), because the walk costs minutes on a development machine and about
+      # ten seconds here. There is therefore no reason for CI to use the
+      # optimisation -- and a strong reason not to: the complete path has to
+      # keep running somewhere, or the anchor mechanism rots unnoticed and a
+      # divergence between anchored and full results never surfaces.
+      #
+      # ⚠️ This is NOT a backstop for a wrongly skipped local scan. This workflow
+      # triggers `on: push`, so GitHub has received and stored the objects
+      # before a runner starts, and on a public repository that is publication.
+      # The gate that PREVENTS publication is the local pre-push hook (#171).
       - name: Tests
         run: pytest -rs
+        env:
+          GRAMPS_LIVE_API_FULL_HISTORY_SCAN: "1"
 
   # The optional extra, installed. Same tree, same suite -- the difference is
   # one package, and everything this leg is for lives on the other side of it.
@@ -174,8 +188,22 @@ jobs:
       # the guard's tracked-content scan, against `.gitignore`'s ordering rules.
       # None of it is load-bearing here and all of it is avoidable: the file has
       # no reason to be in the checkout, so it is not put there.
+      # ⛔ **The runner always walks the WHOLE history, never an anchor.** The
+      # local suite may skip a prefix a recorded anchor already proved clean
+      # (#57), because the walk costs minutes on a development machine and about
+      # ten seconds here. There is therefore no reason for CI to use the
+      # optimisation -- and a strong reason not to: the complete path has to
+      # keep running somewhere, or the anchor mechanism rots unnoticed and a
+      # divergence between anchored and full results never surfaces.
+      #
+      # ⚠️ This is NOT a backstop for a wrongly skipped local scan. This workflow
+      # triggers `on: push`, so GitHub has received and stored the objects
+      # before a runner starts, and on a public repository that is publication.
+      # The gate that PREVENTS publication is the local pre-push hook (#171).
       - name: Tests
         run: pytest -rs --junit-xml="$RUNNER_TEMP/junit.xml"
+        env:
+          GRAMPS_LIVE_API_FULL_HISTORY_SCAN: "1"
 
       # ⚠️ **THE FAIL-OPEN THIS LEG EXISTS TO CLOSE.** Making the SDK optional
       # means the MCP tests skip when it is absent, and "skip when absent"

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from gramps_live_api.core import pii_guard
+from gramps_live_api.core import history_anchor, pii_guard
 from gramps_live_api.core.pii_guard import (
     count_range_commits,
     find_committed_denylists,
@@ -106,11 +107,26 @@ def test_every_commit_this_repository_publishes_is_clean() -> None:
     count is asserted before the verdict, because "scanned nothing" and "found
     nothing" must not read the same.
 
-    ⚠️ **This is a measurement of THIS repository at THIS commit, and it costs a
-    walk of the history** -- measured at 34.6 seconds over 74 commits on a
-    Windows development machine, against the twelve seconds over thirty-six
-    commits recorded when this was written. The two figures come from different
-    machines, so read the pair as growth with the history rather than as a rate.
+    ⚠️ **This is a measurement of THIS repository at THIS commit, and the walk
+    grows with the history**: 12 s over 36 commits, 34.6 s over 74, 71.8 s over
+    193, and **154.5 s over 577** on a Windows development machine. Those come
+    from different machines and different days, so read them as growth rather
+    than as a rate.
+
+    ⭐ **Since #57 the walk is ANCHORED, and that curve is no longer paid on
+    every run.** A commit proved clean stays clean, because history is
+    immutable, so a recorded anchor lets the prefix be skipped. Measured in one
+    session with the order inverted between passes: **154.5 s / 163.2 s full
+    against 11.7 s / 13.3 s anchored -- about 12x, saving roughly 145 s.**
+
+    ⚠️ **The residual is the fixed cost and it is larger than the plan predicted
+    -- about 12 s against 7.5 s.** It is the tracked-content scan plus start-up,
+    and it is paid whatever the range, because the tip is scanned on every run
+    regardless of what the anchor certifies.
+
+    ⛔ **Nothing here is skipped on CI**, which sets the full-walk variable on
+    both legs -- see ``history_anchor.FULL_SCAN_ENVIRONMENT_VARIABLE`` for why
+    that is about keeping the complete path exercised and is NOT a backstop.
     Since issue #31 that walk is paid on each of CI's three Python legs as well
     as locally, which is the price of the assertion running there at all rather
     than skipping. It says nothing about content the repository does not yet
@@ -157,10 +173,36 @@ def test_every_commit_this_repository_publishes_is_clean() -> None:
             "test_the_job_refuses_a_checkout_it_cannot_prove_is_complete"
         )
 
-    covered = count_range_commits(REPOSITORY_ROOT, "HEAD")
-    assert covered > 0, "the range covered no commits, so a clean verdict would cover nothing"
+    plan = history_anchor.plan_scan(
+        REPOSITORY_ROOT,
+        full=os.environ.get(history_anchor.FULL_SCAN_ENVIRONMENT_VARIABLE) == "1",
+    )
 
-    findings = scan_repository(REPOSITORY_ROOT, revision_range="HEAD")
+    # ⛔ **Criterion 4, and it is asserted BEFORE the verdict is read.** The
+    # commits scanned this run plus the commits the anchor certifies must equal
+    # the commits reachable from the one resolved head. This is what makes a
+    # skipped prefix safe rather than merely fast -- without it, "scanned
+    # nothing" and "found nothing" read the same, which is how the zero-SHA
+    # fail-open hid.
+    assert history_anchor.covers(REPOSITORY_ROOT, plan), (
+        f"the anchored scan does not account for every commit behind {plan.head}: "
+        f"range {plan.revision_range!r}, anchor {plan.anchor!r}"
+    )
+
+    covered = count_range_commits(REPOSITORY_ROOT, plan.revision_range)
+    if plan.is_full:
+        # ⚠️ A FULL walk covering nothing is the original fail-open. An ANCHORED
+        # run legitimately covers zero when no commit has landed since the
+        # anchor -- and what stands in for this assertion there is the coverage
+        # check above, which proves the anchor accounts for the rest.
+        assert covered > 0, "the range covered no commits, so a clean verdict would cover nothing"
+
+    findings = scan_repository(REPOSITORY_ROOT, revision_range=plan.revision_range)
+
+    # ⭐ The anchor moves only after a clean, covering run whose head did not
+    # move and whose rules did not change under it. Every other outcome
+    # preserves it, so the next run re-walks rather than trusting this one.
+    history_anchor.advance(REPOSITORY_ROOT, plan, clean=not findings)
 
     assert findings == [], (
         f"the commits this repository publishes must not contain personal data, got {findings}"
