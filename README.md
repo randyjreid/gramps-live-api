@@ -161,11 +161,11 @@ that lock. **Run it with the tree CLOSED.** `docs/using.md` explains what each a
 
 ## What the agent can do
 
-Eighteen tools, in three groups.
+Nineteen tools, in three groups.
 
 **Live reads of the open tree** — `find_people`, `find_place`, `find_source`, `find_citation`,
 `find_families`, `find_orphans`, `list_events`, `list_family_events`, `list_citations`,
-`list_associations`, `list_notes`, `tree_totals`, `changed_since`. These answer from the database
+`list_associations`, `list_notes`, `tree_totals`, `tree_name`, `changed_since`. These answer from the database
 Gramps currently has open.
 
 `find_families` is its own tool and is the one to run before adding children or a family event;
@@ -246,7 +246,7 @@ Coverage is heavy on the parts that can run without Gramps: the graph parser and
 preview renderer, the privacy gate, the backup machinery, the guard. Those have real tests, most with
 negative controls that are checked to fail when the behaviour is removed.
 
-⚠️ **The seam is thin, and exactly how thin is worth stating.** All thirteen live-read tools are
+⚠️ **The seam is thin, and exactly how thin is worth stating.** All fourteen live-read tools are
 invoked **through the registered MCP wrappers** against a **fake host** — each asserted to reach its
 own route, with its own parameters, its defaults for the arguments a caller omits, and its bearer
 token — together with the three ways the transport fails: no host running, a host that refuses, a

@@ -9,16 +9,16 @@ any of it — the rulings do that, and the README says how the thing works.
 
 ## What works today
 
-**Eighteen MCP tools**, in three groups. The set is asserted in the tests against what the server
+**Nineteen MCP tools**, in three groups. The set is asserted in the tests against what the server
 actually exposes, not against a comment.
 
 | Group | Count | The tools |
 | --- | --- | --- |
-| **Live reads of the open tree** | 13 | `find_people`, `find_place`, `find_source`, `find_citation`, `find_families`, `find_orphans`, `list_events`, `list_family_events`, `list_citations`, `list_associations`, `list_notes`, `tree_totals`, `changed_since` |
+| **Live reads of the open tree** | 14 | `find_people`, `find_place`, `find_source`, `find_citation`, `find_families`, `find_orphans`, `list_events`, `list_family_events`, `list_citations`, `list_associations`, `list_notes`, `tree_totals`, `tree_name`, `changed_since` |
 | **Propose and approve** | 4 | `propose_document`, `approve_document`, `propose_note`, `approve` |
 | **Export-backed** | 1 | `list_people` |
 
-⛔ **None of the eighteen reports what the owner decided.** `approve_document` answers *shown*, not
+⛔ **None of the nineteen reports what the owner decided.** `approve_document` answers *shown*, not
 *written*.
 
 **The document route.** An agent files a whole graph — people, families, events, places, a source,
@@ -103,7 +103,7 @@ converging, every finding real, against a property that had no fixed point.
 | | What replaced it |
 | --- | --- |
 | **Unwritable by construction** — the live tree could not be a write target at all | R4's weaker guarantee: writes are permitted with a verified backup taken first. Recorded as a downgrade rather than presented as equally safe. |
-| **A three-tool MCP surface** | Eighteen: thirteen live reads, four propose-and-approve verbs, and one export-backed read. |
+| **A three-tool MCP surface** | Nineteen: fourteen live reads, four propose-and-approve verbs, and one export-backed read. |
 | **The addon as unwritten** | `gramps_plugin/` is written and loads at Gramps startup. |
 | **Two handover documents** | Deleted on the owner's approval once the work they described had shipped; the README and this page carry what survived. |
 | **A "still holds" column in the rulings index** | Deleted. It was written from the rulings and never checked against the source, and was wrong four times in five review rounds. |
