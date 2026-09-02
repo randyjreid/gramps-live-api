@@ -3358,6 +3358,29 @@ def count_range_commits(root: Path, revision_range: str) -> int:
 _EMPTY_MODE = "000000"
 
 
+def count_range_introductions_and_deletions(root: Path, revision_range: str) -> tuple[int, int]:
+    """``(introduced, removed)`` for ``revision_range``, from ONE traversal.
+
+    ⚠️ **Every traversal spawns one ``git diff-tree`` per commit**, measured at
+    about 32 ms each on Windows -- so over a full-history range, which is what a
+    new branch's first push presents, a second walk is not a rounding error. The
+    two counts are needed together and are read together.
+
+    ⛔ **And they must come from the same walk for a second reason:** a pair of
+    classifiers kept in step by hand will diverge, and this file already carries
+    that scar over a symlink's mode. Introduced and removed are two sides of one
+    comparison, taken once.
+    """
+    introduced = 0
+    removed = 0
+    for is_removal in _iter_range_classified(root, revision_range):
+        if is_removal:
+            removed += 1
+        else:
+            introduced += 1
+    return introduced, removed
+
+
 def count_range_deletions(root: Path, revision_range: str) -> int:
     """How many entries ``revision_range`` REMOVES.
 
@@ -3377,7 +3400,7 @@ def count_range_deletions(root: Path, revision_range: str) -> int:
     remove something?* -- which is a property of the range, asked of git,
     instead of an inference from a count that is zero for two different reasons.
     """
-    return sum(1 for _ in _iter_range_raw(root, revision_range, deletions=True))
+    return count_range_introductions_and_deletions(root, revision_range)[1]
 
 
 def iter_range_entries(root: Path, revision_range: str) -> Iterator[tuple[str, str, str]]:
@@ -3392,12 +3415,20 @@ def iter_range_entries(root: Path, revision_range: str) -> Iterator[tuple[str, s
     An unresolvable range raises: scanning nothing quietly is the failure this
     whole function exists to prevent.
     """
-    yield from _iter_range_raw(root, revision_range, deletions=False)
+    for entry, is_removal in _iter_range_entries_with_side(root, revision_range):
+        if not is_removal:
+            yield entry
 
 
-def _iter_range_raw(
-    root: Path, revision_range: str, *, deletions: bool
-) -> Iterator[tuple[str, str, str]]:
+def _iter_range_classified(root: Path, revision_range: str) -> Iterator[bool]:
+    """Whether each entry in the range is a removal. One walk, counted twice."""
+    for _, is_removal in _iter_range_entries_with_side(root, revision_range):
+        yield is_removal
+
+
+def _iter_range_entries_with_side(
+    root: Path, revision_range: str
+) -> Iterator[tuple[tuple[str, str, str], bool]]:
     """One walk, two questions.
 
     ⚠️ **A pair of classifiers kept in step by hand will diverge**, and this file
@@ -3407,7 +3438,7 @@ def _iter_range_raw(
     only in which side of one comparison they keep.
     """
     commits = decode_path(_run_git(root, "rev-list", revision_range)).split()
-    seen: set[tuple[str, str, str]] = set()
+    seen: set[tuple[tuple[str, str, str], bool]] = set()
 
     for commit in commits:
         raw = _run_git(
@@ -3428,13 +3459,11 @@ def _iter_range_raw(
             # A deletion introduces no content; the blob it removed is reached
             # through the commit that added it.
             removed = mode == _EMPTY_MODE or set(object_id) == {"0"}
-            if removed != deletions:
-                continue
             entry = (mode, object_id, path_text)
-            if entry in seen:
+            if (entry, removed) in seen:
                 continue
-            seen.add(entry)
-            yield entry
+            seen.add((entry, removed))
+            yield entry, removed
 
 
 # ---------------------------------------------------------------------------
@@ -4177,11 +4206,16 @@ def resolve_scan(paths: Sequence[Path], revision_range: str | None) -> Scan:
     range_deletions = None
     if revision_range is not None:
         commits = count_range_commits(root, revision_range)
-        range_deletions = count_range_deletions(root, revision_range)
         # Count what is SCANNED, not what exists. Counting commits while
         # scanning file entries is how a clean report was issued over an empty
         # commit whose message nobody looked at.
-        range_entries = sum(1 for _ in iter_range_entries(root, revision_range))
+        #
+        # ⚠️ Both counts come from ONE traversal. Each one spawns a git process
+        # per commit, so a second walk over a full-history range -- what a new
+        # branch's first push presents -- costs real seconds.
+        range_entries, range_deletions = count_range_introductions_and_deletions(
+            root, revision_range
+        )
 
     entries = list(iter_tracked_entries(root))
     return Scan(
@@ -4362,7 +4396,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Scanning nothing is never a pass, and it is ONE rule asserted against the
     # set this run actually claims -- not a fourth per-mode check. The count
     # and the words for it come from the same value, so they cannot disagree.
-    if scan.covered == 0:
+    # ⛔ **Judged BEFORE the covers-nothing abort, and the order is the fix.**
+    # A deletion that removes the last tracked file leaves ``tracked`` at zero
+    # and ``range_entries`` at zero, so ``covered`` is zero -- and the range
+    # would be refused precisely when it empties the tree. Nothing is published
+    # either way: the tip holds no tracked content and the range introduces no
+    # blob. The abort below exists to catch a target pointed at the wrong path,
+    # and a resolved range that removed something is not that.
+    deletion_only = scan.range_entries == 0 and bool(scan.range_deletions)
+
+    if scan.covered == 0 and not deletion_only:
         print(
             "scan aborted: this run would cover nothing, so a clean report would mean "
             f"nothing. It found {scan.description}. Check the path -- and note that a "
@@ -4376,7 +4419,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "nothing is never a pass -- resolve the range or scan the tip."
         )
         return 2
-    if scan.range_entries == 0 and not scan.range_deletions:
+    if scan.range_entries == 0 and not deletion_only and scan.range_deletions is not None:
         # ⛔ **Nothing introduced AND nothing removed**, so these commits change
         # no file at all. What they do carry is messages, which are not scanned
         # -- so a clean verdict here would claim coverage of the only content
