@@ -473,6 +473,107 @@ def test_a_range_covering_no_commits_is_refused(
     assert "covers no commits" in output
 
 
+def test_a_range_that_only_deletes_is_clean_and_says_what_it_covered(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """⭐ Issue #193: the one range shape that is trivially safe was refused.
+
+    **A deletion publishes no blob.** ``iter_range_entries`` has always skipped
+    deletions for exactly that reason, so the zero it produced was a fact about
+    the range and not a failure to look -- and the abort read it as the latter.
+
+    ⚠️ The abort's stated reason was that commit messages go unscanned. That is
+    true of **every** range, including the ones it passed, so it could not single
+    this shape out.
+    """
+    (repository / "README.md").write_text("# Title\n", encoding="utf-8")
+    (repository / "STALE.md").write_text("# Stale\n", encoding="utf-8")
+    before = commit_all(repository, "docs: two files")
+    (repository / "STALE.md").unlink()
+    after = commit_all(repository, "docs: drop the stale one")
+
+    exit_code = main(["--range", f"{before}..{after}", str(repository)])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0, f"a deletion-only range publishes nothing, so it passes: {output}"
+    assert "introducing no file content" in output, output
+    assert "a deletion publishes no blob" in output, output
+
+
+def test_a_deletion_only_range_still_fails_on_a_finding_in_tracked_content(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """⛔ The control. Clean-because-deletions must NOT be clean-regardless.
+
+    ⚠️ Without this, the change above is indistinguishable from one that reports
+    a deletion-only push clean **without scanning anything at all** -- and the
+    tip is still scanned on every run, which is where the coverage actually is.
+    """
+    (repository / "README.md").write_text(gedcom_document(), encoding="utf-8")
+    (repository / "STALE.md").write_text("# Stale\n", encoding="utf-8")
+    before = commit_all(repository, "docs: two files")
+    (repository / "STALE.md").unlink()
+    after = commit_all(repository, "docs: drop the stale one")
+
+    exit_code = main(["--range", f"{before}..{after}", str(repository)])
+    output = capsys.readouterr().out
+
+    assert exit_code == 1, (
+        "the range added nothing, but the TIP still carries personal data and "
+        f"the tip is scanned on every run: {output}"
+    )
+
+
+def test_an_empty_commit_beside_a_deletion_is_still_a_deletion_range(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """⭐ The two contentless shapes, in one range, judged on the property.
+
+    ⛔ **Zero introduced entries is true of both**, which is why the check
+    asks whether the range REMOVED something rather than how much it added. An
+    empty commit alone stays unscannable -- ``test_coverage_counts_only_what_is
+    _scanned`` holds that line and is untouched -- and it does not make a
+    deletion beside it unscannable too.
+    """
+    (repository / "README.md").write_text("# Title\n", encoding="utf-8")
+    (repository / "STALE.md").write_text("# Stale\n", encoding="utf-8")
+    before = commit_all(repository, "docs: two files")
+    git(repository, "commit", "--quiet", "--allow-empty", "-m", "an empty commit")
+    (repository / "STALE.md").unlink()
+    after = commit_all(repository, "docs: drop the stale one")
+
+    exit_code = main(["--range", f"{before}..{after}", str(repository)])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0, f"the range removes content, so it is a deletion range: {output}"
+    assert "introducing no file content" in output, output
+
+
+def test_a_deletion_that_empties_the_tree_is_still_clean(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """⛔ The deletion exception must outrank the covers-nothing abort.
+
+    ⚠️ When the deletion removes the last tracked file, ``tracked`` is zero
+    and ``range_entries`` is zero, so ``covered`` is zero and the run aborts --
+    refusing a deletion-only range precisely when it leaves an empty tree.
+
+    ⭐ Nothing is published either way: the tip holds no tracked content and
+    the range introduces no blob. The covers-nothing abort is there to catch a
+    target pointed at the wrong path, and a resolved range that removed
+    something is not that.
+    """
+    (repository / "ONLY.md").write_text("# Only\n", encoding="utf-8")
+    before = commit_all(repository, "docs: the only file")
+    (repository / "ONLY.md").unlink()
+    after = commit_all(repository, "docs: and now there are none")
+
+    exit_code = main(["--range", f"{before}..{after}", str(repository)])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0, f"the range publishes nothing, so it passes: {output}"
+
+
 def test_the_scan_states_how_much_it_covered(
     repository: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
