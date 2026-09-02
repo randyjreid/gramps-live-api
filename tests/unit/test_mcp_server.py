@@ -261,7 +261,7 @@ def test_list_people_needs_no_blessed_copy(tmp_path: Path) -> None:
 
 def test_propose_note_refuses_a_private_person(tmp_path: Path) -> None:
     with pytest.raises(mcp_server.TargetIsPrivate) as refusal:
-        tools(tmp_path).propose_note(PRIVATE[1], PRIVATE[0], "research", "a note")
+        tools(tmp_path).propose_note(PRIVATE[1], "research", "a note", PRIVATE[0])
     assert "private" in str(refusal.value)
 
 
@@ -276,7 +276,7 @@ def test_a_private_person_is_unreachable_even_though_list_people_was_never_calle
     """
     made = tools(tmp_path)
     with pytest.raises(mcp_server.TargetIsPrivate):
-        made.propose_note(PRIVATE[1], PRIVATE[0], "research", "a note")
+        made.propose_note(PRIVATE[1], "research", "a note", PRIVATE[0])
 
 
 def test_private_and_not_found_do_not_produce_the_same_message(tmp_path: Path) -> None:
@@ -285,9 +285,9 @@ def test_private_and_not_found_do_not_produce_the_same_message(tmp_path: Path) -
     as a lock refusal that names no remedy."""
     made = tools(tmp_path)
     with pytest.raises(mcp_server.TargetIsPrivate) as private:
-        made.propose_note(PRIVATE[1], PRIVATE[0], "research", "a note")
+        made.propose_note(PRIVATE[1], "research", "a note", PRIVATE[0])
     with pytest.raises(mcp_server.TargetNotInExport) as absent:
-        made.propose_note("I9999", "nosuchhandle", "research", "a note")
+        made.propose_note("I9999", "research", "a note", "nosuchhandle")
 
     assert type(private.value) is not type(absent.value)
     assert str(private.value) != str(absent.value)
@@ -300,13 +300,13 @@ def test_a_person_the_export_does_not_hold_is_refused_and_the_staleness_named(
     added to the copy since the export was taken lands here and the message is
     the only place that fact can reach the caller."""
     with pytest.raises(mcp_server.TargetNotInExport) as refusal:
-        tools(tmp_path).propose_note("I9999", "nosuchhandle", "research", "a note")
+        tools(tmp_path).propose_note("I9999", "research", "a note", "nosuchhandle")
     assert "export" in str(refusal.value)
 
 
 def test_a_note_type_outside_the_closed_set_is_refused_with_the_set(tmp_path: Path) -> None:
     with pytest.raises(mcp_server.OperationNotWellFormed) as refusal:
-        tools(tmp_path).propose_note(PUBLIC[1], PUBLIC[0], "gossip", "a note")
+        tools(tmp_path).propose_note(PUBLIC[1], "gossip", "a note", PUBLIC[0])
     assert schema._one_of(schema.NOTE_TYPES) in str(refusal.value)
 
 
@@ -315,11 +315,64 @@ def test_a_note_type_outside_the_closed_set_is_refused_with_the_set(tmp_path: Pa
 # ---------------------------------------------------------------------------
 
 
+def test_propose_note_resolves_the_handle_from_the_gramps_id(tmp_path: Path) -> None:
+    """⭐ Issue #64: a Gramps ID is enough, and the handle need not be carried.
+
+    ⛔ **This function already knew the handle.** The export lookup that
+    reads the privacy flag runs either way and returns the record, so requiring
+    the caller to supply what it was about to compute was the whole gap -- and
+    no LIVE read publishes a handle, so the only source was the export-backed
+    listing, copied by hand.
+
+    ⚠️ Asserted through the APPROVAL DIGEST, which is a lossless fingerprint
+    over every field of the operation. The rendered sentence names the Gramps ID
+    and not the handle, so it is identical either way -- it would have passed for
+    a call that resolved nothing and filed a blank handle.
+    """
+    made = tools(tmp_path)
+
+    without = made.propose_note(PUBLIC[1], "research", "a note")
+    with_handle = made.propose_note(PUBLIC[1], "research", "a note", PUBLIC[0])
+
+    assert without["approval_digest"] == with_handle["approval_digest"], (
+        "resolving the handle must produce the same operation as supplying it"
+    )
+
+
+def test_a_supplied_handle_is_used_as_given(tmp_path: Path) -> None:
+    """⛔ Not overridden by the resolved one.
+
+    A caller holding a handle from elsewhere is asserting something, and the two
+    halves are checked against each other at the write. Silently replacing a
+    supplied handle would discard that check rather than perform it -- so a
+    wrong one must survive to be refused there, not be quietly corrected here.
+    """
+    made = tools(tmp_path)
+
+    proposed = made.propose_note(PUBLIC[1], "research", "a note", "adifferenthandle")
+    resolved = made.propose_note(PUBLIC[1], "research", "a note")
+
+    assert proposed["approval_digest"] != resolved["approval_digest"], (
+        "a supplied handle was silently replaced by the resolved one"
+    )
+
+
+def test_resolving_the_handle_does_not_reach_a_private_person(tmp_path: Path) -> None:
+    """⛔ The privacy refusal is not weakened by making the handle optional.
+
+    ⚠️ The lookup that now supplies the handle is the same one that reads
+    the privacy flag, so the two must not drift apart: a caller who omits the
+    handle must still be refused by name.
+    """
+    with pytest.raises(mcp_server.TargetIsPrivate):
+        tools(tmp_path).propose_note(PRIVATE[1], "research", "a note")
+
+
 def test_propose_note_hands_back_no_operation(tmp_path: Path) -> None:
     """⚠️ **The binding, stated as what is ABSENT.** ``approve`` has no operation
     parameter, so an agent that never received one cannot round-trip a different
     one back."""
-    proposed = tools(tmp_path).propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
+    proposed = tools(tmp_path).propose_note(PUBLIC[1], "research", "a note", PUBLIC[0])
 
     assert set(proposed) == {"proposal_id", "sentence", "approval_digest", "expires_utc", "next"}
     assert "operation" not in proposed
@@ -327,7 +380,7 @@ def test_propose_note_hands_back_no_operation(tmp_path: Path) -> None:
 
 def test_the_sentence_returned_is_the_sentence_the_console_will_show(tmp_path: Path) -> None:
     made = tools(tmp_path)
-    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
+    proposed = made.propose_note(PUBLIC[1], "research", "a note", PUBLIC[0])
     operation = schema.AddNote(
         target=schema.ObjectRef(object_type="person", handle=PUBLIC[0], gramps_id=PUBLIC[1]),
         note_type="research",
@@ -338,7 +391,7 @@ def test_the_sentence_returned_is_the_sentence_the_console_will_show(tmp_path: P
 
 
 def test_the_return_says_the_chat_yes_is_not_the_approval(tmp_path: Path) -> None:
-    proposed = tools(tmp_path).propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
+    proposed = tools(tmp_path).propose_note(PUBLIC[1], "research", "a note", PUBLIC[0])
     assert "console" in str(proposed["next"])
 
 
@@ -350,8 +403,8 @@ def test_the_return_says_the_chat_yes_is_not_the_approval(tmp_path: Path) -> Non
 def test_naming_one_proposal_with_another_digest_is_refused(tmp_path: Path) -> None:
     """Criterion 4, through the tool the agent actually calls."""
     made = tools(tmp_path)
-    first = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "one note")
-    second = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "another note")
+    first = made.propose_note(PUBLIC[1], "research", "one note", PUBLIC[0])
+    second = made.propose_note(PUBLIC[1], "research", "another note", PUBLIC[0])
 
     with pytest.raises(proposals.ApprovalMismatch):
         made.approve(str(first["proposal_id"]), str(second["approval_digest"]))
@@ -363,7 +416,7 @@ def test_approve_opens_the_console_and_returns_without_an_outcome(tmp_path: Path
     because it does not know and there is nothing left that could tell it."""
     spawner = Spawner()
     made = tools(tmp_path, spawner=spawner)
-    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
+    proposed = made.propose_note(PUBLIC[1], "research", "a note", PUBLIC[0])
     proposal_id = str(proposed["proposal_id"])
 
     reply = made.approve(proposal_id, str(proposed["approval_digest"]))
@@ -384,7 +437,7 @@ def test_approves_reply_is_exactly_three_keys(tmp_path: Path) -> None:
     the wire replaces it -- the owner watched the window, and he is the channel.
     """
     made = tools(tmp_path)
-    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
+    proposed = made.propose_note(PUBLIC[1], "research", "a note", PUBLIC[0])
 
     reply = made.approve(str(proposed["proposal_id"]), str(proposed["approval_digest"]))
 
@@ -419,7 +472,7 @@ def test_the_description_promises_no_outcome_and_does_not_widen_the_refusal(
 def test_a_second_approve_is_refused_whatever_the_console_answered(tmp_path: Path) -> None:
     """Criterion 6, at the tool boundary."""
     made = tools(tmp_path)
-    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
+    proposed = made.propose_note(PUBLIC[1], "research", "a note", PUBLIC[0])
     proposal_id, digest = str(proposed["proposal_id"]), str(proposed["approval_digest"])
     made.approve(proposal_id, digest)
 
@@ -444,7 +497,7 @@ def test_approve_returns_before_the_console_has_been_answered(tmp_path: Path) ->
     """
     answered: list[str] = []
     made = tools(tmp_path, spawner=Spawner(lambda _: answered.append("the owner is still reading")))
-    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
+    proposed = made.propose_note(PUBLIC[1], "research", "a note", PUBLIC[0])
     proposal_id, digest = str(proposed["proposal_id"]), str(proposed["approval_digest"])
 
     reply = made.approve(proposal_id, digest)
@@ -505,7 +558,7 @@ def test_a_host_that_cannot_open_a_console_does_not_burn_the_proposal(tmp_path: 
     _, environ = equipment(tmp_path)
     spawner = Spawner()
     refuses = mcp_server.Tools(environ, session="sess0001", spawner=spawner, platform="linux")
-    proposed = refuses.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
+    proposed = refuses.propose_note(PUBLIC[1], "research", "a note", PUBLIC[0])
     proposal_id, digest = str(proposed["proposal_id"]), str(proposed["approval_digest"])
     store = refuses._store()
 
@@ -543,7 +596,7 @@ def test_a_spawn_that_fails_leaves_the_proposal_approvable(tmp_path: Path) -> No
         raise OSError(8, "not enough storage is available to process this command")
 
     made = mcp_server.Tools(environ, session="sess0001", spawner=cannot_launch, platform="win32")
-    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
+    proposed = made.propose_note(PUBLIC[1], "research", "a note", PUBLIC[0])
     proposal_id, digest = str(proposed["proposal_id"]), str(proposed["approval_digest"])
     store = made._store()
 
@@ -567,7 +620,7 @@ def test_a_spawn_that_fails_leaves_the_proposal_approvable(tmp_path: Path) -> No
 def unclaimed(tmp_path: Path, environ: Mapping[str, str]) -> tuple[str, str, proposals.Store]:
     """One minted proposal, and the store it sits in. Nothing is claimed yet."""
     made = mcp_server.Tools(environ, session="sess0001", spawner=Spawner(), platform="win32")
-    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a note")
+    proposed = made.propose_note(PUBLIC[1], "research", "a note", PUBLIC[0])
     return str(proposed["proposal_id"]), str(proposed["approval_digest"]), made._store()
 
 
@@ -690,7 +743,7 @@ def test_the_whole_path_from_propose_to_a_written_note(tmp_path: Path) -> None:
         )
 
     made = mcp_server.Tools(environ, session="sess0001", spawner=Spawner(console), platform="win32")
-    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "Ashenmoor deed, volume two.")
+    proposed = made.propose_note(PUBLIC[1], "research", "Ashenmoor deed, volume two.", PUBLIC[0])
     reply = made.approve(str(proposed["proposal_id"]), str(proposed["approval_digest"]))
 
     assert set(reply) == {"proposal_id", "console", "next"}
@@ -732,7 +785,7 @@ def test_the_environment_cap_is_inherited_and_reaches_the_owner_verbatim(
         )
 
     made = mcp_server.Tools(environ, session="sess0001", spawner=Spawner(console), platform="win32")
-    proposed = made.propose_note(PUBLIC[1], PUBLIC[0], "research", "a very long note")
+    proposed = made.propose_note(PUBLIC[1], "research", "a very long note", PUBLIC[0])
     reply = made.approve(str(proposed["proposal_id"]), str(proposed["approval_digest"]))
 
     assert refusal in window.getvalue(), "the underlying message travels, not a paraphrase"
