@@ -3,6 +3,33 @@
 Two things in this project are not negotiable: work is **test-first**, and **no personal data is
 ever committed**. Everything else is ordinary judgement.
 
+**Required before you contribute:** *Setting up* · *The gates* · *What may live at the repository
+root* · *Test-first* · *The privacy policy* — and two that sit further down because they are records
+as well as rules: **Working against a running Gramps**, and **Commits**.
+
+**Everything else is the record of why the rules are what they are**, kept because each was paid for.
+Read it when a rule looks arbitrary and you want to know what it cost.
+
+## How this project is built
+
+**The code, tests and documentation are written by AI coding agents**, under a workflow the owner
+controls. **So an AI agent appears in this repository's contributor list** — its work is recorded in
+the commit trailers, `Co-Authored-By: Claude Opus 5`, on 329 commits. That is deliberate.
+
+**Only the owner** rules on irreversible decisions, recorded in [`docs/rulings/`](docs/rulings/);
+approves every tree write, at a dialog or console no agent can type in; and holds the merge gate.
+
+**The agents** build, test, review each other's work, and dispute a prescription when it is wrong;
+much of this file records that.
+
+**Vocabulary.** A **session** is one agent run. The **conductor** dispatches work and holds the merge
+gate rather than writing code. A **review round** is one pass by a reviewer or the bot. A **ruling**
+is the owner's decision, recorded with its cost. A **residual** is a known gap accepted with reason.
+
+**These rules are mechanical, not aspirational**, because agents produce one class of defect at
+scale: a check succeeding for a reason unrelated to what it names, a comment asserting what the code
+does not do, a control firing for the wrong reason. **Carefulness has been tried and does not hold.**
+
 ## Setting up
 
 ```sh
