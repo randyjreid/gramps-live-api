@@ -3,12 +3,12 @@
 Two things in this project are not negotiable: work is **test-first**, and **no personal data is
 ever committed**. Everything else is ordinary judgement.
 
-**The first five sections are how to contribute** — setting up, the gates, what belongs at the root,
-test-first, and the privacy policy. **Everything after that is the record of why those rules are what
-they are**, kept because each one was paid for.
+**Required before you contribute:** *Setting up* · *The gates* · *What may live at the repository
+root* · *Test-first* · *The privacy policy* — and two that sit further down because they are records
+as well as rules: **Working against a running Gramps**, and **Commits**.
 
-You can stop after the privacy policy and be fully equipped. Read on when a rule looks arbitrary and
-you want to know what it cost.
+**Everything else is the record of why the rules are what they are**, kept because each was paid for.
+Read it when a rule looks arbitrary and you want to know what it cost.
 
 ## How this project is built
 
