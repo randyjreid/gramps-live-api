@@ -36,9 +36,13 @@ a push that would publish personal data. CI also runs the guard, but CI runs `on
 time its job starts GitHub already holds the objects, and on a public repository that is
 publication. **CI detects; only the hook prevents.**
 
-**The readiness script.** `python -m gramps_live_api check` reports on the three things that must be
-true before anything works — Gramps running with the tree open, the addon registered, and the tree
-carrying its `.gramps-live-api-copy` sentinel. [`using.md`](using.md) says what each answer means.
+**The readiness script.** `python -m gramps_live_api check` reports on what can be checked from
+the filesystem: the tree directory, its `.gramps-live-api-copy` sentinel, the installed runtime, the
+plugin, and whether the push hook is current. ⚠️ **It cannot tell you Gramps is running with the
+tree open, and does not try** — it never contacts a host, and it treats the tree's `lock` file as a
+failure, because a locked tree is one Gramps is holding and this will not break that lock. **It is a
+before-you-start check, run with the tree closed.** [`using.md`](using.md) says what each answer
+means.
 
 ## What is decided
 
@@ -64,7 +68,7 @@ friction met in a working session first, then correctness, then hygiene.
 | 1 | [#193](https://github.com/randyjreid/gramps-live-api/issues/193) — a push that only deletes files is refused | The gate that prevents publication is the one blocking ordinary work, and a gate worked around is a gate turned off. |
 | 2 | [#57](https://github.com/randyjreid/gramps-live-api/issues/57) — the guard's history walk grows with the repository | Measured at 12 s over 36 commits, 34.6 s over 74, 71.8 s over 193. It gets worse every commit, and it sits in front of every push. |
 | 3 | [#196](https://github.com/randyjreid/gramps-live-api/issues/196) — no tool reports which tree is open | Two trees now carry the sentinel, so *is this blessed?* no longer distinguishes them. What stands between a proposal and the wrong tree is recognising nine counts by eye. |
-| 4 | [#64](https://github.com/randyjreid/gramps-live-api/issues/64) — `propose_note` wants a handle no read returns | A verb on the published surface that cannot be reached from the other verbs. |
+| 4 | [#64](https://github.com/randyjreid/gramps-live-api/issues/64) — `propose_note` wants a handle only the export can give | ⚠️ **Reachable, but not from the live surface.** No live read publishes a handle; only the export-backed `list_people` does, and that is a snapshot which can be stale. The older write verb is the one thing still tied to it. |
 | 5 | [#173](https://github.com/randyjreid/gramps-live-api/issues/173) — a refusal's reason is discarded | The agent is told a tool failed and not why, so it cannot correct itself and retries the same call. |
 | 6 | [#168](https://github.com/randyjreid/gramps-live-api/issues/168) — role and description are flattened onto the event | Gramps models role per participant; the proposal cannot say so, so two people at one event arrive indistinguishable. |
 | 7 | [#76](https://github.com/randyjreid/gramps-live-api/issues/76) — duplicate eventref handles are counted twice | Produces a warning about an ambiguity that does not exist, which teaches the reader to skip warnings. |
@@ -97,6 +101,7 @@ converging, every finding real, against a property that had no fixed point.
 | **A "still holds" column in the rulings index** | Deleted. It was written from the rulings and never checked against the source, and was wrong four times in five review rounds. |
 | **[`roadmap.md`](roadmap.md) as the current plan** | This page. The roadmap still describes three tools, writes that only ever target a copy, and an unwritten addon. It is kept because the open questions it records are still the real ones. |
 
-⚠️ **The `preview` and `apply` CLI commands still exist and still write**, and they take no backup —
-neither does the older `approve` console flow. [`restoring.md`](restoring.md) says so in its opening
-lines. **They are not retired; they are simply not the route the project is built around.**
+⚠️ **The `apply` CLI command and the older `approve` console flow still exist and still write, and
+neither takes a backup.** [`restoring.md`](restoring.md) says so in its opening lines. **They are not
+retired; they are simply not the route the project is built around.** `preview` is read-only — it
+validates an operation and prints the sentence, loading no tree and calling no writer.

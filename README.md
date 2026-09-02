@@ -142,8 +142,11 @@ project can do for you:
 3. **The tree carries a `.gramps-live-api-copy` sentinel**, placed by hand. Without it every write
    is refused, and that is the whole permission model.
 
-`.\.venv\Scripts\python.exe -m gramps_live_api check` reports on all three, and
-`docs/using.md` explains what each answer means.
+⚠️ **`.\.venv\Scripts\python.exe -m gramps_live_api check` does not report on the first of
+those, and cannot.** It reads the filesystem: the tree directory, the sentinel, the installed
+runtime, the plugin, and the push hook. It never contacts a running host — and it treats the tree's
+`lock` file as a **failure**, because a locked tree is one Gramps is holding, and it will not break
+that lock. **Run it with the tree CLOSED.** `docs/using.md` explains what each answer means.
 
 ## What the agent can do
 
