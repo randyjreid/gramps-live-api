@@ -473,6 +473,57 @@ def test_a_range_covering_no_commits_is_refused(
     assert "covers no commits" in output
 
 
+def test_a_range_that_only_deletes_is_clean_and_says_what_it_covered(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """⭐ Issue #193: the one range shape that is trivially safe was refused.
+
+    **A deletion publishes no blob.** ``iter_range_entries`` has always skipped
+    deletions for exactly that reason, so the zero it produced was a fact about
+    the range and not a failure to look -- and the abort read it as the latter.
+
+    ⚠️ The abort's stated reason was that commit messages go unscanned. That is
+    true of **every** range, including the ones it passed, so it could not single
+    this shape out.
+    """
+    (repository / "README.md").write_text("# Title\n", encoding="utf-8")
+    (repository / "STALE.md").write_text("# Stale\n", encoding="utf-8")
+    before = commit_all(repository, "docs: two files")
+    (repository / "STALE.md").unlink()
+    after = commit_all(repository, "docs: drop the stale one")
+
+    exit_code = main(["--range", f"{before}..{after}", str(repository)])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0, f"a deletion-only range publishes nothing, so it passes: {output}"
+    assert "introducing no file content" in output, output
+    assert "a deletion publishes no blob" in output, output
+
+
+def test_a_deletion_only_range_still_fails_on_a_finding_in_tracked_content(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """⛔ The control. Clean-because-deletions must NOT be clean-regardless.
+
+    ⚠️ Without this, the change above is indistinguishable from one that reports
+    a deletion-only push clean **without scanning anything at all** -- and the
+    tip is still scanned on every run, which is where the coverage actually is.
+    """
+    (repository / "README.md").write_text(gedcom_document(), encoding="utf-8")
+    (repository / "STALE.md").write_text("# Stale\n", encoding="utf-8")
+    before = commit_all(repository, "docs: two files")
+    (repository / "STALE.md").unlink()
+    after = commit_all(repository, "docs: drop the stale one")
+
+    exit_code = main(["--range", f"{before}..{after}", str(repository)])
+    output = capsys.readouterr().out
+
+    assert exit_code == 1, (
+        "the range added nothing, but the TIP still carries personal data and "
+        f"the tip is scanned on every run: {output}"
+    )
+
+
 def test_the_scan_states_how_much_it_covered(
     repository: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

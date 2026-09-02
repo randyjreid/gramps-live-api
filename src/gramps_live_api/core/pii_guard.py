@@ -4008,10 +4008,24 @@ class Scan:
             scope = f"tracked content ({self.tracked} entries)"
             if self.range_entries is not None:
                 plural = "" if self.commits == 1 else "s"
-                scope += (
-                    f" and every blob in the given range ({self.commits} commit{plural}, "
-                    f"{self.range_entries} entries scanned)"
-                )
+                if self.range_entries == 0:
+                    # ⛔ **Zero here is a FACT ABOUT THE RANGE, not a failure to
+                    # look.** ``iter_range_entries`` skips a deletion because a
+                    # deletion introduces no blob -- so a range of deletions,
+                    # or of empty commits, genuinely has nothing new to scan.
+                    # Publication needs a new blob; a range that adds none
+                    # cannot publish. Said out loud rather than printed as a
+                    # bare "0 entries", which reads like the scanner gave up.
+                    scope += (
+                        f" and the given range ({self.commits} commit{plural} "
+                        "introducing no file content -- a deletion publishes no "
+                        "blob, so there is nothing new there to scan)"
+                    )
+                else:
+                    scope += (
+                        f" and every blob in the given range ({self.commits} commit{plural}, "
+                        f"{self.range_entries} entries scanned)"
+                    )
             # Named rather than left to be discovered. A gap nobody wrote down
             # is indistinguishable from coverage.
             scope += "; commit messages, tags and notes not scanned"
@@ -4319,14 +4333,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             "nothing is never a pass -- resolve the range or scan the tip."
         )
         return 2
-    if scan.range_entries == 0:
-        print(
-            f"scan aborted: the given range covers {scan.commits} commit(s) but no file "
-            "content. Commit messages are not scanned yet, so reporting clean here "
-            "would claim coverage of something nobody looked at."
-        )
-        return 2
-
     try:
         if scan.is_repository:
             findings = scan_repository(
