@@ -82,8 +82,13 @@ flowchart LR
 ```
 
 **Two things to take from it.** ⛔ **The agent never holds a handle to the dialog** — it can ask for
-one to open, and it cannot type in it, read it, or learn what was decided. ⛔ **Nothing reaches the
-database until the owner clicks**, and the click is the only path to `F`.
+one to open, and it cannot type in it, read it, or learn what was decided. ⛔ **No WRITE reaches the
+tree until the owner clicks**, and the click is the only path to `F`.
+
+⚠️ **Reads do reach the database before the click, and the distinction is the whole safety property.**
+The dialog's text is built by reading the tree — the name behind each Gramps ID, what those records
+already hold — the totals are read, and a verified backup is taken, all before the window opens. That
+is what makes the preview worth reading. **What the click gates is the write, not the access.**
 
 ## The shape, in thirty seconds
 

@@ -95,7 +95,7 @@ converging, every finding real, against a property that had no fixed point.
 | | What replaced it |
 | --- | --- |
 | **Unwritable by construction** — the live tree could not be a write target at all | R4's weaker guarantee: writes are permitted with a verified backup taken first. Recorded as a downgrade rather than presented as equally safe. |
-| **A three-tool MCP surface** | Eighteen, the five write-and-approve verbs among them. |
+| **A three-tool MCP surface** | Eighteen: thirteen live reads, four propose-and-approve verbs, and one export-backed read. |
 | **The addon as unwritten** | `gramps_plugin/` is written and loads at Gramps startup. |
 | **Two handover documents** | Deleted on the owner's approval once the work they described had shipped; the README and this page carry what survived. |
 | **A "still holds" column in the rulings index** | Deleted. It was written from the rulings and never checked against the source, and was wrong four times in five review rounds. |
