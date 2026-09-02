@@ -1,5 +1,7 @@
 # gramps-live-api
 
+[![CI](https://github.com/randyjreid/gramps-live-api/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/randyjreid/gramps-live-api/actions/workflows/ci.yml)
+
 **An MCP server that lets an agent propose structured changes to a live desktop application's
 database, with a human approving every write.**
 
