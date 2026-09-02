@@ -375,14 +375,19 @@ def test_tree_name_returns_the_name_the_host_reported(tmp_path: Path) -> None:
     tool was built to end, since ``/health`` has always carried the name and
     nothing could ask it.
     """
-    host = Host({"open": True, "name": "Some Tree", "people": 3})
+    # ⛔ **The REAL envelope.** ``/health`` answers ``{"ok": ..., "tree": {...}}``
+    # -- ``_answer(HEALTH_ROUTE, "tree", ...)`` in the listener, and
+    # ``test_host_over_loopback`` asserts through ``body["tree"]``. A fake that
+    # put the fields at the top level made these tests pass against a shape no
+    # caller ever receives, which is a fake proving something about itself.
+    host = Host({"ok": True, "tree": {"open": True, "name": "Some Tree", "people": 3}})
     tools = _tools(tmp_path, host)
 
     answer = tools.tree_name()
 
     assert "/health" in host.last["url"], host.last["url"]
-    assert answer["name"] == "Some Tree"
-    assert answer["people"] == 3
+    assert answer["tree"]["name"] == "Some Tree"
+    assert answer["tree"]["people"] == 3
 
 
 def test_tree_name_reports_a_closed_tree_as_an_ordinary_answer(tmp_path: Path) -> None:
@@ -392,14 +397,14 @@ def test_tree_name_reports_a_closed_tree_as_an_ordinary_answer(tmp_path: Path) -
     closed shape as an error would be broken at every launch. The host sends
     ``open: false`` and no other key; nothing here may invent one.
     """
-    host = Host({"open": False})
+    host = Host({"ok": True, "tree": {"open": False}})
     tools = _tools(tmp_path, host)
 
     answer = tools.tree_name()
 
-    assert answer["open"] is False
-    assert "name" not in answer
-    assert "people" not in answer
+    assert answer["tree"]["open"] is False
+    assert "name" not in answer["tree"]
+    assert "people" not in answer["tree"]
 
 
 def test_tree_totals_needs_no_argument_and_still_reaches_the_host(tmp_path: Path) -> None:

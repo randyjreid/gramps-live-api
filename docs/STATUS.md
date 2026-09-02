@@ -71,11 +71,15 @@ and only the first can be answered from that directory.
 **Eight issues are active.** The ranking below is by what it costs to leave the issue alone —
 friction met in a working session first, then correctness, then hygiene.
 
+⚠️ **This is a snapshot, and several of the eight have work open against them.** A row here means the
+issue is open, not that nobody has started it. The tracker is what is current; this page says what
+the ranking was on the date at the top.
+
 | | Issue | Why it ranks here |
 | --- | --- | --- |
 | 1 | [#193](https://github.com/randyjreid/gramps-live-api/issues/193) — a push that only deletes files is refused | The gate that prevents publication is the one blocking ordinary work, and a gate worked around is a gate turned off. |
 | 2 | [#57](https://github.com/randyjreid/gramps-live-api/issues/57) — the guard's history walk grows with the repository | Measured at 12 s over 36 commits, 34.6 s over 74, 71.8 s over 193. It gets worse every commit, and it sits in front of every push. |
-| 3 | [#196](https://github.com/randyjreid/gramps-live-api/issues/196) — no tool reports which tree is open | Two trees now carry the sentinel, so *is this blessed?* no longer distinguishes them. What stands between a proposal and the wrong tree is recognising nine counts by eye. |
+| 3 | [#204](https://github.com/randyjreid/gramps-live-api/issues/204) — the rules digest can record rules that never ran | Reproduced. A same-length edit inside one second leaves a stale `.pyc` acceptable, so the old guard scans while the new source is hashed — and the anchor then licenses skipping a prefix nobody checked under those rules. |
 | 4 | [#64](https://github.com/randyjreid/gramps-live-api/issues/64) — `propose_note` wants a handle only the export can give | ⚠️ **Reachable, but not from the live surface.** No live read publishes a handle; only the export-backed `list_people` does, and that is a snapshot which can be stale. The older write verb is the one thing still tied to it. |
 | 5 | [#173](https://github.com/randyjreid/gramps-live-api/issues/173) — the SDK pin that holds refusal reasons open | ⚠️ **Not a live defect — an upgrade blocker.** SDK 2.1.1 discards a refusal's reason, so `private` and `not found` become one answer at the transport, and that distinction is what ruling 1 is about. A `<2.1` pin holds the floor and a test fails if it is relaxed. The pin is a stopgap; the fix is to stop depending on the SDK to carry a reason. |
 | 6 | [#168](https://github.com/randyjreid/gramps-live-api/issues/168) — role and description are flattened onto the event | Gramps models role per participant; the proposal cannot say so, so two people at one event arrive indistinguishable. |
