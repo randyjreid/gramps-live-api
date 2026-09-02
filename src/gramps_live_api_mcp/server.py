@@ -182,8 +182,9 @@ writes nothing and opens no database.
 
 Returns, for each person: their name, their birth year where the record gives \
 one, a birth label carrying the record's own shape (a range stays a range), \
-their Gramps ID and their handle. Both identifiers are needed by propose_note \
-and must be passed on exactly as they come back.
+their Gramps ID and their handle. propose_note needs only the Gramps ID and \
+resolves the handle itself; the handle is returned for a caller that wants to \
+pass it, and if you do pass one it must go on exactly as it came back.
 
 A search term is required -- there is no way to list everybody -- and at most \
 {people.RESULT_CAP} people are returned. The reply says how many matched, so \
