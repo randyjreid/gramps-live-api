@@ -197,9 +197,14 @@ Propose a note for a person. **Nothing is written by this call.**
 
 note_type must be one of: {schema._one_of(schema.NOTE_TYPES)}
 
-gramps_id is all you need. The handle is resolved here, from the same lookup \
-that reads the person's privacy flag -- so a Gramps ID from any read is enough \
-to propose a note, and there is nothing to hunt for.
+gramps_id is all you need to pass. The handle is resolved here, from the same \
+lookup that reads the person's privacy flag, so there is no handle to hunt for.
+
+*** That lookup reads the EXPORT, not the open tree. A person added since the \
+export was taken is not in it, and this refuses by name rather than guess -- \
+their privacy flag cannot be read, and that flag is what bounds this tool. So a \
+Gramps ID from find_people, which searches the OPEN tree, can still be refused \
+here. The refusal says so and the remedy is to export again.
 
 handle is optional, for a caller that already holds one. Supply it and it is \
 used as given and still checked against the Gramps ID at the write; if you pass \
