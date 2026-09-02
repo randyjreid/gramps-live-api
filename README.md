@@ -83,7 +83,12 @@ flowchart LR
 
 **Two things to take from it.** ⛔ **The agent never holds a handle to the dialog** — it can ask for
 one to open, and it cannot type in it, read it, or learn what was decided. ⛔ **No WRITE reaches the
-tree until the owner clicks**, and the click is the only path to `F`.
+tree until the owner clicks**, and along this route the click is the only path to `F`.
+
+⚠️ **"Along this route" is doing real work in that sentence.** The diagram is the **document** route,
+and it is not the only way into the tree: the `apply` CLI command and the older `approve` console
+flow both write, by other paths, and neither takes a backup. They are described further down. **The
+click is what gates a document write, not every write this project can perform.**
 
 ⚠️ **Reads do reach the database before the click, and the distinction is the whole safety property.**
 The dialog's text is built by reading the tree — the name behind each Gramps ID, what those records
