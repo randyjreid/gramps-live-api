@@ -12,7 +12,9 @@ the one it discharges.
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -183,6 +185,64 @@ def test_a_changed_denylist_changes_the_digest(repository: Path) -> None:
     assert absent != populated
 
 
+def test_a_replacement_ref_added_after_the_anchor_walks_fully(repository: Path) -> None:
+    """⛔ Git REPLACEMENT REFS change what history IS, without moving anything.
+
+    ⚠️ Git applies ``refs/replace/*`` while traversing, so adding, changing
+    or removing one can change an old commit's effective tree -- while HEAD, the
+    stored anchor and the rules digest all stay exactly as they were. A prefix
+    proved clean would then certify content those commits no longer hold,
+    ``anchor..HEAD`` would never look at it, and the tip scan cannot recover it
+    either, because that content was deleted before the tip.
+
+    ⭐ **A BLOB is replaced here, deliberately.** Replacing a COMMIT also
+    breaks reachability, so the ancestry check catches that shape on its own and
+    a test using it would pass without ever reaching this one. A blob
+    replacement leaves the graph untouched and changes only what a tree holds --
+    which is exactly the case nothing else covers.
+    """
+    _anchor_at(repository, "HEAD~2")
+    assert not history_anchor.plan_scan(repository).is_full, "the anchor must be usable first"
+
+    victim = git(repository, "rev-parse", "HEAD:one.md")
+    stand_in = git(repository, "rev-parse", "HEAD:two.md")
+    git(repository, "replace", "--force", victim, stand_in)
+
+    plan = history_anchor.plan_scan(repository)
+
+    assert plan.is_full, plan
+    assert "replacement refs" in plan.reason, plan.reason
+    assert is_ancestor_still_true(repository, plan), (
+        "ancestry must still hold, or this test is exercising criterion 1 instead"
+    )
+
+
+def is_ancestor_still_true(root: Path, plan: history_anchor.Plan) -> bool:
+    """⚠️ Proves the refusal above came from the replacement, not from ancestry."""
+    stored = history_anchor.read_anchor(root)
+    assert stored is not None
+    return history_anchor.is_ancestor(root, stored.commit, plan.head)
+
+
+def test_an_advancing_run_records_the_replacement_state(repository: Path) -> None:
+    """⛔ Recorded on the way out, or the next run compares against nothing."""
+    victim = git(repository, "rev-parse", "HEAD:one.md")
+    stand_in = git(repository, "rev-parse", "HEAD:two.md")
+    git(repository, "replace", "--force", victim, stand_in)
+
+    plan = history_anchor.plan_scan(repository)
+    assert history_anchor.advance(repository, plan, clean=True)
+
+    written = history_anchor.read_anchor(repository)
+    assert written is not None
+    assert written.replaces == history_anchor.replacement_state(repository) != ""
+
+    git(repository, "replace", "--delete", victim)
+    assert history_anchor.plan_scan(repository).is_full, (
+        "REMOVING a replacement ref must invalidate the anchor too, not only adding one"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Criterion 3 -- the digest covers everything that can change a verdict.
 # ---------------------------------------------------------------------------
@@ -218,21 +278,64 @@ def test_the_digest_covers_every_first_party_input_to_a_verdict() -> None:
     )
 
 
-def test_the_digest_changes_when_the_guard_module_changes(tmp_path: Path) -> None:
-    """The guard module is hashed from its bytes, so an edit moves the digest."""
+def _digest_inputs(root: Path) -> dict[str, str]:
+    """The three inputs, spelled out the way ``rules_digest`` combines them."""
+    denylist = root / pii_guard.DENYLIST_FILENAME
+    return {
+        "guard": pii_guard.SOURCE_SHA256_AT_IMPORT,
+        "denylist": (
+            hashlib.sha256(denylist.read_bytes()).hexdigest()
+            if denylist.is_file()
+            else history_anchor.DENYLIST_ABSENT
+        ),
+        "unidata": unicodedata.unidata_version,
+    }
+
+
+def test_the_digest_describes_the_guard_that_is_running_not_the_file_on_disk(
+    tmp_path: Path,
+) -> None:
+    """⛔ The digest must NOT move when the file moves, and that is the point.
+
+    ⚠️ **An earlier version of this test asserted the opposite, and what it
+    asserted was a fail-open.** If the digest is a fresh read of the file, an
+    edit landing after the guard was imported gets recorded as the rules in
+    force -- while the scan runs the functions already compiled into memory. The
+    old code reports clean, the anchor is stamped with the NEW rules, and the
+    next process skips commits nobody ever checked under them.
+
+    ⭐ Rehashing at the end of the run cannot catch it: the file is stable at
+    both reads and both read the wrong thing. So the digest takes the hash the
+    guard recorded of itself during the import that compiled it.
+    """
     root = init_repository(tmp_path / "repo")
     before = history_anchor.rules_digest(root)
 
     guard = Path(pii_guard.__file__)
     original = guard.read_bytes()
     try:
-        guard.write_bytes(original + b"\n# a change that could alter a verdict\n")
-        after = history_anchor.rules_digest(root)
+        guard.write_bytes(original + b"# a change that could alter a verdict")
+        assert guard.read_bytes() != original, "the mutation never reached the file"
+        during = history_anchor.rules_digest(root)
     finally:
         guard.write_bytes(original)
 
-    assert before != after
-    assert history_anchor.rules_digest(root) == before, "the guard module was not restored"
+    assert guard.read_bytes() == original, "the guard module was not restored"
+    assert during == before, (
+        "the digest followed the file rather than the loaded module -- that is "
+        "the fail-open, because the running code is still the old one"
+    )
+
+
+def test_the_digest_is_the_three_inputs_and_nothing_else(tmp_path: Path) -> None:
+    """⭐ The combination is pinned, so the inputs cannot drift from the docstring."""
+    root = init_repository(tmp_path / "repo")
+
+    expected = hashlib.sha256(
+        json.dumps(_digest_inputs(root), sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+    assert history_anchor.rules_digest(root) == expected
 
 
 def test_the_digest_carries_no_denylist_content(repository: Path) -> None:

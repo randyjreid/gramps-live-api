@@ -81,6 +81,16 @@ class Anchor:
 
     commit: str
     digest: str
+    replaces: str = ""
+    """The state of ``refs/replace/*`` when this anchor was written.
+
+    ⛔ Git applies replacement objects while traversing history, so adding,
+    changing or removing one can change an old commit's effective tree --
+    **without moving HEAD, without moving the anchor, and without changing the
+    rules digest.** A prefix proved clean would then certify content those
+    commits no longer hold, ``anchor..HEAD`` would never look at it, and the tip
+    scan cannot recover it either, because it was deleted before the tip.
+    """
 
 
 @dataclass(frozen=True)
@@ -160,7 +170,15 @@ def rules_digest(root: Path) -> str:
     """
     denylist = root / pii_guard.DENYLIST_FILENAME
     parts = {
-        "guard": hashlib.sha256(Path(pii_guard.__file__).read_bytes()).hexdigest(),
+        # ⛔ **The hash the guard took of ITSELF, during the import that
+        # compiled it** -- not a fresh read of the file. Reading the file here
+        # certifies whatever it says now, while the scan runs the functions
+        # already in memory: an edit landing between that import and this call
+        # would be recorded as the rules in force while the OLD code scanned,
+        # and the anchor would license skipping commits nobody checked under
+        # the new rule. ⚠️ The end-of-run rehash cannot catch it -- the file is
+        # stable at both reads, and both read the wrong thing.
+        "guard": pii_guard.SOURCE_SHA256_AT_IMPORT,
         "denylist": (
             hashlib.sha256(denylist.read_bytes()).hexdigest()
             if denylist.is_file()
@@ -188,19 +206,42 @@ def read_anchor(root: Path) -> Anchor | None:
         return None
     commit = raw.get("commit")
     digest = raw.get("digest")
+    replaces = raw.get("replaces")
     if not isinstance(commit, str) or not isinstance(digest, str):
+        return None
+    if not isinstance(replaces, str):
+        # ⛔ Absent is not "there were no replacement refs". An anchor written
+        # before this field existed says nothing about them, and defaulting to
+        # the empty string would read as a positive claim that there were none.
         return None
     if not commit or not digest:
         return None
-    return Anchor(commit=commit, digest=digest)
+    return Anchor(commit=commit, digest=digest, replaces=replaces)
 
 
 def write_anchor(root: Path, anchor: Anchor) -> None:
     """Record ``anchor``, replacing whatever was there."""
     anchor_path(root).write_text(
-        json.dumps({"commit": anchor.commit, "digest": anchor.digest}, sort_keys=True) + "\n",
+        json.dumps(
+            {"commit": anchor.commit, "digest": anchor.digest, "replaces": anchor.replaces},
+            sort_keys=True,
+        )
+        + "\n",
         encoding="utf-8",
     )
+
+
+def replacement_state(root: Path) -> str:
+    """A fingerprint of every ``refs/replace/*`` ref, or the empty string for none.
+
+    ⚠️ Recorded rather than refused outright: a checkout that uses replacement
+    refs and does not change them is no less trustworthy than one with none.
+    What must not happen is the set changing under a recorded anchor.
+    """
+    listing = _git(root, "for-each-ref", "--format=%(refname) %(objectname)", "refs/replace")
+    if not listing:
+        return ""
+    return hashlib.sha256(listing.encode("utf-8")).hexdigest()
 
 
 def is_ancestor(root: Path, commit: str, head: str) -> bool:
@@ -249,6 +290,10 @@ def plan_scan(root: Path, *, full: bool = False) -> Plan:
         )
     if not is_ancestor(root, stored.commit, head):
         return Plan(head, head, None, digest, "the recorded anchor is not an ancestor of HEAD")
+    if stored.replaces != replacement_state(root):
+        return Plan(
+            head, head, None, digest, "git replacement refs changed since the anchor was recorded"
+        )
 
     return Plan(head, f"{stored.commit}..{head}", stored.commit, digest, "")
 
@@ -303,5 +348,7 @@ def advance(root: Path, plan: Plan, *, clean: bool) -> bool:
     if rules_digest(root) != plan.digest:
         return False
 
-    write_anchor(root, Anchor(commit=plan.head, digest=plan.digest))
+    write_anchor(
+        root, Anchor(commit=plan.head, digest=plan.digest, replaces=replacement_state(root))
+    )
     return True

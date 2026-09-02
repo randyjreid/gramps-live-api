@@ -38,6 +38,7 @@ property is wrong and the right response is to say so, not to add the case.
 from __future__ import annotations
 
 import functools
+import hashlib
 import os
 import re
 import subprocess
@@ -48,6 +49,24 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import cast
 from weakref import WeakKeyDictionary
+
+SOURCE_SHA256_AT_IMPORT = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+"""This module's own bytes, hashed **during the import that compiled it**.
+
+⛔ **Read here rather than by whoever wants it, and the difference is a
+fail-open.** ``history_anchor`` records a digest of the rules that proved a
+prefix clean. Hashing this file *later* certifies whatever it says at that
+moment -- but the scan runs the functions already compiled into memory. An edit
+landing between this module's import and that hash would be recorded as the
+rules in force while the OLD code did the scanning, and the anchor would then
+license skipping commits nobody checked under the new rule.
+
+⚠️ Rehashing at the end of the run does not catch it: the file is stable at both
+reads, and both read the wrong thing.
+
+⭐ Taken here, the value is fixed by the same module execution that produced the
+functions, so it describes the code that will actually run.
+"""
 
 DENYLIST_FILENAME = ".pii-denylist"
 DENYLIST_PREFIX = DENYLIST_FILENAME
