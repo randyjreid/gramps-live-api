@@ -3,6 +3,33 @@
 Two things in this project are not negotiable: work is **test-first**, and **no personal data is
 ever committed**. Everything else is ordinary judgement.
 
+**The first five sections are how to contribute** — setting up, the gates, what belongs at the root,
+test-first, and the privacy policy. **Everything after that is the record of why those rules are what
+they are**, kept because each one was paid for.
+
+You can stop after the privacy policy and be fully equipped. Read on when a rule looks arbitrary and
+you want to know what it cost.
+
+## How this project is built
+
+**The code, tests and documentation are written by AI coding agents**, under a workflow the owner
+controls — hence `Co-Authored-By: Claude Opus 5` on 329 commits.
+
+**Only the owner** rules on irreversible decisions, recorded in [`docs/rulings/`](docs/rulings/);
+approves every tree write, at a dialog or console no agent can type in; and holds the merge gate.
+
+**The agents** build, test, review each other's work, and dispute a prescription when it is wrong.
+Much of this file records them doing so.
+
+**Vocabulary.** A **session** is one agent run. The **conductor** dispatches work and holds the merge
+gate rather than writing code. A **review round** is one pass by a reviewer or the pull-request bot.
+A **ruling** is the owner's decision, recorded with its cost. A **residual** is a known gap accepted
+with its reason.
+
+**These rules are mechanical, not aspirational**, because agents produce one class of defect at
+scale: a check succeeding for a reason unrelated to what it names, a comment asserting what the code
+does not do, a control firing for the wrong reason. **Carefulness has been tried and does not hold.**
+
 ## Setting up
 
 ```sh
