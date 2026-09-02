@@ -67,8 +67,9 @@ Cancel writes nothing at all.
 
 **What to notice.** The name beside `I0042` is read from the tree, not from the proposal — so a
 wrong identifier shows up as the wrong person. `already has:` lists what that record holds of the
-types being added, so a second Census does not look like a first. Everything the write would drop is
-shown as dropped, and one graph is one approval and one transaction.
+types being added, so a second Census does not look like a first. A field the write would drop — a
+name supplied alongside a Gramps ID, say — is listed as dropped rather than written over what Gramps
+already holds. And one graph is one approval, and one transaction.
 
 ## How it fits together
 
