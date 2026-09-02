@@ -22,7 +22,9 @@
 >   ⚠️ **`list_people` is the exception and still reads a Gramps XML export**, so
 >   it carries the staleness and privacy caveat the root `README.md` documents.
 >   *"the reads moved in-process"* is true of fourteen of them, not of all
->   fourteen.
+>   fifteen. ⚠️ The two numbers count different things: **fourteen LIVE reads**
+>   moved in-process, out of **fifteen reads in total** -- the fifteenth being
+>   `list_people`, which did not.
 >
 > ⭐ The trust model below — binding separated from approval, the operation never
 > travelling through the agent — is unchanged and is still the argument.
