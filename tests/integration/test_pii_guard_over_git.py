@@ -524,6 +524,31 @@ def test_a_deletion_only_range_still_fails_on_a_finding_in_tracked_content(
     )
 
 
+def test_an_empty_commit_beside_a_deletion_is_still_a_deletion_range(
+    repository: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """⭐ The two contentless shapes, in one range, judged on the property.
+
+    ⛔ **Zero introduced entries is true of both**, which is why the check
+    asks whether the range REMOVED something rather than how much it added. An
+    empty commit alone stays unscannable -- ``test_coverage_counts_only_what_is
+    _scanned`` holds that line and is untouched -- and it does not make a
+    deletion beside it unscannable too.
+    """
+    (repository / "README.md").write_text("# Title\n", encoding="utf-8")
+    (repository / "STALE.md").write_text("# Stale\n", encoding="utf-8")
+    before = commit_all(repository, "docs: two files")
+    git(repository, "commit", "--quiet", "--allow-empty", "-m", "an empty commit")
+    (repository / "STALE.md").unlink()
+    after = commit_all(repository, "docs: drop the stale one")
+
+    exit_code = main(["--range", f"{before}..{after}", str(repository)])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0, f"the range removes content, so it is a deletion range: {output}"
+    assert "introducing no file content" in output, output
+
+
 def test_the_scan_states_how_much_it_covered(
     repository: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

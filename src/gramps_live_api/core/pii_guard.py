@@ -3358,6 +3358,28 @@ def count_range_commits(root: Path, revision_range: str) -> int:
 _EMPTY_MODE = "000000"
 
 
+def count_range_deletions(root: Path, revision_range: str) -> int:
+    """How many entries ``revision_range`` REMOVES.
+
+    ⛔ **The complement of what ``iter_range_entries`` yields, and it exists to
+    tell two contentless ranges apart.** A range that only deletes introduces no
+    blob, and neither does a range of empty commits -- so a count of introduced
+    entries is zero for both, and a check keyed on that zero would treat them as
+    one thing. They are not one thing:
+
+    - a **deletion** removes content that is already in the history, and was
+      scanned by the commit that added it. Nothing new is published.
+    - an **empty commit** carries a message and nothing else, and commit
+      messages are not scanned. A clean verdict there would claim coverage of
+      the only thing the commit actually holds.
+
+    ⚠️ So the question is not *how many entries did I scan?* but *did this range
+    remove something?* -- which is a property of the range, asked of git,
+    instead of an inference from a count that is zero for two different reasons.
+    """
+    return sum(1 for _ in _iter_range_raw(root, revision_range, deletions=True))
+
+
 def iter_range_entries(root: Path, revision_range: str) -> Iterator[tuple[str, str, str]]:
     """Yield ``(mode, object id, path)`` for every entry introduced in ``revision_range``.
 
@@ -3369,6 +3391,20 @@ def iter_range_entries(root: Path, revision_range: str) -> Iterator[tuple[str, s
 
     An unresolvable range raises: scanning nothing quietly is the failure this
     whole function exists to prevent.
+    """
+    yield from _iter_range_raw(root, revision_range, deletions=False)
+
+
+def _iter_range_raw(
+    root: Path, revision_range: str, *, deletions: bool
+) -> Iterator[tuple[str, str, str]]:
+    """One walk, two questions.
+
+    ⚠️ **A pair of classifiers kept in step by hand will diverge**, and this file
+    already carries the scar: two scanners once disagreed about the mode of a
+    symlink introduced in history. The introduced entries and the removed ones
+    are read from the same ``diff-tree`` output, by the same parser, differing
+    only in which side of one comparison they keep.
     """
     commits = decode_path(_run_git(root, "rev-list", revision_range)).split()
     seen: set[tuple[str, str, str]] = set()
@@ -3391,7 +3427,8 @@ def iter_range_entries(root: Path, revision_range: str) -> Iterator[tuple[str, s
             mode, object_id = parts[1], parts[3]
             # A deletion introduces no content; the blob it removed is reached
             # through the commit that added it.
-            if mode == _EMPTY_MODE or set(object_id) == {"0"}:
+            removed = mode == _EMPTY_MODE or set(object_id) == {"0"}
+            if removed != deletions:
                 continue
             entry = (mode, object_id, path_text)
             if entry in seen:
@@ -3985,6 +4022,8 @@ class Scan:
     submodules: int
     commits: int | None
     range_entries: int | None
+    range_deletions: int | None
+    """Entries the range REMOVES. Distinguishes a deletion-only range from an empty one."""
     widened: bool
     """Whether a path inside a work tree was widened to the whole repository."""
 
@@ -4008,7 +4047,7 @@ class Scan:
             scope = f"tracked content ({self.tracked} entries)"
             if self.range_entries is not None:
                 plural = "" if self.commits == 1 else "s"
-                if self.range_entries == 0:
+                if self.range_entries == 0 and self.range_deletions:
                     # ⛔ **Zero here is a FACT ABOUT THE RANGE, not a failure to
                     # look.** ``iter_range_entries`` skips a deletion because a
                     # deletion introduces no blob -- so a range of deletions,
@@ -4127,6 +4166,7 @@ def resolve_scan(paths: Sequence[Path], revision_range: str | None) -> Scan:
             submodules=0,
             commits=None,
             range_entries=None,
+            range_deletions=None,
             widened=False,
         )
 
@@ -4134,8 +4174,10 @@ def resolve_scan(paths: Sequence[Path], revision_range: str | None) -> Scan:
 
     commits = None
     range_entries = None
+    range_deletions = None
     if revision_range is not None:
         commits = count_range_commits(root, revision_range)
+        range_deletions = count_range_deletions(root, revision_range)
         # Count what is SCANNED, not what exists. Counting commits while
         # scanning file entries is how a clean report was issued over an empty
         # commit whose message nobody looked at.
@@ -4150,6 +4192,7 @@ def resolve_scan(paths: Sequence[Path], revision_range: str | None) -> Scan:
         submodules=sum(1 for mode, _, _ in entries if mode == _GITLINK_MODE),
         commits=commits,
         range_entries=range_entries,
+        range_deletions=range_deletions,
         widened=any(not same_path(path, root) for path in paths),
     )
 
@@ -4331,6 +4374,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(
             "scan aborted: the given range covers no commits. A range covering "
             "nothing is never a pass -- resolve the range or scan the tip."
+        )
+        return 2
+    if scan.range_entries == 0 and not scan.range_deletions:
+        # ⛔ **Nothing introduced AND nothing removed**, so these commits change
+        # no file at all. What they do carry is messages, which are not scanned
+        # -- so a clean verdict here would claim coverage of the only content
+        # they hold. A deletion-only range is the other zero and is a pass; see
+        # ``count_range_deletions`` for why the two must not share a check.
+        print(
+            f"scan aborted: the given range covers {scan.commits} commit(s) that change no "
+            "file at all. Commit messages are not scanned yet, so reporting clean here "
+            "would claim coverage of the only thing these commits carry."
         )
         return 2
     try:
