@@ -1,5 +1,12 @@
 # Roadmap — a proposal
 
+> ⛔ **HISTORICAL. This is not the current plan and has not been since it was written.**
+> [`STATUS.md`](STATUS.md) is the dated statement of where the project stands. This page still
+> describes three MCP tools where there are eighteen, writes that only ever target a copy where R4
+> now permits the live tree, and the addon as unwritten where it is written and loading. **It is
+> kept because the open questions and rulings it records are still the real ones** — read it for
+> those, not for the schedule.
+
 > ⚠️ **This is a PROPOSAL. Nothing in it has been applied.** No milestone has been edited, no issue
 > closed or moved, nothing rescheduled, no work started on its account. It transcribes the
 > conclusions of `.claude/plans/gap-analysis.md` — an independent decomposition, a critique of the
