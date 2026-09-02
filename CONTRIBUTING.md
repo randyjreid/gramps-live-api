@@ -13,18 +13,18 @@ Read it when a rule looks arbitrary and you want to know what it cost.
 ## How this project is built
 
 **The code, tests and documentation are written by AI coding agents**, under a workflow the owner
-controls — hence `Co-Authored-By: Claude Opus 5` on 329 commits.
+controls. **So an AI agent appears in this repository's contributor list** — its work is recorded in
+the commit trailers, `Co-Authored-By: Claude Opus 5`, on 329 commits. That is deliberate.
 
 **Only the owner** rules on irreversible decisions, recorded in [`docs/rulings/`](docs/rulings/);
 approves every tree write, at a dialog or console no agent can type in; and holds the merge gate.
 
-**The agents** build, test, review each other's work, and dispute a prescription when it is wrong.
-Much of this file records them doing so.
+**The agents** build, test, review each other's work, and dispute a prescription when it is wrong;
+much of this file records that.
 
 **Vocabulary.** A **session** is one agent run. The **conductor** dispatches work and holds the merge
-gate rather than writing code. A **review round** is one pass by a reviewer or the pull-request bot.
-A **ruling** is the owner's decision, recorded with its cost. A **residual** is a known gap accepted
-with its reason.
+gate rather than writing code. A **review round** is one pass by a reviewer or the bot. A **ruling**
+is the owner's decision, recorded with its cost. A **residual** is a known gap accepted with reason.
 
 **These rules are mechanical, not aspirational**, because agents produce one class of defect at
 scale: a check succeeding for a reason unrelated to what it names, a comment asserting what the code
