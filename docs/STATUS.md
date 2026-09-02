@@ -22,9 +22,17 @@ actually exposes, not against a comment.
 *written*.
 
 **The document route.** An agent files a whole graph — people, families, events, places, a source,
-citations, notes — and gets back an id and a preview. The owner reads that preview in a modal Gramps
-dialog and approves or cancels; a write is one transaction, and a cancel writes nothing. The preview
-is rendered by pure code with no tree and no Gramps behind it, which is why the README can show one.
+citations, notes — and gets back an id and a preview.
+
+⚠️ **That preview is not the one the owner reads, and the difference is deliberate.** The agent is
+shown `caller_preview`, which names the Gramps IDs in the graph and **resolves no names at all** — a
+preview saying *attaching to <a name>* would read as confirmation, when the only thing that can
+confirm an identity is the tree, in the dialog, in front of the owner. The dialog renders a second
+preview built from live tree reads, and **that** is the approval surface. The owner approves or
+cancels there; a write is one transaction, and a cancel writes nothing.
+
+⭐ The dialog's renderer is a **pure function of the graph and of what the tree answered**, which is
+why the README can show a real render of it by handing it invented answers.
 
 **Two real records have gone through it end to end.** ⚠️ That count is the owner's own, from
 sessions run by hand and watched. **Nothing in this repository records them** — the contents are
