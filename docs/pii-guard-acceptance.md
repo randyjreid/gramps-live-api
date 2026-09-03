@@ -422,11 +422,11 @@ The second half is three refusals, each with a named test:
 > (including first push with a zero SHA, and force push), pull request, fork PR, tag push; the job
 > refuses a checkout it cannot prove is complete.
 
-`tests/integration/test_repository_hygiene.py` -- **12 tests**, the whole file. The ones this
+`tests/integration/test_repository_hygiene.py` -- **13 tests**, the whole file. The ones this
 criterion rests on are asserted by reading the workflow itself rather than by describing it.
 
-⚠️ **Only four of the twelve are evidence for B7 — the four named in the table below.** The count is
-the file's, as B1's is, and the two numbers are not the same number. The other eight assert
+⚠️ **Only four of the thirteen are evidence for B7 — the four named in the table below.** The count
+is the file's, as B1's is, and the two numbers are not the same number. The other nine assert
 neighbouring properties and say nothing about publish events: that every Python source file is
 tracked, that no workflow expression is interpolated into a shell body, that every skip names a seam
 twin that exists, and — added with the workflow-directory rule — that no path is both untracked and
