@@ -24,9 +24,9 @@ That assertion is the only reason the skip below is acceptable.
 from __future__ import annotations
 
 import asyncio
-import re
 import importlib.util
 import io
+import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
