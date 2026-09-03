@@ -345,8 +345,18 @@ def test_a_stale_pyc_cannot_make_the_digest_describe_rules_that_never_ran(
 
     if during["ran"] == "new":
         pytest.skip(
-            "this platform recompiled despite an unchanged (mtime, size), so the "
-            "stale-bytecode window #204 describes does not exist here"
+            # ⚠️ NO CLOSING PARENTHESIS ANYWHERE IN THIS CALL, including in
+            # comments. The seam-twin hygiene rule captures a skip with a
+            # non-greedy match ending at the first one, so a message mentioning
+            # mtime and size in brackets truncated the block before the twins
+            # were reached. It failed closed -- reporting no twin named, which
+            # is the safe direction -- and the comment first written to explain
+            # that had the same character in it and did it again.
+            "this platform recompiled despite an unchanged mtime and size, so the "
+            "stale-bytecode window #204 describes does not exist here; the property "
+            "is covered here by the seam twins "
+            "test_the_digest_is_the_same_whether_the_code_was_compiled_or_cached and "
+            "test_the_digest_is_the_three_inputs_and_nothing_else"
         )
 
     assert during["file"] != before["file"], (
