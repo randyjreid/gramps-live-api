@@ -14,6 +14,10 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import os
+import shutil
+import subprocess
+import sys
 import unicodedata
 from pathlib import Path
 
@@ -244,6 +248,327 @@ def test_an_advancing_run_records_the_replacement_state(repository: Path) -> Non
 
 
 # ---------------------------------------------------------------------------
+# Issue #204 -- a stale .pyc must not let the digest describe rules that never
+# ran. Reproduced across PROCESSES, because an already-imported module cannot
+# show the effect in this one.
+# ---------------------------------------------------------------------------
+
+_VICTIM_OLD = "\n".join(
+    [
+        "RULE = 'AAA'",
+        "def verdict():",
+        "    return 'old'",
+        "",
+    ]
+)
+# ⚠️ Same byte length, so CPython's (mtime, size) check cannot tell them apart.
+_VICTIM_NEW = _VICTIM_OLD.replace("'AAA'", "'BBB'").replace("'old'", "'new'")
+
+_PROBE = "\n".join(
+    [
+        "import hashlib, importlib, json, pathlib, sys",
+        "sys.path.insert(0, sys.argv[1])",
+        "sys.path.insert(0, sys.argv[2])",
+        "from gramps_live_api.core import history_anchor",
+        "import victim",
+        "source = pathlib.Path(sys.argv[1], 'victim.py').read_bytes()",
+        "print(json.dumps({",
+        "    'ran': victim.verdict(),",
+        "    'code': history_anchor._loaded_code_digest(victim),",
+        "    'file': hashlib.sha256(source).hexdigest(),",
+        "}))",
+        "",
+    ]
+)
+
+
+def _run_probe(home: Path, probe: Path, source_root: Path) -> dict[str, str]:
+    finished = subprocess.run(
+        [sys.executable, str(probe), str(home), str(source_root)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return dict(json.loads(finished.stdout.strip()))
+
+
+def test_a_stale_pyc_cannot_make_the_digest_describe_rules_that_never_ran(
+    tmp_path: Path,
+) -> None:
+    """⭐ Issue #204, reproduced exactly and then refused.
+
+    ⛔ **The defect.** CPython invalidates its bytecode cache on the source's
+    ``(mtime, size)``. A same-length edit inside one integer second leaves the
+    existing ``.pyc`` acceptable, so the OLD bytecode executes while the NEW
+    source sits on disk. Any hash of that file then names rules that never ran,
+    and an anchor stamped with it licenses skipping a prefix nobody checked
+    under them.
+
+    ⭐ **The fix.** The digest is taken from the loaded code objects, so it moves
+    when the RUNNING code moves and not when the file does. Both halves are
+    measured here in one test: the file hash changes across the stale import and
+    the code digest does not, which is the whole difference.
+
+    ⚠️ **This test holds one half only.** It proves the HELPER follows the
+    running bytecode; that ``rules_digest`` actually *uses* the helper is held by
+    ``test_the_digest_is_the_three_inputs_and_nothing_else``. Reverting the
+    digest to a file read leaves this test passing and fails that one, which is
+    how the pair was checked.
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    victim = home / "victim.py"
+    # ⚠️ BYTES on both sides. ``write_text`` translates newlines on Windows and
+    # ``write_bytes`` does not, so mixing them made the "same length" edit three
+    # bytes shorter -- which the size assertion below caught, as it should.
+    victim.write_bytes(_VICTIM_OLD.encode("utf-8"))
+    probe = tmp_path / "probe.py"
+    probe.write_text(_PROBE, encoding="utf-8")
+    source_root = REPOSITORY_ROOT / "src"
+
+    before = _run_probe(home, probe, source_root)
+    assert before["ran"] == "old"
+    stat_before = victim.stat()
+
+    victim.write_bytes(_VICTIM_NEW.encode("utf-8"))
+    os.utime(victim, (stat_before.st_atime, stat_before.st_mtime))
+    stat_after = victim.stat()
+
+    # ⛔ The mutation is proved to have landed, and to be invisible to the cache
+    # check, BEFORE any verdict is read. A control that quietly failed to apply
+    # would otherwise read as proof.
+    assert victim.read_bytes() == _VICTIM_NEW.encode("utf-8"), "the edit did not reach the file"
+    assert stat_after.st_size == stat_before.st_size, "the edit changed the size"
+    assert int(stat_after.st_mtime) == int(stat_before.st_mtime), "the edit moved the mtime second"
+
+    during = _run_probe(home, probe, source_root)
+
+    if during["ran"] == "new":
+        pytest.skip(
+            "this platform recompiled despite an unchanged (mtime, size), so the "
+            "stale-bytecode window #204 describes does not exist here"
+        )
+
+    assert during["file"] != before["file"], (
+        "the file hash must move -- otherwise this test proves nothing about a "
+        "digest that reads the file"
+    )
+    assert during["code"] == before["code"], (
+        "THE FIX: the digest follows the bytecode that ran, and the old bytecode "
+        "ran, so the digest must not have moved with the file"
+    )
+
+    # And once the cache genuinely turns over, the new code DOES move it.
+    victim.write_bytes(_VICTIM_NEW.encode("utf-8"))
+    os.utime(victim, (stat_before.st_atime, stat_before.st_mtime + 10))
+    after = _run_probe(home, probe, source_root)
+
+    assert after["ran"] == "new", "the cache did not turn over, so this half proves nothing"
+    assert after["code"] != before["code"], (
+        "when the running code finally changes, the digest must change with it"
+    )
+
+
+def test_the_digest_is_the_same_whether_the_code_was_compiled_or_cached(tmp_path: Path) -> None:
+    """⭐ **Load-bearing for the feature, not tidiness.**
+
+    ⛔ ``marshal``'s default version encodes the object GRAPH, sharing
+    references to interned strings, so the same function hashes differently when
+    freshly compiled than when unmarshalled from a ``.pyc`` -- with identical
+    ``co_code`` and ``co_consts``.
+
+    ⚠️ **That would have been a correctness-shaped bug wearing a performance
+    mask.** Every run that recompiled would disagree with every run that did not,
+    so the anchor would be invalidated on alternate runs: the optimisation
+    quietly halved, and nothing failing to say so. ``MARSHAL_VERSION`` is pinned
+    below the reference-sharing versions for exactly this reason, and this is the
+    test that holds the pin.
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    victim = home / "victim.py"
+    victim.write_bytes(_VICTIM_OLD.encode("utf-8"))
+    probe = tmp_path / "probe.py"
+    probe.write_text(_PROBE, encoding="utf-8")
+    source_root = REPOSITORY_ROOT / "src"
+    cache = home / "__pycache__"
+
+    shutil.rmtree(cache, ignore_errors=True)
+    compiled = _run_probe(home, probe, source_root)
+    assert cache.exists(), "no bytecode cache was written, so both runs compiled"
+
+    cached = _run_probe(home, probe, source_root)
+
+    assert compiled["code"] == cached["code"], (
+        "the digest moved between a compiled import and a cached one, so it "
+        "encodes how the code ARRIVED rather than what it says -- the anchor "
+        "would be invalidated on alternate runs"
+    )
+
+
+def test_a_module_level_constant_alone_moves_the_digest(tmp_path: Path) -> None:
+    """⛔ The gap an earlier draft of this fix had, pinned so it cannot return.
+
+    ⚠️ That draft walked the module namespace for FUNCTIONS and hashed their
+    code objects. Module-level data is not a function: the guard's patterns,
+    tables and severities are built by the module body, so a changed constant
+    could alter a verdict while every function's bytecode stayed identical --
+    and the digest would not have moved.
+
+    ⭐ Hashing the module's TOP-LEVEL code object covers both, because the
+    body that builds those constants is itself bytecode. Here only the constant
+    changes; the function is left alone.
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    victim = home / "victim.py"
+    victim.write_bytes(_VICTIM_OLD.encode("utf-8"))
+    probe = tmp_path / "probe.py"
+    probe.write_text(_PROBE, encoding="utf-8")
+    source_root = REPOSITORY_ROOT / "src"
+
+    before = _run_probe(home, probe, source_root)
+
+    only_the_constant = _VICTIM_OLD.replace("'AAA'", "'CCC'")
+    assert "return 'old'" in only_the_constant, "the function body must be untouched"
+    victim.write_bytes(only_the_constant.encode("utf-8"))
+    moved = victim.stat().st_mtime + 30
+    os.utime(victim, (moved, moved))
+
+    after = _run_probe(home, probe, source_root)
+
+    assert after["ran"] == "old", "the function was changed too, so this proves nothing"
+    assert after["code"] != before["code"], (
+        "a module-level constant changed a verdict input and the digest did not "
+        "move -- function bytecode alone is not enough"
+    )
+
+
+def test_an_anchor_is_never_stamped_with_rules_that_did_not_run(tmp_path: Path) -> None:
+    """⛔ The leak itself, stated as the property rather than the mechanism.
+
+    ⚠️ **The old failure was not in which range run two walked** -- it was in
+    what run two WROTE. Under a file-read digest, a stale-bytecode run scanned
+    with the old rules and then stamped the anchor with the new ones, and the
+    next process trusted that stamp and skipped a prefix those rules had never
+    seen.
+
+    The digest now equals the code that ran, so the stamp can only ever name the
+    rules that did the scanning.
+    """
+    root = init_repository(tmp_path / "repo")
+    (root / "one.md").write_text("# One\n", encoding="utf-8")
+    commit_all(root, "one")
+
+    plan = history_anchor.plan_scan(root)
+    assert history_anchor.advance(root, plan, clean=True)
+
+    written = history_anchor.read_anchor(root)
+    assert written is not None
+    assert written.digest == history_anchor.rules_digest(root)
+    assert written.digest != history_anchor.UNDETERMINED
+
+
+# ---------------------------------------------------------------------------
+# Criterion 2 -- every doubt state falls to the SAME default: the full walk.
+# ---------------------------------------------------------------------------
+
+
+def test_an_undeterminable_digest_forces_a_full_walk(
+    repository: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⛔ Not a best-effort anchor. The one default is the whole history."""
+    _anchor_at(repository, "HEAD~2")
+    assert not history_anchor.plan_scan(repository).is_full, "the anchor must be usable first"
+
+    monkeypatch.setattr(history_anchor, "rules_digest", lambda _root: history_anchor.UNDETERMINED)
+
+    plan = history_anchor.plan_scan(repository)
+
+    assert plan.is_full, plan
+    assert "could not be determined" in plan.reason, plan.reason
+
+
+def test_an_undeterminable_digest_is_never_written_as_an_anchor(repository: Path) -> None:
+    """⛔ An anchor is a claim that a prefix was proved under NAMED rules.
+
+    If the rules cannot be named there is no claim to record, so the sentinel
+    must be unstorable as well as unmatchable.
+    """
+    first = _anchor_at(repository, "HEAD~2")
+    plan = history_anchor.plan_scan(repository)
+    undeterminable = history_anchor.Plan(
+        head=plan.head,
+        revision_range=plan.head,
+        anchor=None,
+        digest=history_anchor.UNDETERMINED,
+        reason="",
+    )
+
+    assert not history_anchor.advance(repository, undeterminable, clean=True)
+
+    kept = history_anchor.read_anchor(repository)
+    assert kept is not None and kept.digest != history_anchor.UNDETERMINED
+    assert kept.commit == first
+
+
+def test_a_stored_sentinel_never_matches_a_real_run(repository: Path) -> None:
+    """⚠️ ``advance`` cannot write it, but a hand-edited anchor file can."""
+    _anchor_at(repository, "HEAD~2", digest=history_anchor.UNDETERMINED)
+
+    plan = history_anchor.plan_scan(repository)
+
+    assert plan.is_full, plan
+    assert "no determinable rules" in plan.reason, plan.reason
+
+
+def test_every_doubt_state_lands_on_the_full_walk(repository: Path, tmp_path: Path) -> None:
+    """⭐ The enumeration, asserted together rather than one test at a time.
+
+    Each of these is covered on its own above; what this adds is that they share
+    ONE outcome, so a future branch that returns something else stands out.
+    """
+    anchor_file = history_anchor.anchor_path(repository)
+    stranger = init_repository(tmp_path / "stranger")
+    (stranger / "x.md").write_text("# X\n", encoding="utf-8")
+    foreign = commit_all(stranger, "x")
+
+    def unreadable() -> None:
+        anchor_file.write_text("not json", encoding="utf-8")
+
+    def wrong_shape() -> None:
+        anchor_file.write_text(json.dumps({"commit": 1, "digest": None}), encoding="utf-8")
+
+    def stale_rules() -> None:
+        _anchor_at(repository, "HEAD~2", digest="some earlier set of rules")
+
+    def undeterminable_rules() -> None:
+        _anchor_at(repository, "HEAD~2", digest=history_anchor.UNDETERMINED)
+
+    def not_an_ancestor() -> None:
+        history_anchor.write_anchor(
+            repository,
+            history_anchor.Anchor(
+                commit=foreign,
+                digest=history_anchor.rules_digest(repository),
+                replaces=history_anchor.replacement_state(repository),
+            ),
+        )
+
+    for name, arrange in (
+        ("no anchor at all", lambda: anchor_file.unlink(missing_ok=True)),
+        ("unreadable", unreadable),
+        ("wrong shape", wrong_shape),
+        ("rules that are not the rules now", stale_rules),
+        ("rules that cannot be named", undeterminable_rules),
+        ("an anchor outside this history", not_an_ancestor),
+    ):
+        anchor_file.unlink(missing_ok=True)
+        arrange()
+        assert history_anchor.plan_scan(repository).is_full, f"{name} did not force a full walk"
+
+
+# ---------------------------------------------------------------------------
 # Criterion 3 -- the digest covers everything that can change a verdict.
 # ---------------------------------------------------------------------------
 
@@ -279,10 +604,13 @@ def test_the_digest_covers_every_first_party_input_to_a_verdict() -> None:
 
 
 def _digest_inputs(root: Path) -> dict[str, str]:
-    """The three inputs, spelled out the way ``rules_digest`` combines them."""
+    """The three inputs, spelled out the way ``rules_digest`` combines them.
+
+    ⚠️ The guard's half is the hash of its LOADED CODE OBJECTS, not of its file.
+    """
     denylist = root / pii_guard.DENYLIST_FILENAME
     return {
-        "guard": pii_guard.SOURCE_SHA256_AT_IMPORT,
+        "guard": history_anchor._loaded_code_digest(pii_guard),
         "denylist": (
             hashlib.sha256(denylist.read_bytes()).hexdigest()
             if denylist.is_file()
