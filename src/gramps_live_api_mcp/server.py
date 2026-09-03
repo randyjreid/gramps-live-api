@@ -113,6 +113,12 @@ one. ***
 Use find_people, not list_people. find_people searches the tree that is open
 now. list_people reads an exported snapshot, which can be older than the tree.
 
+A CITATION IS ALWAYS CREATED, NEVER ATTACHED TO. Citations cannot carry a
+gramps_id, and every citation you send is written as a new one. So before
+proposing a document whose source already exists, call find_citation with the
+source and the page: if that page is already cited on that source, the document
+has been entered before -- do not propose it again.
+
 AN EMPTY RESULT IS NOT PROOF OF ABSENCE. A search that returns nothing may mean
 the spelling differs, or the record is marked private and deliberately out of
 reach. Say what you searched for and what came back; do not conclude the person
@@ -129,7 +135,14 @@ gets their own Census event, not one event shared between them.
 BEFORE PROPOSING AN EVENT, CALL list_events ON THAT PERSON. Almost everyone
 already has a Birth event, and a second one is not a correction -- attach the
 citation to the one that is there. Create a Birth event only for a person who
-has none. The approval dialog also shows what each attached person already
+has none.
+
+list_events RETURNS AT MOST 25 EVENTS, WITH NO PAGING AND NO TYPE FILTER. Its
+answer carries "capped" and "withheld". If capped is true, the Birth you are
+looking for may be among the withheld ones, and "returned no Birth" proves
+nothing: STOP and ask before creating one.
+
+The approval dialog also shows what each attached person already
 holds, on an "already has:" line, but that is the reader's last check and not
 your first: they are reading a whole household at once, and you are looking at
 one person before the proposal exists.
