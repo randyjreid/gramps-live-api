@@ -422,16 +422,16 @@ The second half is three refusals, each with a named test:
 > (including first push with a zero SHA, and force push), pull request, fork PR, tag push; the job
 > refuses a checkout it cannot prove is complete.
 
-`tests/integration/test_repository_hygiene.py` -- **12 tests**, the whole file. The ones this
+`tests/integration/test_repository_hygiene.py` -- **13 tests**, the whole file. The ones this
 criterion rests on are asserted by reading the workflow itself rather than by describing it.
 
-⚠️ **Only four of the twelve are evidence for B7 — the four named in the table below.** The count is
-the file's, as B1's is, and the two numbers are not the same number. The other eight assert
+⚠️ **Only four of the thirteen are evidence for B7 — the four named in the table below.** The count is
+the file's, as B1's is, and the two numbers are not the same number. The other nine assert
 neighbouring properties and say nothing about publish events: that every Python source file is
-tracked, that no workflow expression is interpolated into a shell body, that every skip names a seam
-twin that exists, and — added with the workflow-directory rule — that no path is both untracked and
-unignored and that the workflow directory is ignored. They live here because this file is where
-repository-shape assertions live.
+tracked, that no source tree is hidden by a deny pattern, that no workflow expression is interpolated
+into a shell body, that every skip names a seam twin that exists, and — added with the
+workflow-directory rule — that no path is both untracked and unignored and that the workflow
+directory is ignored. They live here because this file is where repository-shape assertions live.
 
 The remaining three are **not** evidence for B7 either:
 `test_every_job_that_runs_the_suite_checks_out_whole_history`, added with issue #31, together with
@@ -442,8 +442,8 @@ publish content; all three are about the job that runs the *suite*, and about wh
 complete enough for B8's history assertion to run rather than skip. Neighbouring shapes, different
 claims — which is exactly the conflation the count paragraph above exists to prevent.
 
-The twelve counts test **definitions**, which is what the names above are. One of them is
-parametrized over two workflows, so `pytest` collects thirteen items from the file; that number moves
+The thirteen counts test **definitions**, which is what the names above are. One of them is
+parametrized over two workflows, so `pytest` collects fourteen items from the file; that number moves
 for reasons this criterion has nothing to do with.
 
 An earlier revision of this paragraph said *two* of the nine were unrelated, counting only the two
