@@ -69,6 +69,33 @@ writer — and every graph that exists today keeps working unchanged.**
    `test_write_summary.py` already import the writer **by path** with
    `importlib.util.module_from_spec`, without Gramps.
 
+8. ⛔ **The tool description advertises `type`, and it must.**
+   `test_the_ADVERTISED_shape_is_exactly_what_the_parser_accepts` compares
+   `PROPOSE_DOCUMENT_DESCRIPTION` against `NODE_KEYS` **in both directions** —
+   adding the key without advertising it fails that test, and it fails it for a
+   reason worth stating: *"a key the parser accepts but the description omits is
+   a capability nobody uses."*
+
+9. ⛔ **And it must fit the delivery budget, which is nearly full.** Measured
+   today: `PROPOSE_DOCUMENT_DESCRIPTION` is **2032 of 2048 characters — 16 spare.**
+   A description over budget is delivered **cut, mid-sentence**, and the model is
+   never told what fell past the cut.
+
+   | what is added to `notes: "text","attach_to"(ids)` | total | |
+   | --- | --- | --- |
+   | `,"type"` | 2040 | ⭐ fits, 8 spare |
+   | `,"type"?` | 2041 | fits, 7 spare |
+   | `,"type"(research\|todo)` | 2055 | ⛔ **over by 7** |
+
+   ⭐ **So the vocabulary cannot go in the description.** Advertise the key; let
+   **criterion 6's refusal** carry the values, which is where a caller meets them
+   anyway and which costs no budget at all.
+
+   ⚠️ **This is a real constraint on the design, not a formatting note.** If a
+   later change needs more than eight characters in that description, something
+   already in it has to come out, and what to remove is a judgement about what a
+   caller most needs — not a trim.
+
 ## Out of scope
 
 - Retiring the note flow. ⛔ That is R9 and it is the owner's.
