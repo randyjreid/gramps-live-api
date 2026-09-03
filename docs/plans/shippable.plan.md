@@ -35,10 +35,13 @@ plugin folder to the checkout · 6. make a copy of the tree and bless it by hand
 
 **Guesses a stranger meets, each verified against the source:**
 
-- ⛔ **`gramps60` was hardcoded** in `docs/using.md:77` — anyone not on 6.0 would
-  create the junction in a folder Gramps never reads. ⭐ **Fixed since this was
-  measured**: the snippet now finds the newest `gramps*` folder containing a
-  `plugins` directory, the same shape `check` already used.
+- ⛔ **`gramps60` is hardcoded** in `docs/using.md:77` — anyone not on 6.0 would
+  create the junction in a folder Gramps never reads, with no hint that they had.
+  ⚠️ **Still true in this tree.** A fix is open on a separate branch
+  ([#215](https://github.com/randyjreid/gramps-live-api/pull/215)); until that
+  merges this remains a guess a stranger meets. ⭐ Note `check` itself is already
+  version-agnostic — `_PLUGIN_GLOB` globs `gramps*/plugins/**` — so **only the
+  documented setup step is affected.**
 - which Python — the Microsoft Store alias trap is documented, but they must
   notice they hit it.
 - where `config.json` lives and which keys it takes (`copy_path`,
