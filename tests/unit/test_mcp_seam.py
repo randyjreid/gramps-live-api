@@ -215,6 +215,9 @@ LIVE_READS: tuple[tuple[str, dict[str, Any], str, dict[str, str]], ...] = (
     ),
     # ⚠️ The one read with no search term, and the only way to ask the size.
     ("tree_totals", {}, "/totals", {}),
+    # ⚠️ The other argument-free read. It rides the route that already carried
+    # the name, so what is asserted here is the WIRING, not a new capability.
+    ("tree_name", {}, "/health", {}),
 )
 
 # ⛔ Tools whose DEFAULT for a second argument is what a caller usually gets, so
@@ -362,6 +365,46 @@ def test_every_live_read_carries_the_bearer_token(tmp_path: Path) -> None:
         assert host.last["auth"] == f"Bearer {TOKEN}", (
             f"{tool} sent {host.last['auth']!r} rather than the minted token"
         )
+
+
+def test_tree_name_returns_the_name_the_host_reported(tmp_path: Path) -> None:
+    """⛔ The point of the tool is the NAME, so assert the name, not the call.
+
+    ⚠️ A test that only checked the route would pass for a wrapper that reached
+    ``/health`` and threw the answer away -- which is exactly the state this
+    tool was built to end, since ``/health`` has always carried the name and
+    nothing could ask it.
+    """
+    # ⛔ **The REAL envelope.** ``/health`` answers ``{"ok": ..., "tree": {...}}``
+    # -- ``_answer(HEALTH_ROUTE, "tree", ...)`` in the listener, and
+    # ``test_host_over_loopback`` asserts through ``body["tree"]``. A fake that
+    # put the fields at the top level made these tests pass against a shape no
+    # caller ever receives, which is a fake proving something about itself.
+    host = Host({"ok": True, "tree": {"open": True, "name": "Some Tree", "people": 3}})
+    tools = _tools(tmp_path, host)
+
+    answer = tools.tree_name()
+
+    assert "/health" in host.last["url"], host.last["url"]
+    assert answer["tree"]["name"] == "Some Tree"
+    assert answer["tree"]["people"] == 3
+
+
+def test_tree_name_reports_a_closed_tree_as_an_ordinary_answer(tmp_path: Path) -> None:
+    """⚠️ Closed is the state the host STARTS in, not a fault.
+
+    ``load_on_reg`` fires with no tree open, so a wrapper that treated the
+    closed shape as an error would be broken at every launch. The host sends
+    ``open: false`` and no other key; nothing here may invent one.
+    """
+    host = Host({"ok": True, "tree": {"open": False}})
+    tools = _tools(tmp_path, host)
+
+    answer = tools.tree_name()
+
+    assert answer["tree"]["open"] is False
+    assert "name" not in answer["tree"]
+    assert "people" not in answer["tree"]
 
 
 def test_tree_totals_needs_no_argument_and_still_reaches_the_host(tmp_path: Path) -> None:

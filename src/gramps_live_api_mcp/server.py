@@ -78,6 +78,7 @@ TOOL_NAMES = frozenset(
         "list_citations",
         "find_orphans",
         "tree_totals",
+        "tree_name",
         "changed_since",
     }
 )
@@ -311,6 +312,16 @@ TREE_TOTALS_DESCRIPTION = (
     "search term, so this is the only way to ask how big the tree is -- "
     "useful for confirming an import landed. Counts include private records, "
     "because an aggregate over the whole tree names nobody."
+)
+
+TREE_NAME_DESCRIPTION = (
+    "Which tree is open, by name, plus how many people it holds. ASK THIS "
+    "FIRST, BEFORE ANY PROPOSAL, AND SAY THE NAME BACK: more than one tree on "
+    "this machine can be writable, so counts alone do not tell you which one "
+    "you are looking at, and a proposal aimed at the wrong tree is a write the "
+    "owner has to undo. If the name is not the tree you were told to work in, "
+    "STOP AND ASK. A closed tree answers open false and nothing else, which is "
+    "the ordinary state before a tree is loaded, not an error."
 )
 
 CHANGED_SINCE_DESCRIPTION = (
@@ -939,6 +950,17 @@ class Tools:
     def tree_totals(self) -> dict[str, object]:
         return self._host("/totals")
 
+    def tree_name(self) -> dict[str, object]:
+        """The tree's identity, from the route that already published it.
+
+        ⛔ **``/health`` is NOT widened for this.** It has reported ``name``
+        since the slice that introduced it; nothing could ask it through MCP,
+        which made this an exposure gap rather than a missing capability. Adding
+        a field to ``tree_totals`` was the other option and was refused -- that
+        tool's contract is counts.
+        """
+        return self._host("/health")
+
     def changed_since(self, since: str, kind: str = "people") -> dict[str, object]:
         return self._host("/find/changed", since=since, kind=kind)
 
@@ -1029,6 +1051,10 @@ def build_server(tools: Tools) -> MCPServer:
     @server.tool(name="tree_totals", description=TREE_TOTALS_DESCRIPTION)
     def tree_totals() -> dict[str, object]:
         return tools.tree_totals()
+
+    @server.tool(name="tree_name", description=TREE_NAME_DESCRIPTION)
+    def tree_name() -> dict[str, object]:
+        return tools.tree_name()
 
     @server.tool(name="changed_since", description=CHANGED_SINCE_DESCRIPTION)
     def changed_since(since: str, kind: str = "people") -> dict[str, object]:

@@ -4,8 +4,8 @@
 > slice 2 built and is kept for the reasoning it holds. Four things it says have
 > since changed, and they are the ones a reader will trip on:
 >
-> * **"three MCP tools"** — there are now **eighteen**, and the authoritative list
->   is `TOOL_NAMES` in `src/gramps_live_api_mcp/server.py`: **thirteen live reads**
+> * **"three MCP tools"** — there are now **nineteen**, and the authoritative list
+>   is `TOOL_NAMES` in `src/gramps_live_api_mcp/server.py`: **fourteen live reads**
 >   (`tree_totals` and `changed_since` among them), **four proposal and approval
 >   verbs** (`propose_note`, `approve`, `propose_document`, `approve_document`),
 >   and **`list_people`**, which is the odd one out below.
@@ -21,8 +21,10 @@
 > * **an XML export** — the live reads run against the **open tree**, in-process.
 >   ⚠️ **`list_people` is the exception and still reads a Gramps XML export**, so
 >   it carries the staleness and privacy caveat the root `README.md` documents.
->   *"the reads moved in-process"* is true of thirteen of them, not of all
->   fourteen.
+>   *"the reads moved in-process"* is true of fourteen of them, not of all
+>   fifteen. ⚠️ The two numbers count different things: **fourteen LIVE reads**
+>   moved in-process, out of **fifteen reads in total** -- the fifteenth being
+>   `list_people`, which did not.
 >
 > ⭐ The trust model below — binding separated from approval, the operation never
 > travelling through the agent — is unchanged and is still the argument.
