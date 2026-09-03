@@ -75,6 +75,44 @@ checkout's `src`. In a bundled tarball there is no link to follow: `src/` would
 sit at **`here/src`**, which is not in the candidate list. **One candidate must be
 added.** That is a change to `gramps_plugin/`, and it is its own piece of work.
 
+#### ⛔ And putting `src/` in the tarball does NOT produce a runnable server
+
+**Raised by the PR bot on this page, and reproduced.** `server.py:56` does
+`from mcp.server import MCPServer`, and `mcp` is an **optional** dependency
+installed only through the `.[mcp]` extra. Installed without it:
+
+```
+File "src/gramps_live_api_mcp/server.py", line 56, in <module>
+    from mcp.server import MCPServer
+ModuleNotFoundError: No module named 'mcp'
+```
+
+⚠️ **The extra pulls 31 packages** into the environment — measured on this machine.
+
+⭐ **So "install the addon, paste one line" is false as written**: the line the
+user pastes starts a process that cannot import its own SDK. **Four ways out, and
+only one keeps the action count:**
+
+| | what it costs |
+| --- | --- |
+| **vendor the SDK and its 30 dependencies into the tarball** | a Gramps addon carrying a wheelhouse; ⛔ platform-specific wheels make it not one artifact |
+| **ship a self-contained executable** | a build pipeline per platform, and this project has only ever run on one |
+| **keep a dependency-install action** | honest, and the count becomes **three** actions |
+| ⭐ **publish to PyPI, and make the pasted line `uvx gramps-live-api-mcp`** | the runtime is fetched and isolated on first run, so the SDK touches neither the addon nor the user's Python |
+
+⭐ **The fourth is the only one that keeps the goal.** ⚠️ Its precondition is that
+the user has `uv` — one line in the README rather than a step in our install, and
+several agent hosts already document `uvx` registration. **The name is free on
+PyPI** (open question 3).
+
+⛔ **UNVERIFIED end to end.** Nothing has been published, so `uvx` has never been
+run against this package. **The spec may not claim it works until it has**, and
+criterion ① cannot close until someone has done it on a clean machine.
+
+⭐ **So the floor, stated honestly, is: install the addon · paste one `uvx` line
+after a PyPI publish · place the sentinel.** Two actions plus the permission —
+and the middle one rests on a publish that has not happened.
+
 ### (b) Gramps hosts MCP itself
 
 The loopback host already inside Gramps speaks MCP over HTTP. **No second process
@@ -110,8 +148,10 @@ Writing another program's configuration crosses a boundary and is client-specifi
 **It cannot be removed.** It can be reduced to **one copy-paste line the addon
 displays**, which is honest to call one action but is not "zero".
 
-⛔ **So the truthful claim is two actions: install the addon, paste one line.**
-Plus the sentinel, which is deliberate and stays manual — **it is the permission**.
+⛔ **So the truthful claim is two actions: install the addon, paste one line** —
+⚠️ **and the line only works once the package is published**, because of the
+runtime hole above. Plus the sentinel, which is deliberate and stays manual —
+**it is the permission**.
 
 ---
 
