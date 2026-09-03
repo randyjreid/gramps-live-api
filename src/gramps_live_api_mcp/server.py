@@ -92,6 +92,69 @@ answers *shown*, not *written* -- the outcome is learned by looking at Gramps.""
 
 SERVER_NAME = "gramps-live-api"
 
+GETTING_STARTED_PROMPT = "getting_started"
+"""The name of the prompt below, used by the test that asserts it is listed."""
+
+GETTING_STARTED = """Read this before proposing anything into a Gramps tree through this server.
+
+SAY WHICH TREE YOU ARE IN, FIRST. Call tree_name before anything else and say
+the name back to the person you are working with. More than one tree on a
+machine can be writable, so counts alone never identified one, and a proposal
+aimed at the wrong tree is a write somebody has to undo. If the name is not the
+tree you were told to work in, STOP AND ASK.
+
+*** LOOK IT UP BEFORE YOU CREATE. An id you did not look up is a duplicate you
+will make. person -> find_people. place -> find_place. source -> find_source.
+family -> find_families. A person's OWN events (birth, death, census) ->
+list_events. A COUPLE's events (MARRIAGE, divorce) sit on the FAMILY, on neither
+spouse -> find_families then list_family_events. list_events never returns
+one. ***
+
+Use find_people, not list_people. find_people searches the tree that is open
+now. list_people reads an exported snapshot, which can be older than the tree.
+
+AN EMPTY RESULT IS NOT PROOF OF ABSENCE. A search that returns nothing may mean
+the spelling differs, or the record is marked private and deliberately out of
+reach. Say what you searched for and what came back; do not conclude the person
+is not there.
+
+*** ONE LOCAL ID PER RECORD. Two local ids carrying one "gramps_id" are REFUSED.
+A document naming one person twice -- head of household, then a relationship
+column -- is ONE person, one local id. Listing one local id twice in a list is
+fine. ***
+
+ONE CENSUS EVENT PER PERSON. A census page lists a household; each person in it
+gets their own Census event, not one event shared between them.
+
+BEFORE PROPOSING AN EVENT, CALL list_events ON THAT PERSON. Almost everyone
+already has a Birth event, and a second one is not a correction -- attach the
+citation to the one that is there. Create a Birth event only for a person who
+has none. The approval dialog also shows what each attached person already
+holds, on an "already has:" line, but that is the reader's last check and not
+your first: they are reading a whole household at once, and you are looking at
+one person before the proposal exists.
+
+ASK BEFORE PROPOSING A BIRTH, DEATH, MARRIAGE OR DIVORCE ON A PERSON WHO
+ALREADY HAS ONE. If the document disagrees with what the tree records, that is
+two sources disagreeing. Say so and stop. It is research, not a fix, and a
+second event is not how it gets resolved.
+
+ALWAYS SUPPLY A SOURCE. A fact with no citation is a fact nobody can check
+later. The graph takes one "source" object and citations that attach to what it
+supports.
+
+A MARRIAGE GOES ON THE FAMILY: give the event "family", and give it a LOCAL id
+-- the id you invented in this graph, not a Gramps ID. An event with only
+"people" lands on them, which is wrong for a marriage.
+
+DATES: write "abt 1877" for an approximate year. Do NOT write "1877?" -- "?" is
+not in Gramps' vocabulary and the date will not parse.
+
+The graph's groups are exactly: people, places, events, source, citations,
+families, notes. Any other top-level key is refused by name.
+"""
+
+
 CREATE_NEW_CONSOLE = 0x00000010
 """``subprocess.CREATE_NEW_CONSOLE``, spelled out rather than imported.
 
@@ -1071,6 +1134,17 @@ def build_server(tools: Tools) -> MCPServer:
     @server.tool(name="approve", description=APPROVE_DESCRIPTION)
     def approve(proposal_id: str, approval_digest: str) -> dict[str, object]:
         return tools.approve(proposal_id, approval_digest)
+
+    @server.prompt(
+        name=GETTING_STARTED_PROMPT,
+        description=(
+            "Read this first. What a new caller needs to avoid creating duplicates "
+            "in somebody's family tree: which tree you are in, what to look up "
+            "before creating anything, and what not to propose twice."
+        ),
+    )
+    def getting_started() -> str:
+        return GETTING_STARTED
 
     return server
 
