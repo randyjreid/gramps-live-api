@@ -231,9 +231,9 @@ exactly what the server publishes.
   sits behind an optional `mcp` extra, and installing it brings 27–30 packages with it, measured —
   what that costs, and why the SDK anyway, is in [`docs/slice2-mcp.md`](docs/slice2-mcp.md).
 
-**Eight active issues.** The rest are review findings nobody has hit, labelled `untriggered` and not
-scheduled — 63 of the 71 open. [`docs/STATUS.md`](docs/STATUS.md) ranks the eight and says why the
-63 are a decision rather than a backlog.
+**Four active issues.** The rest are review findings nobody has hit, labelled `untriggered` and not
+scheduled — 64 of the 68 open. [`docs/STATUS.md`](docs/STATUS.md) ranks the four and says why the
+64 are a decision rather than a backlog.
 
 ### What is tested, and against what
 
