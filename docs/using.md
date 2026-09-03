@@ -74,7 +74,9 @@ Gramps runs our code through its own CLI tool door, so it has to be able to find
 from Gramps' user plugin folder to this checkout — **from the checkout root**, so that `$PWD` is it:
 
 ```powershell
-$plugins = "$env:APPDATA\gramps\gramps60\plugins"
+$plugins = (Get-ChildItem "$env:APPDATA\gramps" -Directory -Filter "gramps*" |
+            Where-Object { Test-Path "$($_.FullName)\plugins" } |
+            Sort-Object Name -Descending | Select-Object -First 1).FullName + "\plugins"
 $link    = "$plugins\gramps-live-api"
 New-Item -ItemType Directory -Force $plugins | Out-Null
 if (Test-Path $link) {
@@ -84,6 +86,13 @@ if (Test-Path $link) {
   "created"
 }
 ```
+
+⭐ **The version folder is found, not typed.** This used to hardcode `gramps60`,
+which is wrong the moment your Gramps is not 6.0 and gives no hint that it is —
+you would create a junction in a folder Gramps never reads. It now picks the
+newest `gramps*` folder that actually contains a `plugins` directory, which is
+the same shape `check` already uses to find the plugin (`_PLUGIN_GLOB`), and
+which skips `grampsdb` — the sibling folder holding your trees, not plugins.
 
 ⚠️ **Run it twice and it says so, rather than failing.** The first version of this
 step used a bare `New-Item`, which errors with *"an item with the specified name

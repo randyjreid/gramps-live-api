@@ -3,6 +3,14 @@
 Read this before proposing anything. It repeats rules the tool's own description
 may not have delivered to you.
 
+## Say which tree you are in, first
+
+⛔ **Call `tree_name` before anything else and say the name back.** It reports
+which tree is open, by name, with its person count. More than one tree on a
+machine can be writable, so counts alone never identified one — they only
+confirmed the host was answering. **If the name is not the tree you were told to
+work in, stop and ask.** It answers under `tree`, so read `answer["tree"]["name"]`.
+
 ## Look it up before you create
 
     *** IF AN EVENT ALREADY EXISTS, LOOK IT UP FIRST AND PASS ITS GRAMPS ID.

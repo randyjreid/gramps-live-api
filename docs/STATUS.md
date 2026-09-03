@@ -90,7 +90,7 @@ is what is current; this page says what the ranking was on the date at the top.
 
 ## What is deliberately not planned
 
-⭐ **Sixty-four of the sixty-eight open issues are labelled
+⭐ **Sixty-six of the seventy open issues are labelled
 [`untriggered`](https://github.com/randyjreid/gramps-live-api/issues?q=is%3Aopen+label%3Auntriggered),
 and leaving them there is a decision, not a backlog that got away.**
 
