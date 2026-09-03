@@ -35,8 +35,10 @@ plugin folder to the checkout · 6. make a copy of the tree and bless it by hand
 
 **Guesses a stranger meets, each verified against the source:**
 
-- ⛔ **`gramps60` is hardcoded** in `docs/using.md:77` and **nothing auto-detects
-  it.** Anyone on 5.2 or 6.1 must know to change the path.
+- ⛔ **`gramps60` was hardcoded** in `docs/using.md:77` — anyone not on 6.0 would
+  create the junction in a folder Gramps never reads. ⭐ **Fixed since this was
+  measured**: the snippet now finds the newest `gramps*` folder containing a
+  `plugins` directory, the same shape `check` already used.
 - which Python — the Microsoft Store alias trap is documented, but they must
   notice they hit it.
 - where `config.json` lives and which keys it takes (`copy_path`,
@@ -98,20 +100,57 @@ only one keeps the action count:**
 | **vendor the SDK and its 30 dependencies into the tarball** | a Gramps addon carrying a wheelhouse; ⛔ platform-specific wheels make it not one artifact |
 | **ship a self-contained executable** | a build pipeline per platform, and this project has only ever run on one |
 | **keep a dependency-install action** | honest, and the count becomes **three** actions |
-| ⭐ **publish to PyPI, and make the pasted line `uvx gramps-live-api-mcp`** | the runtime is fetched and isolated on first run, so the SDK touches neither the addon nor the user's Python |
+| ⭐ **publish to PyPI and run it with `uvx`** | the runtime is fetched and isolated on first run, so the SDK touches neither the addon nor the user's Python — ⛔ **but see the three things it needs first** |
 
-⭐ **The fourth is the only one that keeps the goal.** ⚠️ Its precondition is that
-the user has `uv` — one line in the README rather than a step in our install, and
-several agent hosts already document `uvx` registration. **The name is free on
-PyPI** (open question 3).
+⭐ **The fourth is the only one that keeps the goal**, and it does **not** work
+against the package as it stands today.
+
+#### ⛔ What `uvx` needs before it can start this server
+
+**Raised by the PR bot and verified against `pyproject.toml`.** A bare
+`uvx gramps-live-api-mcp` fails three ways at once:
+
+| | |
+| --- | --- |
+| the distribution is named | `gramps-live-api`, not `gramps-live-api-mcp` |
+| console scripts declared | ⛔ **none — there is no `[project.scripts]` section at all** |
+| the SDK | behind the optional `mcp` extra, which a bare invocation does not select |
+
+⭐ **So the plan owes an entry point.** `python -m gramps_live_api_mcp` runs
+`serve()` from `gramps_live_api_mcp.server`; a console script pointing at it, plus
+selecting the extra, makes the line:
+
+```
+uvx --from "gramps-live-api[mcp]" gramps-live-api-mcp
+```
+
+**Cost:** a `[project.scripts]` entry, and a test that the named script exists and
+starts the same server `python -m` does — so the two entry points cannot drift.
+
+⚠️ **Not free, and not one line in the README.** ⛔ **`uv` itself is an
+installation action on a clean machine.** Criterion ① names only Gramps and an
+MCP-capable agent as prerequisites, so a machine without `uv` cannot run the
+pasted line at all. **Either ① explicitly requires `uv` already installed — which
+narrows who the demo is for — or installing it makes this a THREE-action path.**
+
+⭐ **Stated plainly: there is no two-action install today, and this page should
+stop implying one.** The honest floor is **three** — install `uv`, install the
+addon, paste one line — plus the sentinel; or **two** for a user who already has
+`uv`, which is a real population but must be named rather than assumed.
+
+**The name is free on PyPI** (open question 3).
 
 ⛔ **UNVERIFIED end to end.** Nothing has been published, so `uvx` has never been
 run against this package. **The spec may not claim it works until it has**, and
 criterion ① cannot close until someone has done it on a clean machine.
 
-⭐ **So the floor, stated honestly, is: install the addon · paste one `uvx` line
-after a PyPI publish · place the sentinel.** Two actions plus the permission —
-and the middle one rests on a publish that has not happened.
+⭐ **So the floor, stated honestly: install `uv` · install the addon · paste one
+`uvx` line after a PyPI publish · place the sentinel.** ⛔ **Three actions plus
+the permission**, or two for a user who already has `uv` — and the `uvx` line
+rests on a publish and an entry point that do not exist yet.
+
+⚠️ **The goal at the top of this page is therefore NOT met by (a) as costed
+here.** It is the target, not a description; saying so is the point of measuring.
 
 ### (b) Gramps hosts MCP itself
 
