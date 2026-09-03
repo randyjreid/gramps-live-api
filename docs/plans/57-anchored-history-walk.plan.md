@@ -234,6 +234,22 @@ history walk. The optimisation would quietly stop optimising.
 
 **3. What exactly goes into the rules digest? DECIDED.**
 
+> ⛔ **SUPERSEDED — READ THE BANNER AT THE TOP.** What follows was the
+> pre-approval analysis and it is left exactly as written, because the record is
+> worth more than a tidy document. **It concluded that the falsifier does not
+> fire. Building it showed that it does.**
+>
+> ⭐ **Both statements were made in good faith, and the difference is precise.**
+> The falsifier asked whether the digest could be computed from a *stable,
+> enumerable* set of inputs. **The enumeration was correct** — the guard module,
+> the deny-list, the interpreter's UCD, and nothing else feeds a verdict. What
+> was missed is that **"the guard module" is not a STABLE input**: reading it
+> does not give you the code that runs. Four ways of trying to read it were each
+> defeated by a different interpreter caching behaviour.
+>
+> ⚠️ So the falsifier was tested against the wrong half of its own wording. It
+> was checked for *enumerable* and not for *stable*.
+
 ⭐ **The falsifier was tested before approval and it does not fire.** The digest
 is three things:
 
@@ -281,6 +297,22 @@ tells a developer to run something is a warning they will route around at 82
 seconds a time. The re-walk is the correct behaviour and it is self-healing.
 
 ## Falsifier
+
+> ⛔ **SUPERSEDED — READ THE BANNER AT THE TOP.** What follows was the
+> pre-approval analysis and it is left exactly as written, because the record is
+> worth more than a tidy document. **It concluded that the falsifier does not
+> fire. Building it showed that it does.**
+>
+> ⭐ **Both statements were made in good faith, and the difference is precise.**
+> The falsifier asked whether the digest could be computed from a *stable,
+> enumerable* set of inputs. **The enumeration was correct** — the guard module,
+> the deny-list, the interpreter's UCD, and nothing else feeds a verdict. What
+> was missed is that **"the guard module" is not a STABLE input**: reading it
+> does not give you the code that runs. Four ways of trying to read it were each
+> defeated by a different interpreter caching behaviour.
+>
+> ⚠️ So the falsifier was tested against the wrong half of its own wording. It
+> was checked for *enumerable* and not for *stable*.
 
 ⛔ **The digest falsifier was TESTED before approval, and it does not fire.**
 It read: *if the rules digest cannot be computed from a stable, enumerable set of
