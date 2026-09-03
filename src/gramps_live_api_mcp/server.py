@@ -134,10 +134,14 @@ holds, on an "already has:" line, but that is the reader's last check and not
 your first: they are reading a whole household at once, and you are looking at
 one person before the proposal exists.
 
-ASK BEFORE PROPOSING A BIRTH, DEATH, MARRIAGE OR DIVORCE ON A PERSON WHO
-ALREADY HAS ONE. If the document disagrees with what the tree records, that is
-two sources disagreeing. Say so and stop. It is research, not a fix, and a
-second event is not how it gets resolved.
+IF THE DOCUMENT DISAGREES WITH WHAT THE TREE RECORDS, that is two sources
+disagreeing. Say so and stop. It is research, not a fix, and a second event is
+not how it gets resolved.
+
+ASK BEFORE USING AN EVENT TYPE YOU HAVE NOT SEEN IN THIS TREE. An unrecognised
+type does not fail -- it silently creates a NEW CUSTOM TYPE carrying whatever
+word you sent, and nothing reports that it is new. Use the types the tree
+already uses, and ask about anything else.
 
 ALWAYS SUPPLY A SOURCE. A fact with no citation is a fact nobody can check
 later. The graph takes one "source" object and citations that attach to what it
