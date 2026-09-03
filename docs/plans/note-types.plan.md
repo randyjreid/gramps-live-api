@@ -50,10 +50,24 @@ writer — and every graph that exists today keeps working unchanged.**
    half and it is the one most easily broken by a default landing in the wrong
    place.
 
-4. **The preview shows the type.** ⛔ A type written but not rendered is a byte
-   reaching the tree that was not shown in the approval — which is the one
-   property the whole document route exists to hold. The rendered line names the
-   type for a typed note and is unchanged for an untyped one.
+4. **The preview shows the type — ⛔ at BOTH render sites.** A type written but
+   not rendered is a byte reaching the tree that was not shown in the approval,
+   which is the one property the whole document route exists to hold. The
+   rendered line names the type for a typed note and is unchanged for an untyped
+   one.
+
+   ⚠️ **There is no single note-rendering site, and assuming one is how this
+   criterion would be half-met.** Verified:
+
+   | | where | what it emits |
+   | --- | --- | --- |
+   | **attached** notes | `document.py:1313–1318`, inside the per-node walk | `+ Note:` then the text |
+   | **undrawn** notes | `document.py:1596–1602`, the leftovers loop | `Note      (attached to …):` then the text, under `ALSO WRITTEN` |
+
+   ⛔ **A typed note whose edge is undrawn — attached to nothing, or to a node the
+   walk never reached — renders through the second site only.** Testing one
+   attached typed note would leave that path writing a chosen type the approval
+   never displayed. **Criterion 4 requires one typed note through each site.**
 
 5. **The writer sets it**, through `getattr` on the attribute name, never a
    pinned integer — the discipline `_event_type` and the apply shim already use.
@@ -168,6 +182,9 @@ by picking one.
 
 ## Estimated shape
 
-Small. `NODE_KEYS` gains a key; one validation branch; one preview line; one
-writer line; and the tests above. ⚠️ **The plan is FULL tier for what it touches,
-not for its size.**
+Small, but **not as small as it first looked**. `NODE_KEYS` gains a key; one
+validation branch; ⛔ **two preview sites, not one**; one writer line; and the
+tests above, including one typed note through each render path.
+
+⚠️ **The plan is FULL tier for what it touches, not for its size** — and the
+render-site count is the reason an estimate is not a plan.
