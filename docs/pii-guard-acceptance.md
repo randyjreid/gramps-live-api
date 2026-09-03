@@ -442,9 +442,14 @@ publish content; all three are about the job that runs the *suite*, and about wh
 complete enough for B8's history assertion to run rather than skip. Neighbouring shapes, different
 claims — which is exactly the conflation the count paragraph above exists to prevent.
 
-The twelve counts test **definitions**, which is what the names above are. One of them is
-parametrized over two workflows, so `pytest` collects thirteen items from the file; that number moves
+The thirteen counts test **definitions**, which is what the names above are. One of them is
+parametrized over two workflows, so `pytest` collects fourteen items from the file; that number moves
 for reasons this criterion has nothing to do with.
+
+⚠️ **Both numbers in this paragraph are spelled out in words, and the check added for #36 cannot see
+either.** It reads the `**N tests**` statement above and compares it with the count of `def test_`
+definitions. **A total written in prose, and the collected-item count, are outside its reach** — so
+they are maintained by hand exactly as before, and this is where that is written down.
 
 An earlier revision of this paragraph said *two* of the nine were unrelated, counting only the two
 added last. That understated it by three and so overstated what B7's coverage rests on, which is the
