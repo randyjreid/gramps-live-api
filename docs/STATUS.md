@@ -1,4 +1,4 @@
-# Status — 2026-09-02
+# Status — 2026-09-03
 
 **Where this project actually stands.** Dated, because a status page without a date is a claim with
 no expiry. [`roadmap.md`](roadmap.md) is the older document and is history now; this page replaces
@@ -68,27 +68,29 @@ and only the first can be answered from that directory.
 
 ## What is next
 
-**Eight issues are active.** The ranking below is by what it costs to leave the issue alone —
-friction met in a working session first, then correctness, then hygiene.
+**Four issues are active.** The ranking below is by what it costs to leave the issue alone —
+correctness first, then hygiene.
 
-⚠️ **This is a snapshot, and several of the eight have work open against them.** A row here means the
-issue is open, not that nobody has started it. The tracker is what is current; this page says what
-the ranking was on the date at the top.
+⚠️ **This page said eight on 2 September.** Four of those closed: the deletion-only push gate
+([#193](https://github.com/randyjreid/gramps-live-api/issues/193)), the `propose_note` handle
+([#64](https://github.com/randyjreid/gramps-live-api/issues/64)), the history walk
+([#57](https://github.com/randyjreid/gramps-live-api/issues/57)) and the rules-digest defect
+([#204](https://github.com/randyjreid/gramps-live-api/issues/204)) — **the last two as *dropped*,
+not as done.** See what was retired, below.
+
+⚠️ **This is a snapshot.** A row means the issue is open, not that nobody has started it. The tracker
+is what is current; this page says what the ranking was on the date at the top.
 
 | | Issue | Why it ranks here |
 | --- | --- | --- |
-| 1 | [#193](https://github.com/randyjreid/gramps-live-api/issues/193) — a push that only deletes files is refused | The gate that prevents publication is the one blocking ordinary work, and a gate worked around is a gate turned off. |
-| 2 | [#57](https://github.com/randyjreid/gramps-live-api/issues/57) — the guard's history walk grows with the repository | Measured at 12 s over 36 commits, 34.6 s over 74, 71.8 s over 193. It gets worse every commit, and it sits in front of every push. |
-| 3 | [#204](https://github.com/randyjreid/gramps-live-api/issues/204) — the rules digest can record rules that never ran | Reproduced. A same-length edit inside one second leaves a stale `.pyc` acceptable, so the old guard scans while the new source is hashed — and the anchor then licenses skipping a prefix nobody checked under those rules. |
-| 4 | [#64](https://github.com/randyjreid/gramps-live-api/issues/64) — `propose_note` wants a handle only the export can give | ⚠️ **Reachable, but not from the live surface.** No live read publishes a handle; only the export-backed `list_people` does, and that is a snapshot which can be stale. The older write verb is the one thing still tied to it. |
-| 5 | [#173](https://github.com/randyjreid/gramps-live-api/issues/173) — the SDK pin that holds refusal reasons open | ⚠️ **Not a live defect — an upgrade blocker.** SDK 2.1.1 discards a refusal's reason, so `private` and `not found` become one answer at the transport, and that distinction is what ruling 1 is about. A `<2.1` pin holds the floor and a test fails if it is relaxed. The pin is a stopgap; the fix is to stop depending on the SDK to carry a reason. |
-| 6 | [#168](https://github.com/randyjreid/gramps-live-api/issues/168) — role and description are flattened onto the event | Gramps models role per participant; the proposal cannot say so, so two people at one event arrive indistinguishable. |
-| 7 | [#76](https://github.com/randyjreid/gramps-live-api/issues/76) — duplicate eventref handles are counted twice | Produces a warning about an ambiguity that does not exist, which teaches the reader to skip warnings. |
-| 8 | [#36](https://github.com/randyjreid/gramps-live-api/issues/36) — hand-maintained test counts go stale | A documented number that once matched is the worst kind of stale, because it reads as considered. |
+| 1 | [#173](https://github.com/randyjreid/gramps-live-api/issues/173) — the SDK pin that holds refusal reasons open | ⚠️ **Not a live defect — an upgrade blocker.** SDK 2.1.1 discards a refusal's reason, so `private` and `not found` become one answer at the transport, and that distinction is what ruling 1 is about. A `<2.1` pin holds the floor and a test fails if it is relaxed. The pin is a stopgap; the fix is to stop depending on the SDK to carry a reason. |
+| 2 | [#168](https://github.com/randyjreid/gramps-live-api/issues/168) — role and description are flattened onto the event | Gramps models role per participant; the proposal cannot say so, so two people at one event arrive indistinguishable. |
+| 3 | [#76](https://github.com/randyjreid/gramps-live-api/issues/76) — duplicate eventref handles are counted twice | Produces a warning about an ambiguity that does not exist, which teaches the reader to skip warnings. |
+| 4 | [#36](https://github.com/randyjreid/gramps-live-api/issues/36) — hand-maintained test counts go stale | A documented number that once matched is the worst kind of stale, because it reads as considered. |
 
 ## What is deliberately not planned
 
-⭐ **Sixty-three of the seventy-one open issues are labelled
+⭐ **Sixty-four of the sixty-eight open issues are labelled
 [`untriggered`](https://github.com/randyjreid/gramps-live-api/issues?q=is%3Aopen+label%3Auntriggered),
 and leaving them there is a decision, not a backlog that got away.**
 
@@ -111,6 +113,7 @@ converging, every finding real, against a property that had no fixed point.
 | **The addon as unwritten** | `gramps_plugin/` is written and loads at Gramps startup. |
 | **Two handover documents** | Deleted on the owner's approval once the work they described had shipped; the README and this page carry what survived. |
 | **A "still holds" column in the rulings index** | Deleted. It was written from the rulings and never checked against the source, and was wrong four times in five review rounds. |
+| **The anchored history walk** — skip the prefix a clean scan already proved | Nothing. The guard walks the whole history again, as it always did. It was built, reviewed and dropped: the skip needed a digest describing the rules actually running, and four mechanisms were each defeated by a different interpreter caching behaviour — the last by disagreeing between Python 3.10 and 3.12 on the same commit. **The ~145 s saving was real; it was not worth a guard that may trust an anchor written under rules that are not the rules that run.** [#57](https://github.com/randyjreid/gramps-live-api/issues/57), and the cost is refiled as [#207](https://github.com/randyjreid/gramps-live-api/issues/207). |
 | **[`roadmap.md`](roadmap.md) as the current plan** | This page. The roadmap still describes three tools, writes that only ever target a copy, and an unwritten addon. It is kept because the open questions it records are still the real ones. |
 
 ⚠️ **The `apply` CLI command and the older `approve` console flow still exist and still write, and

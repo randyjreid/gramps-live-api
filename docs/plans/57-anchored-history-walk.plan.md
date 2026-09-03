@@ -1,5 +1,34 @@
 # Plan — #57: stop re-walking settled history on every run
 
+> ⛔ **HISTORICAL. This was BUILT, REVIEWED AND DROPPED. Do not implement it.**
+>
+> The design below is sound about the walk and about the criteria. It rests on
+> one thing that turned out to be unobtainable: **a digest that describes the
+> rules that are actually running.** Four mechanisms were tried and each was
+> defeated by a different interpreter caching behaviour:
+>
+> | attempt | defeated by |
+> | --- | --- |
+> | hash the guard's source file | a stale `.pyc` -- old bytecode, new file |
+> | hash the source at import time | the same, since it was still a file read |
+> | ask the loader for the code at digest time | an mtime advancing between import and the call |
+> | the same, on three interpreters | **it recompiled on 3.10 and did not on 3.12** |
+>
+> ⭐ **The fourth is the one that settled it.** The branch went red on Python
+> 3.10 while passing on 3.11 and 3.12 -- same commit, same operating system -- so
+> the mechanism's answer depends on which supported interpreter runs it. **That
+> is this plan's own falsifier firing**: it warned that if the digest could not be
+> computed from a stable, enumerable input, the design was wrong.
+>
+> ⚠️ **The saving was real and is not the reason it was dropped.** Measured at
+> about **145 s per run**, roughly 12x, on a 600-commit repository. It was not
+> worth a guard that may trust an anchor written under rules that are not the
+> rules that run.
+>
+> ⛔ **Closed as correct-but-unsafe-to-optimise, not as unfinished.** The full
+> history walk is unchanged and remains correct. See #57, #202 and #204.
+
+
 **FULL tier.** It changes **what the personal-data guard scans**, which is the
 publication-of-personal-data surface. ⛔ **Not built. This page is the
 deliverable, and it needs the owner's approval before anything is written.**
