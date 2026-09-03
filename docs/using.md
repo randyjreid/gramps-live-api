@@ -74,9 +74,11 @@ Gramps runs our code through its own CLI tool door, so it has to be able to find
 from Gramps' user plugin folder to this checkout — **from the checkout root**, so that `$PWD` is it:
 
 ```powershell
-$plugins = (Get-ChildItem "$env:APPDATA\gramps" -Directory -Filter "gramps*" |
-            Where-Object { Test-Path "$($_.FullName)\plugins" } |
-            Sort-Object Name -Descending | Select-Object -First 1).FullName + "\plugins"
+$version = Get-ChildItem "$env:APPDATA\gramps" -Directory |
+            Where-Object { $_.Name -match "^gramps\d+$" } |
+            Sort-Object Name -Descending | Select-Object -First 1
+if (-not $version) { throw "No gramps<version> folder under $env:APPDATA\gramps -- start Gramps once, then run this again." }
+$plugins = Join-Path $version.FullName "plugins"
 $link    = "$plugins\gramps-live-api"
 New-Item -ItemType Directory -Force $plugins | Out-Null
 if (Test-Path $link) {
@@ -89,10 +91,18 @@ if (Test-Path $link) {
 
 ⭐ **The version folder is found, not typed.** This used to hardcode `gramps60`,
 which is wrong the moment your Gramps is not 6.0 and gives no hint that it is —
-you would create a junction in a folder Gramps never reads. It now picks the
-newest `gramps*` folder that actually contains a `plugins` directory, which is
-the same shape `check` already uses to find the plugin (`_PLUGIN_GLOB`), and
-which skips `grampsdb` — the sibling folder holding your trees, not plugins.
+you would create a junction in a folder Gramps never reads.
+
+⚠️ **It matches `gramps` followed by digits, and that shape is deliberate.** It
+picks the version folder itself and then appends `plugins`, rather than looking
+for a `plugins` folder that already exists. **On a first-time setup there is no
+`plugins` directory yet** — Gramps creates the version folder before you have
+installed any addon — and a filter requiring one would match nothing, leaving the
+path as a bare `\plugins` at the drive root. `^gramps\d+$` also skips
+`grampsdb`, the sibling folder holding your trees.
+
+⛔ **It stops with a message rather than guessing** if no version folder exists
+at all, which means Gramps has not been run yet.
 
 ⚠️ **Run it twice and it says so, rather than failing.** The first version of this
 step used a bare `New-Item`, which errors with *"an item with the specified name
