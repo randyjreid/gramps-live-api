@@ -74,11 +74,15 @@ Gramps runs our code through its own CLI tool door, so it has to be able to find
 from Gramps' user plugin folder to this checkout — **from the checkout root**, so that `$PWD` is it:
 
 ```powershell
-$version = Get-ChildItem "$env:APPDATA\gramps" -Directory |
-            Where-Object { $_.Name -match "^gramps\d+$" } |
-            Sort-Object Name -Descending | Select-Object -First 1
-if (-not $version) { throw "No gramps<version> folder under $env:APPDATA\gramps -- start Gramps once, then run this again." }
-$plugins = Join-Path $version.FullName "plugins"
+$installs = @(Get-ChildItem "$env:ProgramFiles\GrampsAIO64-*" -Directory -ErrorAction SilentlyContinue |
+              Where-Object { Test-Path (Join-Path $_.FullName "grampsd.exe") })
+if ($installs.Count -eq 0) { throw "No Gramps runtime under $env:ProgramFiles\GrampsAIO64-* -- install Gramps first." }
+if ($installs.Count -gt 1) { throw "$($installs.Count) Gramps runtimes are installed and this will not choose between them -- make the junction by hand, under the version folder the one you actually run uses." }
+$declared = Select-String -Path (Join-Path $installs[0].FullName "gramps\version.py") -Pattern '^VERSION_TUPLE\s*=\s*\(\s*(\d+)\s*,\s*(\d+)' | Select-Object -First 1
+if (-not $declared) { throw "$($installs[0].Name) declares no VERSION_TUPLE -- make the junction by hand." }
+$folder  = "gramps$($declared.Matches[0].Groups[1].Value)$($declared.Matches[0].Groups[2].Value)"
+if (-not (Test-Path "$env:APPDATA\gramps\$folder")) { throw "$env:APPDATA\gramps\$folder does not exist -- start Gramps once, then run this again." }
+$plugins = Join-Path "$env:APPDATA\gramps\$folder" "plugins"
 $link    = "$plugins\gramps-live-api"
 New-Item -ItemType Directory -Force $plugins | Out-Null
 if (Test-Path $link) {
@@ -89,20 +93,32 @@ if (Test-Path $link) {
 }
 ```
 
-⭐ **The version folder is found, not typed.** This used to hardcode `gramps60`,
-which is wrong the moment your Gramps is not 6.0 and gives no hint that it is —
-you would create a junction in a folder Gramps never reads.
+⭐ **The version folder is derived from the Gramps you run, not from the highest
+number present.** This used to hardcode `gramps60`, then it took the greatest
+`gramps<digits>` folder under `%APPDATA%\gramps` — and that is wrong whenever a
+machine carries more than one, which an upgrade leaves behind as a matter of
+course. The junction would go under the newest folder while an older Gramps is
+the one that launches, and nothing would say so.
 
-⚠️ **It matches `gramps` followed by digits, and that shape is deliberate.** It
-picks the version folder itself and then appends `plugins`, rather than looking
-for a `plugins` folder that already exists. **On a first-time setup there is no
-`plugins` directory yet** — Gramps creates the version folder before you have
-installed any addon — and a filter requiring one would match nothing, leaving the
-path as a bare `\plugins` at the drive root. `^gramps\d+$` also skips
-`grampsdb`, the sibling folder holding your trees.
+⭐ **So it asks the installation, and the installation answers in Gramps' own
+words.** It reads `VERSION_TUPLE` out of `gramps\version.py` inside the install
+and builds the folder name the way Gramps builds it — `gramps`, then the major
+and minor numbers, which is how `VERSION_DIR_NAME` is spelled in Gramps' own
+`gen/const.py`. **A folder name that happens to encode a version is not the
+version**, and the installer's naming is not a thing this project gets to depend
+on.
 
-⛔ **It stops with a message rather than guessing** if no version folder exists
-at all, which means Gramps has not been run yet.
+⚠️ **Two installations are refused rather than chosen between**, which is what
+the tool itself does: `config.discover_runtime` raises on a second runtime rather
+than sorting them, because a plain sort puts 6.0.9 above 6.0.11 and a version
+comparison is a thing to get wrong. If you have two, make the junction by hand
+under the one you run.
+
+⛔ **It stops with a message rather than guessing** at each step that can be
+unanswerable — no install, no declared version, or a version folder that does not
+exist yet because Gramps has never been started. The version folder is created by
+Gramps itself, on its first run, before you have installed any addon; `plugins`
+underneath it is ours to create, which is why only that one is forced.
 
 ⚠️ **Run it twice and it says so, rather than failing.** The first version of this
 step used a bare `New-Item`, which errors with *"an item with the specified name

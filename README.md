@@ -260,7 +260,7 @@ exactly what the server publishes.
   what that costs, and why the SDK anyway, is in [`docs/slice2-mcp.md`](docs/slice2-mcp.md).
 
 **Four active issues.** The rest are review findings nobody has hit, labelled `untriggered` and not
-scheduled — 66 of the 70 open. [`docs/STATUS.md`](docs/STATUS.md) ranks the four and says why the
+scheduled — 68 of the 72 open. [`docs/STATUS.md`](docs/STATUS.md) ranks the four and says why the
 66 are a decision rather than a backlog.
 
 ### What is tested, and against what
