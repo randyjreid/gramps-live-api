@@ -218,39 +218,53 @@ today keeps working unchanged.**
    not accept, so they are the two a lookup written slightly wrong would let
    through.
 
-9. **The writer resolves the name through `getattr`**, never a pinned integer —
-   the discipline `_event_type` and the apply shim already use. The package-side
-   validation is the real gate; this is the second line, and it exists because the
-   writer is reachable with a graph the package did not validate.
+9. ⛔ **The writer accepts a name only if it is a MEMBER of the accepted set** —
+   and then resolves it through `getattr` on the attribute name, never a pinned
+   integer, which is the discipline `_event_type` and the apply shim already use.
+   The package-side validation is the real gate; this is the second line, and it
+   exists because the writer is reachable with a graph the package did not
+   validate.
 
-   ⛔ **`getattr` on a class reaches more than that class's enumeration, and the
-   guard is four things, not one.** Verified against the installed `NoteType`:
+   ⭐ **The writer therefore inlines the twenty-seven accepted names, and a test
+   asserts that list equals the committed table's accepted set.** There is
+   precedent for the test: `tests/unit/test_attachable_bound.py` and
+   `test_write_summary.py` already import the writer **by path** with
+   `importlib.util.module_from_spec`, without Gramps. ⚠️ The writer
+   **deliberately does not import the package** (`writer.py:33`), so the list
+   cannot be shared at runtime — but a copy that a test binds to its source is not
+   the thing "no duplicate that nothing checks" forbids. **An unchecked copy is.**
 
-   | the guard | what it stops |
-   | --- | --- |
-   | `isinstance(name, str)`, **first of all** | `type: []` and `type: 42`. ⛔ A regex or `.upper()` applied to either raises `TypeError`/`AttributeError` — an uncontrolled failure where a refusal was promised — so this check has to come before the one below, not after it |
-   | the name matches `^[a-z][a-z0-9_]*$` **before** it is uppercased | `type: "_datamap"` → `_DATAMAP`, which is a **list**; `NoteType(list)` fails in an uncontrolled way rather than refusing by name |
-   | the resolved value `isinstance(value, int)` | the same class of thing, for any attribute a later Gramps adds. ⭐ **`_event_type` already does exactly this check** (`writer.py:140`) and criterion 9 omitted it |
-   | the value is not `CUSTOM` and not `UNKNOWN` | the two rows the table carries and does not accept |
+   ⛔ **This REVERSES what this criterion said for three revisions**, and the
+   reversal is the point rather than an embarrassment, so the reasoning is left
+   standing:
 
-   ⚠️ **The `isinstance` check alone is NOT sufficient, and that is the sharp
-   part.** `NoteType._DEFAULT` **is an int** — it equals `GENERAL` — so
-   `type: "_default"` passes `hasattr`, passes `isinstance`, is neither `CUSTOM`
-   nor `UNKNOWN`, and **silently writes a General note**. It is the name-shape
-   check that stops it, and a design carrying only the value checks would have
-   shipped a working alias nobody advertised. `_CUSTOM` is the same shape and is
-   caught twice.
+   > It said the writer needed no copy, because `getattr` plus a few refusals
+   > would do. Three consecutive review rounds each found a genuine, different
+   > hole in that list of refusals — `isinstance(value, int)` for `_DATAMAP`,
+   > which is a list; `isinstance(name, str)` for `type: []` and `type: 42`;
+   > `hasattr` for `type: "gossip"`, which resolves to nothing at all. Each fix
+   > was correct and each round found the next one.
 
-   ⭐ **The order of the four is load-bearing, not stylistic.** Each one is only
-   safe on a value the one above it has already accepted: the shape check assumes
-   a string, `getattr` assumes a plausible name, and the value checks assume
-   something `getattr` returned.
+   ⚠️ **That is a universally quantified negative over an unbounded space** —
+   *no attribute reachable by `getattr` produces an uncontrolled result* — and
+   this project's rule for that shape is to stop reviewing it and bound it
+   instead. **Membership in a twenty-seven-element set is bounded and closes.**
+   Every one of the three findings, and every one nobody has constructed yet, is
+   refused by the same single check, because none of those names is in the set.
 
-   ⭐ **No second table in the writer.** A two-entry spelling map was small enough
-   to inline; twenty-seven rows are not, and a copy is a tally that drifts. The
-   three guards above need no copy at all. ⚠️ The writer **deliberately does not
-   import the package** (`writer.py:33`), and this design respects that by not
-   requiring it to — which the previous revision's inlined map did not.
+   ⭐ **And the sharpest of the three is the argument against ever going back.**
+   `NoteType._DEFAULT` **is an int** — it equals `GENERAL` — so under the
+   exclusion list `type: "_default"` passed `hasattr`, passed
+   `isinstance(value, int)`, was neither `CUSTOM` nor `UNKNOWN`, and **silently
+   wrote a General note**: not a crash, a working undocumented alias. It was
+   stopped only by a name-shape rule added for an unrelated reason. ⛔ **A guard
+   list whose coverage of the worst case is incidental is not a guard.**
+
+   ⚠️ **`CUSTOM` and `UNKNOWN` need no special handling under membership**, and
+   adding it would suggest the set were not trusted. They are not in the accepted
+   set, so they are refused by the same check as `gossip`. Criterion 8's test
+   still names them, because they are the two rows the table carries and does not
+   accept, and that is worth a test that says so.
 
 10. ⛔ **The tool description advertises `type`, and it must.**
     `test_the_ADVERTISED_shape_is_exactly_what_the_parser_accepts` compares
