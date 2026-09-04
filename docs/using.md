@@ -121,8 +121,14 @@ lines with the one your Gramps actually uses — its version is in Gramps under
 
 ```powershell
 $plugins = "$env:APPDATA\gramps\gramps60\plugins"    # <- your version, not necessarily this one
+$link    = "$plugins\gramps-live-api"
 New-Item -ItemType Directory -Force $plugins | Out-Null
-New-Item -ItemType Junction -Path "$plugins\gramps-live-api" -Target "$PWD\gramps_plugin"
+if (Test-Path $link) {
+  "already there: $((Get-Item $link).Target)"
+} else {
+  New-Item -ItemType Junction -Path $link -Target "$PWD\gramps_plugin" | Out-Null
+  "created"
+}
 ```
 
 ⚠️ **Run it twice and it says so, rather than failing.** The first version of this
