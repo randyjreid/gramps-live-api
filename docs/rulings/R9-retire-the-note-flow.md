@@ -3,6 +3,8 @@
 **Ruled 2026-09-04.** This page records a decision. It is not a proposal and it is not argued again
 here.
 
+> Index: [`README.md`](README.md).
+
 ⚠️ **When ruled, nothing described below was removed.** The retirement is a build that has not run.
 What this page fixes is *that* it runs, what it may not take with it, and what has to exist first.
 
@@ -49,7 +51,7 @@ The pin's own comment names the tool it measured, and it is a live read:
 2.1.1  Error executing tool find_source
 ```
 
-`find_source` is one of the thirteen live reads, all of which survive this ruling. **Retiring the
+`find_source` is one of the fourteen live reads, all of which survive this ruling. **Retiring the
 note flow removes one caller of that refusal and none of the reads that need it.** Anyone reading the
 inventory and concluding the pin was protecting `propose_note` has it backwards.
 
@@ -107,7 +109,7 @@ operation is note flow only, and `NOTE_TYPES` stays by carve out 1.
 ## What this buys, and what it costs
 
 **Buys:** the only stale data path in the product goes, rather than being mitigated. Exactly two
-places read the export and both are note flow tools; the thirteen live reads and the document route
+places read the export and both are note flow tools; the fourteen live reads and the document route
 all go through the accessor against the tree Gramps has open. The only Windows only branch goes. One
 write route instead of two. Roughly 1,500 lines of first party code and their tests go. A new user no
 longer configures `export_path` or works out why one tool reads a snapshot.
