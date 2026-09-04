@@ -2,7 +2,21 @@
 
 **FULL tier.** It changes the graph schema and the writer, which is the
 publication-of-personal-data surface. ⛔ **Not built. This page is the
-deliverable, and it needs the owner's approval before anything is written.**
+deliverable.**
+
+## The ruling this page is written to
+
+⭐ **Support every built-in Gramps `NoteType` from the start** — not a
+hand-picked subset. ⛔ **Custom note types are refused.** An earlier revision of
+this page recommended the two-member closed set `{research, todo}` and argued for
+it; that recommendation is **superseded**, and its argument is kept below only
+where it still bears on a live decision.
+
+⚠️ **This inverts the recommendation, not the mechanism.** The reason the closed
+set was recommended — *an unknown type must be refused by name rather than
+silently becoming a custom type nobody was told about* — is unchanged, and is
+still exactly what this design does. What changed is which set is closed: a
+vocabulary of two that this project wrote, or the vocabulary Gramps declares.
 
 ## Why this exists
 
@@ -10,51 +24,134 @@ deliverable, and it needs the owner's approval before anything is written.**
 has and the document route does not is **a caller-chosen note type**.
 
 ⛔ **Retiring without this makes two note types unwritable.** So R9 and this page
-are ruled together, or R9's answer is *"retire — but first plan the thing that
-makes retiring safe"*, which is another round.
+are ruled together.
 
 ## What is true today, verified by reading and running
 
 | | |
 | --- | --- |
-| the note flow's types | `schema.NOTE_TYPES = frozenset({"research", "todo"})` |
-| how it spells them for Gramps | `apply.NOTE_TYPE_ATTRIBUTES = {"research": "RESEARCH", "todo": "TODO"}` — attribute **names**, never the integers, ⭐ **already asserted total over `NOTE_TYPES` by test** |
+| the note flow's types | `schema.NOTE_TYPES = frozenset({"research", "todo"})` (`schema.py:380`) |
+| how it spells them for Gramps | `apply.NOTE_TYPE_ATTRIBUTES = {"research": "RESEARCH", "todo": "TODO"}` (`apply.py:349`) — attribute **names**, never the integers, ⭐ **already asserted total over `NOTE_TYPES` by test** |
 | how the shim applies it | `gramps_plugin/gramps_live_api_apply.py:158` — `note.set_type(NoteType(getattr(NoteType, note_type)))` |
 | what the document route accepts | `NODE_KEYS["notes"] = {"text", "attach_to"}`, plus `gramps_id` for every group (`_only_known_keys:453`) |
 | what the document route writes | ⛔ `gramps_plugin/gramps_live_api_writer.py:527` — `note.set_type(NoteType(NoteType.TRANSCRIPT))`, **hardcoded, every note** |
 | what the preview shows | `+ Note:` and the text. ⛔ **No type at all** (`document.py:1313–1318`) |
 
-⭐ **Three types, no overlap.** `research` and `todo` cannot be written through
-the document route; `TRANSCRIPT` cannot be written through the note flow.
+## What Gramps actually declares — derived, not remembered
+
+Read from the installed runtime's `gramps/gen/lib/notetype.py`:
+
+| | |
+| --- | --- |
+| the installation declares | `VERSION_TUPLE = (6, 0, 8)`; the AIO build then overwrites `VERSION` to `AIO64-6.0.8--1` |
+| the file read | 4806 bytes, SHA-256 `c67cfc820a346bc0bb1ec0497494a781090e69c00df79c30d2c998ddbaa1d348` |
+
+`NoteType` declares its rows in **two lists that are concatenated**:
+
+| list | rows | what Gramps does with them |
+| --- | --- | --- |
+| `_DATAMAPREAL` | **12** | offered to a person in the ordinary way |
+| `_DATAMAPIGNORE` | **17** | ⭐ returned by `get_ignore_list`, which callers use to **keep them out of a type chooser** — they are the types Gramps assigns itself for a note belonging to a person, an event, a media object and so on |
+| `_DATAMAP` | **29** | `_DATAMAPREAL + _DATAMAPIGNORE`, and the class's actual vocabulary |
+
+**Two of the 29 are excluded, and neither is a judgement call:**
+
+- `CUSTOM` (0) — ⛔ the owner has ruled custom note types out, and this is the
+  door they would come through.
+- `UNKNOWN` (-1) — not a filing decision. It is what Gramps holds when it does
+  not know, and a caller choosing it is asking for the absence of a choice.
+
+⭐ **So the accepted vocabulary is 27**, every one of them a built-in the
+installed Gramps declares. Nothing is picked: two are excluded by a stated rule.
+
+### ⚠️ The derivation hazard, found the hard way
+
+A first pass over this file with a regex for `(NAME, _("Label"), "Key")` returned
+**27 rows and looked complete**. It was not. `TODO` and `LINK` are written
+`_("To Do", "notetype")` — the **two-argument** translation call, used where a
+word needs a disambiguating context — and the pattern skipped both. ⛔ **`todo`
+is one of the two types the whole note flow exists to write**, so the silent
+result of trusting that pass would have been a table that dropped the type this
+work is for, while looking like a full enumeration.
+
+**That is the argument for generating and committing the table** rather than
+writing one out: the failure was invisible in the output and obvious in a diff.
+
+### ⚠️ The key strings are NOT the attribute names
+
+| attribute | Gramps' key string |
+| --- | --- |
+| `SOURCE_TEXT` | `Source text` |
+| `REPORT_TEXT` | `Report` |
+| `HTML_CODE` | `Html code` |
+| `TODO` | `To Do` |
+| `PERSONNAME` | `Name Note` |
+
+The wire vocabulary is the **lowercased attribute name** — `source_text`,
+`report_text`, `html_code`, `todo` — because that is what `getattr` resolves and
+what `NOTE_TYPE_ATTRIBUTES` and `_event_type` already use. ⛔ **The key strings
+are recorded in the table and used by nothing**, deliberately: they are how
+Gramps spells these in XML and in its own interface, and a later reader comparing
+the two vocabularies should not have to re-derive them.
 
 ## Goal
 
-**A note proposed through the document route may carry a type, validated against
-the same closed set the note flow uses, shown in the preview, and written by the
-writer — and every graph that exists today keeps working unchanged.**
+**A note proposed through the document route may carry a `type`, validated
+against a committed table derived from the installed Gramps' own `NoteType`,
+shown in the preview, and written by the writer — and every graph that exists
+today keeps working unchanged.**
 
 ## Mechanically checkable acceptance criteria
 
-1. **`notes` accepts an optional `type`.** `NODE_KEYS["notes"]` gains `"type"`.
+1. **The table is generated and committed, the way this repository already does
+   it twice.** `scripts/derive_note_types.py` is stdlib-only, reads
+   `gramps/gen/lib/notetype.py` from a path given as an argument, and prints
+   `src/gramps_live_api/core/_note_types.py` on stdout, byte for byte. It emits
+   **no timestamp**, so re-running it over the same input reproduces the
+   committed file exactly. The committed module records the source's declared
+   version and its SHA-256, carries all **29** rows — attribute name, integer,
+   key string, and which of the two lists it came from — and names the **27**
+   that are accepted.
+
+   ⚠️ **This differs from the two existing frozen tables in one way that must be
+   stated rather than glossed.** `_unrenderable.py` and `_specified_containers.py`
+   derive from *published standards* fetched once by a human, and their
+   verification is *re-fetch, compare digest, re-run, diff*. This table's source
+   is **a runtime installed on a machine** — it varies per machine and CI has
+   none at all. The pattern still applies; the verification splits in two, and
+   criteria 2 and 3 are that split.
+
+2. ⛔ **The offline test never needs Gramps and always runs.** It asserts the
+   committed table is internally consistent — 29 rows, the two lists partition
+   them, `UNKNOWN` and `CUSTOM` excluded, the accepted set exactly the other 27,
+   no duplicate attribute name or integer — and that the parser validates against
+   **the table itself**, never a copy. ⚠️ **A literal list in the test would be a
+   second tally**, which is the counter bug this repository has already paid for.
+
+3. ⛔ **A Gramps-present test asserts the table still matches the installed
+   runtime, and SKIPS when there is none.** Same shape as
+   `tests/integration/test_round_trip.py:53`'s `runtime_or_skip()`. It re-reads
+   `notetype.py` from the discovered installation and asserts the committed rows
+   equal what it declares. On a mismatch it fails naming both digests and the
+   regeneration command, because the honest reading of a mismatch is *"this table
+   was derived from a different Gramps"* and the repair is to re-derive.
+
+   ⚠️ **A digest comparison alone must not be the assertion.** The digest moves on
+   any edit to that file, including ones touching no note type at all, so a
+   digest-only test fails on upgrades that change nothing this depends on. **The
+   rows are the property; the digest is provenance.**
+
+4. **`notes` accepts an optional `type`.** `NODE_KEYS["notes"]` gains `"type"`.
    A graph that omits it still parses.
 
-2. ⛔ **Validated against `schema.NOTE_TYPES` ITSELF, never a copy.** The test
-   imports the frozenset and drives the parametrisation from it, so a member
-   added there without the parser following fails. ⚠️ **A literal list in the
-   test would be a second tally**, which is the counter bug this repository has
-   already paid for.
-
-3. **Omitted means `TRANSCRIPT`.** ⭐ Asserted by a test that takes a graph with
+5. **Omitted means `TRANSCRIPT`.** ⭐ Asserted by a test that takes a graph with
    no `type` and shows the written type is unchanged from today's behaviour, so
    **every graph that exists now is unaffected**. This is the backward-compatible
-   half and it is the one most easily broken by a default landing in the wrong
-   place.
+   half, and the one most easily broken by a default landing in the wrong place.
 
-4. **The preview shows the type — ⛔ at BOTH render sites.** A type written but
+6. **The preview shows the type — ⛔ at BOTH render sites.** A type written but
    not rendered is a byte reaching the tree that was not shown in the approval,
-   which is the one property the whole document route exists to hold. The
-   rendered line names the type for a typed note and is unchanged for an untyped
-   one.
+   which is the one property the whole document route exists to hold.
 
    ⚠️ **There is no single note-rendering site, and assuming one is how this
    criterion would be half-met.** Verified:
@@ -65,50 +162,81 @@ writer — and every graph that exists today keeps working unchanged.**
    | **undrawn** notes | `document.py:1596–1602`, the leftovers loop | `Note      (attached to …):` then the text, under `ALSO WRITTEN` |
 
    ⛔ **A typed note whose edge is undrawn — attached to nothing, or to a node the
-   walk never reached — renders through the second site only.** Testing one
-   attached typed note would leave that path writing a chosen type the approval
-   never displayed. **Criterion 4 requires one typed note through each site.**
+   walk never reached — renders through the second site only.** **Criterion 6
+   requires one typed note through each site.**
 
-5. **The writer sets it**, through `getattr` on the attribute name, never a
-   pinned integer — the discipline `_event_type` and the apply shim already use.
-
-6. **A refused type names the set.** `type: "gossip"` is refused by name and the
+7. **A refused type names the set.** `type: "gossip"` is refused by name and the
    message lists what is accepted, in the shape `_only_known_keys` already uses.
-   ⚠️ **Refused, not silently coerced** — see the open question below for why
-   this is the whole argument.
+   ⛔ **Refused, never passed through to Gramps** — which is the opposite of the
+   choice `_event_type` makes, and the difference is deliberate. `_event_type`
+   turns an unrecognised word into a CUSTOM type carrying that word, and the
+   recorded cost is the owner's own: *"An unrecognised type silently creates a new
+   custom type in the tree and nothing tells me it's new."* An event type comes
+   off a document and its vocabulary is open in practice; a note's type is a
+   filing decision drawn from a list Gramps itself publishes.
 
-7. ⭐ **No duplicate that nothing checks.** If the writer carries its own copy of
-   the spelling map, a test asserts it equals `apply.NOTE_TYPE_ATTRIBUTES`.
-   **There is precedent**: `tests/unit/test_attachable_bound.py` and
-   `test_write_summary.py` already import the writer **by path** with
-   `importlib.util.module_from_spec`, without Gramps.
+8. ⛔ **`custom` and `unknown` are refused like any other unknown word**, and a
+   test names them specifically. They are the two rows the table carries and does
+   not accept, so they are the two a lookup written slightly wrong would let
+   through.
 
-8. ⛔ **The tool description advertises `type`, and it must.**
-   `test_the_ADVERTISED_shape_is_exactly_what_the_parser_accepts` compares
-   `PROPOSE_DOCUMENT_DESCRIPTION` against `NODE_KEYS` **in both directions** —
-   adding the key without advertising it fails that test, and it fails it for a
-   reason worth stating: *"a key the parser accepts but the description omits is
-   a capability nobody uses."*
+9. **The writer resolves the name through `getattr`**, never a pinned integer —
+   the discipline `_event_type` and the apply shim already use. ⛔ **And it
+   refuses a resolved value of `CUSTOM` or `UNKNOWN`.** The package-side
+   validation is the real gate; this is the second line, and it exists because the
+   writer is reachable with a graph the package did not validate.
 
-9. ⛔ **And it must fit the delivery budget, which is nearly full.** Measured
-   today: `PROPOSE_DOCUMENT_DESCRIPTION` is **2032 of 2048 characters — 16 spare.**
-   A description over budget is delivered **cut, mid-sentence**, and the model is
-   never told what fell past the cut.
+   ⭐ **No second table in the writer.** A two-entry spelling map was small enough
+   to inline; twenty-seven rows are not, and a copy is a tally that drifts.
+   `getattr` plus the two refusals needs no copy at all. ⚠️ The writer
+   **deliberately does not import the package** (`writer.py:33`), and this design
+   respects that by not requiring it to — which the previous revision's inlined
+   map did not.
 
-   | what is added to `notes: "text","attach_to"(ids)` | total | |
-   | --- | --- | --- |
-   | `,"type"` | 2040 | ⭐ fits, 8 spare |
-   | `,"type"?` | 2041 | fits, 7 spare |
-   | `,"type"(research\|todo)` | 2055 | ⛔ **over by 7** |
+10. ⛔ **The tool description advertises `type`, and it must.**
+    `test_the_ADVERTISED_shape_is_exactly_what_the_parser_accepts` compares
+    `PROPOSE_DOCUMENT_DESCRIPTION` against `NODE_KEYS` **in both directions**, so
+    adding the key without advertising it fails that test.
 
-   ⭐ **So the vocabulary cannot go in the description.** Advertise the key; let
-   **criterion 6's refusal** carry the values, which is where a caller meets them
-   anyway and which costs no budget at all.
+11. ⛔ **And it must fit the delivery budget, which is nearly full.** Measured:
 
-   ⚠️ **This is a real constraint on the design, not a formatting note.** If a
-   later change needs more than eight characters in that description, something
-   already in it has to come out, and what to remove is a judgement about what a
-   caller most needs — not a trim.
+    | | chars | |
+    | --- | --- | --- |
+    | `DESCRIPTION_BUDGET` | 2048 | |
+    | `PROPOSE_DOCUMENT_DESCRIPTION` today | 2032 | 16 spare |
+    | with `,"type"` added to `notes` | **2040** | ⭐ fits, 8 spare |
+
+    ⭐ **The vocabulary cannot go in the description.** It could not at two members
+    and it certainly cannot at twenty-seven. Advertise the key; let **criterion
+    7's refusal** carry the values, which is where a caller meets them anyway and
+    which costs no budget at all.
+
+    ⚠️ **This is a real constraint on the design, not a formatting note.** If a
+    later change needs more than eight characters there, something already in it
+    has to come out, and what to remove is a judgement about what a caller most
+    needs — not a trim.
+
+## What supersedes `NOTE_TYPES`, reference by reference
+
+⛔ **Not guesswork — this is every occurrence in the tree.**
+
+| where | what it is | what happens to it |
+| --- | --- | --- |
+| `schema.py:380` | `NOTE_TYPES = frozenset({"research", "todo"})` | **becomes the accepted set from the table.** The name stays: it is what `validate` reads and what the note flow's description interpolates |
+| `schema.py:549` | a docstring calling it "the type a field declares … ours rather than [Gramps']" | ⛔ **that sentence becomes false** and must be rewritten — the vocabulary is now Gramps' |
+| `schema.py:862, :868` | `if not note_type or note_type in NOTE_TYPES`, and the refusal naming `_one_of(NOTE_TYPES)` | unchanged in shape; the set behind them widens |
+| `apply.py:349` | `NOTE_TYPE_ATTRIBUTES`, two entries | ⭐ **stops being a hand-written map.** Name → attribute is `name.upper()` for every row and the table carries both, so it is derived from the table or dropped in favour of the table's own lookup |
+| `apply.py:358` | the docstring claiming it is asserted total over `NOTE_TYPES` | rewritten with whatever mechanism replaces it |
+| `apply.py:488` | `note_type=NOTE_TYPE_ATTRIBUTES[note.note_type]` | one lookup, retargeted |
+| `server.py:200` | `note_type must be one of: {schema._one_of(schema.NOTE_TYPES)}` in `PROPOSE_NOTE_DESCRIPTION` | ⭐ **fits.** Measured: that description is **1705** of 2048 today; the listed vocabulary goes from 14 characters to **249**, so it becomes **1940** — 108 spare |
+| `test_apply_operation.py:310–314` | asserts `NOTE_TYPES - set(NOTE_TYPE_ATTRIBUTES)` is empty | ⚠️ **watches nothing once the map is derived from the table** — a test that cannot fail. Replaced by criterion 3's assertion that every accepted attribute name exists on the installed `NoteType` |
+| `test_mcp_server.py:178–181, :310` | asserts every `NOTE_TYPES` member appears in the description, and in a refusal | unchanged, and now covers 27 |
+
+⚠️ **The R9 dependency, restated and now larger.** If R9 retires the note flow,
+`schema.NOTE_TYPES` **must not be deleted with it** — the document route now
+depends on it. R9's removal list names `core/proposals.py` and the `AddNote` parts
+of `core/schema.py`, and this constant sits inside that blast radius. **That is a
+line in R9's execution, not a surprise to discover afterwards.**
 
 ## Out of scope
 
@@ -117,74 +245,59 @@ writer — and every graph that exists today keeps working unchanged.**
 - Editing a note that already exists — the route attaches and creates, never
   modifies, and this does not change that.
 - Note types on anything but notes.
+- ⛔ **Custom note types**, in any form. Ruled out.
 
-## ⭐ Open question 1: whose vocabulary — `NOTE_TYPES`, or Gramps' `NoteType`?
+## ⭐ The one question the ruling does not settle
 
-**The event-type question already made this choice, one way, and I recommend
-NOT repeating it.**
+**Should the 17 `_DATAMAPIGNORE` types be accepted, or only the 12 in
+`_DATAMAPREAL`?**
 
-`_event_type` (`writer.py:130`) does `getattr(EventType, KEY)` against **Gramps'
-own class**, and anything unrecognised becomes a **CUSTOM type carrying the
-document's own word**. It defers to Gramps' vocabulary and never refuses.
+⛔ **This page takes the ruling literally and accepts all 27**, because "every
+built-in, not a hand-picked subset" reads most naturally as *everything the class
+declares that is a real filing decision*, and because the alternative asks this
+project to decide that a Gramps interface convention is also an API constraint.
 
-⛔ **That choice has a recorded cost, in the owner's own words:** *"An
-unrecognised type silently creates a new custom type in the tree and nothing
-tells me it's new."* It is the reason the shipped MCP prompt now carries an
-ask-first rule about event types.
+**But the question is live, and the argument on the other side is not weak:**
 
-⭐ **Recommendation: the closed set — `schema.NOTE_TYPES`, refusing by name.**
-
-| | closed set (recommended) | Gramps' `NoteType` via `getattr` |
+| | accept 27 (this page) | accept 10 (`_DATAMAPREAL` less the two) |
 | --- | --- | --- |
-| an unknown type | ⭐ **refused, naming what is accepted** | ⛔ silently becomes a custom type nobody was told about |
-| reuse | ⭐ `NOTE_TYPES` and `NOTE_TYPE_ATTRIBUTES` exist and are tested | a new resolver |
-| if R9 retires the note flow | ⚠️ **both constants must survive the retirement** — see below | nothing to keep |
-| cost | ⛔ a Gramps note type the user legitimately wants is unavailable | none |
+| what it is | everything declared | everything Gramps offers a person in a chooser |
+| ⭐ for | no judgement call; the ruling followed as written | the 17 are types Gramps assigns **itself** to record what a note hangs off — `Event Note` on a note attached to an event. A caller setting one by hand asserts something Gramps normally derives |
+| ⛔ against | a caller can put `Child Reference Note` on a note attached to a person, and Gramps will hold it | it is a subset, which is the thing the ruling refused — even though this subset is **derived** rather than picked |
+| cost of being wrong | a note carries an odd type; nothing is lost, and it is editable in Gramps | a type the owner legitimately wants is refused |
 
-**Why the closed set wins here and lost for events:** an event type comes off a
-document — a census says *Occupation*, a certificate says *Baptism* — and the
-vocabulary is open in practice. **A note's type is a filing decision with two
-useful answers**, and being told *"must be one of: research, todo"* is a better
-outcome than a tree quietly growing a type called `gossip`.
-
-⚠️ **The dependency this creates, stated plainly.** If R9 retires the note flow,
-`schema.NOTE_TYPES` and `apply.NOTE_TYPE_ATTRIBUTES` **must not be deleted with
-it**. R9's removal list names `core/proposals.py` and the `AddNote` parts of
-`core/schema.py`; these two constants are inside that blast radius and would have
-to be explicitly kept or moved. **That is a line in R9's execution, not a
-surprise to discover afterwards.**
-
-## Open question 2: where does the spelling map live for the writer?
-
-The writer **deliberately does not import the package** — *"the plugin must not
-depend on the package resolving on Gramps' `sys.path`"* (`writer.py:33`).
-
-⭐ **Recommendation: the writer inlines the two-entry map, and a test asserts it
-equals `apply.NOTE_TYPE_ATTRIBUTES`.** The inlining is the existing, reasoned
-pattern; the assertion is what stops it from being a duplicate nothing checks.
-
-⛔ **Rejected: resolving the type in the package before storing the proposal.**
-It would mean the stored graph is not the graph the agent sent, and the binding
-property — *the thing written is the thing that was approved* — rests on those
-being identical.
+⚠️ **Narrowing later is a one-line change to the derivation and re-derives
+nothing**, because the table records which list each row came from. That
+asymmetry is why this page defaults to the wider reading: it is the cheaper
+mistake to correct, and the record needed to correct it is already committed.
 
 ## Falsifier
 
-⛔ **If criterion 3 cannot be made to hold — if a default cannot be added without
-changing what an existing untyped graph writes — the design is wrong** and the
+⛔ **If criterion 5 cannot be made to hold — if a default cannot be added without
+changing what an existing untyped graph writes — the design is wrong**, and the
 type must be required rather than optional, which is a breaking change to the
 graph and needs its own ruling.
 
-⚠️ **And a smaller one worth naming.** If the preview cannot show the type
-without changing the rendering of untyped notes, criterion 4 collides with
-criterion 3, and the collision is the thing to bring back rather than to resolve
-by picking one.
+⚠️ **And a smaller one.** If the preview cannot show the type without changing the
+rendering of untyped notes, criterion 6 collides with criterion 5, and the
+collision is the thing to bring back rather than to resolve by picking one.
+
+⚠️ **And one this revision adds.** If the derivation cannot be made reproducible —
+if `notetype.py` cannot be parsed with the standard library alone into a table
+that regenerates byte-identically — then the frozen-table pattern does not
+transfer here, and the honest fallback is the closed set the previous revision
+recommended. ⛔ **Not a hand-written twenty-seven-row list.** That is the one
+outcome this page refuses, because it cannot be re-derived and diffed, and the
+`TODO`/`LINK` near-miss above is what a hand-written list looks like when it is
+wrong.
 
 ## Estimated shape
 
-Small, but **not as small as it first looked**. `NODE_KEYS` gains a key; one
-validation branch; ⛔ **two preview sites, not one**; one writer line; and the
-tests above, including one typed note through each render path.
+Larger than the previous revision, and in a different place. The route's own
+change is the same size — `NODE_KEYS` gains a key, one validation branch, two
+preview sites, one writer line. **What is added is the derivation**: a script, a
+committed table, and the two-part verification of criteria 2 and 3. The
+supersession of `NOTE_TYPES` touches nine sites, all enumerated above, and one of
+them is a docstring that currently asserts something the change makes untrue.
 
-⚠️ **The plan is FULL tier for what it touches, not for its size** — and the
-render-site count is the reason an estimate is not a plan.
+⚠️ **The plan is FULL tier for what it touches, not for its size.**
