@@ -6,10 +6,19 @@ root** and prints ``_note_types.py`` on standard output:
     python scripts/derive_note_types.py <installation root> \
         > src/gramps_live_api/core/_note_types.py
 
-⚠️ **On Windows, redirect through ``cmd /c``.** PowerShell's ``>`` rewrites the
-stream with a BOM and CRLF line endings, so a *correct* re-derivation fails the
-byte-for-byte check and looks like a defect. That is issue #47, and this script
-is the third thing it can bite.
+⚠️ **On Windows, redirect through ``cmd /c`` or a POSIX shell, never through
+PowerShell's ``>``.** Measured on this box: PowerShell prepends a UTF-8 BOM, so
+a *correct* re-derivation comes out 3 bytes longer and looks like a defect. That
+is issue #47, and this script is the third thing it can bite.
+
+⚠️ **And this script's output is CRLF on Windows however it is redirected**,
+which is Python's own stdout translation rather than anything a shell did.
+Measured: the same run produces 6276 bytes here and would produce 6143 on a
+platform that does not translate. That is not a defect either -- the repository
+is checked out with ``core.autocrlf``, so the committed file's working copy has
+CRLF too and the two agree. ⛔ **So compare the re-derivation against the file in
+the WORKING TREE, not against ``git show``**, which hands back the stored blob
+with the translation undone and reports every line as changed.
 
 ⚠️ **TWO files, and that is not an implementation detail.** The rows come from
 ``gramps/gen/lib/notetype.py``; the version comes from ``gramps/version.py``,
@@ -34,6 +43,10 @@ the installation, which skips where there is none.
 between runs over the same input. In particular it emits **no timestamp**: a
 derivation date is a fact about a run rather than about the runtime, and stamping
 one would make every re-derivation differ from the file it is checking.
+
+Verification is therefore: re-run over the same installation root, and diff
+against ``src/gramps_live_api/core/_note_types.py`` in the working tree. It was
+run that way when the committed table was made and the diff was empty.
 
 ⛔ **It FAILS CLOSED.** Any element of either declared list that it cannot read
 stops the run and names the line. Without this the whole scheme is decorative: a
