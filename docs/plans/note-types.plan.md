@@ -323,8 +323,14 @@ today keeps working unchanged.**
 
 5. **Omitted means `TRANSCRIPT`.** ⭐ Asserted by a test that takes a graph with
    no `type` and shows the written type is unchanged from today's behaviour, so
-   **every graph that exists now is unaffected**. This is the backward-compatible
-   half, and the one most easily broken by a default landing in the wrong place.
+   **every graph that exists now is written exactly as it is written today**.
+   This is the backward-compatible half, and the one most easily broken by a
+   default landing in the wrong place.
+
+   ⚠️ **This guarantee is about the WRITE, and deliberately not about the
+   RENDER.** Criterion 6 changes what an untyped note looks like in the approval,
+   which is a visible change for every graph that exists now. The reason is in
+   criterion 6 and the trade is stated there.
 
 6. **The preview shows the type — ⛔ at BOTH render sites.** A type written but
    not rendered is a byte reaching the tree that was not shown in the approval,
@@ -338,9 +344,29 @@ today keeps working unchanged.**
    | **attached** notes | `document.py:1313–1318`, inside the per-node walk | `+ Note:` then the text |
    | **undrawn** notes | `document.py:1596–1602`, the leftovers loop | `Note      (attached to …):` then the text, under `ALSO WRITTEN` |
 
-   ⛔ **A typed note whose edge is undrawn — attached to nothing, or to a node the
-   walk never reached — renders through the second site only.** **Criterion 6
+   ⛔ **A typed note whose edge is undrawn, attached to nothing or to a node the
+   walk never reached, renders through the second site only.** **Criterion 6
    requires one typed note through each site.**
+
+   ⛔ **And one UNTYPED note through each site, asserting the preview shows
+   `transcript`.** This is the case that a typed-only test cannot catch, and the
+   gap is not hypothetical: an implementation that renders the type only when the
+   `type` key is present passes every typed case above, while a note whose written
+   type is `TRANSCRIPT` shows no type at all in the approval. **That is a value
+   reaching the tree that the approval did not display**, which is the single
+   property this route exists to hold, and it would be reached by the most natural
+   way to write the rendering.
+
+   ⚠️ **This is the collision the falsifier below predicted, and it is resolved
+   here rather than left open.** The preview cannot show the effective type
+   without changing how untyped notes render, so **every existing untyped graph's
+   approval text changes**: where it read `+ Note:` it will name `transcript`.
+
+   ⭐ **Resolved in favour of showing what will be written**, because criterion
+   5's promise is about the written value and that value is unchanged, while the
+   alternative is an approval that displays less than the write performs. ⛔ **The
+   owner can overrule this**, and it is flagged rather than buried because it
+   changes what he sees in a dialog he already knows.
 
 7. **A refused type names the set.** `type: "gossip"` is refused by name and the
    message lists what is accepted, in the shape `_only_known_keys` already uses.
@@ -544,9 +570,14 @@ changing what an existing untyped graph writes — the design is wrong**, and th
 type must be required rather than optional, which is a breaking change to the
 graph and needs its own ruling.
 
-⚠️ **And a smaller one.** If the preview cannot show the type without changing the
-rendering of untyped notes, criterion 6 collides with criterion 5, and the
-collision is the thing to bring back rather than to resolve by picking one.
+⚠️ **And a smaller one, which has now happened.** The preview cannot show the
+effective type without changing how untyped notes render, so criterion 6 does
+collide with criterion 5. **It is resolved inside criterion 6**, in favour of the
+approval showing what the write will do, and the visible consequence is recorded
+there. It is written up rather than left as an open falsifier because the two
+criteria disagree only if criterion 5 is read as a promise about the render,
+which it is not. ⛔ **If the owner reads it that way, criterion 6 is the one that
+gives.**
 
 ⚠️ **And one from the build-time question above.** If the live vocabulary
 cannot be checked before the first object is written — if the only place the
