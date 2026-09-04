@@ -261,7 +261,7 @@ exactly what the server publishes.
 
 **Four active issues.** The rest are review findings nobody has hit, labelled `untriggered` and not
 scheduled — 68 of the 72 open. [`docs/STATUS.md`](docs/STATUS.md) ranks the four and says why the
-66 are a decision rather than a backlog.
+68 are a decision rather than a backlog.
 
 ### What is tested, and against what
 
