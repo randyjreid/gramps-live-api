@@ -46,8 +46,11 @@ Read from the installed runtime's `gramps/gen/lib/notetype.py`:
 
 | | |
 | --- | --- |
-| the installation declares | `VERSION_TUPLE = (6, 0, 8)`; the AIO build then overwrites `VERSION` to `AIO64-6.0.8--1` |
-| the file read | 4806 bytes, SHA-256 `c67cfc820a346bc0bb1ec0497494a781090e69c00df79c30d2c998ddbaa1d348` |
+| the installation declares, in `gramps/version.py` | `VERSION_TUPLE = (6, 0, 8)`; the AIO build then appends a second assignment overwriting `VERSION` to `AIO64-6.0.8--1` |
+| the rows file, `gramps/gen/lib/notetype.py` | 4806 bytes, SHA-256 `c67cfc820a346bc0bb1ec0497494a781090e69c00df79c30d2c998ddbaa1d348` |
+
+⚠️ **Two files, two digests.** The version is not in the file the rows come
+from, which criterion 1 turns into a requirement rather than a footnote.
 
 `NoteType` declares its rows in **two lists that are concatenated**:
 
@@ -213,7 +216,7 @@ contextual type at all.
 ⭐ **The 10 is the intersection**, and it is the only answer that holds without
 asking what the rest of the graph looks like.
 
-### ⭐ Recommended: keep the flat 10. The owner may widen it.
+### ⭐ The flat 10, and why widening was declined
 
 **What widening would buy:** a note attached to exactly one person could carry
 `person`, one attached to one event could carry `event`, and so on for `place`,
@@ -254,12 +257,29 @@ today keeps working unchanged.**
 ## Mechanically checkable acceptance criteria
 
 1. **The table is generated and committed, the way this repository already does
-   it twice.** `scripts/derive_note_types.py` is stdlib-only, reads
-   `gramps/gen/lib/notetype.py` from a path given as an argument, and prints
-   `src/gramps_live_api/core/_note_types.py` on stdout, byte for byte. It emits
-   **no timestamp**, so re-running it over the same input reproduces the
-   committed file exactly. The committed module records the source's declared
-   version and its SHA-256, carries all **29** rows — attribute name, integer,
+   it twice.** `scripts/derive_note_types.py` is stdlib-only, takes the path of
+   an **installation root**, and prints `src/gramps_live_api/core/_note_types.py`
+   on stdout, byte for byte. It emits **no timestamp**, so re-running it over the
+   same input reproduces the committed file exactly.
+
+   ⛔ **It reads TWO files, and that is not an implementation detail.** The rows
+   come from `gramps/gen/lib/notetype.py`; the version comes from
+   `gramps/version.py`, which is a different file, and `VERSION_TUPLE` is not
+   present in the first one at all. **A generator given only the rows file cannot
+   derive the version it claims to record**, so it would have to carry a typed
+   literal, and a table regenerated against a newer Gramps would keep the old
+   version while staying byte-reproducible and passing every row check. ⭐ **A
+   provenance field that looks derived and is actually typed is worse than no
+   field**, because the next reader trusts it.
+
+   ⚠️ **Record `VERSION_TUPLE`, not `VERSION`.** The all-in-one build appends a
+   second assignment at the end of `version.py` that overwrites the computed
+   `VERSION` with its own packaging string, so `VERSION` says what the installer
+   called the build and `VERSION_TUPLE` says what Gramps is. The script records
+   the tuple, and records the packaging string beside it when one is present.
+
+   **The committed module records the SHA-256 of BOTH files**, carries all **29**
+   rows — attribute name, integer,
    key string, and which of the two lists it came from — and names the **10**
    that are accepted. ⭐ **The accepted set is computed, not listed**, as
    `_DATAMAPREAL - {CUSTOM, UNKNOWN}`, so it cannot drift from the rows beside
@@ -309,9 +329,15 @@ today keeps working unchanged.**
    runtime, and SKIPS when there is none.** Same shape as
    `tests/integration/test_round_trip.py:53`'s `runtime_or_skip()`. It re-reads
    `notetype.py` from the discovered installation and asserts the committed rows
-   equal what it declares. On a mismatch it fails naming both digests and the
+   equal what it declares. On a mismatch it fails naming the committed and the
+   installed digest **for whichever of the two files differs**, along with the
    regeneration command, because the honest reading of a mismatch is *"this table
    was derived from a different Gramps"* and the repair is to re-derive.
+
+   ⭐ **It checks the version file too**, for the reason criterion 1 gives: the
+   rows can be identical across two releases while the declared version differs,
+   and a table claiming the wrong provenance is the failure that survives every
+   other check on this page.
 
    ⚠️ **A digest comparison alone must not be the assertion.** The digest moves on
    any edit to that file, including ones touching no note type at all, so a
@@ -505,11 +531,17 @@ line in R9's execution, not a surprise to discover afterwards.**
 - Note types on anything but notes.
 - ⛔ **Custom note types**, in any form. Ruled out.
 
-## ⭐ What is now the owner's to re-rule, if he wants to
+## ⭐ The set is confirmed at 10, and here is what was weighed against it
 
-**The set is settled at 10 and this page is written to it.** What is recorded
-here is the evidence that could reasonably move it, because it was found while
-confirming the mechanism and it does not all point the same way.
+⭐ **The owner confirmed the set at 10 on 2026-09-04**, after the two findings
+below were put to him. It is a ruling rather than this page's recommendation, so
+a later reader who wants to widen it is reopening a decision rather than
+finishing an open question.
+
+**What is recorded here is the evidence that argued the other way**, because it
+was found while confirming the mechanism, it does not all point one direction,
+and a ruling made against real counter-evidence is worth more when the
+counter-evidence is still legible.
 
 ⚠️ **The ruling's stated reason is satisfied by a wider set than its stated
 rule.** *A wrong type must be correctable* holds for all 27: an ignored type on a
