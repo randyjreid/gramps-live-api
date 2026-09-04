@@ -137,10 +137,18 @@ already has a Birth event, and a second one is not a correction -- attach the
 citation to the one that is there. Create a Birth event only for a person who
 has none.
 
-list_events RETURNS AT MOST 25 EVENTS, WITH NO PAGING AND NO TYPE FILTER. Its
-answer carries "capped" and "withheld". If capped is true, the Birth you are
-looking for may be among the withheld ones, and "returned no Birth" proves
-nothing: STOP and ask before creating one.
+EVERY LOOKUP THAT RETURNS ROWS IS CAPPED AT 25, WITH NO PAGING. list_events,
+find_people, find_source and find_citation all answer with "capped" and
+"withheld", and list_events has no type filter either. IF "capped" IS TRUE, WHAT
+YOU ARE LOOKING FOR MAY BE AMONG THE WITHHELD ROWS, AND AN ANSWER THAT DOES NOT
+CONTAIN IT PROVES NOTHING. Narrow the search and look again, or stop and ask.
+Never conclude a record is absent from a capped answer.
+
+Two places that bites hardest. The Birth you did not see may be withheld, so a
+capped list_events is not a reason to create a second one. And find_citation
+matches a page by TERM rather than exactly -- a page of "1" can fill all 25 rows
+with other pages while the exact one is withheld -- so a capped find_citation is
+not evidence the document has not been entered before.
 
 The approval dialog also shows what each attached person already
 holds, on an "already has:" line, but that is the reader's last check and not
