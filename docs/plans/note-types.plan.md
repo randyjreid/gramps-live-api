@@ -113,6 +113,29 @@ today keeps working unchanged.**
    key string, and which of the two lists it came from — and names the **27**
    that are accepted.
 
+   ⛔ **And it FAILS CLOSED on anything in those two lists it cannot parse.**
+   The script does not skip an element it does not recognise; it refuses to emit
+   a table at all and names the line. ⚠️ **Without this the whole scheme is
+   decorative**, and the `TODO`/`LINK` near-miss above is the proof: a parser
+   that silently skips what it does not recognise produces a table that is short
+   by exactly the rows nobody thought about, and **every check downstream still
+   passes** — criterion 2's count sees a self-consistent table, and criterion 3's
+   comparison sees the committed rows equal the parsed rows, because both sides
+   dropped the same row. The derivation is the only place this can be caught, so
+   it is the place that must refuse.
+
+   ⚠️ **A fixed expected count is not the guard either**, and writing `== 29`
+   would read like one. A later `notetype.py` that adds a thirtieth row in an
+   unrecognised shape leaves 29 parsed rows and passes. **The guard is that every
+   element of `_DATAMAPREAL` and `_DATAMAPIGNORE` was understood**, not that a
+   remembered number came back.
+
+   ⭐ **The script's own parser is tested against synthetic inputs** covering
+   every shape Gramps uses today — the one-argument `_("Label")` and the
+   two-argument `_("Label", "context")` — plus at least one shape it must reject.
+   ⚠️ These are fixtures written for the test, not a copy of the vocabulary, so
+   they are not a second tally.
+
    ⚠️ **This differs from the two existing frozen tables in one way that must be
    stated rather than glossed.** `_unrenderable.py` and `_specified_containers.py`
    derive from *published standards* fetched once by a human, and their
@@ -181,17 +204,32 @@ today keeps working unchanged.**
    through.
 
 9. **The writer resolves the name through `getattr`**, never a pinned integer —
-   the discipline `_event_type` and the apply shim already use. ⛔ **And it
-   refuses a resolved value of `CUSTOM` or `UNKNOWN`.** The package-side
+   the discipline `_event_type` and the apply shim already use. The package-side
    validation is the real gate; this is the second line, and it exists because the
    writer is reachable with a graph the package did not validate.
 
+   ⛔ **`getattr` on a class reaches more than that class's enumeration, and the
+   guard is three things, not one.** Verified against the installed `NoteType`:
+
+   | the guard | what it stops |
+   | --- | --- |
+   | the name matches `^[a-z][a-z0-9_]*$` **before** it is uppercased | `type: "_datamap"` → `_DATAMAP`, which is a **list**; `NoteType(list)` fails in an uncontrolled way rather than refusing by name |
+   | the resolved value `isinstance(value, int)` | the same class of thing, for any attribute a later Gramps adds. ⭐ **`_event_type` already does exactly this check** (`writer.py:140`) and criterion 9 omitted it |
+   | the value is not `CUSTOM` and not `UNKNOWN` | the two rows the table carries and does not accept |
+
+   ⚠️ **The `isinstance` check alone is NOT sufficient, and that is the sharp
+   part.** `NoteType._DEFAULT` **is an int** — it equals `GENERAL` — so
+   `type: "_default"` passes `hasattr`, passes `isinstance`, is neither `CUSTOM`
+   nor `UNKNOWN`, and **silently writes a General note**. It is the name-shape
+   check that stops it, which is why the guard is stated as three and why a
+   design that carried only the value checks would have shipped a working alias
+   nobody advertised. `_CUSTOM` is the same shape and is caught twice.
+
    ⭐ **No second table in the writer.** A two-entry spelling map was small enough
-   to inline; twenty-seven rows are not, and a copy is a tally that drifts.
-   `getattr` plus the two refusals needs no copy at all. ⚠️ The writer
-   **deliberately does not import the package** (`writer.py:33`), and this design
-   respects that by not requiring it to — which the previous revision's inlined
-   map did not.
+   to inline; twenty-seven rows are not, and a copy is a tally that drifts. The
+   three guards above need no copy at all. ⚠️ The writer **deliberately does not
+   import the package** (`writer.py:33`), and this design respects that by not
+   requiring it to — which the previous revision's inlined map did not.
 
 10. ⛔ **The tool description advertises `type`, and it must.**
     `test_the_ADVERTISED_shape_is_exactly_what_the_parser_accepts` compares
