@@ -190,6 +190,21 @@ today keeps working unchanged.**
 
 7. **A refused type names the set.** `type: "gossip"` is refused by name and the
    message lists what is accepted, in the shape `_only_known_keys` already uses.
+
+   ⛔ **And `type` must BE a string, checked before anything is done with it.**
+   The graph arrives as JSON and the parser today checks a node is an object with
+   known keys, so `type: []` and `type: 42` are both reachable. `document.py`
+   already applies exactly this check to three other leaves — `local` (`:708`),
+   `source_id` (`:733`) and `referenced` (`:758`) — and this is the fourth.
+
+   ⚠️ **Write the default as ABSENCE OF THE KEY, never as falsiness.** The
+   natural spelling — `if not value or value in TABLE` — is the shape
+   `schema._note_type_unknown` uses today, and it is safe there only because
+   `_text` has already coerced. Copied here without that coercion it reads
+   `type: []` and `type: 0` as **omitted** and silently writes `TRANSCRIPT`,
+   which is a chosen value becoming a default without anybody being told. ⛔ A
+   present `type` that is not a string is **refused**; only an absent one
+   defaults.
    ⛔ **Refused, never passed through to Gramps** — which is the opposite of the
    choice `_event_type` makes, and the difference is deliberate. `_event_type`
    turns an unrecognised word into a CUSTOM type carrying that word, and the
@@ -209,10 +224,11 @@ today keeps working unchanged.**
    writer is reachable with a graph the package did not validate.
 
    ⛔ **`getattr` on a class reaches more than that class's enumeration, and the
-   guard is three things, not one.** Verified against the installed `NoteType`:
+   guard is four things, not one.** Verified against the installed `NoteType`:
 
    | the guard | what it stops |
    | --- | --- |
+   | `isinstance(name, str)`, **first of all** | `type: []` and `type: 42`. ⛔ A regex or `.upper()` applied to either raises `TypeError`/`AttributeError` — an uncontrolled failure where a refusal was promised — so this check has to come before the one below, not after it |
    | the name matches `^[a-z][a-z0-9_]*$` **before** it is uppercased | `type: "_datamap"` → `_DATAMAP`, which is a **list**; `NoteType(list)` fails in an uncontrolled way rather than refusing by name |
    | the resolved value `isinstance(value, int)` | the same class of thing, for any attribute a later Gramps adds. ⭐ **`_event_type` already does exactly this check** (`writer.py:140`) and criterion 9 omitted it |
    | the value is not `CUSTOM` and not `UNKNOWN` | the two rows the table carries and does not accept |
@@ -221,9 +237,14 @@ today keeps working unchanged.**
    part.** `NoteType._DEFAULT` **is an int** — it equals `GENERAL` — so
    `type: "_default"` passes `hasattr`, passes `isinstance`, is neither `CUSTOM`
    nor `UNKNOWN`, and **silently writes a General note**. It is the name-shape
-   check that stops it, which is why the guard is stated as three and why a
-   design that carried only the value checks would have shipped a working alias
-   nobody advertised. `_CUSTOM` is the same shape and is caught twice.
+   check that stops it, and a design carrying only the value checks would have
+   shipped a working alias nobody advertised. `_CUSTOM` is the same shape and is
+   caught twice.
+
+   ⭐ **The order of the four is load-bearing, not stylistic.** Each one is only
+   safe on a value the one above it has already accepted: the shape check assumes
+   a string, `getattr` assumes a plausible name, and the value checks assume
+   something `getattr` returned.
 
    ⭐ **No second table in the writer.** A two-entry spelling map was small enough
    to inline; twenty-seven rows are not, and a copy is a tally that drifts. The
