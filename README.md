@@ -159,6 +159,34 @@ runtime, the plugin, and the push hook. It never contacts a running host — and
 `lock` file as a **failure**, because a locked tree is one Gramps is holding, and it will not break
 that lock. **Run it with the tree CLOSED.** `docs/using.md` explains what each answer means.
 
+## Compatibility
+
+**This is a stdio MCP server built on the official Python SDK.** Which clients it
+has actually been used with, and which it has not, stated separately — ⛔ **no
+client is claimed here that nobody has run.**
+
+| client | status |
+| --- | --- |
+| **Claude Code** | ⭐ **used throughout development.** Every example in these docs is this client. |
+| **Codex CLI 0.146.0** | ⭐ **tested.** `codex mcp add <name> -- <python> -m gramps_live_api_mcp` registers it as a stdio server; the tool is discovered and invoked, and returns the server's own envelope. |
+
+⚠️ **Codex needs its sandbox opened, or the first call fails and reads like a
+broken server.** Under its defaults — `sandbox: read-only`, `approval: never` —
+the call is auto-denied with `user cancelled MCP tool call`, which says nothing
+about MCP and everything about the sandbox. Grant approvals for the call, or run
+with a sandbox that permits it.
+
+⛔ **Two things about Codex are NOT known**, because they were not measured:
+whether it truncates tool descriptions at the same 2,048 characters Claude Code
+does — the budget in the code was measured against Claude Code only — and whether
+it surfaces MCP **prompts**, which is how this server ships its getting-started
+guidance.
+
+**Other clients, by protocol only.** MCP's own documentation names Claude,
+ChatGPT, VS Code, Cursor and MCPJam. A client that supports local stdio servers
+should register this one with its own equivalent of the command above. ⛔ **None
+of them has been run against this server, so none is claimed.**
+
 ## What the agent can do
 
 Nineteen tools, in three groups.
@@ -232,8 +260,8 @@ exactly what the server publishes.
   what that costs, and why the SDK anyway, is in [`docs/slice2-mcp.md`](docs/slice2-mcp.md).
 
 **Four active issues.** The rest are review findings nobody has hit, labelled `untriggered` and not
-scheduled — 64 of the 68 open. [`docs/STATUS.md`](docs/STATUS.md) ranks the four and says why the
-64 are a decision rather than a backlog.
+scheduled — 68 of the 72 open. [`docs/STATUS.md`](docs/STATUS.md) ranks the four and says why the
+68 are a decision rather than a backlog.
 
 ### What is tested, and against what
 
