@@ -344,6 +344,43 @@ nothing**, because the table records which list each row came from. That
 asymmetry is why this page defaults to the wider reading: it is the cheaper
 mistake to correct, and the record needed to correct it is already committed.
 
+## ⚠️ Build-time question: the table is frozen, the runtime is not
+
+**Raised in review and verified.** The committed table is derived from one
+Gramps. The plugin registers against **whichever Gramps is running** —
+`gramps_plugin/gramps_live_api_host.gpr.py` sets
+`MODULE_VERSION = f"{VERSION_TUPLE[0]}.{VERSION_TUPLE[1]}"` from
+`gramps.version`, deliberately and with its reason recorded there: a pinned
+literal stops matching the day Gramps updates and the plugin silently stops
+being registered. **So there is no version wall, and nothing in criteria 1–9
+puts one there.**
+
+⛔ **The failure that follows, named exactly.** If a later Gramps renames or
+removes a built-in note type, a name in the frozen table is validated by the
+package, passes the writer's membership check — and then `getattr` finds nothing
+on the live class. **That happens after the owner approved the document**, which
+is the one moment this route exists to make safe. Criterion 3's test is the only
+thing watching for the drift, and it is a test: it can be skipped, and it does
+not run at all on the machine doing the writing at the moment it writes.
+
+⚠️ **This is recorded as a question for the build rather than specified here**,
+and that is a deliberate call under this project's own rule: a finding that would
+make the plan grow a new proof obligation, about behaviour of code nobody has
+written, is cheaper and more accurately answered by the build than by another
+round of specification. The three candidate answers are not equally costly and
+choosing between them needs the code:
+
+| | what it costs |
+| --- | --- |
+| **a live check before anything is written** — the writer compares its inlined names against the running `NoteType` once, and refuses the **whole document** with a message naming the drift | the honest one, and the only one that cannot fail after approval. Costs a startup or per-write pass over 27 names |
+| **a supported-version wall** in the document path | contradicts the registration decision above, which exists precisely so the plugin does not stop working on upgrade |
+| **accept it**, on the argument that built-in note types have been stable for many releases | free, and it is a claim about Gramps' future that this project cannot check |
+
+⭐ **What is NOT acceptable is the current implied behaviour** — the drift
+surfacing as an `AttributeError` partway through a write the owner has already
+approved. Whichever answer the build takes, the failure must be a refusal of the
+whole document, before any object is created.
+
 ## Falsifier
 
 ⛔ **If criterion 5 cannot be made to hold — if a default cannot be added without
@@ -354,6 +391,13 @@ graph and needs its own ruling.
 ⚠️ **And a smaller one.** If the preview cannot show the type without changing the
 rendering of untyped notes, criterion 6 collides with criterion 5, and the
 collision is the thing to bring back rather than to resolve by picking one.
+
+⚠️ **And one from the build-time question above.** If the live vocabulary
+cannot be checked before the first object is written — if the only place the
+drift can be detected is partway through the write — then the document route
+cannot keep its binding property under a Gramps it was not derived against, and
+**that is a fact for the owner rather than something the build resolves by
+picking an option.**
 
 ⚠️ **And one this revision adds.** If the derivation cannot be made reproducible —
 if `notetype.py` cannot be parsed with the standard library alone into a table
