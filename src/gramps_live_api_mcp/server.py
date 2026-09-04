@@ -455,7 +455,7 @@ omitting it is how you create a new record.
 
  people: "id","gramps_id?","given","surname","gender"
  places: "id","gramps_id?","title"
- events: "id","gramps_id?","type","date","role","place"(1 id),"people"(ids),
+ events: "id","gramps_id?","type","date","role","place"(1 id),"people"(ids or objects),
          "family"(1 id),"description"(free text: occupation, relation to head)
  source: "id","gramps_id?","title","author","pubinfo"
  citations: "id","source"(1 id),"page","attach_to"(ids)
