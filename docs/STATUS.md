@@ -71,12 +71,15 @@ and only the first can be answered from that directory.
 **Four issues are active.** The ranking below is by what it costs to leave the issue alone —
 correctness first, then hygiene.
 
-⚠️ **This page said eight on 2 September.** Four of those closed: the deletion-only push gate
+⚠️ **This page said eight on 2 September.** Five of those have closed and one new one was filed, which is why the count below is four again. The five: the deletion-only push gate
 ([#193](https://github.com/randyjreid/gramps-live-api/issues/193)), the `propose_note` handle
 ([#64](https://github.com/randyjreid/gramps-live-api/issues/64)), the history walk
 ([#57](https://github.com/randyjreid/gramps-live-api/issues/57)) and the rules-digest defect
-([#204](https://github.com/randyjreid/gramps-live-api/issues/204)) — **the last two as *dropped*,
-not as done.** See what was retired, below.
+([#204](https://github.com/randyjreid/gramps-live-api/issues/204)) — **two of those as *dropped*,
+not as done** — and the hand-maintained test counts
+([#36](https://github.com/randyjreid/gramps-live-api/issues/36)), closed by an outside
+contribution. The one filed since is [#218](https://github.com/randyjreid/gramps-live-api/issues/218),
+which is what #36's replacement does not yet check. See what was retired, below.
 
 ⚠️ **This is a snapshot.** A row means the issue is open, not that nobody has started it. The tracker
 is what is current; this page says what the ranking was on the date at the top.
@@ -86,11 +89,11 @@ is what is current; this page says what the ranking was on the date at the top.
 | 1 | [#173](https://github.com/randyjreid/gramps-live-api/issues/173) — the SDK pin that holds refusal reasons open | ⚠️ **Not a live defect — an upgrade blocker.** SDK 2.1.1 discards a refusal's reason, so `private` and `not found` become one answer at the transport, and that distinction is what ruling 1 is about. A `<2.1` pin holds the floor and a test fails if it is relaxed. The pin is a stopgap; the fix is to stop depending on the SDK to carry a reason. |
 | 2 | [#168](https://github.com/randyjreid/gramps-live-api/issues/168) — role and description are flattened onto the event | Gramps models role per participant; the proposal cannot say so, so two people at one event arrive indistinguishable. |
 | 3 | [#76](https://github.com/randyjreid/gramps-live-api/issues/76) — duplicate eventref handles are counted twice | Produces a warning about an ambiguity that does not exist, which teaches the reader to skip warnings. |
-| 4 | [#36](https://github.com/randyjreid/gramps-live-api/issues/36) — hand-maintained test counts go stale | A documented number that once matched is the worst kind of stale, because it reads as considered. |
+| 4 | [#218](https://github.com/randyjreid/gramps-live-api/issues/218) — the acceptance-count check does not assert every count was paired | The check that replaced the hand-maintained counts asserts that *some* counts parsed, not that every `**N tests**` statement was matched to a path. A statement written in an unrecognised shape is silently unwatched, which is the failure the check exists to prevent. |
 
 ## What is deliberately not planned
 
-⭐ **Sixty-six of the seventy open issues are labelled
+⭐ **Sixty-eight of the seventy-two open issues are labelled
 [`untriggered`](https://github.com/randyjreid/gramps-live-api/issues?q=is%3Aopen+label%3Auntriggered),
 and leaving them there is a decision, not a backlog that got away.**
 
