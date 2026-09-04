@@ -42,6 +42,7 @@ from types import MappingProxyType
 from typing import Protocol
 
 from gramps_live_api import __version__
+from gramps_live_api.core import _note_types
 from gramps_live_api.core.schema import (
     AddNote,
     ObjectRef,
@@ -346,7 +347,13 @@ TARGET_OBJECT_TYPE = "person"
 OPERATION_TYPE = "add_note"
 """The one operation this slice writes. See ``UnsupportedOperation``."""
 
-NOTE_TYPE_ATTRIBUTES: Mapping[str, str] = MappingProxyType({"research": "RESEARCH", "todo": "TODO"})
+NOTE_TYPE_ATTRIBUTES: Mapping[str, str] = MappingProxyType(
+    {
+        attribute.lower(): attribute
+        for attribute, _value, _key, _declared_in in _note_types.NOTE_TYPE_ROWS
+        if attribute.lower() in _note_types.ACCEPTED_NOTE_TYPES
+    }
+)
 """``schema.NOTE_TYPES`` in the spelling ``gramps.gen.lib.NoteType`` uses.
 
 ⚠️ **Attribute NAMES rather than the integers behind them.** Gramps publishes
@@ -355,9 +362,22 @@ values are an implementation detail this repository has no business pinning, and
 a renumbering would silently file every note under the wrong type. Looked up
 with ``getattr`` in the shim, so a rename fails loudly there instead.
 
-Asserted **total over ``schema.NOTE_TYPES``** by test: a note type ``validate``
-accepts and this cannot spell would reach the owner as a ``KeyError`` at a
-terminal.
+⛔ **DERIVED from the frozen table, and it used to be two entries typed here.**
+Two was tractable to maintain by hand and ten is not, so the map now reads the
+same rows the accepted set is computed from. ⭐ **Keyed off the accepted set
+rather than recomputing the exclusion**, so there is one place that decides which
+types are accepted and this is not a second one.
+
+⚠️ **The spelling is the TABLE'S attribute name, not ``name.upper()``.** Those
+agree for all twenty-nine rows today and a test asserts they still do, but a map
+built by upper-casing would be asserting its own arithmetic rather than reading
+what Gramps declares.
+
+⚠️ **The old totality test is gone and this is where it went.** It asserted
+``NOTE_TYPES - set(NOTE_TYPE_ATTRIBUTES)`` was empty, which cannot fail once both
+sides come from one table: a test that cannot fail watches nothing. What the
+totality actually rests on now is that every accepted attribute name exists on
+the INSTALLED ``NoteType``, which needs Gramps and is asserted where Gramps is.
 """
 
 

@@ -30,7 +30,36 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from gramps_live_api.core._note_types import ACCEPTED_NOTE_TYPES
 from gramps_live_api.host import paths
+
+NOTE_TYPES: frozenset[str] = ACCEPTED_NOTE_TYPES
+"""⛔ What a note's ``type`` may be. **The frozen table itself, never a copy.**
+
+Derived from the installed Gramps' own ``NoteType``: the rows of
+``_DATAMAPREAL`` less ``CUSTOM`` and ``UNKNOWN``, which is exactly the set a user
+is offered wherever a note sits. ⚠️ **The other nineteen are refused BY NAME
+rather than passed through**, which is the opposite of what ``_event_type`` does
+for events and is deliberate: an event type comes off a document and its
+vocabulary is open in practice, while a note's type is a filing decision drawn
+from a list Gramps itself publishes.
+
+⚠️ **This is the same object as ``schema.NOTE_TYPES``**, and a test asserts the
+identity rather than the equality. Importing it here rather than importing
+``schema`` keeps this module's one dependency on the package a data module with
+nothing in it to run.
+"""
+
+DEFAULT_NOTE_TYPE = "transcript"
+"""⛔ What a note with no ``type`` is written as. **Unchanged from today.**
+
+The writer has always written ``TRANSCRIPT`` for every note it created, so every
+graph that exists now is written exactly as it is written now. ⚠️ **That promise
+is about the WRITE and deliberately not about the RENDER**: the preview now names
+this type on an untyped note, which is a visible change to the approval text for
+every existing graph, and it is the honest end of the rule that nothing reaches
+the tree unshown.
+"""
 
 MAX_GRAPH_BYTES = 512 * 1024
 """A document's findings, not a tree import. Large enough for a dense census

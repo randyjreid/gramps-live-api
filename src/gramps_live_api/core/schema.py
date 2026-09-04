@@ -32,6 +32,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import TypeVar, get_args, get_type_hints
 
+from gramps_live_api.core._note_types import ACCEPTED_NOTE_TYPES
 from gramps_live_api.core._unrenderable import UNRENDERABLE_RANGES
 
 # ---------------------------------------------------------------------------
@@ -377,8 +378,26 @@ what a reviewer checks that against, which is why an empty one fails.
 # Asserted by test.
 
 
-NOTE_TYPES: frozenset[str] = frozenset({"research", "todo"})
-"""What a note is for. Closed, and a member of it is a PHASE_1 rule."""
+NOTE_TYPES: frozenset[str] = ACCEPTED_NOTE_TYPES
+"""What a note is for. Closed, and a member of it is a PHASE_1 rule.
+
+⛔ **THE TABLE ITSELF, never a copy of it.** This was two names typed out here,
+and it is now the set derived from the installed Gramps' own ``NoteType``: the
+rows of ``_DATAMAPREAL`` less ``CUSTOM`` and ``UNKNOWN``. ⚠️ **Bound by identity
+rather than by equality in the test that checks it**, because two equal sets are
+one edit away from being two different sets, and two mechanisms for one property
+drifting apart is this repository's most-recorded defect class.
+
+⭐ **The set is TEN and that is a ruling, not a recommendation.** The property it
+implements is the owner's: *the tool may write only note types a user can select
+and edit in Gramps' own interface*, so that a wrong one can be corrected by hand.
+The ten are exactly the types offered wherever a note sits; the other nineteen
+are offered only in their own object's tab, or are not a filing decision at all.
+
+⚠️ **The name stays**, and it is load-bearing: ``validate`` reads it and the note
+tool's description interpolates it. If the note flow is ever retired, this
+constant must not be retired with it -- the document route now depends on it.
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -546,9 +565,17 @@ class RuleViolation:
     genealogical data will live once this vocabulary is in use.
 
     **The module's own vocabulary may be named** -- ``OBJECT_TYPES``,
-    ``NOTE_TYPES``, the type a field declares. That is ours rather than the
-    caller's, and naming what *is* permitted is what makes a violation
-    actionable while leaking nothing. Do not instead truncate, redact or
+    ``NOTE_TYPES``, the type a field declares. That is a CLOSED SET THIS MODULE
+    HOLDS rather than anything the caller sent, and naming what *is* permitted is
+    what makes a violation actionable while leaking nothing.
+
+    ⚠️ **This used to say those sets were "ours rather than Gramps'", and that
+    sentence became false.** ``NOTE_TYPES`` is now derived from the installed
+    Gramps' own ``NoteType`` rather than invented here. It changes nothing about
+    the rule: what makes a set safe to name is that it is fixed and known before
+    any payload arrives, not who first wrote it down.
+
+    Do not instead truncate, redact or
     fingerprint the rejected value: a truncated payload is still payload, and a
     redaction mechanism here would be a second, weaker copy of one ``pii_guard``
     already owns.

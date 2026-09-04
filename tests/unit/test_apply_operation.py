@@ -307,14 +307,31 @@ def test_an_operation_that_is_not_well_formed_never_reaches_the_tree(tmp_path: P
 def test_every_note_type_the_schema_allows_has_a_gramps_spelling() -> None:
     """The mapping is total, or an operation ``validate`` passes cannot be written.
 
-    ⚠️ **Asserted over ``schema.NOTE_TYPES`` rather than written out**, so a
-    third note type fails here instead of failing at a terminal in front of the
-    owner with a ``KeyError``.
-    """
-    missing = sorted(schema.NOTE_TYPES - set(apply.NOTE_TYPE_ATTRIBUTES))
+    ⚠️ **This test used to assert ``NOTE_TYPES - set(NOTE_TYPE_ATTRIBUTES)`` was
+    empty, and that stopped being able to fail.** Both sides now come from one
+    frozen table, so set subtraction over them is arithmetic about a single
+    object, and **a test that cannot fail watches nothing.**
 
-    assert missing == [], (
-        f"validate accepts these note types and the write cannot spell them: {missing}"
+    ⭐ So the totality is asserted where it can still be wrong: the map's keys are
+    the accepted set, and each value is the attribute name the table records
+    rather than a capitalisation this test performed for itself. The half that
+    genuinely needs checking -- that every one of those attribute names exists on
+    the INSTALLED ``NoteType`` -- needs Gramps, and is asserted in
+    ``tests/integration/test_note_types_drift.py``, where it skips without one.
+    """
+    assert set(apply.NOTE_TYPE_ATTRIBUTES) == set(schema.NOTE_TYPES), (
+        "validate accepts a note type the write cannot spell, or the other way "
+        f"round: {sorted(set(apply.NOTE_TYPE_ATTRIBUTES) ^ set(schema.NOTE_TYPES))}"
+    )
+
+    unspellable = sorted(
+        wire_name
+        for wire_name, spelling in apply.NOTE_TYPE_ATTRIBUTES.items()
+        if spelling != wire_name.upper()
+    )
+    assert unspellable == [], (
+        "these note types are spelled by the table in a way the writer's own "
+        f"getattr would not reach: {unspellable}"
     )
 
 
