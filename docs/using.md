@@ -77,15 +77,8 @@ from Gramps' user plugin folder to this checkout — **from the checkout root**,
 $folders = @(Get-ChildItem "$env:APPDATA\gramps" -Directory -ErrorAction SilentlyContinue |
              Where-Object { $_.Name -match '^gramps\d+$' })
 if ($folders.Count -eq 0) { throw "No gramps<version> folder under $env:APPDATA\gramps -- start Gramps once, then run this again." }
-if ($folders.Count -eq 1) { $folder = $folders[0].Name } else {
-  $installs = @(Get-ChildItem "$env:ProgramFiles\GrampsAIO64-*" -Directory -ErrorAction SilentlyContinue |
-                Where-Object { Test-Path (Join-Path $_.FullName "grampsd.exe") })
-  if ($installs.Count -ne 1) { throw "$($folders.Count) version folders under $env:APPDATA\gramps, and $($installs.Count) installations in the usual place -- make the junction by hand, under the version folder the Gramps you actually run uses." }
-  $declared = Select-String -Path (Join-Path $installs[0].FullName "gramps\version.py") -Pattern '^VERSION_TUPLE\s*=\s*\(\s*(\d+)\s*,\s*(\d+)' | Select-Object -First 1
-  if (-not $declared) { throw "$($installs[0].Name) declares no VERSION_TUPLE -- make the junction by hand." }
-  $folder = "gramps$($declared.Matches[0].Groups[1].Value)$($declared.Matches[0].Groups[2].Value)"
-}
-$plugins = Join-Path "$env:APPDATA\gramps\$folder" "plugins"
+if ($folders.Count -gt 1) { throw "More than one version folder under $env:APPDATA\gramps ($($folders.Name -join ', ')) and this will not choose between them -- see the two lines below." }
+$plugins = Join-Path $folders[0].FullName "plugins"
 $link    = "$plugins\gramps-live-api"
 New-Item -ItemType Directory -Force $plugins | Out-Null
 if (Test-Path $link) {
@@ -96,41 +89,41 @@ if (Test-Path $link) {
 }
 ```
 
-⭐ **One version folder is not a choice, so it is not treated as one.** This used
-to hardcode `gramps60`, then it took the greatest `gramps<digits>` folder under
-`%APPDATA%\gramps` — and ranking them is wrong whenever a machine carries more
-than one, which an upgrade leaves behind as a matter of course: the junction
-lands under the newest while an older Gramps is the one that launches, and
-nothing says so. **The ambiguity only exists when there are two**, so the common
-case takes the single folder and never looks at where Gramps is installed —
-which matters for anyone whose Gramps is not in the usual place.
+⭐ **One version folder is not a choice; two are, and it refuses to make it.**
+This used to hardcode `gramps60`, then it ranked the `gramps<digits>` folders and
+took the greatest. Ranking is wrong whenever a machine carries more than one,
+which an upgrade leaves behind as a matter of course: the junction lands under
+the newest while an older Gramps is the one that launches, and nothing says so.
 
-⭐ **When there really are two, it asks the installation, and the installation
-answers in Gramps' own words.** It reads `VERSION_TUPLE` out of
-`gramps\version.py` inside the install and assembles the folder name the way
-Gramps assembles `VERSION_DIR_NAME` in its own `gen/const.py` — `gramps`, then
-the major and minor numbers. **A folder name that happens to encode a version is
-not the version**, and the installer's naming is not a thing this project gets to
-depend on.
+⛔ **So with two or more it stops and names them**, which is the discipline
+`config.discover_runtime` already applies to runtimes — it raises rather than
+sorting, because a plain sort puts 6.0.9 above 6.0.11 and a version comparison is
+a thing this project would then own and get wrong. **The cost is one manual step
+in a case most machines never reach**, and it is written out immediately below.
 
-⚠️ **Two installations are refused rather than chosen between**, which is what
-the tool itself does: `config.discover_runtime` raises on a second runtime rather
-than sorting them, because a plain sort puts 6.0.9 above 6.0.11 and a version
-comparison is a thing to get wrong.
-
-⛔ **Where it cannot know, it stops and says so** rather than guessing — no
-version folder at all, an ambiguity it cannot resolve, or an installation that
-declares no version. In each case, make the junction by hand under the version
-folder your Gramps uses: it is the one `New-Item -ItemType Junction` line above,
-and nothing else on this page depends on how the folder was found.
-
-⚠️ **A Gramps installed somewhere else entirely is normal** — `gramps_runtime`
-further down exists for exactly that — and it needs nothing special here, because
-the single-folder path never asks where Gramps lives.
+⚠️ **This refusal replaced a derivation, deliberately.** An earlier version of
+this snippet resolved the ambiguity by finding the installation and reading
+`VERSION_TUPLE` out of its own `version.py`. That worked, and it was correct, and
+it drew a genuine defect in review every time it was touched — a first-time setup
+with no `plugins` folder, a nonstandard install location, then a machine with an
+unrelated leftover installation in the usual place. **The machinery existed to
+save one person one line of typing, and it cost four rounds.** A refusal has no
+such surface. ⭐ **A Gramps installed anywhere at all is fine now**, because
+nothing here asks where Gramps lives.
 
 ⚠️ The version folder is created by Gramps itself, on its first run, before you
 have installed any addon; `plugins` underneath it is ours to create, which is why
 only that one is forced.
+
+**If it stopped because you have more than one version folder**, run these two
+lines with the one your Gramps actually uses — its version is in Gramps under
+*Help → About*:
+
+```powershell
+$plugins = "$env:APPDATA\gramps\gramps60\plugins"    # <- your version, not necessarily this one
+New-Item -ItemType Directory -Force $plugins | Out-Null
+New-Item -ItemType Junction -Path "$plugins\gramps-live-api" -Target "$PWD\gramps_plugin"
+```
 
 ⚠️ **Run it twice and it says so, rather than failing.** The first version of this
 step used a bare `New-Item`, which errors with *"an item with the specified name
