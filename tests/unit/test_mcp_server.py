@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import io
+import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -54,6 +55,7 @@ if importlib.util.find_spec("mcp") is None:  # pragma: no cover - the extra is i
 
 from gramps_live_api import cli, config, invocation  # noqa: E402
 from gramps_live_api.core import apply, people, proposals, schema  # noqa: E402
+from gramps_live_api.host import document  # noqa: E402
 from gramps_live_api_mcp import server as mcp_server  # noqa: E402
 from tests.fixtures import synthetic  # noqa: E402
 from tests.fixtures.trees import blessed  # noqa: E402
@@ -905,3 +907,66 @@ def test_a_family_event_is_advertised_where_a_caller_will_read_it() -> None:
     assert "cannot be filled through propose_document" not in (
         mcp_server.LIST_FAMILY_EVENTS_DESCRIPTION
     ), "the family-events lookup still tells callers the gap cannot be filled"
+
+
+# ---------------------------------------------------------------------------
+# The getting-started prompt. A stranger has no CLAUDE.md, and the server
+# exposed tools only -- so the knowledge a caller needs to avoid making
+# duplicates in somebody's tree travelled with the owner, not with the tool.
+# ---------------------------------------------------------------------------
+
+
+def test_the_getting_started_prompt_is_listed(tmp_path: Path) -> None:
+    """⛔ Listed, not merely defined. A prompt no client can enumerate is not shipped."""
+    listed = asyncio.run(mcp_server.build_server(tools(tmp_path)).list_prompts())
+
+    assert [prompt.name for prompt in listed] == [mcp_server.GETTING_STARTED_PROMPT]
+
+
+def test_the_prompt_names_the_graph_groups_the_code_actually_accepts() -> None:
+    """⛔ Asserted against the frozenset, so the two cannot drift apart.
+
+    ⚠️ A prompt listing a group the parser refuses -- or omitting one it accepts
+    -- teaches a caller to write a graph that is rejected by name, which is the
+    failure this text exists to prevent.
+    """
+    after = mcp_server.GETTING_STARTED.split("The graph's groups are exactly:")[1]
+    listed = after.split(".")[0]
+    named = {word.strip() for word in listed.split(",")}
+
+    assert named == set(document.GROUPS), (
+        f"the prompt names {sorted(named)} but the parser accepts {sorted(document.GROUPS)}"
+    )
+
+
+def test_the_prompt_sends_callers_only_to_tools_that_exist() -> None:
+    """⛔ A prompt that names a tool the server does not expose is worse than silence.
+
+    ⚠️ Matched on this server's own verb prefixes rather than on "has an
+    underscore", so field names like ``gramps_id`` are not mistaken for tools
+    and a renamed tool cannot hide behind the difference.
+    """
+    prefixes = ("find_", "list_", "propose_", "approve", "tree_", "changed_")
+    words = set(re.findall("[a-z_]{4,}", mcp_server.GETTING_STARTED))
+    tool_shaped = {word for word in words if word.startswith(prefixes)}
+
+    assert tool_shaped, "the prompt names no tools at all, so this test watches nothing"
+    assert tool_shaped <= mcp_server.TOOL_NAMES, (
+        f"the prompt names tools the server does not expose: "
+        f"{sorted(tool_shaped - mcp_server.TOOL_NAMES)}"
+    )
+
+
+def test_the_prompt_says_nothing_about_the_note_flow(tmp_path: Path) -> None:
+    """⛔ Document route only.
+
+    ⚠️ The note flow reads an exported snapshot, and pointing a new caller at it
+    is pointing them at data that can be older than the tree. It is also the
+    thing under review for retirement; a prompt that taught it would have to be
+    unpicked.
+    """
+    text = mcp_server.GETTING_STARTED
+
+    assert "propose_note" not in text
+    assert "note_type" not in text
+    assert "approve\n" not in text and " approve " not in text

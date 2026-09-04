@@ -92,6 +92,94 @@ answers *shown*, not *written* -- the outcome is learned by looking at Gramps.""
 
 SERVER_NAME = "gramps-live-api"
 
+GETTING_STARTED_PROMPT = "getting_started"
+"""The name of the prompt below, used by the test that asserts it is listed."""
+
+GETTING_STARTED = """Read this before proposing anything into a Gramps tree through this server.
+
+SAY WHICH TREE YOU ARE IN, FIRST. Call tree_name before anything else and say
+the name back to the person you are working with. More than one tree on a
+machine can be writable, so counts alone never identified one, and a proposal
+aimed at the wrong tree is a write somebody has to undo. If the name is not the
+tree you were told to work in, STOP AND ASK.
+
+*** LOOK IT UP BEFORE YOU CREATE. An id you did not look up is a duplicate you
+will make. person -> find_people. place -> find_place. source -> find_source.
+family -> find_families. A person's OWN events (birth, death, census) ->
+list_events. A COUPLE's events (MARRIAGE, divorce) sit on the FAMILY, on neither
+spouse -> find_families then list_family_events. list_events never returns
+one. ***
+
+Use find_people, not list_people. find_people searches the tree that is open
+now. list_people reads an exported snapshot, which can be older than the tree.
+
+A CITATION IS ALWAYS CREATED, NEVER ATTACHED TO. Citations cannot carry a
+gramps_id, and every citation you send is written as a new one. So before
+proposing a document whose source already exists, call find_citation with the
+source and the page: if that page is already cited on that source, the document
+has been entered before -- do not propose it again.
+
+AN EMPTY RESULT IS NOT PROOF OF ABSENCE. A search that returns nothing may mean
+the spelling differs, or the record is marked private and deliberately out of
+reach. Say what you searched for and what came back; do not conclude the person
+is not there.
+
+*** ONE LOCAL ID PER RECORD. Two local ids carrying one "gramps_id" are REFUSED.
+A document naming one person twice -- head of household, then a relationship
+column -- is ONE person, one local id. Listing one local id twice in a list is
+fine. ***
+
+ONE CENSUS EVENT PER PERSON. A census page lists a household; each person in it
+gets their own Census event, not one event shared between them.
+
+BEFORE PROPOSING AN EVENT, CALL list_events ON THAT PERSON. Almost everyone
+already has a Birth event, and a second one is not a correction -- attach the
+citation to the one that is there. Create a Birth event only for a person who
+has none.
+
+EVERY LOOKUP THAT RETURNS ROWS IS CAPPED AT 25, WITH NO PAGING. list_events,
+find_people, find_source and find_citation all answer with "capped" and
+"withheld", and list_events has no type filter either. IF "capped" IS TRUE, WHAT
+YOU ARE LOOKING FOR MAY BE AMONG THE WITHHELD ROWS, AND AN ANSWER THAT DOES NOT
+CONTAIN IT PROVES NOTHING. Narrow the search and look again, or stop and ask.
+Never conclude a record is absent from a capped answer.
+
+Two places that bites hardest. The Birth you did not see may be withheld, so a
+capped list_events is not a reason to create a second one. And find_citation
+matches a page by TERM rather than exactly -- a page of "1" can fill all 25 rows
+with other pages while the exact one is withheld -- so a capped find_citation is
+not evidence the document has not been entered before.
+
+The approval dialog also shows what each attached person already
+holds, on an "already has:" line, but that is the reader's last check and not
+your first: they are reading a whole household at once, and you are looking at
+one person before the proposal exists.
+
+IF THE DOCUMENT DISAGREES WITH WHAT THE TREE RECORDS, that is two sources
+disagreeing. Say so and stop. It is research, not a fix, and a second event is
+not how it gets resolved.
+
+ASK BEFORE USING AN EVENT TYPE YOU HAVE NOT SEEN IN THIS TREE. An unrecognised
+type does not fail -- it silently creates a NEW CUSTOM TYPE carrying whatever
+word you sent, and nothing reports that it is new. Use the types the tree
+already uses, and ask about anything else.
+
+ALWAYS SUPPLY A SOURCE. A fact with no citation is a fact nobody can check
+later. The graph takes one "source" object and citations that attach to what it
+supports.
+
+A MARRIAGE GOES ON THE FAMILY: give the event "family", and give it a LOCAL id
+-- the id you invented in this graph, not a Gramps ID. An event with only
+"people" lands on them, which is wrong for a marriage.
+
+DATES: write "abt 1877" for an approximate year. Do NOT write "1877?" -- "?" is
+not in Gramps' vocabulary and the date will not parse.
+
+The graph's groups are exactly: people, places, events, source, citations,
+families, notes. Any other top-level key is refused by name.
+"""
+
+
 CREATE_NEW_CONSOLE = 0x00000010
 """``subprocess.CREATE_NEW_CONSOLE``, spelled out rather than imported.
 
@@ -1071,6 +1159,17 @@ def build_server(tools: Tools) -> MCPServer:
     @server.tool(name="approve", description=APPROVE_DESCRIPTION)
     def approve(proposal_id: str, approval_digest: str) -> dict[str, object]:
         return tools.approve(proposal_id, approval_digest)
+
+    @server.prompt(
+        name=GETTING_STARTED_PROMPT,
+        description=(
+            "Read this first. What a new caller needs to avoid creating duplicates "
+            "in somebody's family tree: which tree you are in, what to look up "
+            "before creating anything, and what not to propose twice."
+        ),
+    )
+    def getting_started() -> str:
+        return GETTING_STARTED
 
     return server
 
