@@ -56,6 +56,23 @@ def installation_or_skip() -> Path:
 
     ⚠️ **The root, not the runtime.** ``discover_runtime`` answers with the
     executable, and the two files this reads sit beside it rather than inside it.
+
+    ⛔ **Two skips, not one, because there are two ways to have nothing to
+    compare against.** The runtime may be absent, which is CI; or it may be
+    present with its sources somewhere else, which is an ordinary Linux install
+    where the launcher is dropped into a ``bin`` directory on PATH while the
+    package lives under a ``dist-packages`` directory belonging to the system
+    interpreter. ``Path(runtime).parent`` is the root of the all-in-one
+    Windows build and of nothing else, and this file supports being pointed at
+    any runtime through ``GRAMPS_LIVE_API_RUNTIME``.
+
+    ⭐ **The layout is not widened to admit that install, and deliberately.**
+    Adding the Linux one invites conda, flatpak, homebrew, portable builds and
+    pip installs, which is an open set with no fixed point and, unlike a frozen
+    table, cannot be re-derived and diffed. What the second skip does instead is
+    say exactly what it looked for and where, so a reader can tell *no Gramps
+    here* from *Gramps is here and this does not know its shape* and can point
+    the derivation script at the right root by hand.
     """
     found = os.environ.get(config.ENV_RUNTIME) or config.discover_runtime(os.environ)
     if found is None or not os.path.isfile(found):
@@ -72,7 +89,39 @@ def installation_or_skip() -> Path:
             " -- neither of which can see a Gramps that moved underneath it, and "
             "nothing can on a runner with no Gramps on it."
         )
-    return Path(found).parent
+
+    root = Path(found).parent
+    looked_for = [relative for _, relative in derivation().INSTALLATION_FILES]
+    missing = [relative for relative in looked_for if not (root / relative).is_file()]
+    if missing:
+        # ⛔ Joined HERE rather than inside the call below.
+        #
+        # ⚠️ ``test_every_skip_names_a_seam_twin_that_exists`` reads a skip's text
+        # with a non-greedy match up to the first ``)``, so a ``join`` inside the
+        # call hands that test a message truncated before the twins it names, and
+        # the coverage claim then reads as absent rather than as made.
+        wanted = ", ".join(looked_for)
+        absent = ", ".join(missing)
+        pytest.skip(
+            f"a Gramps runtime IS on this machine -- {found} -- but the two source "
+            "files this reads are not laid out beside it, so there is still nothing "
+            "here to compare the committed note-type table against. The root derived "
+            f"from that runtime is {root}; under it this looked for {wanted}; what is "
+            f"absent is {absent}. ⚠️ That is NOT the same as no Gramps at all: it is a "
+            "layout this test does not know, which is expected wherever the launcher "
+            "and the package are installed apart from each other, as on an ordinary "
+            "Linux install. ⛔ The layouts are deliberately not enumerated here, so "
+            "pointing this at such an install SKIPS rather than fails. What is still "
+            "covered is that the committed table is internally consistent and that "
+            "everything reading it reads that table, by the seam twins "
+            "test_the_table_carries_every_row_of_both_lists_and_nothing_else"
+            " and "
+            "test_the_schema_vocabulary_IS_the_table_and_not_a_copy"
+            " -- and a drifted type is refused at write time by both write routes "
+            "rather than only here. To check the table against THIS installation, "
+            f"re-derive it against the root that does hold {wanted}: {REGENERATE}"
+        )
+    return root
 
 
 def derivation() -> ModuleType:
@@ -93,7 +142,13 @@ def derivation() -> ModuleType:
 
 
 def _sources(root: Path) -> dict[str, tuple[str, bytes]]:
-    """Each labelled source file as ``(path within the installation, bytes)``."""
+    """Each labelled source file as ``(path within the installation, bytes)``.
+
+    ⚠️ **The assertion below is an invariant, not the layout check.** A root that
+    holds neither file is answered by ``installation_or_skip``, which is where a
+    missing source becomes a skip; reaching this one means a file that was there
+    when the root was accepted is not there now.
+    """
     found = {}
     for label, relative in derivation().INSTALLATION_FILES:
         path = root / relative
@@ -211,3 +266,48 @@ def test_every_ACCEPTED_type_exists_on_the_installed_NoteType_class() -> None:
         "membership check would pass, and getattr would find nothing AFTER the owner "
         f"approved the document: {missing}\n    {REGENERATE}"
     )
+
+
+def test_a_runtime_whose_ROOT_HOLDS_NO_SOURCES_skips_rather_than_failing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """⛔ The layout assumption is a SKIP condition, not a failure.
+
+    ⚠️ ``Path(runtime).parent`` is the installation root **on the all-in-one
+    Windows build**, where the launcher sits beside the ``gramps`` package. It is
+    not the root on an ordinary Linux install, where the launcher goes into a
+    ``bin`` directory and the sources go under a ``dist-packages`` directory
+    somewhere else entirely. This file's own contract is that it skips when it
+    cannot see an installation, so a runtime it cannot read the sources beside is
+    that same case rather than a defect in the table.
+
+    ⭐ **And the message must tell the two skips apart.** *No Gramps here* and
+    *Gramps is here, laid out some other way* call for different actions from a
+    reader, so the second names the runtime it was handed, the root it derived
+    from it, and each relative path it went looking for.
+
+    A temporary file stands in for the launcher, so this runs on every machine,
+    including a runner with no Gramps at all.
+    """
+    launcher = tmp_path / "gramps"
+    launcher.write_text("not a real launcher", encoding="utf-8")
+    monkeypatch.setenv(config.ENV_RUNTIME, str(launcher))
+
+    with pytest.raises(pytest.skip.Exception) as refused:
+        installation_or_skip()
+
+    message = str(refused.value)
+    assert str(launcher) in message, (
+        f"the skip must name the runtime it was given, so a reader knows which "
+        f"one was mislocated; got {message!r}"
+    )
+    assert str(tmp_path) in message, (
+        f"the skip must name the root it derived, which is the assumption that "
+        f"did not hold; got {message!r}"
+    )
+    for _, relative in derivation().INSTALLATION_FILES:
+        assert relative in message, (
+            f"the skip must name {relative}, since what it looked for is how a "
+            f"reader tells a differently laid out Gramps from no Gramps at all; "
+            f"got {message!r}"
+        )
