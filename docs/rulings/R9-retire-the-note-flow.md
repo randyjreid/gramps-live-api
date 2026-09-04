@@ -1,4 +1,4 @@
-# R9 — Retire the note flow
+# R9: retire the note flow
 
 **Ruled 2026-09-04.** This page records a decision. It is not a proposal and it is not argued again
 here.
@@ -11,8 +11,14 @@ What this page fixes is *that* it runs, what it may not take with it, and what h
 ## The ruling
 
 **The note flow is retired.** `propose_note` and `approve` go, and with them the export reader, the
-spawned console, `export_path`, and the export staleness check. The document route becomes the only
-write path.
+spawned console, `export_path`, and the export staleness check. **The document route becomes the only
+write path an agent can reach.**
+
+⛔ **Not the only write path in the product, and the earlier wording of this sentence said so
+wrongly.** `gramps_live_api apply` stays. It reads an operation file and writes it into the blessed
+copy directly, without `propose_note` and without `approve`, and it is a local command rather than an
+agent surface. ⚠️ **It also survives `AddNote` going**, because `schema` registers two operations and
+the other one, `AddCitation`, is reachable only from that command. See the non goals below.
 
 ⛔ **Retirement does not run until note types are on `main`.** The one capability the note flow has
 that the document route lacks is a caller chosen note type, and removing the flow before that
@@ -48,7 +54,24 @@ The pin's own comment names the tool it measured, and it is a live read:
 note flow removes one caller of that refusal and none of the reads that need it.** Anyone reading the
 inventory and concluding the pin was protecting `propose_note` has it backwards.
 
-### 3. The round trip integration test is PORTED, not deleted
+### 3. `core/proposals.py` is NOT deleted wholesale. The document route runs on it
+
+The inventory below lists "the proposal store" against `core/proposals.py`, and reading that as
+"delete the file" **stops the surviving route from starting.** Verified in
+`src/gramps_live_api_mcp/server.py`: `propose_document` and `approve_document` use
+`proposals.store_directory`, `proposals.new_session`, `proposals._ID`, `proposals.ProposalNotFound`
+and `proposals.claim_document`, and the tool object builds a `proposals.Store` from
+`proposals.store_directory`.
+
+⛔ **So the shared helpers either stay where they are or move BEFORE the note specific store is
+removed**, and the document route moves with them in the same change. Which of the module is note
+only is a question for the removal build to answer by reading, not by assuming the filename.
+
+⚠️ **This is the sharpest item on the page.** It is the one carve out whose omission would not show up
+as a lost capability or a failing edge case: the document route would simply not work, having been
+broken by a deletion aimed at something else.
+
+### 4. The round trip integration test is PORTED, not deleted
 
 `tests/integration/test_round_trip.py` is **the only automated coverage against a real Gramps
 database**: a throwaway database, a real `DbTxn`, a real write, verified from a second fresh process.
@@ -74,7 +97,7 @@ hint about where to look, never an instruction about what to cut.
 | `export_path` | `src/gramps_live_api/config.py`: the `_KEYS` entry, the `Settings` field, the `load` wiring, and `ENV_EXPORT` |
 | the export staleness check | `src/gramps_live_api/cli.py`, inside `check` |
 | the export reader | `src/gramps_live_api/core/people.py`, the whole file |
-| the proposal store, and `AddNote` | `core/proposals.py` whole, and the `AddNote` parts of `core/schema.py` |
+| `AddNote`, and the note only parts of the proposal store | the `AddNote` parts of `core/schema.py`, and the note specific parts of `core/proposals.py`. ⛔ **Not that file whole. See carve out 3** |
 | the CLI console `approve` | `src/gramps_live_api/cli.py` |
 | the doc passages explaining why one tool differs | `docs/using.md`, `docs/slice2-mcp.md`, and the README tool groups |
 
@@ -96,6 +119,20 @@ longer configures `export_path` or works out why one tool reads a snapshot.
   weaker of the two is what remains.
 - Typed notes survive only because note types move first. **That is the precondition, and it is the
   reason this ruling has one.**
+
+## ⛔ Explicit non goals
+
+**The CLI operation surface stays**, and this ruling does not touch it. `gramps_live_api preview` and
+`gramps_live_api apply` read an operation file, and `schema` registers two operations: `AddNote`,
+which goes, and `AddCitation`, which is reachable from nowhere else and stays.
+
+⚠️ **The removal build must therefore check what those commands say about themselves.** Any help
+text, documentation or error message implying that an operation file means a note becomes wrong the
+moment `AddNote` goes, while the command itself keeps working for citations.
+
+⭐ **Whether `AddCitation` and the CLI operation path still earn their surface is a separate
+question**, of the same shape as the one this page answers, and it is not answered here. Folding it in
+would be deciding it without screening it.
 
 ## What this does not settle
 
