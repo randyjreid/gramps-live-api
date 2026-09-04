@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from gramps_live_api.core import apply, schema
-from tests.fixtures.trees import MOMENT, FakeTree, blessed
+from tests.fixtures.trees import MOMENT, NOTE_TYPE_VALUES, FakeTree, blessed
 
 OPERATION = schema.AddNote(
     target=schema.ObjectRef(object_type="person", handle="a1b2c3d4e5f607", gramps_id="I0044"),
@@ -302,6 +302,108 @@ def test_an_operation_that_is_not_well_formed_never_reaches_the_tree(tmp_path: P
         run(copy, tree, unregistered)
 
     assert tree.records_on_disk() == []
+
+
+# ---------------------------------------------------------------------------
+# ⛔ A note type the running Gramps cannot resolve, refused BEFORE the record
+#
+# ⚠️ **The regression this branch introduced.** ``schema.NOTE_TYPES`` was
+# ``{research, todo}`` -- two names Gramps has declared for many releases -- and
+# is now ten, so the shim's unguarded ``getattr(NoteType, ...)`` inherited a risk
+# the flow did not have. Left alone it raises **after the owner approved**, and
+# an undo record then describes a write that never happened, which is a record
+# somebody would try to reverse by hand.
+#
+# ⭐ The document route already refuses on the same drift, in
+# ``gramps_live_api_writer._note_types_or_refuse``. This is that property on the
+# other route, and the assertion that carries it is *no undo record afterwards*.
+# ---------------------------------------------------------------------------
+
+SPELLING = apply.NOTE_TYPE_ATTRIBUTES[OPERATION.note_type]
+"""The attribute name the write will reach for. ⛔ Read, never spelled here."""
+
+
+def a_gramps_without(*attributes: str) -> dict[str, object]:
+    """The committed vocabulary with those attribute names removed.
+
+    ⚠️ **This is a later Gramps, simulated the only way a runner with no Gramps
+    can simulate one.** The shim asks the live class; the fake asks this.
+    """
+    gone = set(attributes)
+    return {name: value for name, value in NOTE_TYPE_VALUES.items() if name not in gone}
+
+
+def test_a_note_type_the_running_gramps_no_longer_declares_leaves_NO_undo_record(
+    tmp_path: Path,
+) -> None:
+    """⛔ The point of the fix, and the absence of the journal entry IS the point.
+
+    ⚠️ A refusal that still journalled would be the defect in a politer costume:
+    the write does not happen, and a record saying it was about to sits in the
+    undo directory for somebody to act on later.
+    """
+    copy = blessed(tmp_path / "tree")
+    tree = FakeTree(tmp_path / "tree", note_type_values=a_gramps_without(SPELLING))
+
+    with pytest.raises(apply.NoteTypeDrifted) as refusal:
+        run(copy, tree)
+
+    assert tree.records_on_disk() == [], (
+        "an undo record was written for a note that was never written, so the "
+        f"journal now describes a write that did not happen: {tree.records_on_disk()}"
+    )
+    assert "transaction opened" not in tree.events, (
+        f"the transaction opened over a type the write cannot spell; saw {tree.events}"
+    )
+    assert tree.written == []
+    assert SPELLING in str(refusal.value) or OPERATION.note_type in str(refusal.value), (
+        f"the refusal does not name the type that has gone: {refusal.value}"
+    )
+
+
+@pytest.mark.parametrize("instead", ([1, 2], True, "RESEARCH", None, 3.5))
+def test_a_note_type_that_resolves_to_something_that_is_not_an_INTEGER_is_refused(
+    tmp_path: Path, instead: object
+) -> None:
+    """⛔ Absence is not the only drift, and the other shapes are not exotic.
+
+    ⚠️ ``NoteType`` carries ``_DATAMAP``, which is a **list**, so a class whose
+    attribute of that name became a container is a shape Gramps already has. And
+    ``True`` is the one an ``isinstance(value, int)`` written on its own lets
+    through: ``bool`` is a subclass of ``int``, so ``NoteType(True)`` is
+    ``NoteType(1)`` and the note is filed under whatever holds 1, silently.
+    """
+    copy = blessed(tmp_path / "tree")
+    values = dict(NOTE_TYPE_VALUES)
+    values[SPELLING] = instead
+    tree = FakeTree(tmp_path / "tree", note_type_values=values)
+
+    with pytest.raises(apply.NoteTypeDrifted):
+        run(copy, tree)
+
+    assert tree.records_on_disk() == []
+    assert tree.written == []
+
+
+def test_a_type_this_operation_DOES_NOT_write_going_missing_refuses_nothing(
+    tmp_path: Path,
+) -> None:
+    """⚠️ A deliberate narrowing, stated rather than left to be discovered.
+
+    An operation writes ONE note with ONE type, so refusing it because some other
+    accepted name has gone would refuse a write that would have worked. Same
+    judgement the document route made when it scoped its check to documents that
+    actually carry notes.
+    """
+    others = sorted(set(apply.NOTE_TYPE_ATTRIBUTES.values()) - {SPELLING})
+    assert others, "the accepted set holds one name, so this test proves nothing"
+    copy = blessed(tmp_path / "tree")
+    tree = FakeTree(tmp_path / "tree", note_type_values=a_gramps_without(*others))
+
+    applied = run(copy, tree)
+
+    assert tree.written == [("a1b2c3d4e5f607", SPELLING, "Ashenmoor deed")]
+    assert applied.record_error is None
 
 
 def test_every_note_type_the_schema_allows_has_a_gramps_spelling() -> None:

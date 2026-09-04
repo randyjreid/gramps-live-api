@@ -121,6 +121,33 @@ class ApprovalMismatch(ApplyError):
     """
 
 
+class NoteTypeDrifted(ApplyError):
+    """The Gramps that is running does not declare the note type this would write.
+
+    ⚠️ **The plugin registers against whichever Gramps is running**, deliberately:
+    ``gramps_live_api_host.gpr.py`` derives its ``MODULE_VERSION`` rather than
+    pinning one, because a pinned literal stops matching the day Gramps updates
+    and the plugin silently stops being registered. So there is no version wall,
+    and the frozen table ``NOTE_TYPE_ATTRIBUTES`` reads was derived from one
+    Gramps on one machine.
+
+    ⛔ **The failure that follows, named exactly.** A later Gramps that renames,
+    removes or re-shapes a built-in note type leaves a name ``validate`` accepts,
+    that the table still carries, and that the shim's ``getattr`` then finds
+    nothing usable for -- **after the owner approved the operation**, which is the
+    one moment this route exists to make safe. Unguarded, that lands between the
+    undo record and the commit: nothing is written, and a record describing the
+    write is on disk for somebody to reverse by hand.
+
+    ⭐ Same property the document route holds in
+    ``gramps_plugin/gramps_live_api_writer._note_types_or_refuse``, which refuses
+    the whole document before ``DbTxn`` opens. ``tests/integration/
+    test_note_types_drift.py`` watches for the same drift and is not a substitute:
+    it is a test, it can be skipped, and it does not run on the machine doing the
+    writing at the moment it writes.
+    """
+
+
 class TargetNotFound(ApplyError):
     """The tree holds no object with that Gramps ID.
 
@@ -333,7 +360,7 @@ def _durably(path: str, record: dict[str, object]) -> str:
 # ---------------------------------------------------------------------------
 # The tree, as this module needs to see it
 #
-# ⚠️ **Four questions, and the Gramps object model is behind all four.** The
+# ⚠️ **Five questions, and the Gramps object model is behind all five.** The
 # adapter that answers them lives in ``gramps_plugin/`` and is the only code in
 # this project that imports ``gramps``. Keeping the protocol this narrow is
 # what lets `mypy src` run without Gramps stubs and lets the ordering above be
@@ -406,6 +433,17 @@ class Tree(Protocol):
     def person_handle_of(self, gramps_id: str) -> str | None:
         """The handle of the person with that Gramps ID, or ``None``."""
 
+    def note_type_value(self, note_type: str) -> object:
+        """What the running ``NoteType`` holds under that attribute name.
+
+        ⛔ **A TRANSLATION, not a verdict.** The implementation is one
+        ``getattr`` with a default; whether what comes back is something a note
+        can be filed under is decided by ``_spellable`` below, in this module,
+        which is where a runner with no Gramps can reach it. An implementation
+        that answered ``bool`` instead would move that judgement behind the
+        Gramps import and out of every unit test in this repository.
+        """
+
     def transaction(self, message: str) -> AbstractContextManager[object]:
         """Gramps' own transaction, so undo and referential integrity are Gramps'."""
 
@@ -457,8 +495,9 @@ def apply_operation(
     2. the operation must be one this slice writes, and well-formed;
     3. the approved DIGEST must be this operation's digest;
     4. the target must resolve, by Gramps ID, to exactly the handle it carries;
-    5. **the undo record is written and forced to disk**;
-    6. only then does the transaction open.
+    5. the note type must be one the RUNNING Gramps still declares;
+    6. **the undo record is written and forced to disk**;
+    7. only then does the transaction open.
 
     ⚠️ **A ``WritableCopy`` is required and is still not sufficient.** It is
     proof about a directory; step 1 is what makes it proof about the database
@@ -493,6 +532,10 @@ def apply_operation(
             "approval and the write are not about the same thing"
         )
     person_handle = _resolved(target, tree)
+    # ⛔ **Before the record, because a refusal after it leaves the journal
+    # describing a write that never happened.** The frozen table says this name
+    # exists; only the Gramps that is running can say it still does.
+    spelling = _spellable(note.note_type, tree)
 
     record = write_undo_record(
         copy,
@@ -505,7 +548,7 @@ def apply_operation(
     with tree.transaction(f"gramps-live-api: {OPERATION_TYPE}") as transaction:
         identity = tree.add_note_to_person(
             person_handle=person_handle,
-            note_type=NOTE_TYPE_ATTRIBUTES[note.note_type],
+            note_type=spelling,
             text=note.text,
             transaction=transaction,
         )
@@ -580,6 +623,33 @@ def _writable(operation: Operation) -> tuple[AddNote, ObjectRef]:
             f"{named}: this slice attaches a note to a {TARGET_OBJECT_TYPE} only"
         )
     return operation, target
+
+
+def _spellable(note_type: str, tree: Tree) -> str:
+    """The attribute name to write, or refuse because Gramps no longer has it.
+
+    ⛔ **Scoped to the type this operation actually writes**, and that is a
+    judgement worth stating. An ``add_note`` writes one note with one type, so
+    refusing it because some other accepted name has gone would refuse a write
+    that would have worked. The document route made the same call in the shape
+    its input has: it checks when the document carries notes at all.
+
+    ⚠️ **``bool`` is excluded and it is not pedantry.** ``bool`` is a subclass of
+    ``int``, so a plain ``isinstance(value, int)`` accepts ``True`` and
+    ``NoteType(True)`` is ``NoteType(1)`` -- the note is filed under whatever
+    holds 1, silently, which is the ``_DEFAULT`` failure the document route
+    already paid for once.
+    """
+    spelling = NOTE_TYPE_ATTRIBUTES[note_type]
+    value = tree.note_type_value(spelling)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise NoteTypeDrifted(
+            f"{note_type}: the Gramps that is running does not declare a note type "
+            f"under {spelling}, so this note cannot be filed as the sentence that "
+            "was approved says it will be. Nothing has been written and nothing "
+            "has been recorded."
+        )
+    return spelling
 
 
 def _resolved(target: ObjectRef, tree: Tree) -> str:
