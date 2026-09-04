@@ -14,11 +14,10 @@ What this page fixes is *that* it runs, what it may not take with it, and what h
 spawned console, `export_path`, and the export staleness check. **The document route becomes the only
 write path an agent can reach.**
 
-⛔ **Not the only write path in the product, and the earlier wording of this sentence said so
-wrongly.** `gramps_live_api apply` stays. It reads an operation file and writes it into the blessed
-copy directly, without `propose_note` and without `approve`, and it is a local command rather than an
-agent surface. ⚠️ **It also survives `AddNote` going**, because `schema` registers two operations and
-the other one, `AddCitation`, is reachable only from that command. See the non goals below.
+⛔ **And the CLI operation surface goes with it.** `gramps_live_api preview` and
+`gramps_live_api apply` read an operation file, and `apply` writes into the blessed copy directly
+without `propose_note` and without `approve`. **`AddNote` is the only thing it can write**, so the
+command has nothing left to do once the note flow goes. It is retired in the same change.
 
 ⛔ **Retirement does not run until note types are on `main`.** The one capability the note flow has
 that the document route lacks is a caller chosen note type, and removing the flow before that
@@ -99,6 +98,7 @@ hint about where to look, never an instruction about what to cut.
 | the export reader | `src/gramps_live_api/core/people.py`, the whole file |
 | `AddNote`, and the note only parts of the proposal store | the `AddNote` parts of `core/schema.py`, and the note specific parts of `core/proposals.py`. ⛔ **Not that file whole. See carve out 3** |
 | the CLI console `approve` | `src/gramps_live_api/cli.py` |
+| the CLI operation surface | `src/gramps_live_api/cli.py`: the `preview` and `apply` subcommands and their handlers. ⛔ **`AddNote` is the only writable operation, so `apply` has nothing left to write** |
 | the doc passages explaining why one tool differs | `docs/using.md`, `docs/slice2-mcp.md`, and the README tool groups |
 
 ⚠️ **`core/schema.py` does not all go.** It also validates the document graph. Only the `AddNote`
@@ -120,19 +120,28 @@ longer configures `export_path` or works out why one tool reads a snapshot.
 - Typed notes survive only because note types move first. **That is the precondition, and it is the
   reason this ruling has one.**
 
-## ⛔ Explicit non goals
+## ⚠️ `AddCitation` is schema only, and this ruling does not decide it
 
-**The CLI operation surface stays**, and this ruling does not touch it. `gramps_live_api preview` and
-`gramps_live_api apply` read an operation file, and `schema` registers two operations: `AddNote`,
-which goes, and `AddCitation`, which is reachable from nowhere else and stays.
+**Two revisions of this page got the CLI wrong, in opposite directions, and the second was mine
+correcting the first.** The record is left standing because the mistake is instructive:
 
-⚠️ **The removal build must therefore check what those commands say about themselves.** Any help
-text, documentation or error message implying that an operation file means a note becomes wrong the
-moment `AddNote` goes, while the command itself keeps working for citations.
+> The page first said the document route becomes the only write path, which was false because `apply`
+> writes. It was then corrected to say `apply` **survives**, working for citations. **That was also
+> false, and worse, because it was asserted confidently against a check that had not been run.**
 
-⭐ **Whether `AddCitation` and the CLI operation path still earn their surface is a separate
-question**, of the same shape as the one this page answers, and it is not answered here. Folding it in
-would be deciding it without screening it.
+⛔ **`AddCitation` is registered in the schema and has never been writable.** `core/apply.py`'s
+`_writable` refuses anything that is not an `AddNote`, and
+`tests/unit/test_apply_operation.py::test_an_operation_this_slice_does_not_write_is_refused` asserts
+exactly that. Outside `schema.py` the type appears only in test fixtures and preview tests: no MCP
+tool, no writer, no caller. **Schema registration was mistaken for write support.**
+
+⭐ **So `apply` retires with the note flow**, as the ruling above now says, and what remains open is
+narrower and is genuinely a separate question:
+
+**Does `AddCitation` still earn its place in the schema?** It can be validated and previewed and never
+written. That is either dead surface to remove or an unfinished capability to complete, and deciding
+it is not what this page screened. ⚠️ **It is listed here so the removal build does not answer it by
+accident** while deleting the command that was the only thing that ever fed it.
 
 ## What this does not settle
 
