@@ -6,17 +6,20 @@ deliverable.**
 
 ## The ruling this page is written to
 
-⭐ **Support every built-in Gramps `NoteType` from the start** — not a
-hand-picked subset. ⛔ **Custom note types are refused.** An earlier revision of
-this page recommended the two-member closed set `{research, todo}` and argued for
-it; that recommendation is **superseded**, and its argument is kept below only
-where it still bears on a live decision.
+⭐ **The tool may write only note types a user can select and edit in Gramps'
+own interface.** ⛔ **Custom note types are refused.**
 
-⚠️ **This inverts the recommendation, not the mechanism.** The reason the closed
-set was recommended — *an unknown type must be refused by name rather than
-silently becoming a custom type nobody was told about* — is unchanged, and is
-still exactly what this design does. What changed is which set is closed: a
-vocabulary of two that this project wrote, or the vocabulary Gramps declares.
+⛔ **The reason is a safety property, not a preference.** *If the agent writes a
+type the user cannot pick by hand, the user cannot correct a wrong one.* The tool
+must never create something its owner cannot edit. Everything below is an attempt
+to find the mechanism that actually implements that sentence — and the mechanism
+turned out not to be the one the enum's names suggest.
+
+⚠️ **Two earlier recommendations on this page are superseded**: the two-member
+closed set `{research, todo}`, and its replacement, *every built-in the class
+declares*. What survives both is the part neither of them was wrong about — **an
+unrecognised type is refused by name rather than passed to Gramps**, which is the
+opposite of what `_event_type` does for events and is deliberate.
 
 ## Why this exists
 
@@ -51,18 +54,40 @@ Read from the installed runtime's `gramps/gen/lib/notetype.py`:
 | list | rows | what Gramps does with them |
 | --- | --- | --- |
 | `_DATAMAPREAL` | **12** | offered to a person in the ordinary way |
-| `_DATAMAPIGNORE` | **17** | ⭐ returned by `get_ignore_list`, which callers use to **keep them out of a type chooser** — they are the types Gramps assigns itself for a note belonging to a person, an event, a media object and so on |
+| `_DATAMAPIGNORE` | **17** | returned by `get_ignore_list`. ⭐ **Verified in `gramps/gui/`, not inferred from the name** — see the section below, because what it does is narrower than "these cannot be chosen" |
 | `_DATAMAP` | **29** | `_DATAMAPREAL + _DATAMAPIGNORE`, and the class's actual vocabulary |
 
-**Two of the 29 are excluded, and neither is a judgement call:**
+**Nineteen of the 29 are excluded, and none of it is a hand-partition:**
 
+- the **17** in `_DATAMAPIGNORE` — by the ruling, for the reason established in
+  the next section.
 - `CUSTOM` (0) — ⛔ the owner has ruled custom note types out, and this is the
   door they would come through.
 - `UNKNOWN` (-1) — not a filing decision. It is what Gramps holds when it does
   not know, and a caller choosing it is asking for the absence of a choice.
 
-⭐ **So the accepted vocabulary is 27**, every one of them a built-in the
-installed Gramps declares. Nothing is picked: two are excluded by a stated rule.
+⭐ **So the accepted vocabulary is 10**, computed as
+`_DATAMAPREAL - {CUSTOM, UNKNOWN}`:
+
+| wire name | attribute | int | Gramps' key |
+| --- | --- | --- | --- |
+| `general` | `GENERAL` | 1 | `General` |
+| `research` | `RESEARCH` | 2 | `Research` |
+| `analysis` | `ANALYSIS` | 27 | `Analysis` |
+| `transcript` | `TRANSCRIPT` | 3 | `Transcript` |
+| `source_text` | `SOURCE_TEXT` | 21 | `Source text` |
+| `citation` | `CITATION` | 22 | `Citation` |
+| `report_text` | `REPORT_TEXT` | 23 | `Report` |
+| `html_code` | `HTML_CODE` | 24 | `Html code` |
+| `todo` | `TODO` | 25 | `To Do` |
+| `link` | `LINK` | 26 | `Link` |
+
+⭐ **`todo` and `link` both survive the narrowing**, which had to be checked
+rather than assumed: they are the two rows written with the two-argument
+translation call that the first derivation pass silently dropped, and `todo` is
+one of the two types this work exists to write. ⭐ **`transcript` survives too**,
+which criterion 5 depends on — it is the default, and a default outside the
+accepted set would be unwritable through the very route that defaults to it.
 
 ### ⚠️ The derivation hazard, found the hard way
 
@@ -94,6 +119,131 @@ are recorded in the table and used by nothing**, deliberately: they are how
 Gramps spells these in XML and in its own interface, and a later reader comparing
 the two vocabularies should not have to re-derive them.
 
+## ⭐ What Gramps' interface actually offers — read from `gramps/gui/`
+
+⛔ **The enum's names do not encode the UI behaviour, so this was read rather
+than assumed.** The result narrows the set, but not for the reason the name
+`_DATAMAPIGNORE` suggests, and two of the three findings cut the other way.
+
+**Which list does the note-type chooser read?** Neither list directly.
+`gramps/gui/editors/editnote.py:218` builds a `MonitoredDataType` with
+`ignore_values=self.obj.get_type().get_ignore_list(self.extratype)`, and
+`MonitoredDataType` (`gramps/gui/widgets/monitoredwidgets.py`) starts from
+`get_val().get_map()` — the **whole** `_I2SMAP`, which is built from `_DATAMAP`
+minus `_BLACKLIST`, and `NoteType` sets no `_BLACKLIST` — then deletes the
+ignored keys. **So the offered set is computed as `get_map()` minus
+`get_ignore_list(extratype)`; it is not a list anything publishes.**
+
+⛔ **Is there an API naming the selectable set? No.** `get_standard_names()`
+returns every standard name **including the ignored ones**, so it is not it.
+`get_menu()` returns `_MENU`, which `NoteType` never defines, so it is empty.
+`get_ignore_list` is the only thing in the neighbourhood, and it names the
+complement. **There is nothing to derive from except `_DATAMAP` and
+`get_ignore_list`**, which is what criterion 1 does.
+
+### ⚠️ Two findings that cut AGAINST narrowing, and are reported because the ruling is the owner's
+
+⭐ **1. An ignored type on a note that already has it is NOT removed from the
+chooser.** The loop is
+`if key in ignore_values and key not in (None, default): del map[key]`, and the
+docstring says it outright: *"list of values not to show in the combobox. If the
+result of get_val is in these, it is not ignored"*. So a note the tool wrote with
+`Event Note` opens showing `Event Note`, and the user can change it to any offered
+type. ⛔ **The owner's stated reason — that a wrong type must be correctable —
+therefore holds for all 27, not only for the 10.**
+
+⭐ **2. The ignored types ARE selectable — in the context they name.**
+`gramps/gui/editors/displaytabs/notetab.py` passes `extratype=[self.notetype]`
+for both Add and Edit, and `get_ignore_list(exception)` removes the exception
+from the ignore list. Each object editor supplies its own: `editperson` passes
+`NoteType.PERSON`, `editevent` `EVENT`, `editplace` `PLACE`, `editchildref`
+`CHILDREF`, and so on — **16 of the 17 are supplied by some editor.** So a user
+adding a note from a person's Notes tab *is* offered `Person Note`.
+
+⚠️ **The one exception is `SOURCEREF`**, which no editor passes. It is the only
+built-in note type reachable by no chooser anywhere except on a note that already
+carries it.
+
+### ⛔ Why the set is still 10
+
+**The ruling requires select *and* edit, and only 10 satisfy both wherever the
+note lives.** The asymmetry is precise and it is the whole argument:
+
+| | a `_DATAMAPREAL` type | a `_DATAMAPIGNORE` type |
+| --- | --- | --- |
+| offered on **any** note | ⭐ yes | ⛔ no — only in its own object's Notes tab |
+| offered on a note attached to **something else** | ⭐ yes | ⛔ **no** |
+| visible and changeable once present | yes | yes |
+
+⭐ **This route attaches notes to arbitrary nodes**, so the second row is the one
+that governs. A note the tool writes with `Event Note` while attached to a person
+opens in the person's Notes tab, which offers `_DATAMAPREAL` plus `Person Note`
+— the user can *remove* the type but could never have *chosen* it there, and
+cannot put it back. ⛔ **The 10 are exactly the set closed under the user's own
+editing, wherever the note sits.** That is a derivation of the owner's property
+rather than a partition of the enum, which is what the ruling asked for.
+
+⚠️ **And it is the reversible direction.** If the owner re-rules on finding 1 or
+2 above, widening to 27 is a one-line change to the derivation and re-derives
+nothing, because the committed table records which list every row came from.
+
+### ⚠️ The context question, and why the answer is still a flat 10
+
+**The chooser's offered set is position-dependent, so the honest next question is
+whether this route's own notes have a stable position.** They do not, and that is
+what settles it.
+
+⛔ **A note's `attach_to` is unconstrained.** `document.py` validates it with
+`check("a note", target)` and passes no `must_be`, unlike a citation's source or a
+family's parents. So a note may name **any** of the seven groups (`people`,
+`places`, `events`, `source`, `citations`, `families`, `notes`), it may name
+**several**, and it may name **none**. The kinds that carry a contextual note type
+are `person`, `place`, `event`, `source` and `family`; `citation` maps to
+`CITATION`, which is already one of the 10; a note attached to a note has no
+contextual type at all.
+
+**So the set that satisfies the owner's test varies by graph:**
+
+| what the note attaches to | selectable in that position |
+| --- | --- |
+| nothing | the 10. It is edited from the Notes view, where `extratype` is `None` |
+| exactly one node of kind K | the 10, plus K's contextual type |
+| several nodes of differing kinds | the 10. A type has to be selectable in **every** tab the note appears in, and each tab adds only its own |
+
+⭐ **The 10 is the intersection**, and it is the only answer that holds without
+asking what the rest of the graph looks like.
+
+### ⭐ Recommended: keep the flat 10. The owner may widen it.
+
+**What widening would buy:** a note attached to exactly one person could carry
+`person`, one attached to one event could carry `event`, and so on for `place`,
+`source` and `family`. Five types, in the single-target case only.
+
+**Four reasons not to, in order of weight:**
+
+1. ⛔ **Gramps already sets those types itself.** `notetab.py` does
+   `note.set_type(self.notetype)` before it opens the editor, so a note created
+   from a person's Notes tab is a `Person Note` by default. **The attachment
+   already carries the fact**, and a caller setting it explicitly adds nothing a
+   user could not get. What the caller genuinely contributes is the filing
+   decision, transcript against research against todo, and those are all in the 10.
+2. ⚠️ **It makes validation depend on graph topology.** The accepted set for a
+   note would become a function of `attach_to`, so the refusal message differs by
+   position and the preview has to render which set applied.
+3. ⛔ **It pushes topology into the writer.** Criterion 9 spent three review
+   rounds arriving at a flat membership tuple, and a position-dependent set turns
+   that back into a computation over the graph, in the component that cannot
+   import the package.
+4. ⭐ **Widening later is cheap and narrowing later is not.** Adding the
+   contextual types is a change to the derivation plus one topology rule.
+   Removing a type callers already use is a breaking change to the graph.
+
+⚠️ **What this costs, stated plainly:** a caller cannot ask for `Person Note` on
+a person's note, even though a user could select it there. The note is still
+written, with a type from the 10, and the user can change it in Gramps. **No fact
+is lost and nothing becomes uneditable**, which is the property the ruling
+protects.
+
 ## Goal
 
 **A note proposed through the document route may carry a `type`, validated
@@ -110,8 +260,10 @@ today keeps working unchanged.**
    **no timestamp**, so re-running it over the same input reproduces the
    committed file exactly. The committed module records the source's declared
    version and its SHA-256, carries all **29** rows — attribute name, integer,
-   key string, and which of the two lists it came from — and names the **27**
-   that are accepted.
+   key string, and which of the two lists it came from — and names the **10**
+   that are accepted. ⭐ **The accepted set is computed, not listed**, as
+   `_DATAMAPREAL - {CUSTOM, UNKNOWN}`, so it cannot drift from the rows beside
+   it.
 
    ⛔ **And it FAILS CLOSED on anything in those two lists it cannot parse.**
    The script does not skip an element it does not recognise; it refuses to emit
@@ -146,7 +298,9 @@ today keeps working unchanged.**
 
 2. ⛔ **The offline test never needs Gramps and always runs.** It asserts the
    committed table is internally consistent — 29 rows, the two lists partition
-   them, `UNKNOWN` and `CUSTOM` excluded, the accepted set exactly the other 27,
+   them, the accepted set is exactly `_DATAMAPREAL` less `UNKNOWN` and `CUSTOM`
+   and so has 10 members, `transcript` is among them because criterion 5 defaults
+   to it,
    no duplicate attribute name or integer — and that the parser validates against
    **the table itself**, never a copy. ⚠️ **A literal list in the test would be a
    second tally**, which is the counter bug this repository has already paid for.
@@ -213,10 +367,14 @@ today keeps working unchanged.**
    off a document and its vocabulary is open in practice; a note's type is a
    filing decision drawn from a list Gramps itself publishes.
 
-8. ⛔ **`custom` and `unknown` are refused like any other unknown word**, and a
-   test names them specifically. They are the two rows the table carries and does
-   not accept, so they are the two a lookup written slightly wrong would let
-   through.
+8. ⛔ **The 19 rows the table carries and does not accept are refused like any
+   other unknown word**, and a test names them. `custom` and `unknown` are two of
+   them, and the other 17 are the `_DATAMAPIGNORE` rows — these are the names a
+   lookup written slightly wrong would let through, because they are all present
+   in the table and differ from the accepted ones only by which list they came
+   from. ⭐ **`event`, `person` and `sourceref` are worth naming in the test
+   individually**: they read like perfectly reasonable note types, which is
+   exactly why a reader of the refusal message needs to see them refused.
 
 9. ⛔ **The writer accepts a name only if it is a MEMBER of the accepted set** —
    and then resolves it through `getattr` on the attribute name, never a pinned
@@ -225,7 +383,7 @@ today keeps working unchanged.**
    exists because the writer is reachable with a graph the package did not
    validate.
 
-   ⭐ **The writer therefore inlines the twenty-seven accepted names, and a test
+   ⭐ **The writer therefore inlines the ten accepted names, and a test
    asserts that list equals the committed table's accepted set.** There is
    precedent for the test: `tests/unit/test_attachable_bound.py` and
    `test_write_summary.py` already import the writer **by path** with
@@ -248,7 +406,7 @@ today keeps working unchanged.**
    ⚠️ **That is a universally quantified negative over an unbounded space** —
    *no attribute reachable by `getattr` produces an uncontrolled result* — and
    this project's rule for that shape is to stop reviewing it and bound it
-   instead. **Membership in a twenty-seven-element set is bounded and closes.**
+   instead. **Membership in a ten-element set is bounded and closes.**
    Every one of the three findings, and every one nobody has constructed yet, is
    refused by the same single check, because none of those names is in the set.
 
@@ -280,7 +438,8 @@ today keeps working unchanged.**
     | with `,"type"` added to `notes` | **2040** | ⭐ fits, 8 spare |
 
     ⭐ **The vocabulary cannot go in the description.** It could not at two members
-    and it certainly cannot at twenty-seven. Advertise the key; let **criterion
+    and it certainly cannot at ten, whose written-out form is 98 characters
+    against 8 spare. Advertise the key; let **criterion
     7's refusal** carry the values, which is where a caller meets them anyway and
     which costs no budget at all.
 
@@ -301,9 +460,9 @@ today keeps working unchanged.**
 | `apply.py:349` | `NOTE_TYPE_ATTRIBUTES`, two entries | ⭐ **stops being a hand-written map.** Name → attribute is `name.upper()` for every row and the table carries both, so it is derived from the table or dropped in favour of the table's own lookup |
 | `apply.py:358` | the docstring claiming it is asserted total over `NOTE_TYPES` | rewritten with whatever mechanism replaces it |
 | `apply.py:488` | `note_type=NOTE_TYPE_ATTRIBUTES[note.note_type]` | one lookup, retargeted |
-| `server.py:200` | `note_type must be one of: {schema._one_of(schema.NOTE_TYPES)}` in `PROPOSE_NOTE_DESCRIPTION` | ⭐ **fits.** Measured: that description is **1705** of 2048 today; the listed vocabulary goes from 14 characters to **249**, so it becomes **1940** — 108 spare |
+| `server.py:200` | `note_type must be one of: {schema._one_of(schema.NOTE_TYPES)}` in `PROPOSE_NOTE_DESCRIPTION` | ⭐ **fits.** Measured: that description is **1705** of 2048 today; the listed vocabulary goes from 14 characters to **98**, so it becomes **1789** — 259 spare |
 | `test_apply_operation.py:310–314` | asserts `NOTE_TYPES - set(NOTE_TYPE_ATTRIBUTES)` is empty | ⚠️ **watches nothing once the map is derived from the table** — a test that cannot fail. Replaced by criterion 3's assertion that every accepted attribute name exists on the installed `NoteType` |
-| `test_mcp_server.py:178–181, :310` | asserts every `NOTE_TYPES` member appears in the description, and in a refusal | unchanged, and now covers 27 |
+| `test_mcp_server.py:178–181, :310` | asserts every `NOTE_TYPES` member appears in the description, and in a refusal | unchanged, and now covers 10 |
 
 ⚠️ **The R9 dependency, restated and now larger.** If R9 retires the note flow,
 `schema.NOTE_TYPES` **must not be deleted with it** — the document route now
@@ -320,29 +479,26 @@ line in R9's execution, not a surprise to discover afterwards.**
 - Note types on anything but notes.
 - ⛔ **Custom note types**, in any form. Ruled out.
 
-## ⭐ The one question the ruling does not settle
+## ⭐ What is now the owner's to re-rule, if he wants to
 
-**Should the 17 `_DATAMAPIGNORE` types be accepted, or only the 12 in
-`_DATAMAPREAL`?**
+**The set is settled at 10 and this page is written to it.** What is recorded
+here is the evidence that could reasonably move it, because it was found while
+confirming the mechanism and it does not all point the same way.
 
-⛔ **This page takes the ruling literally and accepts all 27**, because "every
-built-in, not a hand-picked subset" reads most naturally as *everything the class
-declares that is a real filing decision*, and because the alternative asks this
-project to decide that a Gramps interface convention is also an API constraint.
+⚠️ **The ruling's stated reason is satisfied by a wider set than its stated
+rule.** *A wrong type must be correctable* holds for all 27: an ignored type on a
+note that already carries it stays in the chooser and can be changed. If
+correctability alone is the property, the set is 27 and this page is too narrow.
 
-**But the question is live, and the argument on the other side is not weak:**
+⚠️ **And the ignored types are choosable, in context.** 16 of the 17 are offered
+in their own object's Notes tab. If *"a user can select it in Gramps"* means
+"somewhere in Gramps", the set is again 27.
 
-| | accept 27 (this page) | accept 10 (`_DATAMAPREAL` less the two) |
-| --- | --- | --- |
-| what it is | everything declared | everything Gramps offers a person in a chooser |
-| ⭐ for | no judgement call; the ruling followed as written | the 17 are types Gramps assigns **itself** to record what a note hangs off — `Event Note` on a note attached to an event. A caller setting one by hand asserts something Gramps normally derives |
-| ⛔ against | a caller can put `Child Reference Note` on a note attached to a person, and Gramps will hold it | it is a subset, which is the thing the ruling refused — even though this subset is **derived** rather than picked |
-| cost of being wrong | a note carries an odd type; nothing is lost, and it is editable in Gramps | a type the owner legitimately wants is refused |
-
-⚠️ **Narrowing later is a one-line change to the derivation and re-derives
-nothing**, because the table records which list each row came from. That
-asymmetry is why this page defaults to the wider reading: it is the cheaper
-mistake to correct, and the record needed to correct it is already committed.
+⛔ **This page reads the rule as the conjunction it states — select AND edit,
+for the note where it actually sits — and 10 is the only set that satisfies it
+wherever this route puts a note.** It is also the conservative direction: it can
+refuse something the owner wanted, which he will notice, rather than write
+something he cannot re-choose, which he may not.
 
 ## ⚠️ Build-time question: the table is frozen, the runtime is not
 
@@ -372,7 +528,7 @@ choosing between them needs the code:
 
 | | what it costs |
 | --- | --- |
-| **a live check before anything is written** — the writer compares its inlined names against the running `NoteType` once, and refuses the **whole document** with a message naming the drift | the honest one, and the only one that cannot fail after approval. Costs a startup or per-write pass over 27 names |
+| **a live check before anything is written** — the writer compares its inlined names against the running `NoteType` once, and refuses the **whole document** with a message naming the drift | the honest one, and the only one that cannot fail after approval. Costs a startup or per-write pass over 10 names |
 | **a supported-version wall** in the document path | contradicts the registration decision above, which exists precisely so the plugin does not stop working on upgrade |
 | **accept it**, on the argument that built-in note types have been stable for many releases | free, and it is a claim about Gramps' future that this project cannot check |
 
@@ -403,7 +559,7 @@ picking an option.**
 if `notetype.py` cannot be parsed with the standard library alone into a table
 that regenerates byte-identically — then the frozen-table pattern does not
 transfer here, and the honest fallback is the closed set the previous revision
-recommended. ⛔ **Not a hand-written twenty-seven-row list.** That is the one
+recommended. ⛔ **Not a hand-written twenty-nine-row list.** That is the one
 outcome this page refuses, because it cannot be re-derived and diffed, and the
 `TODO`/`LINK` near-miss above is what a hand-written list looks like when it is
 wrong.
