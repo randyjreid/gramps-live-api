@@ -460,7 +460,7 @@ omitting it is how you create a new record.
  source: "id","gramps_id?","title","author","pubinfo"
  citations: "id","source"(1 id),"page","attach_to"(ids)
  families: "id","gramps_id?","parents"(ids),"children"(ids)
- notes: "text","attach_to"(ids)
+ notes: "text","type","attach_to"(ids)
 """
 
 APPROVE_DOCUMENT_DESCRIPTION = (

@@ -186,6 +186,39 @@ def test_the_lookup_rule_covers_every_kind_that_can_carry_a_gramps_id() -> None:
         )
 
 
+def test_the_note_type_KEY_is_advertised_and_its_VOCABULARY_is_not() -> None:
+    """⛔ The key must be advertised; the ten names must not be, and cannot be.
+
+    ⚠️ **This is a real constraint on the design rather than a formatting note.**
+    ``propose_document`` had sixteen characters of headroom before ``"type"`` was
+    added to ``notes``, and the vocabulary written out is 98 characters. There is
+    nowhere to put it, so **the refusal carries the values** -- which is where a
+    caller meets them anyway, and which costs no budget at all.
+
+    ⭐ That the key IS advertised is asserted elsewhere and in both directions, by
+    ``test_the_ADVERTISED_shape_is_exactly_what_the_parser_accepts``: adding a key
+    to ``NODE_KEYS`` without advertising it fails there. What is asserted here is
+    the half that test cannot see, which is what must NOT be in the description.
+    """
+    from gramps_live_api.host import document
+
+    text = server.PROPOSE_DOCUMENT_DESCRIPTION
+    notes_line = [line for line in text.splitlines() if line.strip().startswith("notes:")]
+
+    assert notes_line and '"type"' in notes_line[0], (
+        f"the notes line does not advertise a type: {notes_line}"
+    )
+
+    listed = ", ".join(sorted(document.NOTE_TYPES))
+    assert listed not in text, (
+        f"the vocabulary is written out in the description. It is {len(listed)} "
+        f"characters and there are {server.DESCRIPTION_BUDGET - len(text) + len(listed)} "
+        "spare without it, so something already in the description has to come out "
+        "first -- and what to remove is a judgement about what a caller most needs, "
+        "not a trim"
+    )
+
+
 def test_the_description_does_not_claim_family_children_are_DROPPED() -> None:
     """⛔ The blanket claim was false, and false in the direction that loses data.
 
