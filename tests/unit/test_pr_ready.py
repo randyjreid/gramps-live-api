@@ -492,6 +492,306 @@ def test_an_UNREADABLE_ready_for_review_timeline_is_not_an_empty_one() -> None:
     assert pr_ready._ready_for_review({"timelineItems": {"nodes": ["not an object"]}}) is None
 
 
+# ------------------------------------------------- shape B: a bare bot thumb
+
+# ⛔ Invented, all of them. No SHA here is a real one extended, and no timestamp
+# is copied from a real pull request.
+THUMB_HEAD = "e" * 40
+OTHER_HEAD = "f" * 40
+BRANCH = "invented-branch"
+REF = f"refs/heads/{BRANCH}"
+ARRIVED = "2026-04-02T08:59:58Z"
+THUMBED = "2026-04-02T09:06:00Z"
+LATER = "2026-04-02T09:30:00Z"
+
+
+def _reaction(when: str, content: str = "+1") -> dict[str, object]:
+    """⛔ Already bot-filtered by the caller, exactly as the reviews are."""
+    return {"content": content, "created_at": when}
+
+
+def _activity_row(
+    when: str, after: str = OTHER_HEAD, kind: str = "push", ref: str = REF
+) -> dict[str, object]:
+    return {"timestamp": when, "after": after, "activity_type": kind, "ref": ref}
+
+
+def _arrival() -> dict[str, object]:
+    """The row that shows this head reaching the branch, before the round began."""
+    return _activity_row(ARRIVED, after=THUMB_HEAD, kind="branch_creation")
+
+
+def _shape_b(**overrides: object) -> object:
+    """The #232 shape before any override: a bare +1 on a head that never moved."""
+    call: dict[str, object] = {
+        "bot_reactions": [_reaction(THUMBED)],
+        "bot_reviews": [],
+        "bot_inline": [],
+        "bot_conversation": [],
+        "activity": [_arrival()],
+        "head": THUMB_HEAD,
+        "head_ref": BRANCH,
+        "created_at": OPENED,
+        "latest_trigger": "",
+        "ready_events": [],
+    }
+    call.update(overrides)
+    return pr_ready._bare_thumb_clean(**call)
+
+
+def test_the_bare_THUMB_that_232_reported_NOT_READY_is_accepted() -> None:
+    """⛔ #233's named input, as a fixture. The bot's whole output was one 👍.
+
+    The script counted that reaction, printed it, and then required a clean
+    comment naming the commit -- a signal the bot does not always write. §5 of
+    the gate definition makes the comment sufficient, never necessary.
+    """
+    verdict = _shape_b()
+
+    assert verdict.reason == ""
+    assert verdict.accepted == _reaction(THUMBED)
+
+
+def test_a_PUSH_after_the_round_began_refuses() -> None:
+    """⛔ A reaction carries no commit id, so it can only ever be read against a
+    branch that has not moved. Any ref event after T ends that.
+    """
+    verdict = _shape_b(activity=[_arrival(), _activity_row(LATER)])
+
+    assert verdict.accepted is None
+    assert "moved" in verdict.reason
+
+
+def test_a_FORCE_PUSH_back_onto_the_same_head_refuses_too() -> None:
+    """⚠️ The arrival row still exists and the head is still the head -- so the
+    arrival test alone passes. It is the SECOND half of condition 2, no row of
+    any kind after T, that catches this.
+    """
+    verdict = _shape_b(activity=[_arrival(), _activity_row(LATER, after=THUMB_HEAD)])
+
+    assert verdict.accepted is None
+    assert "moved" in verdict.reason
+
+
+def test_a_bot_CONVERSATION_comment_after_the_round_began_refuses() -> None:
+    """⛔ If the bot spoke, its artifact governs, not a reaction beside it."""
+    verdict = _shape_b(bot_conversation=[_comment(LATER, "some finding")])
+
+    assert verdict.accepted is None
+    assert "conversation comment" in verdict.reason
+
+
+def test_a_bot_REVIEW_after_the_round_began_refuses() -> None:
+    """⛔ The window this closes spans most of the sweep, not the final call: the
+    bot can submit a review carrying a finding at any point after the first
+    reads, with the head, the checks and the conversation all unchanged.
+    """
+    verdict = _shape_b(bot_reviews=[{"submitted_at": LATER}])
+
+    assert verdict.accepted is None
+    assert "review" in verdict.reason
+
+
+def test_a_bot_INLINE_comment_after_the_round_began_refuses() -> None:
+    """⛔ All three endpoints, because outstanding findings live in all three."""
+    verdict = _shape_b(bot_inline=[_comment(LATER, "a finding on a line")])
+
+    assert verdict.accepted is None
+    assert "inline comment" in verdict.reason
+
+
+def test_a_bot_artifact_with_NO_timestamp_refuses_rather_than_reading_as_old() -> None:
+    """⛔ ``"" > T`` is false, so an unstamped artifact would silently read as
+    belonging to an earlier round -- absence of evidence becoming permission,
+    on the exact endpoint whose job is to deny.
+    """
+    for override in (
+        {"bot_reviews": [{"body": "no submitted_at at all"}]},
+        {"bot_inline": [{"body": "no created_at at all"}]},
+        {"bot_conversation": [{"body": "no created_at at all"}]},
+    ):
+        verdict = _shape_b(**override)
+
+        assert verdict.accepted is None, override
+        assert "no timestamp" in verdict.reason, override
+
+
+def test_a_thumb_PREDATING_the_round_start_refuses() -> None:
+    """⛔ A reaction from the round before. #233 says so itself: the 👍 can be
+    trusted only while the head has not changed since the round began.
+    """
+    verdict = _shape_b(bot_reactions=[_reaction(ARRIVED)])
+
+    assert verdict.accepted is None
+    assert "predates" in verdict.reason
+
+
+def test_a_thumb_exactly_AT_the_round_start_refuses() -> None:
+    """⚠️ Strictly after, never at. The reaction has to be a response to the round."""
+    verdict = _shape_b(bot_reactions=[_reaction(OPENED)])
+
+    assert verdict.accepted is None
+    assert "predates" in verdict.reason
+
+
+def test_no_thumb_at_all_refuses() -> None:
+    verdict = _shape_b(bot_reactions=[])
+
+    assert verdict.accepted is None
+    assert "no bot +1" in verdict.reason
+
+
+def test_a_reaction_that_is_not_a_PLUS_ONE_is_meaningless() -> None:
+    """⛔ No widening. 👀 is liveness, and every other reaction says nothing."""
+    verdict = _shape_b(bot_reactions=[_reaction(THUMBED, content="eyes")])
+
+    assert verdict.accepted is None
+    assert "no bot +1" in verdict.reason
+
+
+def test_an_EMPTY_activity_log_refuses__an_empty_read_is_not_an_absence() -> None:
+    """⛔ The fork case (#235) arrives here: the branch lives in the fork, this
+    read finds nothing, and nothing is not proof the head has not moved.
+    """
+    verdict = _shape_b(activity=[])
+
+    assert verdict.accepted is None
+    assert "no activity" in verdict.reason
+
+
+def test_activity_for_ANOTHER_ref_is_not_this_branchs_history() -> None:
+    """⚠️ Rows are filtered here as well as in the query, so a server that
+    ignored the ref parameter could not make another branch's quiet stand in
+    for this one's.
+    """
+    verdict = _shape_b(activity=[_activity_row(ARRIVED, after=THUMB_HEAD, ref="refs/heads/other")])
+
+    assert verdict.accepted is None
+    assert "no activity" in verdict.reason
+
+
+def test_no_row_showing_the_head_ARRIVING_refuses() -> None:
+    """⛔ The log has to show this head reaching this branch. Without that row,
+    nothing in the read is about the commit the verdict is supposed to be about.
+    """
+    verdict = _shape_b(activity=[_activity_row(ARRIVED, after=OTHER_HEAD)])
+
+    assert verdict.accepted is None
+    assert "arriving" in verdict.reason
+
+
+def test_an_activity_row_with_NO_timestamp_refuses() -> None:
+    """⚠️ The same fail-closed rule as the bot artifacts: a row that cannot be
+    ordered cannot be shown to predate T.
+    """
+    verdict = _shape_b(activity=[_arrival(), _activity_row("", after=OTHER_HEAD)])
+
+    assert verdict.accepted is None
+    assert "no timestamp" in verdict.reason
+
+
+def test_a_TRIGGER_after_the_open_moves_T() -> None:
+    """⭐ Both directions, because a rule that only ever refuses is not a rule."""
+    between = _shape_b(bot_reactions=[_reaction(THUMBED)], latest_trigger=REQUESTED)
+    assert between.accepted is None
+    assert "predates" in between.reason
+
+    after = _shape_b(bot_reactions=[_reaction(LATER)], latest_trigger="2026-04-02T09:20:00Z")
+    assert after.reason == ""
+    assert after.accepted == _reaction(LATER)
+
+
+def test_a_READY_FOR_REVIEW_event_moves_T__the_183_input() -> None:
+    """⛔ #183's named input, promoted from a stale reading into a false pass.
+
+    A pull request receives a bare clean 👍, is converted back to draft, and is
+    marked ready again on the same head. That starts a round and leaves no
+    comment, so neither the open time nor the latest request moves -- and
+    without the third term the OLD reaction reports READY for the previous round.
+    """
+    verdict = _shape_b(ready_events=[MARKED_READY])
+
+    assert verdict.accepted is None
+    assert "predates" in verdict.reason
+
+
+def test_an_UNREADABLE_ready_timeline_refuses_the_whole_shape() -> None:
+    """⛔ ``None`` is not ``[]``. T computed without a term it should have had is
+    too early, and too early is the permissive direction.
+    """
+    verdict = _shape_b(ready_events=None)
+
+    assert verdict.accepted is None
+    assert "ready-for-review" in verdict.reason
+
+
+def test_an_unread_HEAD_or_OPEN_TIME_or_BRANCH_refuses() -> None:
+    """⛔ ``createdAt`` is T's floor. With it empty, T is ``""`` and EVERY
+    reaction ever left postdates it -- a missing field turning into permission,
+    which is the one direction this instrument may never fail in.
+    """
+    for override in ({"head": ""}, {"created_at": ""}, {"head_ref": ""}):
+        verdict = _shape_b(**override)
+
+        assert verdict.accepted is None, override
+        assert verdict.reason, override
+
+
+def test_EVERY_refusal_says_no_twice__no_reason_can_mean_accepted() -> None:
+    """⛔ The two signals are independent on purpose.
+
+    ⚠️ A refusal that returned only an empty reason, or only a null reaction,
+    would let one slipped branch become permission. The caller requires both,
+    and this asserts every refusal path supplies both.
+    """
+    refusals = (
+        _shape_b(bot_reactions=[]),
+        _shape_b(bot_reactions=[_reaction(ARRIVED)]),
+        _shape_b(activity=[]),
+        _shape_b(activity=[_activity_row(ARRIVED, after=OTHER_HEAD)]),
+        _shape_b(activity=[_arrival(), _activity_row(LATER)]),
+        _shape_b(bot_reviews=[{"submitted_at": LATER}]),
+        _shape_b(bot_inline=[_comment(LATER)]),
+        _shape_b(bot_conversation=[_comment(LATER)]),
+        _shape_b(ready_events=None),
+        _shape_b(created_at=""),
+        _shape_b(head=""),
+        _shape_b(head_ref=""),
+    )
+
+    for verdict in refusals:
+        assert verdict.accepted is None, verdict
+        assert verdict.reason, verdict
+
+
+# ------------------------------------------------ which shape the verdict has
+
+
+def test_the_two_clean_shapes_are_NAMED_in_the_verdict() -> None:
+    """⭐ #233 asks for this by name: print which of the two shapes it found."""
+    accepted_comment = [_comment("2026-04-02T09:07:00Z")]
+
+    assert pr_ready._clean_shape(accepted_comment, _shape_b()) == pr_ready.SHAPE_COMMENT
+    assert pr_ready._clean_shape([], _shape_b()) == pr_ready.SHAPE_THUMB
+
+
+def test_the_clean_COMMENT_path_still_accepts_when_shape_B_refuses() -> None:
+    """⛔ Shape A is unchanged by this work, and this is what asserts it.
+
+    A pull request whose bot wrote a clean comment naming the head has a
+    verdict, whatever the reactions do -- here the branch moved after T, so
+    shape B refuses, and the comment stands alone.
+    """
+    moved = _shape_b(activity=[_arrival(), _activity_row(LATER)])
+    assert moved.accepted is None
+
+    assert pr_ready._clean_shape([_comment(LATER)], moved) == pr_ready.SHAPE_COMMENT
+
+
+def test_NEITHER_shape_is_the_empty_label_and_that_is_what_blocks() -> None:
+    assert pr_ready._clean_shape([], _shape_b(bot_reactions=[])) == ""
+
+
 # --------------------------------------------- #219: printing its own verdict
 
 

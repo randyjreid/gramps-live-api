@@ -37,7 +37,7 @@ import json
 import subprocess
 import sys
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, NamedTuple
 
 REPOSITORY = "randyjreid/gramps-live-api"
 
@@ -76,6 +76,13 @@ CLEAN_PHRASES = ("didn't find any major issues", "didn't find any issues", "no m
 # request's diff. A literal here would be a review request written into a file --
 # the same reason CONTRIBUTING forbids the phrase in prose.
 TRIGGER = "@" + "codex" + " " + "review"
+
+# ⛔ **The TWO shapes a clean verdict arrives in**, named in the output so a
+# reader can tell which one the verdict rests on. The gate definition's §5 gives
+# both: a 👍 from the bot, or a review naming the final head declaring no issues.
+# ⚠️ This file accepted only the second for its whole life, and #233 is the cost.
+SHAPE_COMMENT = "comment naming head"
+SHAPE_THUMB = "bare +1, head unmoved"
 
 
 def _gh(*arguments: str) -> str:
@@ -240,6 +247,157 @@ def _round_began(created_at: str, latest_trigger: str, ready_events: list[str]) 
     every reaction ever left read as fresh.
     """
     return max([created_at, latest_trigger, *ready_events])
+
+
+class _Thumb(NamedTuple):
+    """Shape B's answer. ⛔ **``accepted`` is evidence; ``reason`` is refusal.**
+
+    ⚠️ Exactly one is truthy, and the caller requires BOTH signals to agree
+    before it counts the reaction. Two independent conditions rather than one,
+    because a single slipped branch in a function this long would otherwise turn
+    an unwritten reason into permission -- which is the only direction this file
+    exists to prevent.
+    """
+
+    accepted: dict[str, Any] | None
+    reason: str
+
+
+def _bare_thumb_clean(
+    bot_reactions: list[dict[str, Any]],
+    bot_reviews: list[dict[str, Any]],
+    bot_inline: list[dict[str, Any]],
+    bot_conversation: list[dict[str, Any]],
+    activity: list[dict[str, Any]],
+    head: str,
+    head_ref: str,
+    created_at: str,
+    latest_trigger: str,
+    ready_events: list[str] | None,
+) -> _Thumb:
+    """Is a bare 👍 on the body a clean verdict on THIS head? ⛔ **Fails closed.**
+
+    ⭐ **The gate definition names two clean shapes and this file only accepted
+    one.** §5: clean is either a 👍 from the bot, or a review naming the final
+    head declaring no issues. On #232 the bot wrote no comment at all -- its
+    entire output was one reaction -- and this script counted that reaction,
+    printed it, and said NOT READY. **A false NOT-READY is the safe direction and
+    it is still a defect**: an instrument nobody trusts gets overridden by
+    argument, which happened twice.
+
+    ⛔ **A reaction carries no ``commit_id`` and never can be tied to a head by
+    itself.** So the association is built out of three facts instead, all judged
+    against T -- the instant the current round began (``_round_began``):
+
+    1. the reaction POSTDATES T, so it belongs to this round rather than a past one;
+    2. the branch has not moved: the log shows this head arriving, and shows no
+       event of any kind after T;
+    3. the bot has published NOTHING since T. If it spoke, its artifact governs.
+
+    ⚠️ **Condition 2 does not rest on committer dates**, which this file records a
+    few hundred lines up as unsound: a commit created before a verdict and pushed
+    after it carries a date that predates the verdict. The ref's own arrival log
+    is the fact that a push cannot backdate.
+
+    ⚠️ **Every unreadable input REFUSES rather than being skipped.** An empty
+    activity log, a missing open time, a timeline that did not answer, an
+    artifact with no timestamp: each of them, left alone, would make the
+    comparison silently vacuous and the reaction look fresh.
+    """
+    if not head:
+        return _Thumb(None, "the head SHA was not read, so no reaction can be tied to it")
+    if not head_ref:
+        return _Thumb(None, "the head branch name was not read, so its history cannot be found")
+    if not created_at:
+        return _Thumb(
+            None,
+            "the pull request's open time was not read, so the current round has no start "
+            "-- without it every reaction ever left would read as fresh",
+        )
+    if ready_events is None:
+        return _Thumb(
+            None,
+            "the ready-for-review timeline could not be read -- marking a draft ready "
+            "starts a round, and a round that started cannot be shown not to have",
+        )
+    began = _round_began(created_at, latest_trigger, ready_events)
+
+    # -- 1. a reaction belonging to THIS round -------------------------------
+    thumbs = [r for r in bot_reactions if r.get("content") == "+1"]
+    if not thumbs:
+        return _Thumb(None, "no bot +1 on the pull request body")
+    fresh = [r for r in thumbs if str(r.get("created_at") or "") > began]
+    if not fresh:
+        return _Thumb(
+            None,
+            f"the bot's +1 predates the start of the current round ({began}) -- "
+            "it is a verdict on an earlier one",
+        )
+
+    # -- 2. a branch that has not moved since ---------------------------------
+    #
+    # ⚠️ Filtered by ref HERE as well as in the query. The read asks for one
+    # ref, and a server that ignored that parameter would otherwise let another
+    # branch's quiet stand in for this one's.
+    ref = f"refs/heads/{head_ref}"
+    mine = [row for row in activity if str(row.get("ref") or "") == ref]
+    if not mine:
+        return _Thumb(
+            None,
+            f"no activity rows for {ref} -- an empty read is not proof the head has not moved",
+        )
+    if any(not str(row.get("timestamp") or "") for row in mine):
+        return _Thumb(None, "an activity row carries no timestamp, so the branch cannot be ordered")
+    if not any(str(row.get("after") or "") == head for row in mine):
+        return _Thumb(
+            None,
+            f"no activity row shows {head[:12]} arriving on {head_ref}, so nothing in the "
+            "log is about the commit this verdict would be about",
+        )
+    since = [row for row in mine if str(row.get("timestamp") or "") > began]
+    if since:
+        newest = max(since, key=lambda row: str(row.get("timestamp") or ""))
+        return _Thumb(
+            None,
+            f"the branch moved after the current round began: {newest.get('activity_type')} "
+            f"at {newest.get('timestamp')} > {began}",
+        )
+
+    # -- 3. a bot that has published nothing since ----------------------------
+    for what, rows, field in (
+        ("review", bot_reviews, "submitted_at"),
+        ("inline comment", bot_inline, "created_at"),
+        ("conversation comment", bot_conversation, "created_at"),
+    ):
+        for row in rows:
+            when = str(row.get(field) or "")
+            if not when:
+                return _Thumb(None, f"a bot {what} carries no timestamp and cannot be placed")
+            if when > began:
+                return _Thumb(
+                    None,
+                    f"the bot published a {what} at {when}, after the current round began "
+                    f"({began}) -- that artifact is the verdict, not the reaction",
+                )
+
+    return _Thumb(max(fresh, key=lambda r: str(r.get("created_at") or "")), "")
+
+
+def _clean_shape(accepted_clean: list[dict[str, Any]], thumb: _Thumb) -> str:
+    """Which of the two clean shapes this head has, or ``""`` for neither.
+
+    ⛔ **``""`` is what blocks**, and it is the only thing that does: the shapes
+    are alternatives, exactly as §5 states them, and the comment is sufficient
+    rather than necessary.
+
+    ⚠️ Shape B is read from BOTH of ``_Thumb``'s fields. One of them alone would
+    be a single branch standing between a long function and a false READY.
+    """
+    if accepted_clean:
+        return SHAPE_COMMENT
+    if thumb.accepted is not None and not thumb.reason:
+        return SHAPE_THUMB
+    return ""
 
 
 def _request_arrived_mid_sweep(before: str, after: str) -> str:
