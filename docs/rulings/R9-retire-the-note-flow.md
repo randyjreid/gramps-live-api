@@ -189,14 +189,32 @@ all `check` tests: `test_check_reports_a_blessed_copy_as_writable`,
 `test_the_candidate_the_HOST_would_bind_is_the_one_checked`, and the source check family.
 
 `check` is the doctor command. **It survives the retirement**, and it breaks because it is coupled to
-the retired surface in two ways this page did not record:
+the retired surface in **three** ways this page did not record. They are listed in the order they
+bite, which is not the order they look important:
 
-- `PLUGIN_FILES` in `src/gramps_live_api/cli.py` names `gramps_live_api_apply.gpr.py` and
-  `gramps_live_api_apply.py`, so it demands files the retirement deletes;
-- its staleness branch reads `export_path`, which the retirement removes.
+1. ⛔ **`_PLUGIN_GLOB` is the whole of plugin discovery, and it is keyed on the apply registration.**
+   `src/gramps_live_api/cli.py` sets it to `gramps*/plugins/**/gramps_live_api_apply.gpr.py`, and
+   `_plugin_check` is the only thing that locates the plugin directory. Delete that registration and
+   `check` reports the plugin absent on every invocation, **whatever else is present**. The file
+   already says as much beside `PLUGIN_FILES`: *"`_PLUGIN_GLOB` finds one of these, the apply
+   registration, and finding it..."*. The retirement must repoint discovery at the surviving host
+   registration.
+2. `PLUGIN_FILES` names `gramps_live_api_apply.gpr.py` and `gramps_live_api_apply.py`, so it demands
+   files the retirement deletes.
+3. The staleness branch reads `export_path`, which the retirement removes.
 
-⛔ **Neither is in the inventory above.** That is the sixth inventory miss, and the first one found by
-measurement rather than by a review round, which is what the probe was for.
+⚠️ **The first one gates the second, and an earlier revision of this section got that wrong.** It
+attributed the 18 failures to items 2 and 3. `_source_check` takes the plugin `Check` and reads its
+`detail` for the directory, so once discovery fails there is no directory to compare `PLUGIN_FILES`
+against and the comparison is never meaningfully reached. **Most of those failures are item 1.**
+
+⛔ **That correction is worth more than the entry it fixes.** The failure set was measured, and then
+its cause was attributed by reading rather than by checking, which is the same defect this section
+exists to warn against, one level in. A measured effect with an unverified cause is not a measured
+finding.
+
+⛔ **None of the three is in the inventory above.** That is the sixth inventory miss, and the first
+found by measurement rather than by a review round, which is what the probe was for.
 
 ### Build time questions, for the removal build to answer
 
