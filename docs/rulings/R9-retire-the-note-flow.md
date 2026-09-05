@@ -444,7 +444,9 @@ mistake it records, not because the question is still open.
 
 **Filed as #229 on 2026-09-05, applied here.** This ruling merged as #222. Anything a later reader
 finds in it after that is a documentation correction with the finding quoted, never a silent edit,
-and never folded into another entry. Two were found.
+and never folded into another entry. **Three were found.** The third arrived from the review of
+the pull request applying the first two, against text written by that same pull request, which is
+why it is here rather than in a later one.
 
 ### 1. The reason given for `core/schema.py` surviving was a reason this ruling itself calls false
 
@@ -496,6 +498,35 @@ written from a token hit without reading the page's banner. ⚠️ **That is the
 the records re-test section of this page describes making once already and correcting**, which is
 why it is recorded here rather than quietly fixed: the instrument found the page twice, and the
 reader misclassified it twice.
+
+### 3. The correction to entry 1 first claimed `core/schema.py` survived unchanged
+
+⚠️ **Found in review of the pull request that applied entries 1 and 2, against text that
+pull request had just written.** Raised by the PR bot on #234, round 1, as P2.
+
+The finding, verbatim:
+
+> **Describe the residual schema instead of claiming it stayed whole**
+>
+> When this ruling is used to reconstruct the retirement scope or plan #228, this sentence
+> incorrectly says that `core/schema.py` stayed whole and that only `NOTE_TYPES` was removed. In
+> the reviewed tree, the retirement also deleted `AddNote`, `AddCitation`, their registry entries,
+> and related schema definitions, leaving an empty operation registry; the same ruling explicitly
+> requires those removals elsewhere. State that the remaining render machinery was preserved after
+> the operation types and alias were removed, rather than recording the completed change as a
+> whole-module preservation.
+
+Correct as described, and measured before the fix. The retirement's diff of `core/schema.py` is 40
+insertions and 90 deletions, removing the `AddCitation` and `AddNote` classes with their
+`_register` decorators and registry entries, leaving `_REGISTRY` empty. Both removals were
+required, by this ruling's inventory and by the `AddCitation` ruling, so the error was in the
+correction's description of the outcome and not in the retirement. Fixed in `6f4dae4`.
+
+⭐ **Recorded as its own entry because the alternative was to fold it into entry 1, which is
+what the paragraph opening this section forbids.** The temptation was real: entry 1 is about the
+same module, and the fix reads as a refinement of it. That is exactly the shape the no-folding
+rule exists to catch, since a folded entry leaves the ledger describing the category while the
+specific claim that was false, and the input that exposed it, appear nowhere.
 
 ### What was NOT corrected
 
