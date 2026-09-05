@@ -30,7 +30,7 @@ Option B, deprecate for one release, was rejected on its own terms: a deprecatio
 discover an unknown user, the tool is not shipped, and so it buys information that does not exist to
 be bought.
 
-## ⛔ Four things the retirement build may NOT take with it
+## ⛔ Five things the retirement build may NOT take with it
 
 These sit inside the blast radius and would each be removed by a careful reading of the inventory
 below. Each one is load bearing somewhere else.
@@ -93,6 +93,35 @@ It currently drives the note flow, through `schema.from_dict` and `apply.approva
 ⛔ **It is ported to the document route in the same pull request that removes the note flow.** There
 must be no window in which the project has no automated real Gramps coverage, and "delete it, port it
 next" is exactly such a window.
+
+### 5. `core/apply.py` is NOT deleted wholesale. The document route and `check` run on its authorisation half
+
+⛔ **An earlier revision of this page said the opposite, in a build time question below, and it
+pointed the dangerous way.** It said nothing in that module was carved out. Verified against `main`
+at the note types build, every use of the module in the surviving surface attributed to the function
+that makes it: `apply.authorise` is called by `propose_document`, `approve_document` and the document
+store in `src/gramps_live_api_mcp/server.py`, and by `host/accessor.py`; the surviving `check` reads
+`apply.NAME_FILE` and `apply.SENTINEL_NAME` in `inspect` to recognise a blessed tree; and `cli.py`'s
+top level `main` catches `apply.ApplyError`. **Delete the file and neither the document route nor the
+doctor starts**, which is carve out 3's failure again, on the module beside it.
+
+⭐ **What goes from it is the note flow's half**: `apply_operation`, the `AddNote` write, the undo
+record and `UNDO_DIRECTORY`, `approval_digest`, `TARGET_OBJECT_TYPE`, the drift guard on that route,
+and `NOTE_TYPE_ATTRIBUTES`. Every use of those is inside `propose_note`, `_apply`, `_approve`,
+`_write_and_verify` or the note tool's description, all retiring. **What stays is the authorisation
+half**: `authorise`, `WritableCopy` as the type it returns, the sentinel and name file constants,
+and `ApplyError`. Whether the survivors move to a module whose name says what they are is the
+removal build's call; that they survive is not.
+
+⚠️ **This carve out was measured, not reasoned, because the first draft of it got two symbols
+wrong.** It listed `UNDO_DIRECTORY` as something `check` reads, and it does not; that constant is
+used only inside the note flow's write path. And it said the document route builds on
+`WritableCopy`; the route never names that type, it only receives one from `authorise`. Both were
+caught by attributing each use to its enclosing function before the text was written.
+
+⚠️ **The retirement build was dispatched against the safe wording**, before the blanket
+instruction existed, and its tree confirms it kept the module with `authorise` defined. This carve
+out records what it did rather than changing what it does.
 
 ## What goes, by file
 
@@ -243,11 +272,11 @@ be producing a seventh unmeasured inventory.
 1. What does the unprobed surface break that the probe could not reach? Expect entries beyond this
    list, from `AddNote`, the note parts of `core/proposals.py`, the tool registrations and the CLI
    subcommands.
-2. What is left of `core/apply.py` once `AddNote` and its writer are gone? This page never named that
-   module. ⛔ **Nothing in it is carved out**: `NOTE_TYPE_ATTRIBUTES` has no surviving consumer and
-   goes with the route that read it, per carve out 1, which keeps only the note type table in
-   `core/_note_types.py`. An earlier revision of this question said the opposite and contradicted the
-   carve out it cited.
+2. What is left of `core/apply.py` once `AddNote` and its writer are gone? ⛔ **Answered above as
+   carve out 5, and an earlier revision of this question answered it wrongly in both directions**:
+   first it kept `NOTE_TYPE_ATTRIBUTES`, which has no surviving consumer, then it said nothing in the
+   module was carved out, which would have deleted the authorisation half the document route and
+   `check` run on. The map goes; the authorisation half stays.
 3. What does `check` report once `PLUGIN_FILES` no longer names the apply plugin, and is a doctor that
    reports on one route still the right shape?
 
