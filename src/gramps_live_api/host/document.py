@@ -45,10 +45,16 @@ for events and is deliberate: an event type comes off a document and its
 vocabulary is open in practice, while a note's type is a filing decision drawn
 from a list Gramps itself publishes.
 
-⚠️ **This is the same object as ``schema.NOTE_TYPES``**, and a test asserts the
-identity rather than the equality. Importing it here rather than importing
-``schema`` keeps this module's one dependency on the package a data module with
-nothing in it to run.
+⚠️ **This is the frozen table itself and not a copy of it**, and a test asserts
+the identity rather than the equality.
+
+⚠️ **The paragraph that used to stand here said ``schema.NOTE_TYPES`` was the
+same object, and that importing the data module rather than ``schema`` kept this
+module's one dependency on the package something with nothing in it to run.**
+Both halves are gone: ``core/schema.py`` is deleted, so there is no second name
+for this set, and this module now also imports ``core.render_guard``, which is
+code. The dependency is stated as it is rather than left reading as a constraint
+this module is still keeping.
 """
 
 DEFAULT_NOTE_TYPE = "transcript"
@@ -507,9 +513,9 @@ def note_type_of(note: dict[str, Any], where: str = "a note") -> str:
     it is made by having two of these.
 
     ⚠️ **The default is the ABSENCE OF THE KEY, never falsiness.** The natural
-    spelling -- ``if not value or value in TABLE`` -- is the shape
-    ``schema._note_type_unknown`` uses today, and it is safe there only because
-    ``_text`` has already coerced. Copied here without that coercion it reads
+    spelling -- ``if not value or value in TABLE`` -- is the shape the retired
+    ``schema._note_type_unknown`` used, and it was safe there only because that
+    module's ``_text`` had already coerced. Copied here without that coercion it reads
     ``type: []`` and ``type: 0`` as *omitted* and silently writes a transcript,
     which is a chosen value becoming a default without anybody being told. ⛔ A
     present ``type`` that is not an accepted string is refused; only an absent one

@@ -4,11 +4,11 @@
 ``scripts/derive_note_types.py`` over an installation whose two files match the
 digests below.
 
-⚠️ **This module IS the vocabulary**, and both ``schema.py`` and the document
-route import it. A hand-maintained copy would be the thing the derivation exists
-to remove, and the ``TODO``/``LINK`` near-miss recorded on the plan is what a
-hand-written list looks like when it is wrong: short by exactly the row nobody
-thought about, and indistinguishable from a complete one.
+⚠️ **This module IS the vocabulary**, and the document route imports it. A
+hand-maintained copy would be the thing the derivation exists to remove, and the
+``TODO``/``LINK`` near-miss recorded on the plan is what a hand-written list
+looks like when it is wrong: short by exactly the row nobody thought about, and
+indistinguishable from a complete one.
 
 ⚠️ **Its source is a RUNTIME, not a published standard.** The two frozen tables
 this follows derive from specifications a human fetched once, and their

@@ -81,7 +81,7 @@ The class is the **union of two published facts, and neither contains the other*
 
 A table supplementing a surviving `unicodedata.category` call would have left the second half
 interpreter-derived, and the version dependence would have come straight back for it. So both
-halves are derived and committed, and **`unicodedata` no longer appears in `schema.py` at all** —
+halves are derived and committed, and **`unicodedata` no longer appears in the guard at all** —
 including in the refusal message, which used to name `unicodedata.category(character)`. Under a
 pinned table that call reports `Cn` for code points the table guards as `Cf`: a refusal naming the
 one category the class does not hold.
@@ -136,7 +136,7 @@ test; a table checked only against itself is not.
 
 The guard vocabulary's derivation note records that **nothing imports** its generated module: there
 the table is a checklist beside a hand-written weighting, and a test binds the two. **Here
-`schema.py` imports the generated module directly**, because the table *is* the class. A
+`core/render_guard.py` imports the generated module directly**, because the table *is* the class. A
 hand-maintained copy bound by a test would be the exact thing this derivation exists to remove, and
 the principle that note states — *derived means nothing is maintained by hand without a test that
 would fail* — is satisfied more strongly by importing than by copying.
@@ -156,10 +156,12 @@ interpreter — 143,787 code points, one membership digest, measured on 3.10.20,
 - **The class refuses characters some scripts use legitimately**, and the set is wider than it was:
   the zero-width joiner and non-joiner, the Mongolian free variation selectors, the variation
   selectors used in ideographic variation sequences, the Hangul fillers. Recorded in full, with the
-  argument for taking the trade, in `schema.py`'s costs block. It is a real cost and it is not
-  negligible.
-- **A character past the preview's elision limit is never emitted and so never refused.** A guard
-  over what is *displayed* has nothing to say about a character that reaches no screen.
+  argument for taking the trade, in the costs block `core/render_guard.py` carries. It is a real
+  cost and it is not negligible.
+- ~~**A character past the preview's elision limit is never emitted and so never refused.**~~
+  **Retired when the guard moved to the document route**, which elides nothing: `document.WRAP_AT`
+  wraps and never truncates, because R3's ruled criterion is that no byte reaches the tree that was
+  not rendered in full. There is no elision point for a character to hide past.
 - **Implicit reordering is not covered and must not be.** A strong right-to-left letter reorders
   the neutrals around it under UAX #9 with no formatting character present at all; covering it
   would mean refusing ordinary names.
