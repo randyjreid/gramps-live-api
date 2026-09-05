@@ -24,8 +24,18 @@ decision:
   All four are invisible and all four reached the screen.
 
 A derived table answers both at their shared root: the verdict becomes a fact about the published
-standard rather than about the interpreter. Measured after the change: **143,787 code points,
+standard rather than about the interpreter. Measured after the change: **143,789 code points,
 identical on all three**, divergence **0**.
+
+⚠️ **Both figures on this page are counts of a GENERATED artifact and they move whenever
+the derivation is re-run.** They read 143,787 across four categories until 2026-09-05, when
+`Zl` and `Zp` joined the class to close a bypass: U+2028 could forge a line of the approval
+sentence exactly as U+000A can, and the class had never excluded structural characters, only
+these two separators. The delta was exactly two code points and two rows.
+
+⛔ **Nothing checks these numbers against the table.** No test asserts that the generator
+reproduces the committed file, which is filed as #238, so a figure here that has gone stale
+will not fail a gate. It went stale once already, in the same change that moved the class.
 
 ## The two sources
 
@@ -90,7 +100,8 @@ one category the class does not hold.
 
 Unassigned code points, and every readable category. **`Cn` is stated explicitly in
 `DerivedGeneralCategory.txt` — it is not absent from the source.** What keeps it out is that the
-derivation names the categories it *wants* (`Cc`, `Cf`, `Co`, `Cs`) plus one property, so there is
+derivation names the categories it *wants* (`Cc`, `Cf`, `Co`, `Cs`, `Zl`, `Zp`) plus one
+property, so there is
 no `!= "Cn"` anywhere downstream to get wrong. The exclusion is structural rather than a special
 case, and the arithmetic the old `Cn` argument rested on — 9 divergent code points against 5,327 —
 retires with it, because the class no longer moves between interpreters at all.
@@ -144,7 +155,7 @@ would fail* — is satisfied more strongly by importing than by copying.
 ## What this closes, and what it does not
 
 **Closes:** the class is a fact about a named Unicode release. It is identical on every supported
-interpreter — 143,787 code points, one membership digest, measured on 3.10.20, 3.11.15 and
+interpreter, 143,789 code points, one membership digest, measured on 3.10.20, 3.11.15 and
 3.12.13 — and the four invisible characters round 4 named are refused.
 
 **Does not close** — recorded rather than chased:
