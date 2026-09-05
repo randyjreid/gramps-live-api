@@ -206,6 +206,90 @@ def _is_bot(login: object) -> bool:
     return str(login or "") in BOT_LOGINS
 
 
+def _author(row: dict[str, Any]) -> str | None:
+    """Who published this row, or ``None`` when the read DID NOT SAY.
+
+    ⛔ **Three answers, not two: the bot, somebody else, and unreadable.** The
+    bot filter asks one question -- *is this login the bot's?* -- and a row whose
+    ``user`` is absent, null, or not an object answers *no* for a reason that has
+    nothing to do with who wrote it. The row is then dropped, and a dropped row
+    on a DENYING endpoint reads as bot silence.
+
+    ⚠️ Absence of an author cannot show the bot did not publish it, which is this
+    project's recorded defect class one more time: an unanswered question
+    presented as an answer.
+    """
+    user = row.get("user")
+    if not isinstance(user, dict):
+        return None
+    login = user.get("login")
+    if not isinstance(login, str) or not login:
+        return None
+    return login
+
+
+def _unsigned_stamps(*groups: tuple[list[dict[str, Any]], str]) -> list[str]:
+    """When each artifact with NO readable author was published; ``""`` if unstamped.
+
+    ⭐ Carried to the verdict rather than filtered out, so shape B can refuse a
+    row it cannot classify instead of counting it as quiet. Each group is
+    ``(rows, the field that timestamps them)`` because the three endpoints do not
+    agree on the name.
+    """
+    return [
+        str(row.get(field) or "") for rows, field in groups for row in rows if _author(row) is None
+    ]
+
+
+def _same_row(one: dict[str, Any], other: dict[str, Any]) -> bool:
+    """Are these two reads showing the SAME row?
+
+    ⛔ ``id`` when either row carries one, whole-row equality otherwise. Equality
+    alone is defeated by any field the two reads render differently; ``id`` alone
+    is defeated by a row that has none.
+    """
+    if one.get("id") is not None or other.get("id") is not None:
+        return one.get("id") == other.get("id")
+    return one == other
+
+
+def _both_reads(first: list[dict[str, Any]], second: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every row EITHER read saw. ⛔ **For DENYING evidence, a reread may not forget.**
+
+    ⚠️ The endpoints that carry the bot's findings are read twice -- once while
+    gathering, once at the verdict -- and the second read was trusted alone. A
+    review observed in the first read and missing from the second (an empty
+    answer, a short page, a replica behind) was then discarded, and a fresh thumb
+    with otherwise clean gates printed READY over a finding already seen.
+
+    ⭐ Union rather than a regression check, because for evidence that can only
+    refuse there is nothing to trade: keeping both reads is always at least as
+    strict as either one, and it needs no new failure path.
+    """
+    merged = list(first)
+    for row in second:
+        if not any(_same_row(row, seen) for seen in merged):
+            merged.append(row)
+    return merged
+
+
+def _still_granted(
+    first: list[dict[str, Any]], second: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Rows the SECOND read still shows. ⛔ **The opposite rule, for the other direction.**
+
+    ⚠️ This file used to record that reactions need no reread because *a
+    reaction only ever grants*. **Deletion disproves that**: a +1 present when
+    the sweep began and removed before the verdict left a stale grant standing.
+
+    ⭐ And the remedy is CONFIRMATION, not replacement. Taking the second read
+    alone would let a +1 that arrived mid-sweep grant a verdict on evidence
+    gathered before it -- the widening the original comment was right to refuse.
+    The intersection refuses both ways.
+    """
+    return [row for row in first if any(_same_row(row, other) for other in second)]
+
+
 def _ready_for_review(meta: dict[str, Any]) -> list[str] | None:
     """When this pull request was marked ready, or ``None`` if that cannot be read.
 
@@ -272,9 +356,11 @@ class _Thumb(NamedTuple):
 
 def _bare_thumb_clean(
     bot_reactions: list[dict[str, Any]],
+    bot_reactions_now: list[dict[str, Any]],
     bot_reviews: list[dict[str, Any]],
     bot_inline: list[dict[str, Any]],
     bot_conversation: list[dict[str, Any]],
+    unsigned: list[str],
     activity: list[dict[str, Any]],
     head: str,
     head_ref: str,
@@ -308,8 +394,14 @@ def _bare_thumb_clean(
 
     ⚠️ **Every unreadable input REFUSES rather than being skipped.** An empty
     activity log, a missing open time, a timeline that did not answer, an
-    artifact with no timestamp: each of them, left alone, would make the
-    comparison silently vacuous and the reaction look fresh.
+    artifact with no timestamp, an activity row with no ref, an artifact with no
+    readable author: each of them, left alone, would make the comparison silently
+    vacuous and the reaction look fresh.
+
+    ⛔ **``bot_reactions_now`` is the SAME body read again, and the reaction must
+    be in both.** A reaction can be deleted, so a stale read does not only ever
+    lose a grant -- and confirmation rather than replacement is what stops the
+    reread from also widening. See ``_still_granted``.
     """
     if not head:
         return _Thumb(None, "the head SHA was not read, so no reaction can be tied to it")
@@ -333,7 +425,14 @@ def _bare_thumb_clean(
     thumbs = [r for r in bot_reactions if r.get("content") == "+1"]
     if not thumbs:
         return _Thumb(None, "no bot +1 on the pull request body")
-    fresh = [r for r in thumbs if str(r.get("created_at") or "") > began]
+    present = _still_granted(thumbs, [r for r in bot_reactions_now if r.get("content") == "+1"])
+    if not present:
+        return _Thumb(
+            None,
+            "the bot's +1 is no longer on the pull request body -- it was there when this "
+            "sweep began and the final read does not show it, so no clean signal stands",
+        )
+    fresh = [r for r in present if str(r.get("created_at") or "") > began]
     if not fresh:
         return _Thumb(
             None,
@@ -346,7 +445,18 @@ def _bare_thumb_clean(
     # ⚠️ Filtered by ref HERE as well as in the query. The read asks for one
     # ref, and a server that ignored that parameter would otherwise let another
     # branch's quiet stand in for this one's.
+    #
+    # ⛔ **A row with NO ref is refused before the filter runs**, because the
+    # filter drops what it cannot match and a dropped row reads as quiet. The
+    # queried log cannot show where an unlabelled row belongs, and an unlabelled
+    # push after T is exactly the movement this condition exists to see.
     ref = f"refs/heads/{head_ref}"
+    if any(not str(row.get("ref") or "") for row in activity):
+        return _Thumb(
+            None,
+            "an activity row carries no ref, so the log cannot show which branch it "
+            "belongs to -- an unlabelled row may be this branch's",
+        )
     mine = [row for row in activity if str(row.get("ref") or "") == ref]
     if not mine:
         return _Thumb(
@@ -386,6 +496,26 @@ def _bare_thumb_clean(
                     f"the bot published a {what} at {when}, after the current round began "
                     f"({began}) -- that artifact is the verdict, not the reaction",
                 )
+
+    # ⛔ **And the artifacts nobody can attribute**, which the bot filter above
+    # never saw because it dropped them. A row from an earlier round is harmless
+    # whoever wrote it, so only the ones that cannot be placed BEFORE T refuse --
+    # anything wider would refuse every pull request with a deleted account in
+    # its thread.
+    for when in unsigned:
+        if not when:
+            return _Thumb(
+                None,
+                "an artifact carries neither a timestamp nor a readable author, so it "
+                "cannot be shown to belong to an earlier round",
+            )
+        if when > began:
+            return _Thumb(
+                None,
+                f"an artifact published at {when} has no readable author and postdates the "
+                f"start of the current round ({began}) -- an absent author cannot show the "
+                "bot did not publish it",
+            )
 
     return _Thumb(max(fresh, key=lambda r: str(r.get("created_at") or "")), "")
 
@@ -961,15 +1091,20 @@ def _report(pull: int) -> bool:
     # call**, which is why all three are refetched rather than the one that
     # happened to be here already for the trigger.
     #
-    # ⚠️ Reactions are NOT re-read, and that asymmetry is deliberate: a reaction
-    # only ever GRANTS. A stale reactions read can lose a +1 that has just
-    # arrived, which costs a re-run; re-reading it could only widen what is
-    # accepted, which is the direction that costs a bad merge.
+    # ⛔ **Reactions are re-read HERE TOO, and the reason is DELETION.**
+    #
+    # ⚠️ This read used to be skipped on the argument that a reaction only ever
+    # grants, so a stale read could only lose one. **A reaction can be removed**,
+    # and then the stale read is a grant the body no longer carries. The
+    # asymmetry survives in the RULE rather than in the number of reads: the
+    # denying endpoints take the union of both reads, the granting one takes the
+    # intersection, so neither reread can widen what is accepted.
     final_reviews = _json("api", f"repos/{REPOSITORY}/pulls/{pull}/reviews", "--paginate")
     final_inline = _json("api", f"repos/{REPOSITORY}/pulls/{pull}/comments", "--paginate")
     final_conversation = _json("api", f"repos/{REPOSITORY}/issues/{pull}/comments", "--paginate")
+    final_reactions = _json("api", f"repos/{REPOSITORY}/issues/{pull}/reactions", "--paginate")
     assert isinstance(final_reviews, list) and isinstance(final_inline, list)
-    assert isinstance(final_conversation, list)
+    assert isinstance(final_conversation, list) and isinstance(final_reactions, list)
 
     # ⛔ The request is evidence too, and it was read several calls ago.
     trigger_now = _latest_request(final_conversation)
@@ -988,9 +1123,15 @@ def _report(pull: int) -> bool:
 
     thumb = _bare_thumb_clean(
         bot_thumbs,
+        [r for r in by_bot(final_reactions) if r.get("content") == "+1"],
         by_bot(final_reviews),
         by_bot(final_inline),
         by_bot(final_conversation),
+        _unsigned_stamps(
+            (final_reviews, "submitted_at"),
+            (final_inline, "created_at"),
+            (final_conversation, "created_at"),
+        ),
         activity,
         head,
         head_ref,

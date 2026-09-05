@@ -528,6 +528,7 @@ def _shape_b(**overrides: object) -> object:
         "bot_reviews": [],
         "bot_inline": [],
         "bot_conversation": [],
+        "unsigned": [],
         "activity": [_arrival()],
         "head": THUMB_HEAD,
         "head_ref": BRANCH,
@@ -536,6 +537,10 @@ def _shape_b(**overrides: object) -> object:
         "ready_events": [],
     }
     call.update(overrides)
+    # ⛔ The second reactions read MIRRORS the first unless a test says otherwise,
+    # which is exactly the pre-existing meaning of every fixture above: the +1 is
+    # still there when the verdict is pronounced. A test that cares says so.
+    call.setdefault("bot_reactions_now", call["bot_reactions"])
     return pr_ready._bare_thumb_clean(**call)
 
 
@@ -688,6 +693,130 @@ def test_an_activity_row_with_NO_timestamp_refuses() -> None:
 
     assert verdict.accepted is None
     assert "no timestamp" in verdict.reason
+
+
+def test_a_thumb_REMOVED_before_the_verdict_stops_granting() -> None:
+    """⛔ **A reaction can be DELETED, so a stale read does not only ever lose one.**
+
+    ⚠️ Named input: the first reactions read carries a fresh bot +1 which the bot
+    removes before the verdict is pronounced. With activity quiet and no bot
+    artifacts, the stale read still produced READY although the body no longer
+    carries a clean signal.
+
+    ⭐ The remedy is CONFIRMATION, not replacement: a +1 counts only if BOTH
+    reads show it. Using the second read alone would widen what is accepted --
+    a +1 arriving mid-sweep would grant -- which is the direction the file's own
+    comment was right to refuse.
+    """
+    verdict = _shape_b(bot_reactions=[_reaction(THUMBED)], bot_reactions_now=[])
+
+    assert verdict.accepted is None
+    assert "no longer" in verdict.reason
+
+
+def test_a_thumb_that_ARRIVED_mid_sweep_does_not_grant_either() -> None:
+    """⛔ The confirmation may not become a widening. Only what BOTH reads show."""
+    verdict = _shape_b(bot_reactions=[], bot_reactions_now=[_reaction(THUMBED)])
+
+    assert verdict.accepted is None
+    assert "no bot +1" in verdict.reason
+
+
+def test_confirmation_is_by_ID_where_the_rows_carry_one() -> None:
+    """⭐ One identity rule, shared by the merging helper and the confirming one.
+
+    ⚠️ Whole-row equality alone would be defeated by any field the two reads
+    render differently; an ``id`` comparison alone would be defeated by a
+    fixture that has none. So it is ``id`` when either row carries one, and
+    equality otherwise.
+    """
+    first = [{"id": 11, "content": "+1", "created_at": THUMBED}]
+    renamed = [{"id": 11, "content": "+1", "created_at": THUMBED, "extra": "field"}]
+    other = [{"id": 12, "content": "+1", "created_at": THUMBED}]
+
+    assert pr_ready._still_granted(first, renamed) == first
+    assert pr_ready._still_granted(first, other) == []
+    assert pr_ready._still_granted([_reaction(THUMBED)], [_reaction(THUMBED)]) == [
+        _reaction(THUMBED)
+    ]
+    assert pr_ready._still_granted([_reaction(THUMBED)], [_reaction(LATER)]) == []
+
+
+def test_an_activity_row_with_NO_REF_refuses_rather_than_being_dropped() -> None:
+    """⛔ The ref filter DROPS what it cannot match, and a dropped row read as quiet.
+
+    ⚠️ Named input: a valid pre-T arrival row, plus a post-T row carrying a
+    timestamp and a SHA but no ``ref``. It is excluded from ``mine``, so no
+    post-T movement is seen and the reaction is accepted. **The queried log
+    cannot prove where an unlabelled row belongs**, and this file already
+    defends against a server that ignores the ``ref`` parameter -- a row with no
+    ref at all is the same hazard with the label missing instead of wrong.
+    """
+    unplaceable = {"timestamp": LATER, "after": OTHER_HEAD, "activity_type": "push"}
+
+    verdict = _shape_b(activity=[_arrival(), unplaceable])
+
+    assert verdict.accepted is None
+    assert "no ref" in verdict.reason
+
+
+def test_an_activity_row_with_a_NULL_ref_refuses_too() -> None:
+    """⚠️ Absent and null are the same unanswered question."""
+    verdict = _shape_b(activity=[_arrival(), _activity_row(LATER, ref="")])
+
+    assert verdict.accepted is None
+    assert "no ref" in verdict.reason
+
+
+def test_an_artifact_whose_AUTHOR_is_unreadable_refuses() -> None:
+    """⛔ ``by_bot`` drops a row it cannot classify, and a dropped row is silence.
+
+    ⚠️ Named input: a post-T review carrying a finding and a timestamp whose
+    ``user`` is absent or null. Shape B then sees a quiet bot and can print
+    READY. **Absence of an author cannot prove the artifact was not the bot's**,
+    so on these denying endpoints an unclassifiable row refuses.
+    """
+    verdict = _shape_b(unsigned=[LATER])
+
+    assert verdict.accepted is None
+    assert "author" in verdict.reason
+
+
+def test_an_unsigned_artifact_with_NO_TIMESTAMP_refuses() -> None:
+    """⚠️ Neither question answered: it can be placed in no round at all."""
+    verdict = _shape_b(unsigned=[""])
+
+    assert verdict.accepted is None
+    assert "author" in verdict.reason
+
+
+def test_an_unsigned_artifact_from_BEFORE_the_round_does_not_refuse() -> None:
+    """⭐ No widening. A row from an earlier round is a row from an earlier round,
+    whoever wrote it -- refusing on those would refuse every pull request that
+    ever had a comment from a deleted account.
+    """
+    verdict = _shape_b(unsigned=[ARRIVED])
+
+    assert verdict.reason == ""
+    assert verdict.accepted == _reaction(THUMBED)
+
+
+def test_a_NULL_user_is_UNSIGNED_rather_than_somebody_elses() -> None:
+    """⛔ Three answers, not two: the bot, somebody else, and *the read did not say*."""
+    assert pr_ready._author({"user": {"login": "randyjreid"}}) == "randyjreid"
+    assert pr_ready._author({"user": None}) is None
+    assert pr_ready._author({}) is None
+    assert pr_ready._author({"user": {"login": None}}) is None
+    assert pr_ready._author({"user": "chatgpt-codex-connector[bot]"}) is None
+
+    rows = [
+        {"submitted_at": LATER, "user": None},
+        {"submitted_at": LATER, "user": {"login": "chatgpt-codex-connector[bot]"}},
+        {"submitted_at": LATER, "user": {"login": "randyjreid"}},
+        {"body": "no author and no timestamp either"},
+    ]
+
+    assert pr_ready._unsigned_stamps((rows, "submitted_at")) == [LATER, ""]
 
 
 def test_a_TRIGGER_after_the_open_moves_T() -> None:
