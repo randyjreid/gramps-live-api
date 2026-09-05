@@ -192,6 +192,56 @@ def _is_bot(login: object) -> bool:
     return str(login or "") in BOT_LOGINS
 
 
+def _ready_for_review(meta: dict[str, Any]) -> list[str] | None:
+    """When this pull request was marked ready, or ``None`` if that cannot be read.
+
+    ⛔ **``None`` and ``[]`` are DIFFERENT answers and the caller must not merge
+    them.** ``[]`` means the pull request was never a draft, which is the common
+    case and a real answer. ``None`` means the read did not say -- an absent key,
+    a node that is not an object, a node with no timestamp -- and an unanswerable
+    question is refused rather than skipped.
+
+    ⚠️ **A missing event would leave T too EARLY**, which is the permissive
+    direction: a reaction from the round before would then postdate it and read
+    as fresh. That is this project's most-recorded defect, an empty read
+    presented as an absence.
+    """
+    timeline = meta.get("timelineItems")
+    if not isinstance(timeline, dict):
+        return None
+    nodes = timeline.get("nodes")
+    if not isinstance(nodes, list):
+        return None
+    stamps: list[str] = []
+    for node in nodes:
+        when = str(node.get("createdAt") or "") if isinstance(node, dict) else ""
+        if not when:
+            return None
+        stamps.append(when)
+    return stamps
+
+
+def _round_began(created_at: str, latest_trigger: str, ready_events: list[str]) -> str:
+    """T -- the instant the CURRENT round began. ⛔ **Three triggers, not one.**
+
+    ⚠️ The bot names all three in the footer of every verdict it posts: opening a
+    pull request for review, marking a draft as ready, and commenting the phrase.
+    ``_latest_request`` watches the third only, and #183 records the second as a
+    door the rule does not watch: a clean signal, a conversion back to draft, a
+    mark-ready, and the OLD signal still postdates the last comment.
+
+    ⭐ Lexicographic max for the same reason ``_still_current`` compares that way:
+    every timestamp here is fixed-width UTC, so string order is time order.
+
+    ⚠️ ``latest_trigger`` is ``""`` when no round was ever asked for, and ``""``
+    sorts before every timestamp -- so it loses, which is what it should do.
+    **``created_at`` is the floor and it is never empty on a real read**; the
+    caller refuses shape B outright if it is, because a T of ``""`` would let
+    every reaction ever left read as fresh.
+    """
+    return max([created_at, latest_trigger, *ready_events])
+
+
 def _request_arrived_mid_sweep(before: str, after: str) -> str:
     """A reason, or ``""``. ⛔ **The trigger is evidence, and evidence goes stale.**
 
@@ -300,11 +350,23 @@ def _metadata(pull: int) -> dict[str, Any]:
     along: the live base tip and the base the head was verified against come back
     **in the same answer**, which is what makes the comparison meaningful.
     """
+    # ⛔ ``createdAt``, ``headRefName`` and the ready-for-review events ride here
+    # rather than in reads of their own, for the reason the docstring gives: the
+    # facts a verdict rests on must come back in ONE answer or they can disagree
+    # about when they were true. They are deliberately NOT in ``METADATA_FIELDS``
+    # -- ``_judge`` does not judge them; shape B refuses without them.
+    #
+    # ⚠️ ``last:100``, never ``first``. ``first`` anchors at the OLDEST end, so on
+    # a long timeline it would return the earliest events and miss the newest --
+    # which is the only one T needs. Anchored at the newest end, the maximum over
+    # what comes back is the true maximum whatever the page size.
     query = (
         '{repository(owner:"randyjreid",name:"gramps-live-api")'
         f"{{pullRequest(number:{pull})"
         "{state isDraft headRefOid baseRefOid mergeable mergeStateStatus "
-        "baseRef{name target{oid}}}}}"
+        "createdAt headRefName baseRef{name target{oid}} "
+        "timelineItems(itemTypes:[READY_FOR_REVIEW_EVENT], last:100)"
+        "{nodes{... on ReadyForReviewEvent{createdAt}}}}}}"
     )
     graph = json.loads(_gh("api", "graphql", "-f", f"query={query}") or "{}")
     pull_request = ((graph.get("data") or {}).get("repository") or {}).get("pullRequest")

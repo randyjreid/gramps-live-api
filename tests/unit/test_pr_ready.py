@@ -439,6 +439,59 @@ def test_a_FIRST_request_arriving_mid_sweep_blocks_too() -> None:
     assert pr_ready._request_arrived_mid_sweep("", "2026-09-01T01:34:49Z")
 
 
+# ------------------------------------------- T, when the current round began
+
+# ⛔ Every value here is INVENTED. No SHA is completed from a real one, no
+# timestamp is copied from a real pull request.
+OPENED = "2026-04-02T09:00:00Z"
+MARKED_READY = "2026-04-02T10:30:00Z"
+REQUESTED = "2026-04-02T11:00:00Z"
+
+
+def test_T_is_the_LATEST_of_the_three_instants_that_start_a_round() -> None:
+    """⛔ Three, not two. The bot documents three triggers and only one is a comment."""
+    assert pr_ready._round_began(OPENED, "", []) == OPENED
+    assert pr_ready._round_began(OPENED, REQUESTED, []) == REQUESTED
+    assert pr_ready._round_began(OPENED, "", [MARKED_READY]) == MARKED_READY
+    assert pr_ready._round_began(OPENED, REQUESTED, [MARKED_READY]) == REQUESTED
+    assert pr_ready._round_began(OPENED, "", [OPENED, MARKED_READY]) == MARKED_READY
+
+
+def test_T_never_falls_back_to_the_EMPTY_trigger() -> None:
+    """⚠️ ``""`` is what ``_latest_request`` returns when no round was ever asked
+    for, and it sorts before every timestamp. If it could win, every reaction
+    ever left would postdate T -- absence of evidence becoming permission.
+    """
+    assert pr_ready._round_began(OPENED, "", []) == OPENED
+
+
+def test_the_ready_for_review_events_are_read_from_the_metadata() -> None:
+    """⭐ #183's trigger: marking a draft ready starts a round and leaves no comment."""
+    meta = {"timelineItems": {"nodes": [{"createdAt": MARKED_READY}]}}
+
+    assert pr_ready._ready_for_review(meta) == [MARKED_READY]
+
+
+def test_a_pull_request_that_was_never_a_draft_has_NO_ready_events() -> None:
+    """⚠️ Empty is a real answer here and must not be confused with unreadable."""
+    assert pr_ready._ready_for_review({"timelineItems": {"nodes": []}}) == []
+
+
+def test_an_UNREADABLE_ready_for_review_timeline_is_not_an_empty_one() -> None:
+    """⛔ ``None`` rather than ``[]``, and the difference is the whole fail-closed rule.
+
+    ⚠️ An absent key, a node that is not an object, a node with no ``createdAt``:
+    each would silently contribute nothing to T, leaving T too EARLY and a stale
+    reaction looking fresh. This project's recorded defect class is an empty read
+    presented as an absence.
+    """
+    assert pr_ready._ready_for_review({}) is None
+    assert pr_ready._ready_for_review({"timelineItems": None}) is None
+    assert pr_ready._ready_for_review({"timelineItems": {}}) is None
+    assert pr_ready._ready_for_review({"timelineItems": {"nodes": [{}]}}) is None
+    assert pr_ready._ready_for_review({"timelineItems": {"nodes": ["not an object"]}}) is None
+
+
 # --------------------------------------------- #219: printing its own verdict
 
 
