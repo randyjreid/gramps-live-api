@@ -101,15 +101,7 @@ hint about where to look, never an instruction about what to cut.
 | `AddNote`, and the note only parts of the proposal store | the `AddNote` parts of `core/schema.py`, and the note specific parts of `core/proposals.py`. ⛔ **Not that file whole. See carve out 3** |
 | the CLI console `approve` | `src/gramps_live_api/cli.py` |
 | the CLI operation surface | `src/gramps_live_api/cli.py`: the `preview` and `apply` subcommands and their handlers. ⛔ **`AddNote` is the only writable operation, so `apply` has nothing left to write** |
-| the doc passages explaining why one tool differs | `docs/using.md`, `docs/slice2-mcp.md`, and the README tool groups |
-| ⛔ **two pages that become FALSE, not merely stale** | `docs/restoring.md`, whose opening callout warns that `preview`, `apply` and `approve` take no backup, about commands that will not exist; and `docs/STATUS.md`, which counts nineteen tools with `propose_note`, `approve` and `list_people` in the table, and states outright that the CLI flows **are not retired** |
-
-⚠️ **The documentation rows are not a tidy-up, and one of them is worse than staleness.**
-`docs/STATUS.md` says of the CLI flows: *"They are not retired; they are simply not the route the
-project is built around."* After this ruling runs, that sentence is the opposite of true, on the page
-this project treats as its canonical status. `docs/restoring.md` is the other: it tells a reader what
-to expect from three commands at the moment they are trying to recover a tree, which is the worst
-moment to be reading about commands that no longer exist.
+| the documentation | ⛔ **measured, not listed. See the section below** |
 
 ⚠️ **`core/schema.py` does not all go.** It also validates the document graph. Only the `AddNote`
 operation is note flow only, and `NOTE_TYPES` stays by carve out 1.
@@ -238,7 +230,71 @@ be producing a seventh unmeasured inventory.
 3. What does `check` report once `PLUGIN_FILES` no longer names the apply plugin, and is a doctor that
    reports on one route still the right shape?
 
-## ⚠️ `AddCitation` is schema only, and this ruling does not decide it
+## ⛔ The documentation set, MEASURED
+
+**Three consecutive review rounds each added one page to this row.** That is a search being run one
+page at a time, so it was run properly instead.
+
+**The instrument, and how it is calibrated.** The symbol half is derived rather than recalled: every
+module level name defined in the files this retirement deletes, minus every name also defined in a
+file that survives, plus the identifiers R9's own inventory names. ⚠️ **That subtraction matters.**
+`RESULT_CAP` is defined in `core/people.py` and again in `host/reads.py`, which survives, so deleting
+the export reader does not retire it. Matching is on **word boundaries and single tokens**, never
+phrases: a phrase spans a line break in a hard wrapped file, and that exact mistake produced five
+false "not found" answers about the README in one evening. The sweep is calibrated in both
+directions before its result is believed, against a token known present and a token known absent.
+
+⛔ **The prose half CANNOT be derived, and is the accepted residual.** A page that names a retired
+command in prose without using a distinctive identifier is invisible to any token search.
+`gramps_live_api preview`, `apply` and `approve` are ordinary English words, so they were excluded
+from the derived set and searched for separately by hand. **Anything naming the retired surface
+without naming a token remains unfound**, and this list does not claim otherwise.
+
+### Current guidance, which the retirement makes FALSE and must update
+
+| page | why |
+| --- | --- |
+| `README.md` | names `propose_note` and `list_people` in the tool groups |
+| `docs/STATUS.md` | counts the tools with `propose_note`, `approve` and `list_people` in the table, and says outright *"They are not retired; they are simply not the route the project is built around"* |
+| `docs/using.md` | documents the three commands and `export_path` as current setup |
+| `docs/slice2-mcp.md` | names `TOOL_NAMES`, `TargetNotInExport`, `export_path`, `list_people`, `propose_note` |
+| `docs/census-brief.md` | tells agents `list_people` reads an export and why to prefer `find_people`, in the brief that drives the demo |
+| `docs/restoring.md` | ⭐ **found only by the hand search.** Its opening callout warns that `preview`, `apply` and `approve` take no backup, about commands that will not exist, on the page somebody reads while recovering a tree |
+
+### ⛔ Records, which must NOT be updated
+
+**These name the retired surface and are correct as they stand**, because they record what was true
+when they were written: `docs/rulings/R3`, `R4`, `R8`, `docs/roadmap.md`, `docs/reviews/slice2-ledger.md`,
+and the pages under `docs/plans/`.
+
+⚠️ **Editing a record to match the present is falsifying it**, which is the same rule that stops an
+issue being closed while its defect is live. `docs/rulings/README.md` is the exception among these: it
+is an index describing current rulings, so its R9 row is written already and needs nothing further.
+
+## ⭐ Two questions this page left open, now ruled
+
+**Ruled 2026-09-05, by the owner.**
+
+### `check` survives, repointed
+
+⛔ **The doctor stays.** Packaging toward a one command install is a stated goal, and an install
+doctor is worth more once there are users who did not build the thing. The question was never whether
+it makes sense against one route; it is **which registration it discovers**, and the answer is the
+surviving host registration. `_PLUGIN_GLOB` is repointed there, which the checklist above already
+names as the coupling that gates the other two.
+
+### `AddCitation` goes
+
+⛔ **Removed with the rest.** It is schema for a capability that **is** implemented: the document
+route's writer creates citations. It simply is not implemented through that operation, and nothing
+reaches it. There is no writer, `_writable` refuses it, and the document route's real path is
+untouched by deleting it.
+
+⭐ **Dead schema describing a LIVE capability by the wrong mechanism is worse than absence**, because
+the next reader finds it and believes it is the route. If the document route ever wants a named
+citation operation, it will define one that matches how it actually works.
+
+## ⚠️ How `AddCitation` came to be undecided, and the two wrong CLI claims
 
 **Two revisions of this page got the CLI wrong, in opposite directions, and the second was mine
 correcting the first.** The record is left standing because the mistake is instructive:
@@ -253,13 +309,11 @@ correcting the first.** The record is left standing because the mistake is instr
 exactly that. Outside `schema.py` the type appears only in test fixtures and preview tests: no MCP
 tool, no writer, no caller. **Schema registration was mistaken for write support.**
 
-⭐ **So `apply` retires with the note flow**, as the ruling above now says, and what remains open is
-narrower and is genuinely a separate question:
+⭐ **So `apply` retires with the note flow**, as the ruling above says.
 
-**Does `AddCitation` still earn its place in the schema?** It can be validated and previewed and never
-written. That is either dead surface to remove or an unfinished capability to complete, and deciding
-it is not what this page screened. ⚠️ **It is listed here so the removal build does not answer it by
-accident** while deleting the command that was the only thing that ever fed it.
+⚠️ **The question this left open, whether `AddCitation` still earns its place, was ruled on
+2026-09-05 and it goes.** The reasoning is in the rulings section above. This account is kept for the
+mistake it records, not because the question is still open.
 
 ## What this does not settle
 
