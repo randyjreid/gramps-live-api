@@ -1,5 +1,14 @@
 # Plan — a note's type on the document route
 
+> ⚠️ **One instruction on this page is superseded by
+> [R9](../rulings/R9-retire-the-note-flow.md), ruled 2026-09-04.** The section on the
+> R9 dependency says `schema.NOTE_TYPES` must not be deleted with the note flow because
+> the document route depends on it. **The build showed otherwise:** `host/document.py`
+> imports `ACCEPTED_NOTE_TYPES` from `core/_note_types.py` directly and nothing from
+> `core/schema.py`. What must survive the retirement is that table; the alias goes with
+> the note flow. R9's carve out 1 is the instruction the retirement build follows. The
+> body below is left as it was when the plan was approved and built.
+
 **FULL tier.** It changes the graph schema and the writer, which is the
 publication-of-personal-data surface. ⛔ **Not built. This page is the
 deliverable.**

@@ -317,7 +317,8 @@ each of the eight was re-read against the question rather than its type.
 | --- | --- | --- |
 | `docs/roadmap.md` | **record, untouched** | its own banner says HISTORICAL, not the current plan; its slice 4 text says the export reader goes, which R9 fulfils rather than contradicts |
 | `docs/reviews/slice2-ledger.md` | **record, untouched** | dispositions of findings on a dated head |
-| the plans under `docs/plans/` except one | **record, untouched** | their `preview` is `document.preview`, not the CLI command; no claim about the retired surface |
+| the plans under `docs/plans/` except two | **record, untouched** | their `preview` is `document.preview`, not the CLI command; no claim about the retired surface |
+| ⛔ **`docs/plans/note-types.plan.md`** | **body untouched, takes a forward pointer** | its R9 dependency section is a forward instruction about *this* retirement, and it is false: it says `schema.NOTE_TYPES` must survive because the document route depends on it, while the build showed the route reads the table directly. ⚠️ **The first re-test called this plan a record by checking the wrong token.** Two authoritative pages gave the build opposite instructions until this pointer |
 | ⛔ **`docs/plans/shippable.plan.md`** | **moves to GUIDANCE** | its packaging steps carry `export_path` twice, marked *"[if kept]"*. That is a forward claim about a milestone still ahead, and R9 resolves it: not kept. **The seventh page the retirement build updates** |
 | `docs/rulings/R3` | **body untouched, STATUS banner takes a forward pointer** | its egress bounds are grounded in `core/people.py` and the console; both are retired, the bounds survive in `host/reads.py` |
 | `docs/rulings/R4` | **body untouched, STATUS banner takes a forward pointer** | its caveat names the unbacked write paths; R9 retires exactly those, so after the build every write path takes the backup |
