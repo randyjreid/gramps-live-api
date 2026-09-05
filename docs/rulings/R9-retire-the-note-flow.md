@@ -152,10 +152,20 @@ on the premise that the document route validates through it.** What the document
 
 ⛔ **CORRECTED 2026-09-05: none of that is why the module survives, and it does survive.** The
 paragraph above reasons only about imports, and on imports it is right. It is the wrong question.
-`core/schema.py` also holds this project's **render guard**, the refusal of any character that can
-reorder or hide part of the sentence a person reads and approves before anything is written to a
-tree: `_class_of`, `_refuse_unrenderable` and `UnrenderableFieldError`, over the frozen Unicode
-table in `core/_unrenderable.py`. **It is the only implementation of that property in the project,
+`core/schema.py` also holds this project's **render guard**: the refusal, in the sentence a person
+reads and approves before anything is written to a tree, of a bounded and frozen class of
+characters, the explicit formatting and default-ignorable code points that can hide text or
+override its direction. `_class_of`, `_refuse_unrenderable` and `UnrenderableFieldError`, over
+the derived table in `core/_unrenderable.py`.
+
+⚠️ **It is not a refusal of everything that can reorder text, and it must not become one.**
+The guard's own comment records the exclusion and the reason: a strong right-to-left letter, an
+ordinary name of category Lo, reorders the neutral characters around it under UAX #9 with no
+formatting character present at all, and refusing that class would mean refusing legitimate
+names in a genealogy tool. That mitigation belongs to whatever displays the sentence and can
+isolate each field, not to a function returning a string. ⛔ **A reader taking the
+extraction in #228 as complete protection against reordered approval text would be wrong**, and
+the residual travels with the guard rather than being discharged by moving it. **It is the only implementation of that property in the project,
 and the document route does not run it.** Deleting the module as unimported would have removed a
 write surface guard the surviving route needs and does not have. The owner ruled on 2026-09-05
 that **the module survives the retirement**, which is not the same as surviving unchanged.
