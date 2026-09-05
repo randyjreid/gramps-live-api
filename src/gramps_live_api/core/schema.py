@@ -20,6 +20,24 @@ The registry is **closed**: there is no public registration function and
 ``REGISTRY`` is a read-only mapping. A closed set is what makes the provenance
 partition assertable at all -- an open one makes this module's most important
 property unfalsifiable.
+
+⛔ **AND THE REGISTRY IS NOW EMPTY. READ THIS BEFORE BUILDING ON ANYTHING HERE.**
+R9 retires ``add_note`` with the note flow and rules that ``add_citation`` goes
+too, so the two operation types this module was written around are gone and
+nothing registers a third. What remains is the machinery -- the registry, the
+rule table, the wire conversion, the renderers and the rendering guard -- with
+nothing to run it on, plus ``NOTE_TYPES``, which R9 keeps by name because the
+document route validates against it.
+
+⚠️ **This is NOT the document route's validator, and a reader who assumes it is
+will be wrong.** The document graph is parsed and refused in
+``gramps_live_api.host.document``, which imports ``core._note_types`` directly
+and nothing from here. R9's inventory says otherwise; the code says this, and
+the ruling itself instructs that every location be re-verified at removal time.
+
+⚠️ **So whether this module still earns its place is an open question and it is
+the owner's**, not this module's to answer. It is left standing because R9 says
+in plain words that ``core/schema.py`` does not all go.
 """
 
 from __future__ import annotations
@@ -27,7 +45,7 @@ from __future__ import annotations
 import bisect
 import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, fields
 from enum import Enum
 from types import MappingProxyType
 from typing import TypeVar, get_args, get_type_hints
@@ -353,22 +371,23 @@ def expected_object_types(cls: type[Operation]) -> Mapping[str, str]:
 # Do not "simplify" this into the decorator.
 # ---------------------------------------------------------------------------
 
-FACT_ASSERTING: frozenset[str] = frozenset({"add_citation"})
+FACT_ASSERTING: frozenset[str] = frozenset()
 """Operations that assert a genealogical fact, and so must carry provenance."""
 
-NON_FACT: Mapping[str, str] = MappingProxyType(
-    {
-        "add_note": (
-            "a note records what a researcher observed or intends; it asserts nothing "
-            "about a person that evidence could support, so it carries no citation field"
-        ),
-    }
-)
+NON_FACT: Mapping[str, str] = MappingProxyType({})
 """Operations exempt from the provenance rule, each with why it is exempt.
 
 The partition proves **totality, not correctness**: nothing here stops a
 fact-asserting operation being filed on this side. The recorded rationale is
 what a reviewer checks that against, which is why an empty one fails.
+
+⛔ **BOTH SIDES ARE EMPTY, and that is R9 rather than a table nobody filled in.**
+``add_note`` was the exempt side and ``add_citation`` was the fact-asserting side;
+the retirement removes the first with the note flow and the second on its own
+ruling -- it was schema for a capability the document route implements by a
+different mechanism, with no writer and no caller. The partition is still total
+over ``REGISTRY``, vacuously, and it is what a tenth operation type would be
+classified into.
 """
 
 
@@ -394,9 +413,13 @@ and edit in Gramps' own interface*, so that a wrong one can be corrected by hand
 The ten are exactly the types offered wherever a note sits; the other nineteen
 are offered only in their own object's tab, or are not a filing decision at all.
 
-⚠️ **The name stays**, and it is load-bearing: ``validate`` reads it and the note
-tool's description interpolates it. If the note flow is ever retired, this
-constant must not be retired with it -- the document route now depends on it.
+⚠️ **The name stays, and the note flow HAS now been retired.** That paragraph
+used to read *if the note flow is ever retired, this constant must not be retired
+with it*, and R9's first carve out is the same instruction from the owner. So it
+survives while ``validate`` no longer has an operation to read it for: what reads
+it is ``host.document``, one import away, and what the identity binding in
+``tests/unit/test_note_types_table.py`` protects is that the two are one object
+rather than two copies.
 """
 
 
@@ -607,58 +630,6 @@ class Rule:
     phase: Phase
     check: Callable[[Operation], tuple[RuleViolation, ...]] | None
     """``None`` for a PHASE_3 rule: declared here, decidable only with a tree."""
-
-
-@_register("add_citation", citation_field="citation")
-@dataclass(frozen=True, slots=True)
-class AddCitation(Operation):
-    """Attach evidence that already exists to an object that already exists."""
-
-    target: ObjectRef | None = None
-    citation: ObjectRef | None = field(default=None, metadata={_EXPECTS: OBJECT_TYPE_CITATION})
-
-    def render(self) -> tuple[Fragment, ...]:
-        return (
-            _own("cite "),
-            *_identified(self.citation, "citation"),
-            _own(" as evidence for "),
-            *_named(self.target, "target"),
-        )
-
-
-@_register("add_note", citation_field=None)
-@dataclass(frozen=True, slots=True)
-class AddNote(Operation):
-    """A research note or a to-do, attached to any object.
-
-    Carries no citation field, because it is on the exempt side of the
-    partition -- a different kind of operation, not a weaker one.
-    """
-
-    target: ObjectRef | None = None
-    note_type: str = ""
-    text: str = ""
-
-    def render(self) -> tuple[Fragment, ...]:
-        return (
-            _own("add a "),
-            _carried("note_type", self.note_type),
-            _own(" note to "),
-            *_named(self.target, "target"),
-            _own(": "),
-            *_shortened(self.text, "text"),
-        )
-
-    def full(self) -> tuple[Fragment, ...]:
-        """The same sentence with the note's text entire, because ``render`` elides it."""
-        return (
-            _own("add a "),
-            _carried("note_type", self.note_type),
-            _own(" note to "),
-            *_named(self.target, "target"),
-            _own(": "),
-            *_quoted(self.text, "text"),
-        )
 
 
 # ---------------------------------------------------------------------------
