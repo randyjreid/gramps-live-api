@@ -24,9 +24,10 @@ there an `answer["tree"]["name"]` to say back.
     *** FOR A FAMILY, CALL find_families FIRST AND PASS ITS GRAMPS ID.
     *** A MARRIAGE BELONGS ON THE FAMILY, NOT ON THE TWO SPOUSES.
 
-Use **find_people**, not list_people. `list_people` reads an XML export that can
-predate someone added to the tree recently; `find_people` asks the open tree.
-Same for **find_place**, **find_source**, **find_families**.
+Use **find_people**, **find_place**, **find_source** and **find_families**. They
+ask the open tree. (This paragraph used to warn you off `list_people`, which read
+an XML export that could predate someone added recently; R9 retired that tool, so
+there is no stale lookup left to pick by mistake.)
 
 Which lookup depends on who owns the event, and getting it wrong looks exactly
 like the event not existing:
@@ -69,8 +70,6 @@ do with the tree being empty.** Three of them, all real:
 - **The cap.** `list_events` returns at most 25 and reports `capped: true` with
   `withheld > 0`. It offers no paging and no type filter, so beyond 25 events an
   absent type may simply be past the end.
-- **Staleness.** `list_people` reads an export; `find_people` reads the tree.
-  That is why this brief says use the live one.
 
 ⭐ **So the rule is one rule, and it applies to every "does this already exist?"
 question here:** an empty or capped result means *nothing was returned*, never

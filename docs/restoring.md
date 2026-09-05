@@ -9,9 +9,14 @@ that survivable.
 not a procedure someone can follow under stress"*. This is the procedure. Read it before you need
 it, because the moment you need it is the worst moment to read it.
 
-> ⛔ **This applies to the document route only.** The three commands — `preview`, `apply`, `approve`
-> — take **no backup**. What they leave is an undo record, which is enough to reverse one note by
-> hand and is not a copy of your tree.
+> ⭐ **Every write path this project has now takes a backup**, which is not something this page could
+> say before. R9 retired the note flow, and with it the three commands — `preview`, `apply` and the
+> `approve` console — that wrote without taking one. They left an undo record, which is enough to
+> reverse one note by hand and is not a copy of your tree.
+>
+> ⚠️ **If you are recovering a tree written before that**, an undo record under
+> `.gramps-live-api-undo\` inside the copy is what you have, and this page is not about it: there is
+> no backup to restore from, and what it holds is the operation and the note's own identifiers.
 
 ---
 

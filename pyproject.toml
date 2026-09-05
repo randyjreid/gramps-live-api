@@ -18,11 +18,11 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Topic :: Sociology :: Genealogy",
 ]
-# EMPTY, and it is an invariant rather than a coincidence. The core -- the
-# schema, the write path, the CLI console and `pii_guard` -- runs on the
-# standard library alone, and CI proves it: the core leg installs `.[dev]` and
-# then refuses to continue if `mcp` is importable or if this distribution
-# declares a single unconditional requirement.
+# EMPTY, and it is an invariant rather than a coincidence. The core -- the graph
+# parser, the preview renderer, the host, the install doctor and `pii_guard` --
+# runs on the standard library alone, and CI proves it: the core leg installs
+# `.[dev]` and then refuses to continue if `mcp` is importable or if this
+# distribution declares a single unconditional requirement.
 #
 # The MCP server is an OPTIONAL EXTRA below, not the core.
 dependencies = []

@@ -9,16 +9,19 @@ any of it — the rulings do that, and the README says how the thing works.
 
 ## What works today
 
-**Nineteen MCP tools**, in three groups. The set is asserted in the tests against what the server
+**Sixteen MCP tools**, in two groups. The set is asserted in the tests against what the server
 actually exposes, not against a comment.
 
 | Group | Count | The tools |
 | --- | --- | --- |
 | **Live reads of the open tree** | 14 | `find_people`, `find_place`, `find_source`, `find_citation`, `find_families`, `find_orphans`, `list_events`, `list_family_events`, `list_citations`, `list_associations`, `list_notes`, `tree_totals`, `tree_name`, `changed_since` |
-| **Propose and approve** | 4 | `propose_document`, `approve_document`, `propose_note`, `approve` |
-| **Export-backed** | 1 | `list_people` |
+| **Propose and approve** | 2 | `propose_document`, `approve_document` |
 
-⛔ **None of the nineteen reports what the owner decided.** `approve_document` answers *shown*, not
+⛔ **It was nineteen in three groups until R9.** The third group held one tool, `list_people`, and it
+read a Gramps XML **export** rather than the open tree — the only stale data path in the product. It
+is retired with `propose_note` and `approve`; see *What was retired* below.
+
+⛔ **Neither of the two reports what the owner decided.** `approve_document` answers *shown*, not
 *written*.
 
 **The document route.** An agent files a whole graph — people, families, events, places, a source,
@@ -73,7 +76,8 @@ correctness first, then hygiene.
 
 ⚠️ **This page said eight on 2 September.** Five of those have closed and one new one was filed, which is why the count below is four again. The five: the deletion-only push gate
 ([#193](https://github.com/randyjreid/gramps-live-api/issues/193)), the `propose_note` handle
-([#64](https://github.com/randyjreid/gramps-live-api/issues/64)), the history walk
+([#64](https://github.com/randyjreid/gramps-live-api/issues/64) — the tool it was about is now
+retired), the history walk
 ([#57](https://github.com/randyjreid/gramps-live-api/issues/57)) and the rules-digest defect
 ([#204](https://github.com/randyjreid/gramps-live-api/issues/204)) — **two of those as *dropped*,
 not as done** — and the hand-maintained test counts
@@ -112,14 +116,24 @@ converging, every finding real, against a property that had no fixed point.
 | | What replaced it |
 | --- | --- |
 | **Unwritable by construction** — the live tree could not be a write target at all | R4's weaker guarantee: writes are permitted with a verified backup taken first. Recorded as a downgrade rather than presented as equally safe. |
-| **A three-tool MCP surface** | Nineteen: fourteen live reads, four propose-and-approve verbs, and one export-backed read. |
+| **A three-tool MCP surface** | Sixteen: fourteen live reads and two propose-and-approve verbs. |
 | **The addon as unwritten** | `gramps_plugin/` is written and loads at Gramps startup. |
 | **Two handover documents** | Deleted on the owner's approval once the work they described had shipped; the README and this page carry what survived. |
 | **A "still holds" column in the rulings index** | Deleted. It was written from the rulings and never checked against the source, and was wrong four times in five review rounds. |
 | **The anchored history walk** — skip the prefix a clean scan already proved | Nothing. The guard walks the whole history again, as it always did. It was built, reviewed and dropped: the skip needed a digest describing the rules actually running, and four mechanisms were each defeated by a different interpreter caching behaviour — the last by disagreeing between Python 3.10 and 3.12 on the same commit. **The ~145 s saving was real; it was not worth a guard that may trust an anchor written under rules that are not the rules that run.** [#57](https://github.com/randyjreid/gramps-live-api/issues/57), and the cost is refiled as [#207](https://github.com/randyjreid/gramps-live-api/issues/207). |
 | **[`roadmap.md`](roadmap.md) as the current plan** | This page. The roadmap still describes three tools, writes that only ever target a copy, and an unwritten addon. It is kept because the open questions it records are still the real ones. |
 
-⚠️ **The `apply` CLI command and the older `approve` console flow still exist and still write, and
-neither takes a backup.** [`restoring.md`](restoring.md) says so in its opening lines. **They are not
-retired; they are simply not the route the project is built around.** `preview` is read-only — it
-validates an operation and prints the sentence, loading no tree and calling no writer.
+⛔ **The note flow is retired, and this paragraph used to say the opposite.** It read *they are not
+retired; they are simply not the route the project is built around*, about `propose_note`, `approve`,
+`list_people` and the `preview`/`apply` CLI commands. [R9](rulings/R9-retire-the-note-flow.md) ruled
+them out and the retirement has shipped, so **the document route is now the only write path an agent
+can reach**, and every write path takes a backup first.
+
+⭐ **What went with them is worth naming, because it is more than three tools.** The Gramps XML export
+reader and the `export_path` setting — the only stale data path in the product; the separate-process
+approval console; the `AddNote` and `AddCitation` operations; and the CLI's `preview`, `apply` and
+`approve` subcommands. `check` survives, repointed at the host registration.
+
+⚠️ **The cost, accepted rather than glossed.** The console was a window this server held no handle on
+and could not type into. What remains is the modal dialog inside Gramps, which is a different trust
+argument and the weaker of the two.
