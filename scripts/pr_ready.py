@@ -319,6 +319,43 @@ def _ready_for_review(meta: dict[str, Any]) -> list[str] | None:
     return stamps
 
 
+def _both_timelines(first: list[str] | None, second: list[str] | None) -> list[str] | None:
+    """Round-start instants across TWO reads. ⛔ **Either read unreadable is unreadable.**
+
+    ⚠️ T is built from this, and T going BACKWARDS between two reads is the
+    permissive direction: a mark-ready observed while gathering and missing from
+    the final answer would drop T back to the open time, and a reaction from the
+    round before would postdate it and read as fresh.
+
+    ⭐ Union rather than a regression check, for the same reason ``_both_reads``
+    unions: every term here can only ever move T later, and later is stricter.
+    """
+    if first is None or second is None:
+        return None
+    return sorted(set(first) | set(second))
+
+
+def _settled_branch(gathered: str, final: str) -> tuple[str, str]:
+    """Which branch's history may be read, and a reason it may not be.
+
+    ⛔ **The FINAL read decides**, exactly as it decides the head SHA and the
+    base tip. The name captured while gathering is provisional: a final metadata
+    answer that omits or nulls ``headRefName`` left the cached one standing, and
+    shape B then judged a branch whose identity the verdict's own read could not
+    confirm.
+
+    ⚠️ **A rename keeps the head SHA**, so ``_judge``'s head comparison says
+    nothing about it -- and the activity read would go on to ask a different ref
+    about this one's quiet. Disagreement between the two reads is refused rather
+    than resolved in either read's favour.
+    """
+    if not final:
+        return "", "the head branch name was not in the final metadata read"
+    if gathered and gathered != final:
+        return "", f"the head branch was renamed while this sweep ran ({gathered} -> {final})"
+    return final, ""
+
+
 def _round_began(created_at: str, latest_trigger: str, ready_events: list[str]) -> str:
     """T -- the instant the CURRENT round began. ⛔ **Three triggers, not one.**
 
@@ -338,6 +375,23 @@ def _round_began(created_at: str, latest_trigger: str, ready_events: list[str]) 
     every reaction ever left read as fresh.
     """
     return max([created_at, latest_trigger, *ready_events])
+
+
+def _round_start(created_at: str, latest_trigger: str, ready_events: list[str] | None) -> str:
+    """T for BOTH shapes, or ``""`` when it cannot be computed.
+
+    ⛔ **``""`` is a refusal and never a floor.** Callers must not compare
+    against it: ``""`` sorts before every timestamp, so every artifact ever
+    published would postdate it -- absence of evidence becoming permission one
+    more time.
+
+    ⭐ One function, so the two clean shapes cannot hold two answers to the same
+    question. Shape A's comment and shape B's reaction are both judged against
+    the instant this returns.
+    """
+    if not created_at or ready_events is None:
+        return ""
+    return _round_began(created_at, latest_trigger, ready_events)
 
 
 class _Thumb(NamedTuple):
@@ -419,7 +473,7 @@ def _bare_thumb_clean(
             "the ready-for-review timeline could not be read -- marking a draft ready "
             "starts a round, and a round that started cannot be shown not to have",
         )
-    began = _round_began(created_at, latest_trigger, ready_events)
+    began = _round_start(created_at, latest_trigger, ready_events)
 
     # -- 1. a reaction belonging to THIS round -------------------------------
     thumbs = [r for r in bot_reactions if r.get("content") == "+1"]
@@ -1106,6 +1160,16 @@ def _report(pull: int) -> bool:
     assert isinstance(final_reviews, list) and isinstance(final_inline, list)
     assert isinstance(final_conversation, list) and isinstance(final_reactions, list)
 
+    # ⛔ **BOTH reads of every denying endpoint, because a reread may FORGET.**
+    #
+    # ⚠️ The final answer was trusted alone, so a bot review observed while
+    # gathering and missing from the final request -- an empty answer, a short
+    # page, a replica behind -- was discarded, and a fresh thumb with otherwise
+    # clean gates printed READY over a finding this sweep had already read.
+    seen_reviews = _both_reads(reviews, final_reviews)
+    seen_inline = _both_reads(inline, final_inline)
+    seen_conversation = _both_reads(conversation, final_conversation)
+
     # ⛔ The request is evidence too, and it was read several calls ago.
     trigger_now = _latest_request(final_conversation)
     print(f"       last request now   : {trigger_now or '(none)'}")
@@ -1113,31 +1177,46 @@ def _report(pull: int) -> bool:
     if moved:
         failures.append(moved)
 
+    # ⛔ **T NEVER GOES BACKWARDS between two reads**, and both of its movable
+    # terms could take it there. A trigger that vanishes from the final
+    # conversation leaves ``_request_arrived_mid_sweep`` silent -- that rule
+    # fires on a request moving FORWARD -- and a ready-for-review event missing
+    # from the final timeline drops T to the open time. Either regression makes a
+    # reaction from the round before read as fresh.
+    began_trigger = max(latest_trigger, trigger_now)
+    seen_ready = _both_timelines(_ready_for_review(provisional), _ready_for_review(final))
+
+    # ⛔ The FINAL read names the branch, exactly as it names the head.
+    head_ref_now, unsettled = _settled_branch(head_ref, str(final.get("headRefName") or ""))
+    if unsettled:
+        print(f"       branch identity    : {unsettled}")
+
     # ⚠️ Read LAST, so the branch's history is as close to the verdict as every
     # other fact here -- and only when a +1 exists, because with none shape B
     # refuses without ever consulting it. That also keeps a repository where this
     # endpoint cannot be read from turning every report into an error.
-    activity = _branch_activity(head_ref) if bot_thumbs else []
+    activity = _branch_activity(head_ref_now) if bot_thumbs else []
     if bot_thumbs:
-        print(f"       branch activity    : {len(activity)} rows for {head_ref or '(unknown)'}")
+        named = head_ref_now or "(unknown)"
+        print(f"       branch activity    : {len(activity)} rows for {named}")
 
     thumb = _bare_thumb_clean(
         bot_thumbs,
         [r for r in by_bot(final_reactions) if r.get("content") == "+1"],
-        by_bot(final_reviews),
-        by_bot(final_inline),
-        by_bot(final_conversation),
+        by_bot(seen_reviews),
+        by_bot(seen_inline),
+        by_bot(seen_conversation),
         _unsigned_stamps(
-            (final_reviews, "submitted_at"),
-            (final_inline, "created_at"),
-            (final_conversation, "created_at"),
+            (seen_reviews, "submitted_at"),
+            (seen_inline, "created_at"),
+            (seen_conversation, "created_at"),
         ),
         activity,
         head,
-        head_ref,
+        head_ref_now,
         str(final.get("createdAt") or ""),
-        trigger_now,
-        _ready_for_review(final),
+        began_trigger,
+        seen_ready,
     )
     shape = _clean_shape(accepted_clean, thumb)
     print(f"       clean shape        : {shape or '(neither)'}")

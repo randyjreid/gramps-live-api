@@ -14,10 +14,13 @@ the point of the simplification, not a convenience for testing.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -437,6 +440,75 @@ def test_a_FIRST_request_arriving_mid_sweep_blocks_too() -> None:
     have missed exactly the case where a round starts during the sweep.
     """
     assert pr_ready._request_arrived_mid_sweep("", "2026-09-01T01:34:49Z")
+
+
+# ------------------------------- two reads of the same thing, merged by rule
+
+
+def test_DENYING_evidence_takes_the_UNION_of_both_reads() -> None:
+    """⛔ A reread may not forget. Anything either read saw still governs."""
+    first = [{"id": 1, "submitted_at": "2026-04-02T09:10:00Z"}]
+    second = [{"id": 2, "submitted_at": "2026-04-02T09:20:00Z"}]
+
+    assert pr_ready._both_reads(first, []) == first
+    assert pr_ready._both_reads([], second) == second
+    assert pr_ready._both_reads(first, first) == first
+    assert pr_ready._both_reads(first, second) == first + second
+
+
+def test_the_two_directions_are_OPPOSITE_rules_over_the_same_identity() -> None:
+    """⭐ Not one merge helper: a union for what denies, an intersection for what
+    grants. A single helper would need a mode flag, which is two rules in one
+    place rather than one rule in one place.
+    """
+    kept = [{"id": 7}]
+    lost: list[dict[str, object]] = []
+
+    assert pr_ready._both_reads(kept, lost) == kept
+    assert pr_ready._still_granted(kept, lost) == []
+
+
+def test_a_ROUND_START_INSTANT_seen_in_either_read_still_counts() -> None:
+    """⛔ T never goes backwards. A mark-ready that vanishes from the final read
+    would drop T to the open time and make a stale reaction look fresh.
+    """
+    assert pr_ready._both_timelines([MARKED_READY], []) == [MARKED_READY]
+    assert pr_ready._both_timelines([], [MARKED_READY]) == [MARKED_READY]
+    assert pr_ready._both_timelines([MARKED_READY], [MARKED_READY]) == [MARKED_READY]
+    assert pr_ready._both_timelines([], []) == []
+
+
+def test_an_UNREADABLE_timeline_in_EITHER_read_is_unreadable() -> None:
+    """⛔ ``None`` propagates. Half an answer about when the round began is not
+    an answer, and the readable half cannot show the other half held nothing.
+    """
+    assert pr_ready._both_timelines(None, []) is None
+    assert pr_ready._both_timelines([], None) is None
+    assert pr_ready._both_timelines(None, None) is None
+
+
+def test_T_is_EMPTY_rather_than_early_when_it_cannot_be_computed() -> None:
+    """⛔ ``""`` is a refusal, and callers may never compare against it: it sorts
+    before every timestamp, so every artifact ever published would postdate it.
+    """
+    assert pr_ready._round_start(OPENED, "", []) == OPENED
+    assert pr_ready._round_start(OPENED, REQUESTED, [MARKED_READY]) == REQUESTED
+    assert pr_ready._round_start("", "", []) == ""
+    assert pr_ready._round_start(OPENED, "", None) == ""
+
+
+def test_the_FINAL_read_names_the_branch_whose_history_may_be_read() -> None:
+    """⛔ The provisional name is provisional, exactly like the head and the base."""
+    assert pr_ready._settled_branch(BRANCH, BRANCH) == (BRANCH, "")
+    assert pr_ready._settled_branch("", BRANCH) == (BRANCH, "")
+
+    name, reason = pr_ready._settled_branch(BRANCH, "")
+    assert name == ""
+    assert "final metadata read" in reason
+
+    name, reason = pr_ready._settled_branch(BRANCH, "renamed-branch")
+    assert name == ""
+    assert "renamed" in reason
 
 
 # ------------------------------------------- T, when the current round began
@@ -919,6 +991,233 @@ def test_the_clean_COMMENT_path_still_accepts_when_shape_B_refuses() -> None:
 
 def test_NEITHER_shape_is_the_empty_label_and_that_is_what_blocks() -> None:
     assert pr_ready._clean_shape([], _shape_b(bot_reactions=[])) == ""
+
+
+# ------------------------------- the WHOLE sweep, with every ``gh`` call faked
+#
+# ⛔ **Every value below is INVENTED.** No SHA is a real one extended, no
+# timestamp is copied from a real pull request, and no Gramps datum appears.
+#
+# ⭐ The pure functions above bind the judgement. **This binds the WIRING**, and
+# the wiring is where five of this round's six findings actually lived: the right
+# rule fed the wrong argument. A named input that only ever reaches a helper
+# directly cannot show that.
+
+BASE_TIP = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"
+CLEAN_AT = "2026-04-02T09:07:00Z"
+CLEAN_BODY = f"Codex Review: Didn't find any major issues. **Reviewed commit:** `{THUMB_HEAD[:10]}`"
+
+
+def _bot_comment(when: str, body: str) -> dict[str, object]:
+    return {"created_at": when, "body": body, "user": {"login": "chatgpt-codex-connector[bot]"}}
+
+
+def _bot_thumb(when: str) -> dict[str, object]:
+    """A +1 on the pull request BODY, as the reactions endpoint renders one."""
+    return {"content": "+1", "created_at": when, "user": {"login": "chatgpt-codex-connector"}}
+
+
+def _meta(**overrides: object) -> dict[str, object]:
+    """One metadata answer GitHub would call mergeable, before any override."""
+    snapshot: dict[str, object] = {
+        "state": "OPEN",
+        "isDraft": False,
+        "headRefOid": THUMB_HEAD,
+        "baseRefOid": BASE_TIP,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN",
+        "createdAt": OPENED,
+        "headRefName": BRANCH,
+        "baseRef": {"name": "main", "target": {"oid": BASE_TIP}},
+        "timelineItems": {"nodes": []},
+    }
+    snapshot.update(overrides)
+    return snapshot
+
+
+PULL = 900
+
+
+def _sweep(patch: pytest.MonkeyPatch, **overrides: object) -> bool:
+    """Run ``_report`` end to end against canned answers. ⛔ No network, no ``gh``.
+
+    ⚠️ Each endpoint the sweep reads TWICE has a ``final_`` twin. ``None`` there
+    means *the second read agrees with the first*, which is the ordinary case;
+    a test that is about a reread says what the second read returned.
+    """
+    facts: dict[str, object] = {
+        "meta": _meta(),
+        "final_meta": None,
+        "commit_date": ARRIVED,
+        "reviews": [],
+        "final_reviews": None,
+        "inline": [],
+        "final_inline": None,
+        "conversation": [],
+        "final_conversation": None,
+        "reactions": [],
+        "final_reactions": None,
+        "activity": [_arrival()],
+        "threads": [],
+        "checks": [{"name": "invented-check", "state": "SUCCESS", "bucket": "pass"}],
+    }
+    facts.update(overrides)
+    seen: dict[str, int] = {}
+
+    def read(key: str) -> object:
+        seen[key] = seen.get(key, 0) + 1
+        if seen[key] == 1:
+            return facts[key]
+        later = facts[f"final_{key}"]
+        return facts[key] if later is None else later
+
+    def fake_gh(*arguments: str) -> str:
+        joined = " ".join(arguments)
+        if "reviewThreads" in joined:
+            threads = {"pageInfo": {"hasNextPage": False}, "nodes": facts["threads"]}
+            return json.dumps({"data": {"repository": {"pullRequest": {"reviewThreads": threads}}}})
+        if "pullRequest" in joined:
+            return json.dumps({"data": {"repository": {"pullRequest": read("meta")}}})
+        if "/commits/" in joined:
+            return json.dumps({"commit": {"committer": {"date": facts["commit_date"]}}})
+        if f"pulls/{PULL}/reviews" in joined:
+            return json.dumps(read("reviews"))
+        if f"pulls/{PULL}/comments" in joined:
+            return json.dumps(read("inline"))
+        if f"issues/{PULL}/comments" in joined:
+            return json.dumps(read("conversation"))
+        if f"issues/{PULL}/reactions" in joined:
+            return json.dumps(read("reactions"))
+        if "activity?ref=" in joined:
+            return json.dumps(facts["activity"])
+        if arguments[:2] == ("pr", "checks"):
+            return json.dumps(facts["checks"])
+        raise AssertionError(f"the sweep made a gh call nothing stubs: {joined}")
+
+    patch.setattr(pr_ready, "_gh", fake_gh)
+    verdict = pr_ready._report(PULL)
+    assert isinstance(verdict, bool)
+    return verdict
+
+
+def test_the_harness_itself_reports_READY_on_a_clean_sweep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **The known positive.** A NOT-READY from an uncalibrated instrument is
+    not evidence: every test below asserts a refusal, and without this one they
+    would all pass against a harness that refuses for a reason nobody intended.
+    """
+    assert _sweep(monkeypatch, conversation=[_bot_comment(CLEAN_AT, CLEAN_BODY)]) is True
+
+
+def test_the_bare_thumb_sweep_reports_READY_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    """⛔ The second known positive, and shape B's own: #233's case end to end.
+
+    ⚠️ The refusals below all withhold a BARE-THUMB verdict, so a harness that
+    could never grant one would pass every one of them for the wrong reason.
+    """
+    assert _sweep(monkeypatch, reactions=[_bot_thumb(THUMBED)]) is True
+
+
+def test_a_bot_review_seen_ONLY_IN_THE_FIRST_READ_still_governs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ A reread may not FORGET. The second read was trusted alone.
+
+    ⚠️ Named input: the first reviews read carries a bot finding submitted after
+    T; the final reviews request comes back empty or short (a replica behind, a
+    truncated page). Those final-only arguments discarded the review already
+    observed, so a fresh thumb and otherwise clean gates printed READY over a
+    finding the sweep had already seen. **Any post-T artifact governs**, so both
+    reads are kept.
+    """
+    finding = {
+        "submitted_at": LATER,
+        "body": "a finding",
+        "user": {"login": "chatgpt-codex-connector"},
+    }
+
+    verdict = _sweep(
+        monkeypatch, reactions=[_bot_thumb(THUMBED)], reviews=[finding], final_reviews=[]
+    )
+
+    assert verdict is False
+
+
+def test_a_ready_event_that_DISAPPEARS_from_the_final_read_still_moves_T(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ T never goes backwards between two reads of the same timeline.
+
+    ⚠️ Named input: a pull request opened at 09:00 has a thumb at 10:00, the
+    provisional metadata sees a ready-for-review event at 11:00, and the final
+    timeline returns ``[]``. Only the final read fed T, so T fell back to the
+    open time, the stale thumb postdated it, and READY printed for the round
+    before the one the mark-ready started.
+    """
+    verdict = _sweep(
+        monkeypatch,
+        meta=_meta(timelineItems={"nodes": [{"createdAt": "2026-04-02T11:00:00Z"}]}),
+        final_meta=_meta(timelineItems={"nodes": []}),
+        reactions=[_bot_thumb("2026-04-02T10:00:00Z")],
+    )
+
+    assert verdict is False
+
+
+def test_a_TRIGGER_that_disappears_from_the_final_read_still_moves_T(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⚠️ The same regression through the other term, and
+    ``_request_arrived_mid_sweep`` does not catch it: that rule fires when the
+    request moves FORWARD, and a request going from one to none leaves ``after``
+    empty, so it says nothing at all.
+    """
+    asked = {
+        "created_at": "2026-04-02T10:30:00Z",
+        "body": pr_ready.TRIGGER,
+        "user": {"login": "randyjreid"},
+    }
+
+    verdict = _sweep(
+        monkeypatch,
+        conversation=[asked],
+        final_conversation=[],
+        reactions=[_bot_thumb("2026-04-02T10:00:00Z")],
+    )
+
+    assert verdict is False
+
+
+def test_a_final_read_that_cannot_name_the_HEAD_BRANCH_refuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ The final read decides the branch, exactly as it decides the head SHA.
+
+    ⚠️ Named input: the provisional metadata reports a head branch, the final
+    metadata omits or nulls ``headRefName``, and the old branch's activity looks
+    valid. The cached provisional name was passed to shape B, so READY printed
+    although the final branch identity was unreadable.
+    """
+    unreadable = _meta()
+    del unreadable["headRefName"]
+
+    verdict = _sweep(monkeypatch, final_meta=unreadable, reactions=[_bot_thumb(THUMBED)])
+
+    assert verdict is False
+
+
+def test_a_head_branch_RENAMED_mid_sweep_refuses_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    """⚠️ A rename keeps the head SHA, so step 7's head comparison says nothing --
+    and the activity read would then ask a different ref about this one's quiet.
+    """
+    verdict = _sweep(
+        monkeypatch,
+        final_meta=_meta(headRefName="another-invented-branch"),
+        reactions=[_bot_thumb(THUMBED)],
+    )
+
+    assert verdict is False
 
 
 # --------------------------------------------- #219: printing its own verdict
