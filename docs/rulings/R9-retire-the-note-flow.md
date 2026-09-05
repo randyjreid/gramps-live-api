@@ -35,12 +35,24 @@ be bought.
 These sit inside the blast radius and would each be removed by a careful reading of the inventory
 below. Each one is load bearing somewhere else.
 
-### 1. `NOTE_TYPES` and `NOTE_TYPE_ATTRIBUTES` are KEPT
+### 1. The note type TABLE is kept. The map and the alias go with their consumers
 
-`core/schema.py` defines `NOTE_TYPES` and `core/apply.py` defines `NOTE_TYPE_ATTRIBUTES`. They read
-as note flow constants and they are inside the `AddNote` removal, but **the note types work on the
-document route depends on them**. Removing them removes the capability that made retiring safe, in
-the same commit that relies on it existing.
+⚠️ **An earlier revision of this carve out kept too much, and said so for a reason that was not true
+of the code once note types merged.** Verified against `main` at the note types build:
+
+- **What the document route actually reads is `core/_note_types.py`.** `host/document.py` imports
+  `ACCEPTED_NOTE_TYPES` from that module directly, and imports nothing from `core/schema.py`. The
+  writer carries its own inlined copy, bound to the table by test. **That table is the carve out.**
+- **`schema.NOTE_TYPES` is an alias to the same object.** Its consumers are the note flow's own
+  description and validation, both retiring. It goes with them; the document route does not notice.
+- **`apply.NOTE_TYPE_ATTRIBUTES` has no surviving consumer.** Its only runtime lookup is the apply
+  route's drift guard in `core/apply.py`, which retires, and the tests that read it are that route's.
+  Keeping it would strand note flow code after its sole consumer is removed.
+
+⛔ **So: keep `core/_note_types.py` and the derivation behind it. Do not keep `NOTE_TYPES` or
+`NOTE_TYPE_ATTRIBUTES` on the premise that the document route needs them.** It does not. The
+retirement build had the earlier wording when it was dispatched; if it kept either, removing them is
+a small follow up on the same branch, and keeping too much is the safe direction to be wrong in.
 
 ### 2. The `mcp` pin stays. #173 is NOT made moot
 
@@ -103,8 +115,14 @@ hint about where to look, never an instruction about what to cut.
 | the CLI operation surface | `src/gramps_live_api/cli.py`: the `preview` and `apply` subcommands and their handlers. ⛔ **`AddNote` is the only writable operation, so `apply` has nothing left to write** |
 | the documentation | ⛔ **measured, not listed. See the section below** |
 
-⚠️ **`core/schema.py` does not all go.** It also validates the document graph. Only the `AddNote`
-operation is note flow only, and `NOTE_TYPES` stays by carve out 1.
+⚠️ **`core/schema.py` is the note flow's operation model, and an earlier revision of this line said
+it "also validates the document graph". That was false.** Graph validation is `host/document.py`,
+which imports nothing from `core/schema.py`; the document route calls `document.parse`, never
+`schema.validate`. Every surviving reference to `schema` is either the note flow (`validate`,
+`AddNote`, `ObjectRef`, `NOTE_TYPES` in the `propose_note` description, and `cli.py`'s retiring
+subcommands) or `schema.OBJECT_TYPES` in `server.py`, which sits inside `PROPOSE_NOTE_DESCRIPTION` and retires with it. **After the retirement nothing surviving imports `core/schema.py`.** ⛔ **Do not
+retain the operation model on the premise that the document route validates through it.** What the
+document route needs from `core/` is the note type table, carve out 1.
 
 ## What this buys, and what it costs
 
@@ -264,7 +282,7 @@ wrong, and the distinction decides what happens next.
 | `.github/workflows/ci.yml` | the header comment lists *"schema, write path, CLI console, pii_guard"* as what the core leg measures | same phrase |
 
 **These are current guidance, not records, and the retirement build updates them.** That makes
-**ten** files, seven under `docs/` plus the README, and now these three outside it.
+**ten** files: six under `docs/` counting the moved plan, the README, and these three outside it.
 
 ⛔ **This row is CLOSED, by a rule set before the round rather than after it.** Three consecutive
 rounds each added one page, so the whole set was measured, and the rule for the round after that was
