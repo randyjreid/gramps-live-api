@@ -37,14 +37,18 @@ like the event not existing:
 - a couple's events — marriage, divorce — are on the FAMILY, on neither spouse:
   `find_families`, then `list_family_events`
 
-## One Census event per person
+## One Census event for the household
 
-`role` and `description` are properties of the EVENT, applied to every
-participant. One shared Census event naming four people gives all four the same
-description — so the children inherit the head's occupation.
+`role` and `description` can sit on each participant. `events[].people` accepts
+a list of objects, each with its own `id`, `role` and `description`. One shared
+Census event can name the whole household without giving the children the head's
+occupation.
 
-So: **one Census event per person**, each naming only that person, each carrying
-its own description.
+The older list-of-ids spelling still works: then the event's own `role` and
+`description` apply to everyone. A mix of ids and objects is refused.
+
+A list of ids cannot carry a per-person occupation — use objects, or keep the
+old workaround of one Census event per person.
 
 ## One local id per record
 

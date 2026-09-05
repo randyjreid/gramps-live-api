@@ -469,6 +469,96 @@ whose message says *why* rather than merely *unknown key*. **A general check mus
 not shadow a specific refusal.**
 """
 
+PARTICIPANT_KEYS = frozenset({"id", "role", "description"})
+"""What ``events[].people`` accepts when it is a list of objects.
+
+⭐ Gramps puts ``role`` on the EventRef -- per participant -- not on the Event.
+A list of local ids cannot say so, so one shared Census applied the head's
+occupation to every child (#168). Objects carry their own role and description.
+The list-of-ids spelling still works; a mix is refused by name.
+"""
+
+
+def _participant_id(entry: Any) -> str:
+    """The local id a ``people`` entry names, whether it is a string or an object."""
+    if isinstance(entry, dict):
+        return str(entry.get("id") or "").strip()
+    return str(entry or "").strip()
+
+
+def _participant_ids(event: dict[str, Any]) -> list[str]:
+    return [_participant_id(entry) for entry in (event.get("people") or [])]
+
+
+def _role_for(event: dict[str, Any], person: str | None = None) -> str:
+    """The role that person will carry; the event's role if they did not name one."""
+    for entry in event.get("people") or []:
+        if _participant_id(entry) != person or not isinstance(entry, dict):
+            continue
+        own = str(entry.get("role") or "").strip()
+        if own:
+            return own
+        break
+    return str(event.get("role") or "").strip()
+
+
+def _description_for(event: dict[str, Any], person: str | None = None) -> Any:
+    """The raw description that person will carry; the event's if they did not."""
+    for entry in event.get("people") or []:
+        if _participant_id(entry) != person or not isinstance(entry, dict):
+            continue
+        if entry.get("description"):
+            return entry["description"]
+        break
+    return event.get("description")
+
+
+def _require_people_shape(event: dict[str, Any]) -> None:
+    """⛔ Accept a list of ids or a list of objects, never a mix, never a third thing.
+
+    Silently reading a string as an object (or the reverse) would hide which
+    role applies -- worse than the flattened-role defect this exists to close.
+    """
+    entries = event.get("people") or []
+    if not isinstance(entries, list):
+        raise GraphInvalid(
+            f"event {event.get('id')!r}'s 'people' must be a list, not {type(entries).__name__}"
+        )
+    saw_id = False
+    saw_object = False
+    for item in entries:
+        if item is None or (isinstance(item, str) and not item.strip()):
+            continue
+        if isinstance(item, str):
+            saw_id = True
+            continue
+        if not isinstance(item, dict):
+            raise GraphInvalid(
+                f"event {event.get('id')!r} lists {item!r} in 'people', which is "
+                "neither a local id nor an object. Use a string, or an object "
+                "with 'id' and optional 'role' and 'description'."
+            )
+        saw_object = True
+        unknown = sorted(key for key in item if key not in PARTICIPANT_KEYS)
+        if unknown:
+            raise GraphInvalid(
+                f"event {event.get('id')!r}'s people entry carries "
+                + ("keys " if len(unknown) > 1 else "a key ")
+                + ", ".join(repr(key) for key in unknown)
+                + ", which people objects do not accept. They accept: 'id', "
+                "'role', 'description'."
+            )
+        if not _participant_id(item):
+            raise GraphInvalid(
+                f"event {event.get('id')!r} has a people object with no 'id', "
+                "so nothing would be attached."
+            )
+    if saw_id and saw_object:
+        raise GraphInvalid(
+            f"event {event.get('id')!r} mixes local ids and objects in 'people'. "
+            "Use one spelling or the other -- a mix would hide which role applies."
+        )
+
 
 def _only_known_keys(group: str, index: int, entry: Any) -> None:
     """⛔ Refuse a key this group does not accept, naming the key AND the node.
@@ -886,7 +976,12 @@ def parse(body: Any, *, writes: bool = True) -> Graph:
         for entry in holder:
             for slot in slots:
                 for member in entry.get(slot) or []:
-                    if not str(member or "").strip():
+                    identity = (
+                        _participant_id(member)
+                        if what == "event" and slot == "people" and isinstance(member, dict)
+                        else str(member or "").strip()
+                    )
+                    if not identity:
                         raise GraphInvalid(
                             f"{what} {entry.get('id')!r} lists an empty entry in "
                             f"{slot!r}, which would be silently dropped. Name "
@@ -894,6 +989,7 @@ def parse(body: Any, *, writes: bool = True) -> Graph:
                         )
 
     for event in events:
+        _require_people_shape(event)
         # ⛔ **An ATTACHED event may not also name participants.**
         #
         # ⚠️ Without this the graph parsed, the preview rendered a ``+`` for the
@@ -919,7 +1015,7 @@ def parse(body: Any, *, writes: bool = True) -> Graph:
                 "to it instead, and drop those fields."
             )
         check(f"event {event.get('id')!r}'s place", event.get("place"), must_be="place")
-        for person in event.get("people") or []:
+        for person in _participant_ids(event):
             check(f"event {event.get('id')!r}", person, must_be="person")
         # ⭐ A marriage belongs to a FAMILY, and until now nothing could say so.
         check(f"event {event.get('id')!r}'s family", event.get("family"), must_be="family")
@@ -932,7 +1028,7 @@ def parse(body: Any, *, writes: bool = True) -> Graph:
         # and the write disagreeing for the third time on this branch**, which is
         # what #106 is filed about.
         role = str(event.get("role") or "").strip()
-        carriers = [who for who in (event.get("people") or []) if str(who or "").strip()]
+        carriers = [who for who in _participant_ids(event) if who]
         if role and role.casefold() != "primary" and not carriers:
             raise GraphInvalid(
                 f"event {event.get('id')!r} gives the role {role!r} but names no "
@@ -1165,22 +1261,31 @@ def types_the_proposal_touches(parsed: Graph) -> dict[str, tuple[str, ...]]:
         # ⭐ The same fallback ``_event_line`` already uses two functions away,
         # which is where it should have been read from in the first place.
         kind = str(event.get("type") or "").strip() or "Event"
-        for person in event.get("people") or []:
-            names = touched.setdefault(str(person), [])
+        for person in _participant_ids(event):
+            names = touched.setdefault(person, [])
             if kind not in names:
                 names.append(kind)
     return {person: tuple(kinds) for person, kinds in touched.items()}
 
 
-def _event_line(event: dict[str, Any], named: Any, date_unreadable: bool = False) -> str:
+def _event_line(
+    event: dict[str, Any],
+    named: Any,
+    date_unreadable: bool = False,
+    for_person: str | None = None,
+) -> str:
     """One event as the dialog shows it. ⛔ **Including its role.**
 
     ⚠️ **``role`` is an input the writer APPLIES** -- ``set_role`` puts it on
-    every ``EventRef`` the event produces -- so leaving it out of the preview let
+    the ``EventRef`` for that participant -- so leaving it out of the preview let
     the owner approve a value that would be written without seeing it. That is
     R3's ruled criterion broken in exactly the way A1 exists to catch, and it was
     missed because the role is invisible in the summary and only appears deep in
     the writer.
+
+    ⭐ When ``for_person`` is set, the role and description are THAT participant's,
+    falling back to the event's. That is how two people at one Census keep
+    different occupations (#168).
 
     The default is not shown, because a preview that repeats *Primary* on every
     line teaches the reader to skip the field that matters.
@@ -1200,7 +1305,7 @@ def _event_line(event: dict[str, Any], named: Any, date_unreadable: bool = False
         bits.append(str(event["date"]))
     if event.get("place"):
         bits.append("at " + named(event["place"]))
-    role = str(event.get("role") or "").strip()
+    role = _role_for(event, for_person)
     if role and role.casefold() != "primary":
         bits.append(f"as {role}")
     # ⛔ **Rendered, because the writer applies it.** A census line's occupation,
@@ -1221,7 +1326,8 @@ def _event_line(event: dict[str, Any], named: Any, date_unreadable: bool = False
     # dropped that separator, and the dialog showed a description one character
     # different from the one written. ⭐ **Mirrored rather than tidied: the
     # preview's job is to show what will be stored, quirk included.**
-    parts = [str(event["description"]).strip()] if event.get("description") else []
+    described_as = _description_for(event, for_person)
+    parts = [str(described_as).strip()] if described_as else []
     if date_unreadable and event.get("date"):
         parts.append("date as written: " + str(event["date"]))
     described = "; ".join(parts)
@@ -1339,7 +1445,7 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
             # Matching only people left a marriage rendered in the leftovers
             # section rather than under the household it joins -- present, which
             # is what R3 requires, but not where the owner is looking for it.
-            if local_id not in (event.get("people") or []) and event.get("family") != local_id:
+            if local_id not in _participant_ids(event) and event.get("family") != local_id:
                 continue
             # ⛔ **Whether this is the FIRST record to reach this event**, captured
             # before the event is marked shown.
@@ -1347,7 +1453,13 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
             shown_events.add(index)
             out.extend(
                 _wrap(
-                    "+ " + _event_line(event, named_node, str(event.get("id")) in unreadable_dates),
+                    "+ "
+                    + _event_line(
+                        event,
+                        named_node,
+                        str(event.get("id")) in unreadable_dates,
+                        for_person=str(local_id),
+                    ),
                     indent,
                 )
             )
