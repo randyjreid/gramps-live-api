@@ -192,8 +192,13 @@ the deletion, in the same change:
 
 ## Acceptance criteria (each mechanically checkable)
 
-1. `git grep -l "core.schema\|core import schema" -- src scripts tests` returns nothing;
+1. `git grep -lE "core\.schema|core import schema" -- src scripts tests` returns nothing;
    `src/gramps_live_api/core/schema.py` does not exist.
+   ⚠️ **The `.` is escaped and the match is `-E`, which is not pedantry.** Unescaped,
+   `core.schema` also matches `core/schema` in prose, so the command returns the two files
+   whose comments record that the module is gone, and the criterion reads as failing on the
+   very head that satisfies it. Found by the round 1 review, which ran the command rather
+   than reading it.
 2. A graph whose note text carries `chr(0x202E)` is refused by `document.preview` with a
    message naming `Cf` and repeating no payload value (named test). `propose_document` stores
    such a proposal without complaint: the guard is on the approval render, not on acceptance.

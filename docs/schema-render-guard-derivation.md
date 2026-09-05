@@ -165,12 +165,17 @@ interpreter — 143,787 code points, one membership digest, measured on 3.10.20,
 - **Implicit reordering is not covered and must not be.** A strong right-to-left letter reorders
   the neutrals around it under UAX #9 with no formatting character present at all; covering it
   would mean refusing ordinary names.
-- **`preview()`'s single-line rule normalises through `str.split()`, whose whitespace set is
-  interpreter data this table does not pin.** CPython derives it from the UCD it was built with,
-  so in principle a code point could be whitespace on one supported interpreter and not on
-  another — and a character removed before the guard reads the sentence is never refused.
-  **Measured, it does not diverge:** 29 code points on 3.10.20, 3.11.15 and 3.12.13, the same set
-  on all three, and end-to-end `preview()` verdicts over the whole code space are identical
-  (143,777 refused, one digest). So it is a mechanism worth knowing about and not a live gap; it is
-  recorded here rather than fixed, because pinning it would mean this project reimplementing
-  `str.split()`.
+- ~~**`preview()`'s single-line rule normalises through `str.split()`, whose whitespace set is
+  interpreter data this table does not pin.**~~ **Retired when the guard moved to the document
+  route, and the retirement changed a verdict rather than only a rationale.** The note flow's
+  `preview` collapsed the whole rendered sentence through `str.split()` before scanning, so a
+  whitespace control could never be refused, and the residual above recorded that the collapsing
+  set was unpinned interpreter data. `document.preview` performs no such collapse. Note text still
+  passes through `_wrap`, which uses `textwrap` and removes whitespace controls, but a field
+  interpolated straight into a rendered line, a person's `given` or a place `title`, does not.
+  ⛔ **So a tab in a name IS now refused, labelled `Cc`, where it was silently
+  accepted before.** That is not a regression to repair: it is the same mechanism that refuses a
+  payload newline forging a line of the approval sentence, and exempting one takes the other. The
+  trade is recorded as #236 and pinned by tests in both directions. The measured figures in the
+  retired bullet, 29 whitespace code points and 143,777 refused, described the collapsing route and
+  do not describe this one.
