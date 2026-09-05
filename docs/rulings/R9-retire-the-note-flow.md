@@ -102,6 +102,14 @@ hint about where to look, never an instruction about what to cut.
 | the CLI console `approve` | `src/gramps_live_api/cli.py` |
 | the CLI operation surface | `src/gramps_live_api/cli.py`: the `preview` and `apply` subcommands and their handlers. ⛔ **`AddNote` is the only writable operation, so `apply` has nothing left to write** |
 | the doc passages explaining why one tool differs | `docs/using.md`, `docs/slice2-mcp.md`, and the README tool groups |
+| ⛔ **two pages that become FALSE, not merely stale** | `docs/restoring.md`, whose opening callout warns that `preview`, `apply` and `approve` take no backup, about commands that will not exist; and `docs/STATUS.md`, which counts nineteen tools with `propose_note`, `approve` and `list_people` in the table, and states outright that the CLI flows **are not retired** |
+
+⚠️ **The documentation rows are not a tidy-up, and one of them is worse than staleness.**
+`docs/STATUS.md` says of the CLI flows: *"They are not retired; they are simply not the route the
+project is built around."* After this ruling runs, that sentence is the opposite of true, on the page
+this project treats as its canonical status. `docs/restoring.md` is the other: it tells a reader what
+to expect from three commands at the moment they are trying to recover a tree, which is the worst
+moment to be reading about commands that no longer exist.
 
 ⚠️ **`core/schema.py` does not all go.** It also validates the document graph. Only the `AddNote`
 operation is note flow only, and `NOTE_TYPES` stays by carve out 1.
