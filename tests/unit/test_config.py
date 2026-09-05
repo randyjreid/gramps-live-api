@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from gramps_live_api import cli, config
+from gramps_live_api import config
 
 
 def written(directory: Path, settings: dict[str, object]) -> Path:
@@ -199,6 +199,12 @@ def test_a_config_written_by_powershell_with_a_bom_is_read(tmp_path: Path) -> No
     owner's first ``check`` failed on a file they had written correctly.
 
     Refusing our own instructions' output is the defect; this pins it shut.
+
+    ⚠️ **There used to be a second test here pinning this reader to ``cli``'s
+    operation reader**, because the two read files the same owner wrote on the
+    same box with the same PowerShell and had drifted apart -- one ``utf-8-sig``,
+    one ``utf-8``. The operation file is retired with the note flow, so there is
+    one reader left and nothing for it to drift from.
     """
     directory = tmp_path / "gramps-live-api"
     directory.mkdir(parents=True)
@@ -216,69 +222,39 @@ def test_a_config_written_by_powershell_with_a_bom_is_read(tmp_path: Path) -> No
     assert settings.copy_path == copy_path
 
 
-def test_both_json_readers_tolerate_a_bom(tmp_path: Path) -> None:
-    """The config reader and the operation reader must not drift apart again.
-
-    They read two different files written by the same owner on the same box, and
-    they disagreed: ``cli`` used ``utf-8-sig`` with a comment explaining why,
-    ``config`` used ``utf-8``. Nothing pinned them together, so the divergence
-    was invisible until the documented setup hit it.
-    """
-    directory = tmp_path / "gramps-live-api"
-    directory.mkdir(parents=True)
-    copy_path = str(tmp_path / "copy")
-    (directory / config.CONFIG_FILE).write_text(
-        json.dumps({"copy_path": copy_path}), encoding="utf-8-sig"
-    )
-    operation = tmp_path / "op.json"
-    operation.write_text(
-        json.dumps(
-            {
-                "type": "add_note",
-                "target": {"object_type": "person", "handle": "abc123", "gramps_id": "I0001"},
-                "note_type": "research",
-                "text": "a note",
-            }
-        ),
-        encoding="utf-8-sig",
-    )
-
-    assert config.load({"APPDATA": str(tmp_path)}, platform="win32").copy_path == copy_path
-    # The operation reader's own BOM tolerance, asserted beside the config one so
-    # a change to either meets this test.
-    assert cli._operation_at(str(operation)).text == "a note"
-
-
 # ---------------------------------------------------------------------------
-# The export -- slice 2's third setting
+# The export, RETIRED
 #
-# ⚠️ **It is not a convenience index.** Ruling 1 makes the export the place the
-# privacy flag is read from, so a setting that is absent or stale is a privacy
-# question rather than an ergonomic one. See the doctor's staleness line.
+# ⚠️ **``export_path`` named the Gramps XML export ``list_people`` and
+# ``propose_note`` read, and it was the only stale data path in the product.** R9
+# retires it with them: every surviving read goes through the accessor against
+# the tree Gramps has open. What is asserted below is not that the setting is
+# absent -- absence proves nothing -- but that a configuration file still
+# carrying it is refused BY NAME.
 # ---------------------------------------------------------------------------
 
 
-def test_the_file_supplies_the_export(tmp_path: Path) -> None:
+def test_a_file_still_carrying_export_path_is_refused_by_name(tmp_path: Path) -> None:
+    """⛔ Refused, not ignored, and the difference is the whole of this loader's rule.
+
+    ⚠️ **A setting silently dropped means the configuration in force is not the
+    one that was written, and nothing says so.** The owner who configured an
+    export before R9 has that key in his file today; ignoring it would leave him
+    believing a tool still reads an export, and the refusal names it instead.
+    """
     written(tmp_path / config.DIRECTORY_NAME, {"export_path": "a-tree.gramps"})
-    settings = config.load({"APPDATA": str(tmp_path)}, platform="win32")
-    assert settings.export_path == "a-tree.gramps"
 
+    with pytest.raises(config.ConfigError) as refusal:
+        config.load({"APPDATA": str(tmp_path)}, platform="win32")
 
-def test_the_environment_overrides_the_filed_export(tmp_path: Path) -> None:
-    written(tmp_path / config.DIRECTORY_NAME, {"export_path": "from-the-file"})
-    settings = config.load(
-        {"APPDATA": str(tmp_path), config.ENV_EXPORT: "from-the-environment"}, platform="win32"
+    assert "export_path" in str(refusal.value), (
+        f"the refusal does not name the retired key, so nobody can act on it; got {refusal.value}"
     )
-    assert settings.export_path == "from-the-environment"
 
 
-def test_no_export_configured_is_not_a_failure(tmp_path: Path) -> None:
-    assert config.load({"APPDATA": str(tmp_path)}, platform="win32").export_path is None
+def test_the_settings_there_are_carry_no_export(tmp_path: Path) -> None:
+    """⛔ The type itself, so a field cannot come back without this failing."""
+    settings = config.load({"APPDATA": str(tmp_path)}, platform="win32")
 
-
-def test_export_path_is_a_declared_setting_rather_than_an_unknown_key(tmp_path: Path) -> None:
-    """The loader refuses a key nobody declared, so adding a setting means
-    adding it to ``_KEYS`` -- and forgetting makes the documented setup fail."""
-    path = written(tmp_path / config.DIRECTORY_NAME, {"export_path": "x"})
-    config.load({"APPDATA": str(tmp_path)}, platform="win32")
-    assert path.is_file()
+    assert not hasattr(settings, "export_path")
+    assert not hasattr(config, "ENV_EXPORT")

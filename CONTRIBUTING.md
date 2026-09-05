@@ -39,8 +39,8 @@ python -m pip install -e ".[dev,mcp]"
 ```
 
 ⚠️ **`mcp` is an optional extra and `dev` is not enough to run the whole suite.** The core has
-`dependencies = []` and keeps it — the schema, the write path, the CLI console and `pii_guard` need
-nothing but the standard library — so the MCP SDK sits behind an extra. Install `".[dev]"` alone and
+`dependencies = []` and keeps it — the graph parser, the preview renderer, the host, the install
+doctor and `pii_guard` need nothing but the standard library — so the MCP SDK sits behind an extra. Install `".[dev]"` alone and
 `tests/unit/test_mcp_server.py` **skips at module level, by name**; `mypy src` fails on the import it
 cannot resolve. Install `".[dev,mcp]"` and everything runs. `docs/slice2-mcp.md` records what the extra
 costs and why it is an extra.
@@ -1573,20 +1573,27 @@ it, and nothing here loads it at all.
 
 That is not a hole in the rule, it is the rule honoured. **What the rule is for is a core that tests
 without Gramps**, and moving the files that must import it *outside* the package is what buys
-that: `core/apply.py` reaches the Gramps object model through a four-method protocol, so the whole
-write — the authorisation, the ordering, the undo record before the transaction — is exercised by
-ordinary unit tests on a runner that has never seen Gramps. Putting the same code under `src/` would
-have cost Gramps stubs for `mypy`, Gramps on CI, or a `# type: ignore` over the interesting part.
+that: `host/document.py` parses, refuses and renders a whole document graph without a database in
+sight, so the vocabulary, the shape refusals and the preview are exercised by ordinary unit tests on
+a runner that has never seen Gramps, and only `gramps_plugin/gramps_live_api_writer.py` speaks to
+the Gramps object model. Putting the same code under `src/` would have cost Gramps stubs for `mypy`,
+Gramps on CI, or a `# type: ignore` over the interesting part.
 
-⚠️ **R8's host plugin joined that directory, and it is a SECOND plugin rather than a widening of the
-exception.** `gramps_plugin/` now holds two registrations: the CLI apply tool, and the
-`GENERAL`/`load_on_reg` loopback host. The host's own code lives in `src/gramps_live_api/host/`,
-which imports **neither `gramps` nor `gi`** — Gramps' `dbstate` and `GLib.idle_add` both arrive as
+⛔ **This paragraph named `core/apply.py` and its four-method `Tree` protocol until R9.** That was
+the note flow's write, and the retirement deleted it; what is left of that module is the blessing
+and the note-type vocabulary. The argument is unchanged, and its example moved.
+
+⚠️ **`gramps_plugin/` holds ONE registration now**, the `GENERAL`/`load_on_reg` loopback host,
+alongside the writer module the host imports by name. ⛔ **It held two until R9**: the CLI apply
+tool's registration and its shim, which is what the paragraph above is about, and the retirement
+deleted both with the note flow. The host's own code lives in `src/gramps_live_api/host/`, which
+imports **neither `gramps` nor `gi`** — Gramps' `dbstate` and `GLib.idle_add` both arrive as
 arguments — so the listener, the auth check and the whole main-thread boundary run under ordinary
-unit tests. Only the plugin file crosses.
+unit tests. Only the plugin files cross.
 
-⭐ **And it crosses more narrowly than the apply tool does: `gramps_plugin/gramps_live_api_host.py`
-imports `gi` INSIDE `load_on_reg` rather than at module level.** That is deliberate and it is worth
+⭐ **And the host crosses more narrowly than the retired apply tool did:
+`gramps_plugin/gramps_live_api_host.py` imports `gi` INSIDE `load_on_reg` rather than at module
+level.** That is deliberate and it is worth
 copying. The file therefore imports on a machine with no GTK, so `tests/unit/test_host_plugin.py`
 loads it by path and exercises everything except three lines — the `gi` import, the `GLib.idle_add`
 it hands on, and `dbstate.connect`. What CI cannot cover is then three lines instead of a file.

@@ -85,7 +85,7 @@ def installation_or_skip() -> Path:
             "table rather than a copy, by the seam twins "
             "test_the_table_carries_every_row_of_both_lists_and_nothing_else"
             " and "
-            "test_the_schema_vocabulary_IS_the_table_and_not_a_copy"
+            "test_the_document_vocabulary_IS_the_table_and_not_a_copy"
             " -- neither of which can see a Gramps that moved underneath it, and "
             "nothing can on a runner with no Gramps on it."
         )
@@ -116,7 +116,7 @@ def installation_or_skip() -> Path:
             "everything reading it reads that table, by the seam twins "
             "test_the_table_carries_every_row_of_both_lists_and_nothing_else"
             " and "
-            "test_the_schema_vocabulary_IS_the_table_and_not_a_copy"
+            "test_the_document_vocabulary_IS_the_table_and_not_a_copy"
             " -- and a drifted type is refused at write time by both write routes "
             "rather than only here. To check the table against THIS installation, "
             f"re-derive it against the root that does hold {wanted}: {REGENERATE}"
@@ -239,10 +239,11 @@ def test_the_committed_VERSION_is_what_the_installed_gramps_declares() -> None:
 def test_every_ACCEPTED_type_exists_on_the_installed_NoteType_class() -> None:
     """⛔ What the retired totality test was replaced by.
 
-    ⚠️ ``apply.NOTE_TYPE_ATTRIBUTES`` used to be two entries typed by hand beside
-    a two-member frozenset, asserted total over it by a test. Once both come from
-    one table that subtraction cannot fail, so **the totality that actually needs
-    checking is against Gramps**: every accepted attribute name must be something
+    ⚠️ The note flow's Gramps-spelling map used to be two entries typed by hand
+    beside a two-member frozenset, asserted total over it by a test. Once both
+    came from one table that subtraction could not fail, and the map has since
+    retired with the flow, so **the totality that actually needs checking is
+    against Gramps**: every accepted attribute name must be something
     ``getattr(NoteType, ...)`` reaches on the class the write will use.
 
     ⭐ **Read out of the class body rather than by importing Gramps.** Importing

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from gramps_live_api.core import _note_types, apply, schema
+from gramps_live_api.core import _note_types
 from gramps_live_api.host import document
 
 ACCEPTED_COUNT = 10
@@ -180,35 +180,16 @@ def test_the_provenance_names_two_files_and_a_version_read_from_one_of_them() ->
 # ---------------------------------------------------------------------------
 
 
-def test_the_schema_vocabulary_IS_the_table_and_not_a_copy() -> None:
+def test_the_document_vocabulary_IS_the_table_and_not_a_copy() -> None:
     """⛔ Identity, not equality, and the difference is the whole point.
 
     ⚠️ Two equal sets are one edit away from being two different sets, and this
     repository's most-recorded defect class is two mechanisms for one property
-    drifting apart. ``schema.NOTE_TYPES`` is what ``validate`` reads and what the
-    note tool's description interpolates; the document route's vocabulary is what
-    a graph is refused against. **Neither may be a second listing.**
+    drifting apart. ``document.NOTE_TYPES`` is what a graph is refused against.
+    **It may not be a second listing.**
+
+    ⚠️ **This used to assert the same of ``schema.NOTE_TYPES``**, which was an
+    alias to the table with no surviving consumer once the note flow retired. The
+    alias has gone; the binding this line watches is the live one.
     """
-    assert schema.NOTE_TYPES is _note_types.ACCEPTED_NOTE_TYPES
     assert document.NOTE_TYPES is _note_types.ACCEPTED_NOTE_TYPES
-
-
-def test_the_gramps_spelling_of_every_accepted_type_comes_from_the_table() -> None:
-    """⛔ ``NOTE_TYPE_ATTRIBUTES`` stops being a hand-written map.
-
-    ⚠️ It was two entries typed out beside a two-member frozenset, asserted total
-    over that frozenset by a test. At ten members a hand-written map is a second
-    tally; derived from the rows, the attribute name is **the table's own**
-    rather than a guess about capitalisation, and the totality that test asserted
-    is a property of the derivation rather than of somebody's diligence.
-    """
-    assert set(apply.NOTE_TYPE_ATTRIBUTES) == set(_note_types.ACCEPTED_NOTE_TYPES)
-
-    by_wire_name = {
-        attribute.lower(): attribute for attribute, _v, _k, _l in _note_types.NOTE_TYPE_ROWS
-    }
-    for wire_name, spelling in apply.NOTE_TYPE_ATTRIBUTES.items():
-        assert spelling == by_wire_name[wire_name], (
-            f"{wire_name!r} is spelled {spelling!r} where the table declares "
-            f"{by_wire_name[wire_name]!r}"
-        )

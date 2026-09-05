@@ -1,38 +1,23 @@
-"""A blessed copy on ``tmp_path``, and a tree that is not Gramps.
+"""A blessed copy on ``tmp_path``.
 
-⚠️ **Everything here is invented, and none of it is a Gramps database.** The
-directory is three files the check looks at; the tree object below answers the
-questions ``core.apply`` asks and records what it was asked. That is enough
-to exercise the ORDERING -- authorise, record, write -- on a runner with no
-Gramps on it, and it is not evidence that a note reaches a real tree. Only the
-demo is.
+⚠️ **Nothing here is a Gramps database.** The directory is the two files
+``core.apply``'s check looks at, which is enough to exercise the blessing on a
+runner with no Gramps on it, and it is not evidence that anything reaches a real
+tree. Only ``tests/integration/test_round_trip.py`` is.
+
+⛔ **``FakeTree``, ``MOMENT`` and ``NOTE_TYPE_VALUES`` went with R9.** They stood
+in for the Gramps database the note flow's ``apply_operation`` drove -- the
+transaction, the note handle, the read-back and a ``NoteType`` with a row removed
+so the drift refusal was reachable without Gramps. That write path is retired,
+and the document route's write happens out in ``gramps_plugin/`` where a fake
+would prove nothing.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from datetime import datetime, timezone
 from pathlib import Path
 
-from gramps_live_api.core import _note_types, apply
-
-MOMENT = datetime(2026, 8, 16, 12, 34, 56, tzinfo=timezone.utc)
-"""One fixed instant, so a record's stem and contents are assertable."""
-
-NOTE_TYPE_VALUES: Mapping[str, object] = {
-    attribute: value for attribute, value, _key, _declared_in in _note_types.NOTE_TYPE_ROWS
-}
-"""What a ``gramps.gen.lib.NoteType`` holds, taken from the COMMITTED table.
-
-⛔ **Read out of the table rather than written here**, so this fixture cannot
-become a second listing of the vocabulary and cannot drift from the one the
-package validates against.
-
-⭐ A test simulating a Gramps that has renamed, removed or renumbered a built-in
-note type hands ``FakeTree`` a copy of this with that entry gone or replaced.
-That is the only way the drift is reachable on a runner with no Gramps on it,
-and the shim's ``getattr`` against the live class is the thing it stands in for.
-"""
+from gramps_live_api.core import apply
 
 
 def blessed(directory: Path) -> apply.WritableCopy:
@@ -41,105 +26,3 @@ def blessed(directory: Path) -> apply.WritableCopy:
     (directory / apply.NAME_FILE).write_text("Invented Copy\n", encoding="utf-8")
     (directory / apply.SENTINEL_NAME).write_text("", encoding="utf-8")
     return apply.authorise(str(directory))
-
-
-class _Transaction:
-    """What ``Tree.transaction`` hands back, and when it observes the records.
-
-    ⚠️ **The observation happens on ENTRY, deliberately.** "The record exists
-    by the time the apply returns" is a much weaker claim than "the record
-    exists before the transaction opens", and only the second one is the
-    property. Reading the undo directory here is a direct observation of the
-    ordering rather than a proxy for it.
-    """
-
-    def __init__(self, tree: FakeTree) -> None:
-        self._tree = tree
-
-    def __enter__(self) -> object:
-        self._tree.records_when_the_transaction_opened = self._tree.records_on_disk()
-        self._tree.events.append("transaction opened")
-        return self
-
-    def __exit__(self, *_: object) -> bool:
-        self._tree.events.append("transaction closed")
-        return False
-
-
-class FakeTree:
-    """A tree that answers the questions ``core.apply`` asks and remembers them.
-
-    ⚠️ **Not a Gramps database and not a stand-in for one.** It proves the
-    ordering and the refusals; it proves nothing about ``DbTxn``, about the
-    note surviving to disk, or about the backlink Gramps maintains. Only the
-    demo proves those, which is why the integration test that runs the real
-    thing skips by name rather than being quietly absent.
-    """
-
-    def __init__(
-        self,
-        tree_dir: Path,
-        *,
-        people: dict[str, str] | None = None,
-        note_handle: str = "f00d1e5f00d1e5",
-        note_gramps_id: str = "N0021",
-        text_read_back: str | None = None,
-        attached: bool = True,
-        refuse_the_write: bool = False,
-        note_type_values: Mapping[str, object] | None = None,
-    ) -> None:
-        self._tree_dir = tree_dir
-        self._people = {"I0044": "a1b2c3d4e5f607"} if people is None else people
-        self._note_handle = note_handle
-        self._note_gramps_id = note_gramps_id
-        self._text_read_back = text_read_back
-        self._attached = attached
-        self._refuse_the_write = refuse_the_write
-        self._note_type_values = NOTE_TYPE_VALUES if note_type_values is None else note_type_values
-        self.events: list[str] = []
-        self.written: list[tuple[str, str, str]] = []
-        self.records_when_the_transaction_opened: list[str] = []
-
-    def records_on_disk(self) -> list[str]:
-        undo = self._tree_dir / apply.UNDO_DIRECTORY
-        return sorted(path.name for path in undo.glob("*.json")) if undo.is_dir() else []
-
-    # The protocol core.apply talks to.
-
-    def save_path(self) -> str:
-        return str(self._tree_dir)
-
-    def person_handle_of(self, gramps_id: str) -> str | None:
-        self.events.append(f"resolved {gramps_id}")
-        return self._people.get(gramps_id)
-
-    def note_type_value(self, note_type: str) -> object:
-        """What this tree's ``NoteType`` holds under that attribute name.
-
-        ⚠️ **A ``dict.get`` because the shim is a ``getattr``**, and the two are
-        the same one-line translation. The judgement about what makes a value
-        usable is deliberately NOT here: it lives in ``core.apply``, where a
-        runner with no Gramps can reach it, and duplicating it here would give
-        the fake its own opinion to be wrong with.
-        """
-        self.events.append(f"note type {note_type} looked up")
-        return self._note_type_values.get(note_type)
-
-    def transaction(self, message: str) -> _Transaction:
-        return _Transaction(self)
-
-    def add_note_to_person(
-        self, *, person_handle: str, note_type: str, text: str, transaction: object
-    ) -> apply.NoteIdentity:
-        self.events.append("note written")
-        if self._refuse_the_write:
-            raise RuntimeError("the tree refused the write")
-        self.written.append((person_handle, note_type, text))
-        return apply.NoteIdentity(handle=self._note_handle, gramps_id=self._note_gramps_id)
-
-    def note_on_person(self, *, note_handle: str, person_handle: str) -> apply.NoteSighting:
-        self.events.append("note read back")
-        return apply.NoteSighting(
-            text="" if self._text_read_back is None else self._text_read_back,
-            attached=self._attached,
-        )

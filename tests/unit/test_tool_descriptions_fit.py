@@ -132,14 +132,19 @@ def test_the_rules_come_BEFORE_the_schema_in_propose_document() -> None:
 def test_every_lookup_the_description_names_reads_the_LIVE_TREE() -> None:
     """⛔ A lookup rule pointing at a stale source manufactures the duplicate.
 
-    ⚠️ ``list_people`` reads the owner's XML **export** -- ``people.read_export`` --
-    which can predate a person added to the open tree. ``find_people`` queries the
-    live ``/find/people`` route. The compressed rule named the stale one **and**
-    had dropped the caveat that made it safe, so a model told to *look it up
-    first* could look, miss, and create the duplicate anyway.
+    ⚠️ ``list_people`` read the owner's XML **export** -- ``people.read_export`` --
+    which can predate a person added to the open tree, where ``find_people``
+    queries the live ``/find/people`` route. The compressed rule named the stale
+    one **and** had dropped the caveat that made it safe, so a model told to
+    *look it up first* could look, miss, and create the duplicate anyway.
+
+    ⛔ **R9 retired that tool and its reader, so this is now a FENCE rather than a
+    live check**, and saying so is the point: it is green today because nothing
+    reads an export at all, and it goes red on the day something does again. A
+    fence that reads as a live finding is how a stale test gets believed.
 
     ⭐ Asserted against the implementations rather than by reading the sentence:
-    every tool the rule names must reach the host, not the export.
+    every tool the rule names must reach the host, not an export.
     """
     import inspect
     import re

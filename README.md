@@ -87,9 +87,9 @@ nothing more.** It holds no reference to the window, cannot put text into it, ca
 displays, and the call that opened it returns without saying what was decided. ⛔ **On this route no
 write reaches the tree until the user clicks**, and the click is the only path to `F`.
 
-⚠️ **That is a claim about this route, not about every write.** The diagram is the **document**
-route. The `apply` CLI command and the older `approve` console flow also write, by other paths, and
-neither takes a backup; both are described further down.
+⭐ **And it is now a claim about every write there is.** The `apply` CLI command and the older
+`approve` console flow wrote by other paths and neither took a backup; R9 retired both, so the
+document route is the only write path an agent can reach.
 
 ⚠️ **Reads do reach the database before the click, and the distinction is the whole safety property.**
 The dialog's text is built by reading the tree (the name behind each Gramps ID, what those records
@@ -115,14 +115,16 @@ than holding the socket open.
 **The approval model is the point.** An agent can propose. It cannot write, and it cannot learn
 whether the user said yes:
 
-- The **document** flow renders a preview from the stored proposal and shows it in a **modal GTK
-  dialog inside Gramps**. The dialog's text is built from the record on disk and from the tree, never
-  from anything an agent sends at approval time.
-- The older **note** flow opens a **console window the agent cannot type in**. A yes in the chat is a
-  courtesy; the keystroke in that window is the approval.
+The **document** flow renders a preview from the stored proposal and shows it in a **modal GTK
+dialog inside Gramps**. The dialog's text is built from the record on disk and from the tree, never
+from anything an agent sends at approval time.
 
-In both, the call that opens the approval returns immediately and knows nothing. **The approval
-response does not reveal the decision**: not written, not declined, not failed.
+⚠️ **It is the only approval surface, and it used to be the weaker of two.** The retired note flow
+opened a **console window in a separate process**, which this server held no handle on and could not
+type into. R9 accepted the loss of that argument as a stated cost of retiring the flow.
+
+The call that opens the approval returns immediately and knows nothing. **The approval response does
+not reveal the decision**: not written, not declined, not failed.
 
 **That is a property of the response, not a guarantee of secrecy.** The live-read tools are still
 there, so an agent can look afterwards (asking for a distinctively named person, or for what changed
@@ -189,7 +191,7 @@ of them has been run against this server, so none is claimed.**
 
 ## What the agent can do
 
-The tools, in three groups.
+The tools, in two groups.
 
 **Live reads of the open tree**: `find_people`, `find_place`, `find_source`, `find_citation`,
 `find_families`, `find_orphans`, `list_events`, `list_family_events`, `list_citations`,
@@ -217,13 +219,11 @@ added to a person, children to a family, a citation or note to any of them. What
 the payload says the record *is*: its name, type, date, place. Anything dropped that way is shown
 in the preview as dropped.
 
-**The older note flow**: `propose_note`, `approve`, and `list_people`: the terminal-era path that
-still works. **Windows only:** its approval opens a console window, and on any other platform
-`approve` refuses outright. The document route has no such restriction.
-
-⚠️ **`list_people` is the one tool that does not read the open tree.** It reads a **Gramps XML export
-produced by hand**, so it cannot see writes made since that export was taken, and a privacy flag set
-afterwards would not be reflected. `find_people` is the live equivalent and is the one to use.
+⛔ **There was a third group and it is retired.** `propose_note`, `approve` and `list_people` were
+the terminal-era path: a note written into a blessed copy, approved in a console window, targeting a
+person looked up in a **Gramps XML export produced by hand** — a snapshot that could not see writes
+made since it was taken, and would not reflect a privacy flag set afterwards. R9 retired all three.
+`find_people` is the live equivalent of the lookup and was already the one to use.
 
 The set above is not maintained by hand against the server: `tests/unit/test_mcp_server.py`'s
 `test_the_exposed_surface_is_exactly_what_the_server_says_it_is` asserts the exposed surface is
@@ -245,10 +245,10 @@ exactly what the server publishes.
   it does not tell you whether anything was written: a missing write time does not mean the tree is
   unchanged.**
   [`docs/restoring.md`](docs/restoring.md#what-intent-only-means-and-what-it-does-not) has the detail.
-- ⛔ **The backup covers the document route and nothing else.** The older note flow
-  (`propose_note`/`approve`) and the `preview`/`apply` commands write without taking one, so a write
-  through those paths has **no recovery point**: [`docs/restoring.md`](docs/restoring.md) says so in
-  its opening lines, and this page would otherwise have implied a protection they do not have.
+- ⭐ **Every write path takes the backup now**, which this page could not say before R9. The note
+  flow (`propose_note`/`approve`) and the `preview`/`apply` commands wrote without taking one, so a
+  write through those paths had **no recovery point**. They are retired, and the document route is
+  what is left.
 - **The approval dialog's `already has:` line is read through the privacy gate, like every other
   read.** For each attached person the proposal adds an event to, the dialog lists what they already
   hold of the types being added, so a second event of a kind they already have no longer looks like
@@ -280,22 +280,28 @@ own route, with its own parameters, its defaults for the arguments a caller omit
 token, together with the three ways the transport fails: no host running, a host that refuses, a
 host that is unreachable.
 
-⛔ **The five that write or read the export are not: `propose_document`, `approve_document`,
-`approve`, `propose_note` and `list_people`.** Their logic is exercised one layer down, against
-fakes, in the accessor and document modules.
+⛔ **The two that write are not: `propose_document` and `approve_document`.** Their logic is
+exercised one layer down, against fakes, in the accessor and document modules. (This said *five*
+until R9; the other three were the note flow's, and they are gone.)
 
 ⚠️ **And a fake host is not Gramps.** That a route is called with the right parameters says nothing
 about what the tree would answer. The wiring from an MCP call, through the **real** HTTP listener,
 onto Gramps' main thread and back is still proved by a person running it, not by the suite.
 
 **Against a real Gramps database, one thing is covered automatically, and it is the strongest
-evidence here.** An integration test creates a **throwaway** Gramps database, performs the **older
-note flow's** write through a real `DbTxn` in a real Gramps process, and verifies it from a second
-fresh process. It runs only when pointed at an installed Gramps runtime, so it is skipped in CI, but
-it is automated, and the database is real.
+evidence here.** An integration test creates a **throwaway** Gramps database, files a document
+through the real `propose_document`, claims it the way `approve_document` does, and runs the
+**document route's own writer** through a real `DbTxn` in a real Gramps process — then verifies the
+person, the note, its type and the citation from a second fresh process. It runs only when pointed at
+an installed Gramps runtime, so it is skipped in CI, but it is automated, and the database is real.
 
-**Against a real Gramps database, these are not covered at all:** the **document** route's write, the
-plugin registration, the approval dialog, and every live read. A fake host proves the MCP layer calls
+⚠️ **It drove the note flow's write until R9, and the port kept the property while losing half the
+route.** What it cannot reach is `approve_document`'s loopback POST and the modal dialog behind it:
+the dialog writes only when a person clicks, and a test that could click it would be an
+auto-approving path built into the product.
+
+**Against a real Gramps database, these are not covered at all:** the plugin registration, the
+approval dialog, the backup and journal, and every live read. A fake host proves the MCP layer calls
 the right route; only a database can say what comes back.
 
 ⛔ **And against a user's own tree, nothing is automated, not one of the above.** Every write and
@@ -379,10 +385,11 @@ distinct refusal rather than reported absent, so a caller that already has an id
 that the record exists, while learning nothing in it. That was chosen so the user is told *this is
 private* instead of *this is not here*, and the cost is exactly that disclosure.
 
-⛔ **`list_people` is exempt until its export is refreshed, and it fails open.** A person marked
-private *after* that export was taken is still listed by it and still accepted as a target. That is
-why the `check` command **fails** rather than warns on a stale export: the staleness comparison is
-a privacy check, not housekeeping.
+⭐ **There is no longer an exemption to that, and there was one.** `list_people` read a Gramps XML
+export, so a person marked private *after* that export was taken was still listed by it and still
+accepted as a target — a fail-open the `check` command had to report as a doctor failure rather than
+a warning. R9 retired the tool, the export and the setting together, and every read now goes through
+the accessor against the tree Gramps has open.
 
 ## Licence
 
