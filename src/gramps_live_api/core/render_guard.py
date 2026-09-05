@@ -173,7 +173,13 @@ _RANGE_STARTS: tuple[int, ...] = tuple(first for first, _, _ in UNRENDERABLE_RAN
 
 Derived from the table rather than written beside it, so the two cannot drift.
 A frozenset of the ~143,700 code points was rejected on memory grounds; a
-bisect over 41 rows answers in ``O(log n)``.
+bisect over the committed rows answers in ``O(log n)``.
+
+⚠️ **The row count is deliberately not written here.** It said 41 while the table
+held 40: the neighbouring code-point figure was updated when the guard moved and the row
+count was carried over stale, which is how a documented count goes wrong without anything
+announcing it. The number belongs to ``_unrenderable.py``, moves whenever the derivation is
+re-run, and is checkable there by anyone who needs it.
 """
 
 

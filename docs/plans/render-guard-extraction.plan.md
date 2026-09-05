@@ -220,8 +220,14 @@ the deletion, in the same change:
 
 - Newline/structure forgery hardening beyond the guard's class semantics (the per-line wiring
   happens to refuse payload U+000A as Cc; no separate line-forgery mechanism is designed).
-- Guarding `caller_preview`'s own output (agent-facing, not the approval surface; the propose
-  gate already refuses the payloads before it renders).
+- Guarding `caller_preview`'s own output. ⚠️ **CORRECTED: the reason first written here
+  cited the propose-time gate, which the owner-approved plan change above deletes.** The real
+  reason, which stands on its own, is that `caller_preview` is agent-facing and is not the
+  approval surface: its output returns to the agent that supplied the graph, so a character
+  that agent put in its own payload coming back to it changes nothing about what a person
+  approves or what is written. Measured: it does not render note text, but it does render
+  person names, so a guarded character in `given` reaches its output unguarded. Filed as #237
+  rather than fixed here.
 - Implicit bidi reordering by strong RTL characters (recorded non-goal in the moved comment
   block, unchanged).
 - Re-deriving the table against a newer Unicode release.
