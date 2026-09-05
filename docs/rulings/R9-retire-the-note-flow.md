@@ -244,7 +244,10 @@ be producing a seventh unmeasured inventory.
    list, from `AddNote`, the note parts of `core/proposals.py`, the tool registrations and the CLI
    subcommands.
 2. What is left of `core/apply.py` once `AddNote` and its writer are gone? This page never named that
-   module, and carve out 1 keeps `NOTE_TYPE_ATTRIBUTES` inside it.
+   module. ⛔ **Nothing in it is carved out**: `NOTE_TYPE_ATTRIBUTES` has no surviving consumer and
+   goes with the route that read it, per carve out 1, which keeps only the note type table in
+   `core/_note_types.py`. An earlier revision of this question said the opposite and contradicted the
+   carve out it cited.
 3. What does `check` report once `PLUGIN_FILES` no longer names the apply plugin, and is a doctor that
    reports on one route still the right shape?
 
