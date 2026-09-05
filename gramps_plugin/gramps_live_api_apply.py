@@ -144,6 +144,16 @@ class GrampsTree:
         person = self._db.get_person_from_gramps_id(gramps_id)
         return None if person is None else person.get_handle()
 
+    def note_type_value(self, note_type):
+        """What THIS Gramps holds under that ``NoteType`` attribute name.
+
+        ⛔ One getattr, and no verdict. Whether what comes back is something a
+        note can be filed under is decided in ``core.apply._spellable``, which
+        runs under ordinary unit tests; deciding it here would put the check
+        behind the Gramps import, where nothing on a CI runner can reach it.
+        """
+        return getattr(NoteType, note_type, None)
+
     def transaction(self, message):
         return DbTxn(message, self._db)
 
@@ -155,6 +165,13 @@ class GrampsTree:
         # ⚠️ getattr on the ATTRIBUTE NAME, never a pinned integer. Gramps'
         # numbering is an implementation detail, and a rename fails loudly here
         # instead of filing every note under whatever now holds that number.
+        #
+        # ⛔ **Unguarded on purpose, and it is no longer the guard.**
+        # ``core.apply`` asks ``note_type_value`` about this same name before it
+        # writes the undo record and before this transaction was opened, so a
+        # drifted type is refused with nothing journalled and nothing written.
+        # Reaching a failure here would mean the class answered one way then and
+        # another way now, and failing loudly is the right thing to do about it.
         note.set_type(NoteType(getattr(NoteType, note_type)))
         note_handle = self._db.add_note(note, transaction)
 

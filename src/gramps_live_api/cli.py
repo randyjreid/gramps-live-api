@@ -567,6 +567,11 @@ its own directory precisely so the writer can be imported by name."""
 
 HOST_MODULES = (
     "config",
+    # ⚠️ **Not under ``host/``, and that is the point of computing the closure
+    # rather than listing the directory.** ``host.document`` imports the frozen
+    # note-type table, which lives in ``core/`` because it is the vocabulary both
+    # routes validate against. A package missing it starts no host.
+    "core._note_types",
     "host.accessor",
     "host.auth",
     "host.backup",
