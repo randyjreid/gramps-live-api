@@ -229,11 +229,56 @@ the deletion, in the same change:
    refusal, which question 2 covers.
 2. Whether the plugin adds a friendlier owner-facing message for an approval-time refusal, or
    leaves the existing catch-all (fail closed either way).
+
+   **ANSWERED BY THE BUILD: the existing catch-all, unchanged.** The plugin is out of scope by
+   this plan's own out-of-scope list ("any change to ... the writer plugin's behaviour"), and the
+   catch-all at `gramps_live_api_host.py:775` already fails closed and already tells the owner the
+   write failed. The refusal message was written to be readable where it lands: it names the
+   published fact (`Cc`, `Cf`, `Cs`, `Co`, `Default_Ignorable_Code_Point`), says what such a
+   character does, and says nothing was written -- and it repeats no payload value, which matters
+   precisely because that catch-all puts the traceback in a dialog. A friendlier message is a
+   plugin change with no use-derived trigger behind it.
 3. Which `NODE_KEYS` entries the derivation must drop because injection breaks `parse`
    (discovered by probe at build time, mirroring the deleted file's drop rule).
+
+   **ANSWERED BY PROBE. 13 of the 28 declared keys are dropped**, and all 13 for one of two
+   reasons. **A local id something else refers to**: `people.id`, `places.id`, `source.id`,
+   `families.id` -- injecting into the id leaves the reference dangling and `check` refuses it.
+   **A reference or a list of references**: `events.place`, `events.people`, `events.family`,
+   `citations.source`, `citations.attach_to`, `notes.attach_to`, `families.parents`,
+   `families.children` -- the injected value names nothing in the graph. Plus one closed
+   vocabulary: `notes.type`, refused by `note_type_of`.
+
+   ⚠️ **Two `id` keys are NOT dropped and are not carried either: `events.id` and `citations.id`.**
+   Nothing in a minimal graph refers to them, so `parse` accepts the injection -- and the renderer
+   never prints a local id, so nothing reaches a screen. **The plan predicted the deleted file's
+   rendered/unrendered split would collapse on a creating-only graph. It does not.** The build
+   kept the split: those two are asserted NOT refused, which is the control that shows the guard
+   stayed at the rendering boundary, and they are pinned by name because a local id appearing in
+   the render is a defect `document.py` already records having had.
 4. Whether the `dropped_fields` attaching-node case renders or not under a found `Resolution`
    (probe, then assert the true behaviour).
+
+   **ANSWERED BY PROBE: it does NOT render, so it is NOT refused.** Under a found `Resolution` the
+   ATTACHING section prints `f"  {node.gramps_id}  {node.display}"` from the tree and names the
+   payload field only as one that was NOT applied; the payload value itself reaches no screen and
+   the writer ignores it. Probed with `given = "Al" + chr(0x202E) + "phaward"`: the override is
+   absent from the rendered text. **The same graph with no resolution IS refused**, and the test
+   asserts both beside each other, because that difference is exactly the finding that removed the
+   propose-time gate from this plan.
 5. Whether `render_guard` also exports `is_unrenderable` for the sweeps or the tests use
    `class_of(c) is not None` directly.
+
+   **ANSWERED BY THE BUILD: no `is_unrenderable`.** The tests call `class_of(c) is not None`. A
+   second public name for one question is a second thing to keep in step, and the module has one
+   consumer that does not want the boolean -- `refuse_unrenderable` needs the label to put in the
+   refusal.
 6. Where the new test file's stand-in `Resolution` comes from: hand-built like
    `test_document_preview.py`'s `_resolution()` helper, or a shared fixture extracted from it.
+
+   **ANSWERED BY THE BUILD: hand-built, three lines.** Extracting a shared fixture would couple
+   two files' graphs, so a change to either one's fixture would move the other's assertions --
+   and `test_document_preview.py`'s `_resolution` is bound to that file's graph and its invented
+   display text. What the new file DID take from that one is its `node`/`graph_of` keyword-argument
+   habit, which is not style: `pii_guard` reported this file twice while it used dict literals,
+   scoring 40 for identity keys and then 6 for the graph's own group keys.
