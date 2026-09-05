@@ -1,4 +1,4 @@
-"""The blessing that makes a Gramps tree writable, and the note vocabulary.
+"""The blessing that makes a Gramps tree writable.
 
 ⚠️ **This module imports no Gramps and no ``gi``, and it must not start.** The
 Gramps object model is reached only out in ``gramps_plugin/``, which is the one
@@ -8,18 +8,23 @@ Gramps stubs, and the check below is exercised by ordinary unit tests on a
 runner that has never heard of Gramps.
 
 ⛔ **The write path that used to live here is gone with R9.** ``apply_operation``,
-``verify_operation``, the ``Tree`` protocol, the approval digest and the undo
-record pair all served the note flow, which is retired; the document route writes
-inside Gramps through ``gramps_plugin/gramps_live_api_writer.py`` and journals
-through ``host/document.py``. **Two things did not go with it**, and both are
-load bearing somewhere else:
+``verify_operation``, the ``Tree`` protocol, the approval digest, the undo
+record pair and ``NOTE_TYPE_ATTRIBUTES`` all served the note flow, which is
+retired; the document route writes inside Gramps through
+``gramps_plugin/gramps_live_api_writer.py`` and journals through
+``host/document.py``. **One thing did not go with it**, and it is load bearing
+somewhere else:
 
 * ``WritableCopy`` and ``authorise`` -- the blessing. ``host.accessor`` and the
   MCP server both hold a token before they touch a copy, and its constructor IS
   the check. There is no flag and no configuration key that reaches it.
-* ``NOTE_TYPE_ATTRIBUTES`` -- the note-type vocabulary in Gramps' own spelling.
-  R9's first carve out: it reads as a note flow constant and it is what the
-  document route's typed notes are validated against.
+
+⚠️ **``NOTE_TYPE_ATTRIBUTES`` went on a re-read of R9's first carve out, and an
+earlier revision of this docstring said it stayed.** The carve out keeps the note
+type TABLE, which is ``core/_note_types.py``; the map here was the note flow's
+Gramps-spelling lookup and its only runtime reader was the retired apply route.
+The document route reads ``core._note_types.ACCEPTED_NOTE_TYPES`` directly and
+the writer carries its own inlined copy, bound to the table by test.
 
 **What the blessing does NOT buy is coverage of a write.** It proves a directory
 is a copy the owner blessed by hand; it proves nothing about ``DbTxn`` or about
@@ -30,11 +35,7 @@ with Gramps, which is what ``tests/integration/test_round_trip.py`` is for.
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
 from dataclasses import dataclass
-from types import MappingProxyType
-
-from gramps_live_api.core import _note_types
 
 SENTINEL_NAME = ".gramps-live-api-copy"
 """The file the owner creates by hand, INSIDE the tree directory.
@@ -99,37 +100,3 @@ def authorise(tree_dir: str) -> WritableCopy:
     check is in the constructor, deliberately.
     """
     return WritableCopy(tree_dir)
-
-
-NOTE_TYPE_ATTRIBUTES: Mapping[str, str] = MappingProxyType(
-    {
-        attribute.lower(): attribute
-        for attribute, _value, _key, _declared_in in _note_types.NOTE_TYPE_ROWS
-        if attribute.lower() in _note_types.ACCEPTED_NOTE_TYPES
-    }
-)
-"""``schema.NOTE_TYPES`` in the spelling ``gramps.gen.lib.NoteType`` uses.
-
-⚠️ **Attribute NAMES rather than the integers behind them.** Gramps publishes
-``NoteType.RESEARCH`` and ``NoteType.TODO`` as class attributes; their numeric
-values are an implementation detail this repository has no business pinning, and
-a renumbering would silently file every note under the wrong type. Looked up
-with ``getattr`` in the shim, so a rename fails loudly there instead.
-
-⛔ **DERIVED from the frozen table, and it used to be two entries typed here.**
-Two was tractable to maintain by hand and ten is not, so the map now reads the
-same rows the accepted set is computed from. ⭐ **Keyed off the accepted set
-rather than recomputing the exclusion**, so there is one place that decides which
-types are accepted and this is not a second one.
-
-⚠️ **The spelling is the TABLE'S attribute name, not ``name.upper()``.** Those
-agree for all twenty-nine rows today and a test asserts they still do, but a map
-built by upper-casing would be asserting its own arithmetic rather than reading
-what Gramps declares.
-
-⚠️ **The old totality test is gone and this is where it went.** It asserted
-``NOTE_TYPES - set(NOTE_TYPE_ATTRIBUTES)`` was empty, which cannot fail once both
-sides come from one table: a test that cannot fail watches nothing. What the
-totality actually rests on now is that every accepted attribute name exists on
-the INSTALLED ``NoteType``, which needs Gramps and is asserted where Gramps is.
-"""
