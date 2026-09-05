@@ -365,7 +365,16 @@ ruling.**
 **Genre is the wrong discriminator, and the first version of this section used it.** A ruling dated
 2026-08-21 makes a claim about that date and its body is untouchable. But a document that asserts
 what the project **intends** is making a claim about the present, whatever heading it sits under. So
-each of the eight was re-read against the question rather than its type.
+each page was re-read against the question rather than its type.
+
+⚠️ **The count here was EIGHT when this section was written, and is NINE after the
+correction below moved `docs/slice2-mcp.md` in.** ⛔ **It counts RECORDS, not rows.**
+The table below has ten rows, and one of them, `docs/plans/shippable.plan.md`, is a page this
+section reclassifies to guidance rather than a record it keeps. One further row covers a group
+of plans rather than a single page. So nine records, ten rows, and neither number is derivable
+from the other by counting lines. ⛔ **A correction whose own subject was a stale
+inventory count is exactly where the next one gets introduced**, which is why this says what it
+is a count of.
 
 | page | verdict | why |
 | --- | --- | --- |
@@ -388,6 +397,14 @@ different properties, and only the first is protected by not editing.**
 
 ⛔ **The bodies stay as ruled.** The pointers are added by this ruling's own pull request, not by
 the retirement build, so a reader of any of those pages is told before the build runs.
+
+⚠️ **One exception, and it is the row added by the correction below.**
+`docs/slice2-mcp.md` took its pointer from the RETIREMENT BUILD, not from this ruling's pull
+request, because at the time that build ran the page was still listed as current guidance and the
+build treated it correctly as a record. So a reader of that one page was told when the build
+merged rather than before it. Recorded here rather than smoothed over: the sentence above is a
+claim about provenance, and a claim that is true of eight rows and false of the ninth is a false
+claim.
 
 ## ⭐ Two questions this page left open, now ruled
 
