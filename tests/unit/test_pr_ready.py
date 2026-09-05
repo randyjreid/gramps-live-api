@@ -108,7 +108,12 @@ def test_a_HUMAN_request_still_supersedes_a_bot_verdict_that_precedes_it() -> No
 
 
 def test_no_request_at_all_leaves_the_other_evidence_standing() -> None:
-    """⭐ The automatic review on open: there is no request to be stale against."""
+    """⭐ The automatic review on open: there is no request to be stale against.
+
+    ⚠️ The second assertion is arithmetic about ``_still_current``, not a mode
+    the caller uses. ``_report`` now passes T, which is never empty when it
+    compares at all -- it refuses instead. See ``_round_start``.
+    """
     clean = [_comment("2026-08-31T10:00:00Z")]
     assert pr_ready._latest_request([_comment("2026-08-31T09:00:00Z", "hi")]) == ""
     assert pr_ready._still_current(clean, "") == clean
@@ -977,7 +982,11 @@ def test_the_two_clean_shapes_are_NAMED_in_the_verdict() -> None:
 
 
 def test_the_clean_COMMENT_path_still_accepts_when_shape_B_refuses() -> None:
-    """⛔ Shape A is unchanged by this work, and this is what asserts it.
+    """⛔ The two shapes are ALTERNATIVES, and this is what asserts it.
+
+    ⚠️ Shape A is no longer untouched by this work -- it is compared against T
+    now, by the owner's ruling recorded in the plan -- but it is still
+    sufficient on its own, which is what §5 says and what this holds.
 
     A pull request whose bot wrote a clean comment naming the head has a
     verdict, whatever the reactions do -- here the branch moved after T, so
@@ -1215,6 +1224,79 @@ def test_a_head_branch_RENAMED_mid_sweep_refuses_too(monkeypatch: pytest.MonkeyP
         monkeypatch,
         final_meta=_meta(headRefName="another-invented-branch"),
         reactions=[_bot_thumb(THUMBED)],
+    )
+
+    assert verdict is False
+
+
+# ------------------------------------------------- #183, closed by measurement
+
+
+def test_183s_own_named_input_is_NOT_READY(monkeypatch: pytest.MonkeyPatch) -> None:
+    """⛔ **#183, demonstrated rather than asserted.** Its own named input, run.
+
+    A clean comment naming head ``H``, a conversion back to draft, a mark-ready
+    on the same head, and no push. Marking a draft ready is one of the three
+    things that starts a bot round -- the bot says so in the footer of every
+    verdict it publishes -- and it moves neither the open time nor the latest
+    request. Shape A compared its comment against the trigger alone, so the
+    PREVIOUS round's verdict was still accepted and READY printed while the new
+    round had published nothing.
+
+    ⭐ The pair below is the whole proof. The only difference between the two
+    sweeps is the mark-ready event; everything else -- head, comment, branch,
+    checks, threads, base -- is identical. So the refusal is that event's doing
+    and not some unrelated gate's, which a single negative could never show.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+    marked_ready_after_the_clean_comment = {"nodes": [{"createdAt": MARKED_READY}]}
+
+    assert _sweep(monkeypatch, conversation=[clean]) is True
+    assert (
+        _sweep(
+            monkeypatch,
+            conversation=[clean],
+            meta=_meta(timelineItems=marked_ready_after_the_clean_comment),
+        )
+        is False
+    )
+
+
+def test_a_clean_comment_still_stands_when_the_mark_ready_PRECEDES_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⭐ Both directions, because a rule that only ever refuses is not a rule.
+
+    The mark-ready starts the round; a clean comment published after it is that
+    round's verdict and still accepts.
+    """
+    earlier = {"nodes": [{"createdAt": "2026-04-02T09:01:00Z"}]}
+
+    verdict = _sweep(
+        monkeypatch,
+        conversation=[_bot_comment(CLEAN_AT, CLEAN_BODY)],
+        meta=_meta(timelineItems=earlier),
+    )
+
+    assert verdict is True
+
+
+def test_an_unreadable_timeline_REFUSES_shape_A_rather_than_falling_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **No fallback.** Restoring the old comparison when the timeline cannot
+    be read would be this defect returning under a different name: the input
+    that produces it is exactly an unreadable timeline.
+
+    ⚠️ The owner ruled the trade explicitly. Coupling shape A to T makes the
+    comment path depend on a read it did not need before, so an unreadable
+    timeline stalls a pull request the comment path could have passed. **That is
+    an availability cost, not a correctness one, and it fails toward NOT READY.**
+    """
+    verdict = _sweep(
+        monkeypatch,
+        conversation=[_bot_comment(CLEAN_AT, CLEAN_BODY)],
+        meta=_meta(timelineItems=None),
     )
 
     assert verdict is False

@@ -187,18 +187,25 @@ def _latest_request(comments: list[dict[str, Any]]) -> str:
     return max(stamps, default="")
 
 
-def _still_current(comments: list[dict[str, Any]], latest_request: str) -> list[dict[str, Any]]:
-    """Those comments that POSTDATE the most recent request for a round.
+def _still_current(comments: list[dict[str, Any]], began: str) -> list[dict[str, Any]]:
+    """Those comments that POSTDATE the start of the current round.
 
     ⛔ Lexicographic comparison is correct here and only here: every timestamp
     GitHub returns is the same fixed-width UTC format, so string order is time
     order. It would not be for mixed offsets, and nothing in this file has any.
 
-    ⭐ With ``latest_request`` empty -- the automatic review on open, never
-    re-triggered -- every comment postdates it and the caller's other evidence
-    stands alone. That is deliberate: there is no request to be stale against.
+    ⛔ **``began`` is T, not the trigger comment.** It was the trigger alone for
+    this function's whole life, and #183's input walked through the gap: a
+    mark-ready starts a round and leaves no comment, so the previous round's
+    clean verdict still postdated the last request and was still accepted.
+
+    ⚠️ **Never call this with ``""``.** Every timestamp sorts after it, so every
+    comment would read as current -- absence of evidence becoming permission.
+    ``_round_start`` returns ``""`` to say T is unknown, and the caller refuses
+    instead of comparing. The empty case survives here only as arithmetic; it is
+    not a mode of operation.
     """
-    return [c for c in comments if str(c.get("created_at") or "") > latest_request]
+    return [c for c in comments if str(c.get("created_at") or "") > began]
 
 
 def _is_bot(login: object) -> bool:
@@ -875,9 +882,14 @@ def _report(pull: int) -> bool:
         return False
 
     head = str(provisional["headRefOid"])
-    # ⚠️ The branch NAME only, and it decides nothing on its own: it says which
-    # ref's history to read. If it changed mid-sweep the head changed with it,
-    # and step 7 blocks on that.
+    # ⛔ **PROVISIONAL, kept only to be compared against the final read.**
+    #
+    # ⚠️ This read *"it decides nothing on its own: if it changed mid-sweep the
+    # head changed with it, and step 7 blocks on that."* **Both halves were
+    # wrong.** It did decide something -- it chose the ref whose history shape B
+    # calls quiet -- and a RENAME moves the name while the head SHA stays put, so
+    # step 7's comparison never sees it. ``_settled_branch`` at step 8 answers
+    # both.
     head_ref = str(provisional.get("headRefName") or "")
     # ⛔ Kept so the FINAL read can be compared against it, exactly as the head is.
     base_tip_when_gathering = _base_tip(provisional)
@@ -939,7 +951,7 @@ def _report(pull: int) -> bool:
         and _names_the_head(c.get("body") or "", head)
     ]
 
-    # ⛔ **A clean verdict must postdate the TRIGGER THAT ASKED FOR IT.**
+    # ⛔ **A clean verdict must postdate THE ROUND IT CLAIMS TO BE ABOUT.**
     #
     # ⚠️ Naming the head is not enough, because a round can be requested without
     # changing the head -- which is this project's ordinary path, not an edge
@@ -956,11 +968,19 @@ def _report(pull: int) -> bool:
     #
     # ⚠️ A one-shot sweep cannot "capture and wait", so the same rule is applied
     # to what is already recorded: the accepted verdict must be NEWER than the
-    # most recent request. With no request at all -- the automatic review on
-    # open -- there is nothing to postdate, and naming the head stands alone.
+    # round it claims to be about.
+    #
+    # ⛔ **And that round is T, not the trigger comment. RECORDED SCOPE CHANGE,
+    # owner approved** -- see `docs/plans/pr-ready-thumb.plan.md`. The trigger is
+    # only ONE of the three things that start a round, so #183's input still
+    # produced a false READY through this path: a clean comment naming head H, a
+    # conversion back to draft, a mark-ready on the same head, no push, and the
+    # previous round's verdict still accepted.
+    #
+    # ⚠️ **The comparison itself happens at step 8**, because T is not known
+    # until the final reads. What is computed here is evidence; what decides is
+    # decided once, beside shape B, against the same instant.
     latest_trigger = _latest_request(conversation)
-    accepted_clean = _still_current(clean_comments, latest_trigger)
-    superseded_clean = [c for c in clean_comments if c not in accepted_clean]
 
     print("  2. bot verdict on head  :")
     print(
@@ -983,11 +1003,6 @@ def _report(pull: int) -> bool:
     )
 
     print(f"       last round requested: {latest_trigger or '(never -- automatic review only)'}")
-    if superseded_clean:
-        print(
-            f"       SUPERSEDED clean    : {len(superseded_clean)}"
-            f"  ({superseded_clean[-1].get('created_at')} <= the request above)"
-        )
 
     # ⛔ **The verdict on the clean signal is pronounced at step 8, not here.**
     # Shape B rests on what the bot has published SINCE the round began, and the
@@ -1191,6 +1206,22 @@ def _report(pull: int) -> bool:
     if unsettled:
         print(f"       branch identity    : {unsettled}")
 
+    # ⛔ **T, once, for BOTH shapes**, and the clean comment is judged against it
+    # rather than against the trigger alone. ``""`` is a refusal here: shape A
+    # must not fall back to the old comparison when the timeline cannot be read,
+    # because an unreadable timeline is exactly the input that produced the
+    # defect -- a fallback would be it returning under a different name.
+    began = _round_start(str(final.get("createdAt") or ""), began_trigger, seen_ready)
+    print(f"       round began at     : {began or '(UNREADABLE -- nothing can be placed in it)'}")
+
+    accepted_clean = _still_current(clean_comments, began) if began else []
+    superseded_clean = [c for c in clean_comments if c not in accepted_clean]
+    if superseded_clean:
+        print(
+            f"       SUPERSEDED clean    : {len(superseded_clean)}"
+            f"  ({superseded_clean[-1].get('created_at')} <= the round start above)"
+        )
+
     # ⚠️ Read LAST, so the branch's history is as close to the verdict as every
     # other fact here -- and only when a +1 exists, because with none shape B
     # refuses without ever consulting it. That also keeps a repository where this
@@ -1229,10 +1260,16 @@ def _report(pull: int) -> bool:
                 "no CLEAN verdict naming this head -- the bot's clean comment quotes "
                 "the commit it reviewed, and none quoting this one was found"
             )
+        elif not began:
+            failures.append(
+                "a CLEAN verdict names this head, but the start of the current round "
+                "could not be computed, so nothing can show the verdict belongs to it"
+            )
         elif not accepted_clean:
             failures.append(
-                "the CLEAN verdict predates the most recent review request -- a round "
-                "was asked for after it, so that verdict is about an earlier round"
+                f"the CLEAN verdict predates the start of the current round ({began}) -- "
+                "the round was opened, re-triggered or marked ready after that verdict, "
+                "so it is about an earlier one"
             )
         if bot_thumbs:
             failures.append(f"the bot's +1 is not a clean verdict on this head: {thumb.reason}")

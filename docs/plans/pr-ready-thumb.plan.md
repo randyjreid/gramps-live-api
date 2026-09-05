@@ -100,6 +100,24 @@ Force pushes, and any ref event at all after T, fail condition 2.
   file this change already opens. ⛔ **Recorded here rather than slipped in**, so
   the diff carries no line whose reason is not written down.
 
+⚠️ **RECORDED SCOPE CHANGE, owner approved 2026-09-05: shape A is compared against T
+  as well, not against the trigger comment alone.** `scripts/pr_ready.py:778` read
+  `accepted_clean = _still_current(clean_comments, latest_trigger)`, so **#183's own named
+  input still produced a false READY through shape A** even with shape B pointed at T: a
+  clean comment naming head `H`, a conversion back to draft, a mark-ready on the same head,
+  no push, and the previous round's verdict still accepted. The trigger is one of THREE
+  things that start a round, and shape A watched only that one.
+  ⛔ **The build declined this, and the owner overruled it with the reason recorded.** The
+  build's argument was real: coupling shape A to T makes the comment path depend on a
+  timeline read it does not need today, so an unreadable timeline refuses a pull request
+  the comment path could otherwise have passed. **That is an availability cost, not a
+  correctness one, and it fails toward NOT READY** -- the direction this instrument is
+  built to fail in. ⛔ **No fallback.** An unreadable timeline makes shape A refuse rather
+  than restore the old comparison; a fallback would be the defect returning under a
+  different name, since an unreadable timeline is precisely the input that produces it.
+  The comparison moves to step 8 for both shapes, because T is not known until the final
+  reads, and `_round_start` is the single place it is computed.
+
 ## Where the judgement lives
 
 The test file's thesis holds: the decision is a pure function, the API feeds it.
