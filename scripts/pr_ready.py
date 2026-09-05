@@ -22,6 +22,13 @@ settled the interpreter question: stop re-implementing the judgement in prose an
 run it.** A script cannot forget ``state``, cannot decide a stale reaction looks
 recent enough, and cannot round "answered" up to "resolved".
 
+⚠️ **The second row is now ANSWERED rather than refused outright, and the
+distinction matters.** A reaction still carries no ``commit_id``; what ties it to
+a head is the branch's own arrival log, which no push can backdate. #233 records
+what the blanket refusal cost -- a pull request the bot had passed, reported NOT
+READY, and **an instrument nobody trusts gets overridden by argument**, which
+happened twice. The refusal remains for every reaction that cannot be placed.
+
 **The exit code is the verdict. The output is the evidence.** Nothing downstream
 should restate either.
 
@@ -533,6 +540,42 @@ def _metadata(pull: int) -> dict[str, Any]:
     return pull_request
 
 
+def _branch_activity(head_ref: str) -> list[dict[str, Any]]:
+    """The branch's own ref history. ⛔ **``[]`` REFUSES; it is not an absence.**
+
+    ⭐ This is the one fact a push cannot backdate. Committer dates can predate a
+    verdict on a commit pushed after it -- this file records that a few hundred
+    lines up -- and a reaction carries no commit at all. The ref's arrival and
+    departure rows are stamped by the server at the moment they happen.
+
+    ⚠️ **The repository is hard-coded, so a pull request from a FORK finds
+    nothing here and shape B refuses.** That is #235, filed rather than fixed:
+    the branch lives in the fork, the read has no matching row, and the answer is
+    a stalled merge rather than an unreviewed one. Three cross-repository pull
+    requests have been opened here, so the case is real. **The failing direction
+    must not be relaxed to make forks work** -- the fix is to read the fork's own
+    activity log, once it is established that ``gh`` can.
+
+    ⚠️ Any failure returns ``[]`` rather than raising, so a report still prints
+    the rest of its evidence -- and ``[]`` is a refusal, so nothing is waved
+    through by the softer failure.
+    """
+    if not head_ref:
+        return []
+    try:
+        rows = _json(
+            "api",
+            f"repos/{REPOSITORY}/activity?ref=refs/heads/{head_ref}&per_page=100",
+            "--paginate",
+        )
+    except RuntimeError as failure:
+        print(f"       activity log       : UNREADABLE -- {failure}")
+        return []
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if isinstance(row, dict)]
+
+
 def _base_tip(meta: dict[str, Any]) -> str:
     """The LIVE tip of the base branch, as of this read.
 
@@ -648,6 +691,10 @@ def _report(pull: int) -> bool:
         return False
 
     head = str(provisional["headRefOid"])
+    # ⚠️ The branch NAME only, and it decides nothing on its own: it says which
+    # ref's history to read. If it changed mid-sweep the head changed with it,
+    # and step 7 blocks on that.
+    head_ref = str(provisional.get("headRefName") or "")
     # ⛔ Kept so the FINAL read can be compared against it, exactly as the head is.
     base_tip_when_gathering = _base_tip(provisional)
     commit = _json("api", f"repos/{REPOSITORY}/commits/{head}")
@@ -663,7 +710,12 @@ def _report(pull: int) -> bool:
     reviews = _json("api", f"repos/{REPOSITORY}/pulls/{pull}/reviews", "--paginate")
     inline = _json("api", f"repos/{REPOSITORY}/pulls/{pull}/comments", "--paginate")
     conversation = _json("api", f"repos/{REPOSITORY}/issues/{pull}/comments", "--paginate")
-    reactions = _json("api", f"repos/{REPOSITORY}/issues/{pull}/reactions")
+    # ⛔ ``--paginate``, and it became load-bearing with this change. The reads
+    # above have always had it; this one did not, which was latent while no
+    # reaction was judged. A body with more than one page of reactions would now
+    # hide the qualifying +1 on a later page and report NOT READY over a clean
+    # signal -- the same shape as the ``first:100`` on the thread query below.
+    reactions = _json("api", f"repos/{REPOSITORY}/issues/{pull}/reactions", "--paginate")
     assert isinstance(reviews, list) and isinstance(inline, list)
     assert isinstance(conversation, list) and isinstance(reactions, list)
 
@@ -683,13 +735,16 @@ def _report(pull: int) -> bool:
     # ⭐ The bot's clean comment names its subject: "**Reviewed commit:**
     # `7905da6ddd`". That is evidence explicitly associated with a SHA, so the
     # comparison is against the head's own hex rather than against a clock.
-    # A reaction carries no commit_id and can never be tied to a head, so it is
-    # corroboration only and is no longer sufficient on its own.
-    fresh_reactions = [
-        r
-        for r in by_bot(reactions)
-        if r.get("content") == "+1" and head_when and r.get("created_at", "") > head_when
-    ]
+    # A reaction carries no commit_id, so it can never be tied to a head by
+    # itself. What ties it is the BRANCH'S OWN HISTORY -- shape B, at step 8.
+    #
+    # ⛔ **Counted, not classified.** An earlier version split these into fresh
+    # and stale on the head's COMMITTER DATE -- the comparison the paragraph
+    # above calls unsound. Now that a +1 can carry a verdict, a second definition
+    # of *fresh* printed beside the one the verdict uses would be two answers to
+    # one question, which is this project's most-recorded defect class. Whether a
+    # reaction counts is said once, at step 8, by the rule that decides it.
+    bot_thumbs = [r for r in by_bot(reactions) if r.get("content") == "+1"]
     fresh_conversation = [
         c for c in by_bot(conversation) if head_when and c.get("created_at", "") > head_when
     ]
@@ -738,19 +793,10 @@ def _report(pull: int) -> bool:
         + (f"  ({clean_comments[-1].get('created_at')})" if clean_comments else "")
     )
     print(
-        f"       fresh +1 on body   : {len(fresh_reactions)}"
-        + (f"  ({fresh_reactions[-1].get('created_at')})" if fresh_reactions else "")
+        f"       bot +1 on body     : {len(bot_thumbs)}"
+        + (f"  ({bot_thumbs[-1].get('created_at')})" if bot_thumbs else "")
+        + "  (judged at step 8)"
     )
-    stale_reactions = [
-        r
-        for r in by_bot(reactions)
-        if r.get("content") == "+1" and head_when and r.get("created_at", "") <= head_when
-    ]
-    if stale_reactions:
-        print(
-            f"       STALE +1 ignored   : {len(stale_reactions)}"
-            f"  ({stale_reactions[-1].get('created_at')} <= head)"
-        )
 
     print(f"       last round requested: {latest_trigger or '(never -- automatic review only)'}")
     if superseded_clean:
@@ -759,16 +805,10 @@ def _report(pull: int) -> bool:
             f"  ({superseded_clean[-1].get('created_at')} <= the request above)"
         )
 
-    if not clean_comments:
-        failures.append(
-            "no CLEAN verdict naming this head -- the bot's clean comment quotes "
-            "the commit it reviewed, and none quoting this one was found"
-        )
-    elif not accepted_clean:
-        failures.append(
-            "the CLEAN verdict predates the most recent review request -- a round "
-            "was asked for after it, so that verdict is about an earlier round"
-        )
+    # ⛔ **The verdict on the clean signal is pronounced at step 8, not here.**
+    # Shape B rests on what the bot has published SINCE the round began, and the
+    # reads above are several calls old by the time this returns. What is printed
+    # here is evidence; what decides is read again at the end.
 
     # -- 3. how many rounds has this had? ------------------------------------
     #
@@ -909,14 +949,73 @@ def _report(pull: int) -> bool:
     )
     failures.extend(_judge(final, head, base_tip_when_gathering))
 
-    # ⛔ The request is evidence too, and it was read several calls ago.
+    # -- 8. the clean verdict, on what the bot has published BY NOW -----------
+    #
+    # ⛔ **All THREE bot endpoints are re-read here, not conversation alone.**
+    #
+    # ⚠️ The reads at step 2 are a dozen calls old by now. The bot can submit a
+    # review carrying a finding at any point in that window, with the head, the
+    # checks and the conversation all unchanged -- and shape B, whose whole
+    # premise is that the bot has said nothing, would then report READY over a
+    # review nobody has read. **The window is most of the sweep, not the final
+    # call**, which is why all three are refetched rather than the one that
+    # happened to be here already for the trigger.
+    #
+    # ⚠️ Reactions are NOT re-read, and that asymmetry is deliberate: a reaction
+    # only ever GRANTS. A stale reactions read can lose a +1 that has just
+    # arrived, which costs a re-run; re-reading it could only widen what is
+    # accepted, which is the direction that costs a bad merge.
+    final_reviews = _json("api", f"repos/{REPOSITORY}/pulls/{pull}/reviews", "--paginate")
+    final_inline = _json("api", f"repos/{REPOSITORY}/pulls/{pull}/comments", "--paginate")
     final_conversation = _json("api", f"repos/{REPOSITORY}/issues/{pull}/comments", "--paginate")
+    assert isinstance(final_reviews, list) and isinstance(final_inline, list)
     assert isinstance(final_conversation, list)
+
+    # ⛔ The request is evidence too, and it was read several calls ago.
     trigger_now = _latest_request(final_conversation)
     print(f"       last request now   : {trigger_now or '(none)'}")
     moved = _request_arrived_mid_sweep(latest_trigger, trigger_now)
     if moved:
         failures.append(moved)
+
+    # ⚠️ Read LAST, so the branch's history is as close to the verdict as every
+    # other fact here -- and only when a +1 exists, because with none shape B
+    # refuses without ever consulting it. That also keeps a repository where this
+    # endpoint cannot be read from turning every report into an error.
+    activity = _branch_activity(head_ref) if bot_thumbs else []
+    if bot_thumbs:
+        print(f"       branch activity    : {len(activity)} rows for {head_ref or '(unknown)'}")
+
+    thumb = _bare_thumb_clean(
+        bot_thumbs,
+        by_bot(final_reviews),
+        by_bot(final_inline),
+        by_bot(final_conversation),
+        activity,
+        head,
+        head_ref,
+        str(final.get("createdAt") or ""),
+        trigger_now,
+        _ready_for_review(final),
+    )
+    shape = _clean_shape(accepted_clean, thumb)
+    print(f"       clean shape        : {shape or '(neither)'}")
+    if bot_thumbs and thumb.reason:
+        print(f"       +1 not counted     : {thumb.reason}")
+
+    if not shape:
+        if not clean_comments:
+            failures.append(
+                "no CLEAN verdict naming this head -- the bot's clean comment quotes "
+                "the commit it reviewed, and none quoting this one was found"
+            )
+        elif not accepted_clean:
+            failures.append(
+                "the CLEAN verdict predates the most recent review request -- a round "
+                "was asked for after it, so that verdict is about an earlier round"
+            )
+        if bot_thumbs:
+            failures.append(f"the bot's +1 is not a clean verdict on this head: {thumb.reason}")
 
     if failures:
         print("  RESULT: NOT the owner's click")
