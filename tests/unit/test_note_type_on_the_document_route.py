@@ -121,9 +121,9 @@ def test_an_omitted_type_means_the_type_the_writer_has_ALWAYS_written() -> None:
 def test_the_default_is_the_ABSENCE_of_the_key_and_never_a_FALSY_value() -> None:
     """⛔ ``if not value or value in TABLE`` is the natural spelling and it is wrong.
 
-    ⚠️ That shape is what ``schema._note_type_unknown`` uses today, and it is
-    safe there only because ``_text`` has already coerced. Copied here without
-    that coercion it reads ``type: []`` and ``type: 0`` as **omitted** and
+    ⚠️ That shape is what the retired ``schema._note_type_unknown`` used, and it
+    was safe there only because that module's ``_text`` had already coerced.
+    Copied here without that coercion it reads ``type: []`` and ``type: 0`` as **omitted** and
     silently writes a transcript, which is a chosen value becoming a default
     without anybody being told. ⛔ A present ``type`` that is not an accepted
     string is REFUSED; only an absent one defaults.

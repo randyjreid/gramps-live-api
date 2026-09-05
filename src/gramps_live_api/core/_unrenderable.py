@@ -4,11 +4,11 @@
 ``scripts/derive_unrenderable.py`` over artifacts matching the digests below,
 and see the derivation note in ``docs`` for where each one comes from.
 
-⚠️ **This module IS the class**, and ``schema.py`` imports it. That is a stated
-deviation from the precedent this table follows, whose generated module nothing
-imports: there the table was a checklist beside a hand-written weighting, and
-duplicating it by hand was tractable. Here a hand-maintained copy would be the
-thing the derivation exists to remove.
+⚠️ **This module IS the class**, and ``core/render_guard.py`` imports it. That is
+a stated deviation from the precedent this table follows, whose generated module
+nothing imports: there the table was a checklist beside a hand-written weighting,
+and duplicating it by hand was tractable. Here a hand-maintained copy would be
+the thing the derivation exists to remove.
 
 ⚠️ **No fetch date is recorded here.** Verification is re-fetch, compare digest,
 re-run, and diff against this file; a timestamp would make every such run differ
@@ -48,6 +48,8 @@ UNRENDERABLE_RANGES: tuple[tuple[int, int, str], ...] = (
     (0x180E, 0x180E, "Cf"),
     (0x180F, 0x180F, "Default_Ignorable_Code_Point"),
     (0x200B, 0x200F, "Cf"),
+    (0x2028, 0x2028, "Zl"),
+    (0x2029, 0x2029, "Zp"),
     (0x202A, 0x202E, "Cf"),
     (0x2060, 0x2064, "Cf"),
     (0x2065, 0x2065, "Default_Ignorable_Code_Point"),
