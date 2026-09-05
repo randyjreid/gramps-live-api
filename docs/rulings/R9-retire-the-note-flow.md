@@ -158,9 +158,20 @@ tree: `_class_of`, `_refuse_unrenderable` and `UnrenderableFieldError`, over the
 table in `core/_unrenderable.py`. **It is the only implementation of that property in the project,
 and the document route does not run it.** Deleting the module as unimported would have removed a
 write surface guard the surviving route needs and does not have. The owner ruled on 2026-09-05
-that the module stays whole through the retirement, and the retirement removed only the
-`NOTE_TYPES` alias. The gap, and the extraction that closes it, are #228: sequenced before
-packaging. See the corrections section at the end of this page.
+that **the module survives the retirement**, which is not the same as surviving unchanged.
+
+⛔ **What the retirement removed from it, and what is left.** The operation types went, as
+this ruling's inventory and the `AddCitation` ruling below both require: `AddNote` and
+`AddCitation` with their `_register` decorators and registry entries, and the `NOTE_TYPES` alias.
+`_REGISTRY` is now empty and the module's own docstring says so. **What survives is the render
+machinery**, the guard named above with its lookup and the frozen table behind it, plus the
+validation and preview scaffolding that machinery sits in. ⚠️ **So do not read this
+ruling as recording that `core/schema.py` was preserved whole.** It was preserved as a module
+because of what one part of it holds; the operation model it was built around is gone, and a
+reader reconstructing the retirement's scope from this page needs that distinction.
+
+The gap, and the extraction that closes it, are #228: sequenced before packaging. See the
+corrections section at the end of this page.
 
 ## What this buys, and what it costs
 
@@ -451,8 +462,9 @@ The finding, quoting what this page said before the correction:
 > type table, carve out 1.
 
 The retirement build read that as leaving the module's fate open and asked for a ruling. The owner
-ruled the module stays whole, **and the reason is none of the above**: it holds the render guard,
-the only implementation of it in the project, on a route nobody calls.
+ruled the module survives, **and the reason is none of the above**: it holds the render guard,
+the only implementation of it in the project, on a route nobody calls. What survives is the
+module, not its contents. The operation types went with the flow they modelled.
 
 ⭐ **The general shape, which is this project's most recorded defect class:** a check that
 answers a narrower question than the one being asked, and succeeds for a reason unrelated to the
