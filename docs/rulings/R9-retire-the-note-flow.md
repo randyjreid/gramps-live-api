@@ -144,14 +144,23 @@ hint about where to look, never an instruction about what to cut.
 | the CLI operation surface | `src/gramps_live_api/cli.py`: the `preview` and `apply` subcommands and their handlers. ⛔ **`AddNote` is the only writable operation, so `apply` has nothing left to write** |
 | the documentation | ⛔ **measured, not listed. See the section below** |
 
-⚠️ **`core/schema.py` is the note flow's operation model, and an earlier revision of this line said
-it "also validates the document graph". That was false.** Graph validation is `host/document.py`,
-which imports nothing from `core/schema.py`; the document route calls `document.parse`, never
-`schema.validate`. Every surviving reference to `schema` is either the note flow (`validate`,
-`AddNote`, `ObjectRef`, `NOTE_TYPES` in the `propose_note` description, and `cli.py`'s retiring
-subcommands) or `schema.OBJECT_TYPES` in `server.py`, which sits inside `PROPOSE_NOTE_DESCRIPTION` and retires with it. **After the retirement nothing surviving imports `core/schema.py`.** ⛔ **Do not
-retain the operation model on the premise that the document route validates through it.** What the
-document route needs from `core/` is the note type table, carve out 1.
+⚠️ **`core/schema.py` is the note flow's operation model, and nothing surviving imports it.**
+Graph validation is `host/document.py`, which imports nothing from `core/schema.py`; the document
+route calls `document.parse`, never `schema.validate`. ⛔ **Do not retain the operation model
+on the premise that the document route validates through it.** What the document route needs from
+`core/` is the note type table, carve out 1.
+
+⛔ **CORRECTED 2026-09-05: none of that is why the module survives, and it does survive.** The
+paragraph above reasons only about imports, and on imports it is right. It is the wrong question.
+`core/schema.py` also holds this project's **render guard**, the refusal of any character that can
+reorder or hide part of the sentence a person reads and approves before anything is written to a
+tree: `_class_of`, `_refuse_unrenderable` and `UnrenderableFieldError`, over the frozen Unicode
+table in `core/_unrenderable.py`. **It is the only implementation of that property in the project,
+and the document route does not run it.** Deleting the module as unimported would have removed a
+write surface guard the surviving route needs and does not have. The owner ruled on 2026-09-05
+that the module stays whole through the retirement, and the retirement removed only the
+`NOTE_TYPES` alias. The gap, and the extraction that closes it, are #228: sequenced before
+packaging. See the corrections section at the end of this page.
 
 ## What this buys, and what it costs
 
@@ -313,8 +322,14 @@ wrong, and the distinction decides what happens next.
 | `pyproject.toml` | the comment over the empty dependency list counts *"the CLI console"* among the standard library core | "CLI console" names no identifier |
 | `.github/workflows/ci.yml` | the header comment lists *"schema, write path, CLI console, pii_guard"* as what the core leg measures | same phrase |
 
-**These are current guidance, not records, and the retirement build updates them.** That makes
-**ten** files: six under `docs/` counting the moved plan, the README, and these three outside it.
+**These are current guidance, not records, and the retirement build updates them.**
+
+⚠️ **CORRECTED 2026-09-05, and the two counts here are different things.** The **guidance**
+count is **nine**: five under `docs/` counting the moved plan, the README, and these three outside
+it. It was ten until `docs/slice2-mcp.md` moved to the records table above. The count of **files
+the retirement build changed** stayed at ten, because that page still took a forward pointer, which
+is the records treatment and not an edit to its body. ⛔ **Neither number is evidence for
+the other, and a later change touching one of these files moves only the count it belongs to.**
 
 ⛔ **This row is CLOSED, by a rule set before the round rather than after it.** Three consecutive
 rounds each added one page, so the whole set was measured, and the rule for the round after that was
@@ -331,7 +346,6 @@ ruling.**
 | `README.md` | names `propose_note` and `list_people` in the tool groups |
 | `docs/STATUS.md` | counts the tools with `propose_note`, `approve` and `list_people` in the table, and says outright *"They are not retired; they are simply not the route the project is built around"* |
 | `docs/using.md` | documents the three commands and `export_path` as current setup |
-| `docs/slice2-mcp.md` | names `TOOL_NAMES`, `TargetNotInExport`, `export_path`, `list_people`, `propose_note` |
 | `docs/census-brief.md` | tells agents `list_people` reads an export and why to prefer `find_people`, in the brief that drives the demo |
 | `docs/restoring.md` | ⭐ **found only by the hand search.** Its opening callout warns that `preview`, `apply` and `approve` take no backup, about commands that will not exist, on the page somebody reads while recovering a tree |
 
@@ -352,6 +366,7 @@ each of the eight was re-read against the question rather than its type.
 | `docs/rulings/R3` | **body untouched, STATUS banner takes a forward pointer** | its egress bounds are grounded in `core/people.py` and the console; both are retired, the bounds survive in `host/reads.py` |
 | `docs/rulings/R4` | **body untouched, STATUS banner takes a forward pointer** | its caveat names the unbacked write paths; R9 retires exactly those, so after the build every write path takes the backup |
 | `docs/rulings/R8` | **body untouched, STATUS banner takes a forward pointer** | its two named exceptions are the two surfaces R9 removes |
+| ⛔ **`docs/slice2-mcp.md`** | **record, body untouched, takes a forward pointer** | ⚠️ **CORRECTED 2026-09-05.** An earlier revision of this ruling listed it as current guidance, from a token hit, without reading the page's own first line: *"A RECORD OF SLICE 2, NOT THE CURRENT DESIGN."* Its body describes what slice 2 built, in the present tense, which is what a record does. It takes a pointer saying the flow is retired, the treatment R3, R4 and R8 received |
 | `docs/rulings/README.md` | **one sentence takes a forward pointer** | it says R8's scope has exceptions; after R9 it has none |
 
 ⭐ **A forward pointer is the third option between editing and silence.** It is dated, it says what
@@ -413,3 +428,64 @@ mistake it records, not because the question is still open.
   to the owner explicitly and it was not the deciding factor either way. If it later proves to
   matter, it is a new question about the approval surface and not a reopening of this ruling.
 - **The order of the retirement build's own steps.** That belongs to its plan gate.
+
+## ⛔ Corrections after merge, each with the finding quoted verbatim
+
+**Filed as #229 on 2026-09-05, applied here.** This ruling merged as #222. Anything a later reader
+finds in it after that is a documentation correction with the finding quoted, never a silent edit,
+and never folded into another entry. Two were found.
+
+### 1. The reason given for `core/schema.py` surviving was a reason this ruling itself calls false
+
+The finding, quoting what this page said before the correction:
+
+> ⚠️ **`core/schema.py` is the note flow's operation model, and an earlier revision of this
+> line said it "also validates the document graph". That was false.** Graph validation is
+> `host/document.py`, which imports nothing from `core/schema.py`; the document route calls
+> `document.parse`, never `schema.validate`. Every surviving reference to `schema` is either the
+> note flow (`validate`, `AddNote`, `ObjectRef`, `NOTE_TYPES` in the `propose_note` description,
+> and `cli.py`'s retiring subcommands) or `schema.OBJECT_TYPES` in `server.py`, which sits inside
+> `PROPOSE_NOTE_DESCRIPTION` and retires with it. **After the retirement nothing surviving imports
+> `core/schema.py`.** ⛔ **Do not retain the operation model on the premise that the
+> document route validates through it.** What the document route needs from `core/` is the note
+> type table, carve out 1.
+
+The retirement build read that as leaving the module's fate open and asked for a ruling. The owner
+ruled the module stays whole, **and the reason is none of the above**: it holds the render guard,
+the only implementation of it in the project, on a route nobody calls.
+
+⭐ **The general shape, which is this project's most recorded defect class:** a check that
+answers a narrower question than the one being asked, and succeeds for a reason unrelated to the
+property it names. "Nothing imports it" was measured, it is true, and it did not decide the
+question it was used to decide. An unimported module is not thereby a deletable one.
+
+### 2. `docs/slice2-mcp.md` was listed as current guidance, and it is a record
+
+The finding, quoting the sweep of the retirement build's tree, whose calibration was valid in both
+directions (`propose_document` in 12 files, a token that cannot exist in 0):
+
+> ```
+> docs/slice2-mcp.md    AddNote, TOOL_NAMES, TargetNotInExport, export_path, list_people, propose_note
+> ```
+
+and reading those hits in context, the body describes the retired tools in the present tense:
+`propose_note` builds the operation, `list_people` reads two fields verbatim out of the export, and
+the demo steps say the agent calls `list_people` and then `propose_note`.
+
+That is not a build defect. The page's first line, on `main` before the retirement build touched
+it:
+
+> ⛔ **A RECORD OF SLICE 2, NOT THE CURRENT DESIGN.** It is accurate about what slice 2
+> built and is kept for the reasoning it holds.
+
+The build extended that banner and left the body alone, which is what this ruling's own records
+rule prescribes and what R3, R4 and R8 received. The error was in the guidance table, whose row was
+written from a token hit without reading the page's banner. ⚠️ **That is the same mistake
+the records re-test section of this page describes making once already and correcting**, which is
+why it is recorded here rather than quietly fixed: the instrument found the page twice, and the
+reader misclassified it twice.
+
+### What was NOT corrected
+
+The build time questions, the measured failure set and the five carve outs stand as ruled. Carve
+out 1 is unchanged in what it deletes: the alias and the map went, and the retirement removed both.
