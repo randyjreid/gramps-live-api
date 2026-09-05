@@ -461,9 +461,25 @@ mistake it records, not because the question is still open.
 
 **Filed as #229 on 2026-09-05, applied here.** This ruling merged as #222. Anything a later reader
 finds in it after that is a documentation correction with the finding quoted, never a silent edit,
-and never folded into another entry. **Three were found.** The third arrived from the review of
-the pull request applying the first two, against text written by that same pull request, which is
-why it is here rather than in a later one.
+and never folded into another entry.
+
+⛔ **The rule is BOUNDED, and the first revision of it was not.** As first written it said
+every later finding gets its own quoted entry, full stop. That has no fixed point. Each entry is
+itself editable text, so a finding against an entry needs an entry, and a finding against that one
+needs another; the review of this very correction produced exactly that sequence, four rounds of
+it, each round finding something true about the text the previous round had written. **A rule that
+cannot be satisfied is not a strict rule, it is an unclosable one**, and this project's standing
+practice is to bound such a claim to a space that closes rather than to keep paying rounds against
+it. So, in two parts:
+
+- **Findings against the MERGED ruling get one quoted entry each, and always will.** That is the
+  part with the value: it is unbounded in time but each entry is finished when written, because
+  the thing it describes is already merged and will not move. **Two were found**, entries 1 and 2.
+- **Findings raised against this correction during its own pull request go into ONE entry**,
+  entry 3, which lists them and is updated in place as that pull request's rounds close.
+  ⛔ **Entry 3 cannot spawn successors. That is the fixed point.** Its findings are
+  still quoted verbatim, which is the part of the rule that carries the value; what is dropped is
+  only the promise of a fresh numbered entry per round, which is the part that could not close.
 
 ### 1. The reason given for `core/schema.py` surviving was a reason this ruling itself calls false
 
@@ -516,7 +532,13 @@ the records re-test section of this page describes making once already and corre
 why it is recorded here rather than quietly fixed: the instrument found the page twice, and the
 reader misclassified it twice.
 
-### 3. The correction to entry 1 first claimed `core/schema.py` survived unchanged
+### 3. Findings raised against this correction during its own pull request (#234)
+
+⚠️ **One entry by design, per the bound above, updated in place. Four review rounds, five
+findings, every one against text this pull request wrote rather than against the build or the
+merged ruling.** Each is quoted; none is folded into entries 1 or 2.
+
+#### Round 1: the correction to entry 1 first claimed `core/schema.py` survived unchanged
 
 ⚠️ **Found in review of the pull request that applied entries 1 and 2, against text that
 pull request had just written.** Raised by the PR bot on #234, round 1, as P2.
@@ -544,6 +566,51 @@ what the paragraph opening this section forbids.** The temptation was real: entr
 same module, and the fix reads as a refinement of it. That is exactly the shape the no-folding
 rule exists to catch, since a folded entry leaves the ledger describing the category while the
 specific claim that was false, and the input that exposed it, appear nowhere.
+
+#### Round 3, first finding: the count behind the records table went stale
+
+> **Increment the re-tested record count**
+>
+> When this section is used to verify the record sweep, moving `docs/slice2-mcp.md` into this
+> table adds a ninth record to the eight referenced at line 368 (the `shippable` entry moves to
+> guidance and is not one of those eight). Leaving the count unchanged makes this correction
+> introduce another stale inventory count, so update the section's count when adding this record.
+
+Correct. The sentence now says what it is a count of and gives both numbers, nine records against
+ten rows, because one row is a page reclassified to guidance and one covers a group of plans.
+⭐ **A correction whose subject was a stale count introduced a stale count.** The first
+attempt at the fix then tied the number to rows, which would have read nine against ten; caught by
+counting the rows before the commit.
+
+#### Round 3, second finding: the pointer provenance claim was false of the new row
+
+> **Qualify the pointer provenance for slice2-mcp**
+>
+> Adding this page to the records table makes the section-wide claim at lines 389-390 false: that
+> claim says every pointer here was added by the ruling PR before the retirement build, while the
+> correction at lines 495-496 explicitly records that the retirement build extended this page's
+> banner. Qualify the provenance statement or identify this row as the retirement-build exception
+> so the ruling does not misattribute when the pointer was added.
+
+Correct. The exception is now stated where the claim is made, rather than the claim being narrowed
+until it was technically true of everything, which would have preserved the sentence and lost the
+fact that one page was treated differently.
+
+#### Round 4: the ledger did not record rounds 3, and the rule that said it must had no fixed point
+
+> **Add the latest findings to the correction ledger**
+>
+> When this section is used as the promised correction ledger, it is already incomplete: fresh
+> evidence in `5b1b191` is the two distinct round-3 findings about the record count and pointer
+> provenance, which were fixed in place without being quoted or added as entries. That contradicts
+> the stated rule that every later finding is quoted and never silently edited, and leaves "Three
+> were found" stale; record those findings as separate corrections and update the count.
+
+Correct on the facts, and it is the finding that exposed the rule's shape. Both round 3 findings
+are now quoted above and the stale count is gone. ⛔ **The literal remedy it proposes,
+a separate numbered correction per finding, is what the bound at the top of this section declines**,
+because following it makes the next round's finding inevitable: this entry would itself need an
+entry. The findings are recorded, quoted, in one entry that closes.
 
 ### What was NOT corrected
 
