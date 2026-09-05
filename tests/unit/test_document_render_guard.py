@@ -98,6 +98,28 @@ approve is precisely what this guard exists for, whichever category the standard
 files it under.
 """
 
+FORGING_SEPARATORS: Mapping[str, tuple[int, str]] = MappingProxyType(
+    {
+        "a line separator": (0x2028, "Zl"),
+        "a paragraph separator": (0x2029, "Zp"),
+    }
+)
+"""The two Unicode separators that break a display line, with the label each carries.
+
+⚠️ **Neither is invisible and neither hides anything, which is the point.** They
+forge STRUCTURE, exactly as the U+000A pinned below does: a text view breaks a
+line on them, so a payload carrying one puts a second line into the approval
+dialog reading as a record the graph never named. That is the property the class
+has always held -- it carries ``Cc``, which is where U+000A and U+0009 live --
+and ``Zl``/``Zp`` were the two separators that fell outside it.
+
+⛔ **Not added to ``GUARDED`` above.** The matrix asks whether a character in a
+rendered field is refused, and these two answer it the same way U+202E does; a
+fourth character would triple the matrix to re-ask a question it already
+answers. What is specific to them is the forgery, and that is asserted directly
+below.
+"""
+
 
 # ---------------------------------------------------------------------------
 # The fixture, and the matrix derived from ``NODE_KEYS``.
@@ -497,6 +519,71 @@ def test_a_created_persons_name_reaches_a_line_the_renderer_never_wraps() -> Non
     assert render_guard.class_of(chr(0x0A)) == "Cc"
 
 
+@pytest.mark.parametrize(("description", "separator"), sorted(FORGING_SEPARATORS.items()))
+def test_a_payload_separator_that_would_forge_a_dialog_line_is_refused(
+    description: str, separator: tuple[int, str]
+) -> None:
+    """⛔ The same forgery as the U+000A above, one general category away.
+
+    ⚠️ **A created person is appended as a raw f-string**, so a separator in
+    ``given`` reaches the render whole; a text view then breaks the line on it
+    and the approval text carries a second line naming a record the graph never
+    named. Reproduced before this test was written, on both code points, with the
+    forged line reading as an attaching person.
+
+    This is not a new property the class gained. It already refuses U+000A and
+    U+0009 as the ``Cc`` they are -- neither invisible, both structural -- and
+    these two are the separators the General_Category group "Other" does not
+    reach.
+    """
+    code_point, label = separator
+    forged = "Alphaward" + chr(code_point) + "  I9990  Betaby Invented"
+    graph = document.parse(
+        _graph_body(
+            people=[_node("p1", given=forged, surname="Bravoton")],
+            notes=[_note("Limatextual", ["p1"])],
+        )
+    )
+
+    with pytest.raises(render_guard.UnrenderableTextError) as refusal:
+        document.preview(graph)
+
+    assert refusal.value.label == label, (
+        f"{description} (U+{code_point:04X}) is a {label} and the refusal must say so; "
+        f"got {refusal.value.label!r}"
+    )
+
+
+@pytest.mark.parametrize(("description", "separator"), sorted(FORGING_SEPARATORS.items()))
+def test_a_payload_separator_in_a_wrapped_note_is_refused_where_a_tab_is_not(
+    description: str, separator: tuple[int, str]
+) -> None:
+    """⚠️ The wrapped half of the same finding, which the whitespace story misses.
+
+    ``_wrap`` is why a tab in a note body is never refused: ``textwrap`` replaces
+    ``\\t``, ``\\r``, ``\\x0b`` and ``\\x0c`` with spaces and splits on ``\\n``
+    first. **Its replacement set does not include these two**, so a separator in
+    a note body survives the wrap and forges a display line there as well --
+    measured before this test was written, on the note route, with the text after
+    the separator appearing as its own line.
+
+    So the raw-versus-wrapped asymmetry the guard's costs block records is about
+    the whitespace CONTROLS specifically, and does not extend to the separators.
+    That is asserted here rather than left to a reader to infer from the absence
+    of a test.
+    """
+    code_point, label = separator
+    graph = _note_graph("Ashenmoorward" + chr(code_point) + "  Betaby Invented")
+
+    with pytest.raises(render_guard.UnrenderableTextError) as refusal:
+        document.preview(graph)
+
+    assert refusal.value.label == label, (
+        f"{description} (U+{code_point:04X}) survived the wrap and must be refused as the "
+        f"{label} it is; got {refusal.value.label!r}"
+    )
+
+
 def test_a_tree_read_display_carrying_a_zero_width_character_is_refused() -> None:
     """⛔ Criterion 4. Coverage the retired note flow never had.
 
@@ -739,12 +826,17 @@ def test_every_committed_range_is_a_range_inside_the_code_space() -> None:
 
 
 def test_every_committed_label_names_a_published_fact() -> None:
-    """Closed, because the label is what a refusal names and the derivation selects five.
+    """Closed, because the label is what a refusal names and the derivation selects seven.
 
-    A sixth means the script started emitting something nothing in the guard is
+    An eighth means the script started emitting something nothing in the guard is
     written about.
+
+    ⚠️ ``Zl`` and ``Zp`` joined the six when the separator bypass was closed, and
+    they are listed here one by one rather than as a ``Z`` prefix: ``Zs`` is the
+    ordinary space and is **not** in the class, so a prefix here would bless a
+    table that had started refusing it.
     """
-    published = frozenset({"Cc", "Cf", "Co", "Cs", DEFAULT_IGNORABLE})
+    published = frozenset({"Cc", "Cf", "Co", "Cs", "Zl", "Zp", DEFAULT_IGNORABLE})
     unknown = sorted({row[2] for row in UNRENDERABLE_RANGES} - published)
 
     assert unknown == [], f"the table carries a label the guard has no meaning for: {unknown}"
@@ -807,18 +899,29 @@ def test_a_name_in_an_ordinary_script_renders_unchanged(
 def test_no_character_a_person_could_read_is_guarded_unless_it_is_invisible() -> None:
     """The false-positive half, and the assertion this class actually costs.
 
-    Letters, marks, numbers, punctuation, symbols and separators are what text a
-    person checks against a record is made of, and refusing any of them for its
-    CATEGORY would be a guard that blocks legitimate data. The one published
-    reason a readable character may be refused is that it is default-ignorable,
-    and the size of that exemption is pinned by the test below rather than left
-    open.
+    Letters, marks, numbers, punctuation, symbols and the ordinary space are what
+    text a person checks against a record is made of, and refusing any of them
+    for its CATEGORY would be a guard that blocks legitimate data. The one
+    published reason a readable character may be refused is that it is
+    default-ignorable, and the size of that exemption is pinned by the test below
+    rather than left open.
+
+    ⚠️ **The separator group is named a category at a time, and this used to say
+    ``Z``.** That blessed the bypass: ``Zl`` and ``Zp`` are U+2028 and U+2029,
+    which a text view breaks a line on, so a payload carrying one forged a line of
+    the approval dialog exactly as a U+000A does -- and this test asserted it must
+    not be refused. ``Zs`` is the ordinary space and stays readable; the other two
+    are structure, and are in the class for the same reason ``Cc`` always was.
     """
-    readable = frozenset({"L", "M", "N", "P", "S", "Z"})
+    readable_groups = frozenset({"L", "M", "N", "P", "S"})
+    readable_separator = "Zs"
     refused = [
         character
         for character in _every_code_point()
-        if unicodedata.category(character)[0] in readable
+        if (
+            unicodedata.category(character)[0] in readable_groups
+            or unicodedata.category(character) == readable_separator
+        )
         and render_guard.class_of(character) is not None
     ]
     for_their_category = [

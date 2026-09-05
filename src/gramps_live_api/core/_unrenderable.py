@@ -48,6 +48,8 @@ UNRENDERABLE_RANGES: tuple[tuple[int, int, str], ...] = (
     (0x180E, 0x180E, "Cf"),
     (0x180F, 0x180F, "Default_Ignorable_Code_Point"),
     (0x200B, 0x200F, "Cf"),
+    (0x2028, 0x2028, "Zl"),
+    (0x2029, 0x2029, "Zp"),
     (0x202A, 0x202E, "Cf"),
     (0x2060, 0x2064, "Cf"),
     (0x2065, 0x2065, "Default_Ignorable_Code_Point"),

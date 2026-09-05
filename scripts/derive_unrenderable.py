@@ -58,10 +58,25 @@ from pathlib import Path
 # read. Default-ignorable reaches outside the "Other" group -- U+034F is `Mn`,
 # U+115F and U+1160 are `Lo` -- and the group reaches outside default-ignorable,
 # where the controls, the surrogates and the private-use areas live.
+#
+# ⚠️ **`Zl` and `Zp` are named beside the "Other" categories, and they are not
+# invisible.** The class has never meant "invisible": `Cc` is in it, and `Cc`
+# holds U+000A and U+0009. What it refuses is a character that forges the
+# STRUCTURE of a sentence somebody is being asked to approve, and the two
+# Unicode separators are the ones the "Other" group does not reach -- a text
+# view breaks a line on either, so a payload carrying one puts a line into the
+# approval dialog that the graph never named. Naming them here rather than
+# anywhere downstream keeps the class one derivation from published facts.
 # ---------------------------------------------------------------------------
 
-UNRENDERABLE_CATEGORIES: tuple[str, ...] = ("Cc", "Cf", "Co", "Cs")
-"""The General_Category values the class holds, from UAX #44."""
+UNRENDERABLE_CATEGORIES: tuple[str, ...] = ("Cc", "Cf", "Co", "Cs", "Zl", "Zp")
+"""The General_Category values the class holds, from UAX #44.
+
+⚠️ **Order is load-bearing to one test and to nothing else.**
+``test_the_general_category_wins_where_the_two_sources_overlap`` reads index 1
+to get a category that is also default-ignorable, so a value added here goes on
+the end. The emitted table is sorted by code point and does not depend on it.
+"""
 
 DEFAULT_IGNORABLE = "Default_Ignorable_Code_Point"
 """The derived core property that carries the invisible characters outside those."""
