@@ -250,6 +250,30 @@ command in prose without using a distinctive identifier is invisible to any toke
 from the derived set and searched for separately by hand. **Anything naming the retired surface
 without naming a token remains unfound**, and this list does not claim otherwise.
 
+### ⚠️ The residual, measured: three files the sweep could not see, found by review
+
+The paragraph above says prose naming no distinctive token is invisible to the token search. **A
+review round then found three such files, and a word bounded check of all 24 derived tokens against
+each returns nothing.** That is the residual behaving exactly as described, not the instrument being
+wrong, and the distinction decides what happens next.
+
+| file | what it says, in prose only | why the sweep cannot see it |
+| --- | --- | --- |
+| `CONTRIBUTING.md` | `gramps_plugin/` *"now holds two registrations: the CLI apply tool, and the loopback host"*, and compares how each crosses the Gramps boundary | "two registrations" and "CLI apply tool" name no identifier |
+| `pyproject.toml` | the comment over the empty dependency list counts *"the CLI console"* among the standard library core | "CLI console" names no identifier |
+| `.github/workflows/ci.yml` | the header comment lists *"schema, write path, CLI console, pii_guard"* as what the core leg measures | same phrase |
+
+**These are current guidance, not records, and the retirement build updates them.** That makes
+**ten** files, seven under `docs/` plus the README, and now these three outside it.
+
+⛔ **This row is CLOSED, by a rule set before the round rather than after it.** Three consecutive
+rounds each added one page, so the whole set was measured, and the rule for the round after that was
+decided in advance: a page the search *should* have caught means the instrument is wrong and gets
+fixed once; a page the search *could not* catch is an accepted residual and is recorded. These three
+are the second kind. **Further prose references to the retired surface are expected, they are the
+removal build's to find while it is in every one of these files anyway, and they do not reopen this
+ruling.**
+
 ### Current guidance, which the retirement makes FALSE and must update
 
 | page | why |
