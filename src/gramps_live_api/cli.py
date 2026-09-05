@@ -44,14 +44,6 @@ have no directory to compare ``PLUGIN_FILES`` against.
 surviving one.** It is what makes Gramps start the document route, which is now
 the only write path there is."""
 
-_SOURCE_DIRECTORY = str(Path(__file__).resolve().parent.parent)
-"""The directory the shim must put on ``sys.path`` to import this package.
-
-Gramps runs on its own frozen interpreter with its own ``sys.path``; nothing
-this project installs is on it. The shim prepends this, which is why the tool
-works from a checkout with no installation step.
-"""
-
 
 @dataclass(frozen=True, slots=True)
 class Check:
