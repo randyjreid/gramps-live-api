@@ -30,7 +30,36 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from gramps_live_api.core._note_types import ACCEPTED_NOTE_TYPES
 from gramps_live_api.host import paths
+
+NOTE_TYPES: frozenset[str] = ACCEPTED_NOTE_TYPES
+"""⛔ What a note's ``type`` may be. **The frozen table itself, never a copy.**
+
+Derived from the installed Gramps' own ``NoteType``: the rows of
+``_DATAMAPREAL`` less ``CUSTOM`` and ``UNKNOWN``, which is exactly the set a user
+is offered wherever a note sits. ⚠️ **The other nineteen are refused BY NAME
+rather than passed through**, which is the opposite of what ``_event_type`` does
+for events and is deliberate: an event type comes off a document and its
+vocabulary is open in practice, while a note's type is a filing decision drawn
+from a list Gramps itself publishes.
+
+⚠️ **This is the same object as ``schema.NOTE_TYPES``**, and a test asserts the
+identity rather than the equality. Importing it here rather than importing
+``schema`` keeps this module's one dependency on the package a data module with
+nothing in it to run.
+"""
+
+DEFAULT_NOTE_TYPE = "transcript"
+"""⛔ What a note with no ``type`` is written as. **Unchanged from today.**
+
+The writer has always written ``TRANSCRIPT`` for every note it created, so every
+graph that exists now is written exactly as it is written now. ⚠️ **That promise
+is about the WRITE and deliberately not about the RENDER**: the preview now names
+this type on an untyped note, which is a visible change to the approval text for
+every existing graph, and it is the honest end of the rule that nothing reaches
+the tree unshown.
+"""
 
 MAX_GRAPH_BYTES = 512 * 1024
 """A document's findings, not a tree import. Large enough for a dense census
@@ -418,7 +447,7 @@ NODE_KEYS = {
     "source": {"id", "title", "author", "pubinfo"},
     "citations": {"id", "source", "page", "attach_to"},
     "families": {"id", "parents", "children"},
-    "notes": {"text", "attach_to"},
+    "notes": {"text", "type", "attach_to"},
 }
 """⛔ **Exactly what each node group accepts. Anything else is REFUSED, by name.**
 
@@ -466,6 +495,50 @@ def _only_known_keys(group: str, index: int, entry: Any) -> None:
         + ", ".join(repr(key) for key in sorted(NODE_KEYS[group] | {"gramps_id"}))
         + "."
     )
+
+
+def note_type_of(note: dict[str, Any], where: str = "a note") -> str:
+    """⛔ The type this note WILL BE WRITTEN WITH, or a refusal naming the set.
+
+    ⭐ **One function, used by the parser and by both render sites**, so what the
+    approval names and what the writer writes cannot be two answers. The
+    preview/writer disagreement is this project's most-recorded defect class and
+    it is made by having two of these.
+
+    ⚠️ **The default is the ABSENCE OF THE KEY, never falsiness.** The natural
+    spelling -- ``if not value or value in TABLE`` -- is the shape
+    ``schema._note_type_unknown`` uses today, and it is safe there only because
+    ``_text`` has already coerced. Copied here without that coercion it reads
+    ``type: []`` and ``type: 0`` as *omitted* and silently writes a transcript,
+    which is a chosen value becoming a default without anybody being told. ⛔ A
+    present ``type`` that is not an accepted string is refused; only an absent one
+    defaults.
+
+    ⚠️ **A ``type`` must BE a string, checked before anything is done with it.**
+    The graph arrives as JSON, and the parser otherwise checks only that a node is
+    an object with known keys, so ``type: []`` and ``type: 42`` are both
+    reachable. ``local``, ``source_id`` and ``referenced`` already take exactly
+    this check; this is the fourth.
+    """
+    if "type" not in note:
+        return DEFAULT_NOTE_TYPE
+    wanted = note["type"]
+    if not isinstance(wanted, str):
+        raise GraphInvalid(
+            f"{where} carries a 'type' of {type(wanted).__name__}, and a note type "
+            f"must be a string. Leave 'type' out and the note is written as a "
+            f"{DEFAULT_NOTE_TYPE}, which is what every note this route wrote before "
+            f"'type' existed."
+        )
+    if wanted not in NOTE_TYPES:
+        raise GraphInvalid(
+            f"{where} asks for the note type {wanted!r}, which is not one Gramps "
+            f"offers wherever a note can be edited, so you could not correct it by "
+            f"hand afterwards. 'notes' accepts a 'type' of: "
+            + ", ".join(sorted(NOTE_TYPES))
+            + f". Leaving it out writes a {DEFAULT_NOTE_TYPE}."
+        )
+    return wanted
 
 
 LOOKUP_TOOLS = {
@@ -670,6 +743,9 @@ def parse(body: Any, *, writes: bool = True) -> Graph:
     # accepts.
     for index, one_note in enumerate(notes):
         _only_known_keys("notes", index, one_note)
+        # ⛔ **Validated here, so the preview can render it without asking again.**
+        # A note has no ``id``, so its index is the only thing that can name it.
+        note_type_of(one_note, f"notes[{index}]")
 
     known: set[str] = set()
     # ⛔ **ONE local id per resolved record.** ``(kind, gramps_id) -> the local id
@@ -1314,7 +1390,12 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
             if local_id not in (note.get("attach_to") or []):
                 continue
             shown_notes.add((index, local_id))
-            out.extend(_wrap("+ Note:", indent))
+            # ⛔ **The TYPE is named, for a typed and an untyped note alike.** A
+            # type written and not rendered is a byte reaching the tree that the
+            # approval did not show. ⚠️ Naming it only when the key is present
+            # passes every typed case and leaves the commonest note in the tree,
+            # a transcript, showing no type at all.
+            out.extend(_wrap(f"+ Note ({note_type_of(note)}):", indent))
             out.extend(_wrap(note.get("text") or "(empty)", indent + "    "))
         return out
 
@@ -1598,7 +1679,11 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
         if not missing:
             continue
         target = ", ".join(named_node(one) if one is not None else "nothing" for one in missing)
-        leftovers.extend(_wrap(f"Note      (attached to {target}):", "  "))
+        # ⛔ **The SECOND render site, and there is no single one.** A typed note
+        # whose edge is undrawn, attached to nothing or to a node the walk never
+        # reached, renders here and nowhere else -- so a type shown only at the
+        # other site is a type the owner never saw for exactly these notes.
+        leftovers.extend(_wrap(f"Note      ({note_type_of(note)}, attached to {target}):", "  "))
         leftovers.extend(_wrap(note.get("text") or "(empty)", "      "))
     if leftovers:
         out.append("ALSO WRITTEN")

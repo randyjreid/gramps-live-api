@@ -2,7 +2,7 @@
 
 ⚠️ **Everything here is invented, and none of it is a Gramps database.** The
 directory is three files the check looks at; the tree object below answers the
-four questions ``core.apply`` asks and records what it was asked. That is enough
+questions ``core.apply`` asks and records what it was asked. That is enough
 to exercise the ORDERING -- authorise, record, write -- on a runner with no
 Gramps on it, and it is not evidence that a note reaches a real tree. Only the
 demo is.
@@ -10,13 +10,29 @@ demo is.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 
-from gramps_live_api.core import apply
+from gramps_live_api.core import _note_types, apply
 
 MOMENT = datetime(2026, 8, 16, 12, 34, 56, tzinfo=timezone.utc)
 """One fixed instant, so a record's stem and contents are assertable."""
+
+NOTE_TYPE_VALUES: Mapping[str, object] = {
+    attribute: value for attribute, value, _key, _declared_in in _note_types.NOTE_TYPE_ROWS
+}
+"""What a ``gramps.gen.lib.NoteType`` holds, taken from the COMMITTED table.
+
+⛔ **Read out of the table rather than written here**, so this fixture cannot
+become a second listing of the vocabulary and cannot drift from the one the
+package validates against.
+
+⭐ A test simulating a Gramps that has renamed, removed or renumbered a built-in
+note type hands ``FakeTree`` a copy of this with that entry gone or replaced.
+That is the only way the drift is reachable on a runner with no Gramps on it,
+and the shim's ``getattr`` against the live class is the thing it stands in for.
+"""
 
 
 def blessed(directory: Path) -> apply.WritableCopy:
@@ -51,7 +67,7 @@ class _Transaction:
 
 
 class FakeTree:
-    """A tree that answers ``core.apply``'s four questions and remembers them.
+    """A tree that answers the questions ``core.apply`` asks and remembers them.
 
     ⚠️ **Not a Gramps database and not a stand-in for one.** It proves the
     ordering and the refusals; it proves nothing about ``DbTxn``, about the
@@ -70,6 +86,7 @@ class FakeTree:
         text_read_back: str | None = None,
         attached: bool = True,
         refuse_the_write: bool = False,
+        note_type_values: Mapping[str, object] | None = None,
     ) -> None:
         self._tree_dir = tree_dir
         self._people = {"I0044": "a1b2c3d4e5f607"} if people is None else people
@@ -78,6 +95,7 @@ class FakeTree:
         self._text_read_back = text_read_back
         self._attached = attached
         self._refuse_the_write = refuse_the_write
+        self._note_type_values = NOTE_TYPE_VALUES if note_type_values is None else note_type_values
         self.events: list[str] = []
         self.written: list[tuple[str, str, str]] = []
         self.records_when_the_transaction_opened: list[str] = []
@@ -94,6 +112,18 @@ class FakeTree:
     def person_handle_of(self, gramps_id: str) -> str | None:
         self.events.append(f"resolved {gramps_id}")
         return self._people.get(gramps_id)
+
+    def note_type_value(self, note_type: str) -> object:
+        """What this tree's ``NoteType`` holds under that attribute name.
+
+        ⚠️ **A ``dict.get`` because the shim is a ``getattr``**, and the two are
+        the same one-line translation. The judgement about what makes a value
+        usable is deliberately NOT here: it lives in ``core.apply``, where a
+        runner with no Gramps can reach it, and duplicating it here would give
+        the fake its own opinion to be wrong with.
+        """
+        self.events.append(f"note type {note_type} looked up")
+        return self._note_type_values.get(note_type)
 
     def transaction(self, message: str) -> _Transaction:
         return _Transaction(self)
