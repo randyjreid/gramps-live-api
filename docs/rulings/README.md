@@ -8,7 +8,8 @@ today, and the difference is not pedantry.** A ruling can be in force while the
 implementation has moved: **R7's mechanism diverged** — the shipped backup opens
 its own connection rather than using Gramps' — and **R8's scope has exceptions**,
 because the legacy `approve` console and the export-backed `list_people` predate
-it.
+it. ⭐ **R9 retires both of those exceptions**; until its build merges they are
+still in the code, and after it R8 has none.
 
 ⚠️ **An earlier draft carried a "still holds" column and was wrong about it four
 times in five review rounds**, always the same way: written from the rulings,

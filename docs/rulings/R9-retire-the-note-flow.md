@@ -261,15 +261,32 @@ without naming a token remains unfound**, and this list does not claim otherwise
 | `docs/census-brief.md` | tells agents `list_people` reads an export and why to prefer `find_people`, in the brief that drives the demo |
 | `docs/restoring.md` | ⭐ **found only by the hand search.** Its opening callout warns that `preview`, `apply` and `approve` take no backup, about commands that will not exist, on the page somebody reads while recovering a tree |
 
-### ⛔ Records, which must NOT be updated
+### ⛔ Records: re-tested against "does it claim something about now or later?"
 
-**These name the retired surface and are correct as they stand**, because they record what was true
-when they were written: `docs/rulings/R3`, `R4`, `R8`, `docs/roadmap.md`, `docs/reviews/slice2-ledger.md`,
-and the pages under `docs/plans/`.
+**Genre is the wrong discriminator, and the first version of this section used it.** A ruling dated
+2026-08-21 makes a claim about that date and its body is untouchable. But a document that asserts
+what the project **intends** is making a claim about the present, whatever heading it sits under. So
+each of the eight was re-read against the question rather than its type.
 
-⚠️ **Editing a record to match the present is falsifying it**, which is the same rule that stops an
-issue being closed while its defect is live. `docs/rulings/README.md` is the exception among these: it
-is an index describing current rulings, so its R9 row is written already and needs nothing further.
+| page | verdict | why |
+| --- | --- | --- |
+| `docs/roadmap.md` | **record, untouched** | its own banner says HISTORICAL, not the current plan; its slice 4 text says the export reader goes, which R9 fulfils rather than contradicts |
+| `docs/reviews/slice2-ledger.md` | **record, untouched** | dispositions of findings on a dated head |
+| the plans under `docs/plans/` except one | **record, untouched** | their `preview` is `document.preview`, not the CLI command; no claim about the retired surface |
+| ⛔ **`docs/plans/shippable.plan.md`** | **moves to GUIDANCE** | its packaging steps carry `export_path` twice, marked *"[if kept]"*. That is a forward claim about a milestone still ahead, and R9 resolves it: not kept. **The seventh page the retirement build updates** |
+| `docs/rulings/R3` | **body untouched, STATUS banner takes a forward pointer** | its egress bounds are grounded in `core/people.py` and the console; both are retired, the bounds survive in `host/reads.py` |
+| `docs/rulings/R4` | **body untouched, STATUS banner takes a forward pointer** | its caveat names the unbacked write paths; R9 retires exactly those, so after the build every write path takes the backup |
+| `docs/rulings/R8` | **body untouched, STATUS banner takes a forward pointer** | its two named exceptions are the two surfaces R9 removes |
+| `docs/rulings/README.md` | **one sentence takes a forward pointer** | it says R8's scope has exceptions; after R9 it has none |
+
+⭐ **A forward pointer is the third option between editing and silence.** It is dated, it says what
+supersedes what, and it is phrased to be true now, while the build has not merged, and true after.
+It falsifies nothing, the same act as closing an issue with the reason recorded, and it stops the
+next reader acting on a banner that no longer holds. **"Correct as written" and "still in force" are
+different properties, and only the first is protected by not editing.**
+
+⛔ **The bodies stay as ruled.** The pointers are added by this ruling's own pull request, not by
+the retirement build, so a reader of any of those pages is told before the build runs.
 
 ## ⭐ Two questions this page left open, now ruled
 
