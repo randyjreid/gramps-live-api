@@ -1302,6 +1302,56 @@ def test_an_unreadable_timeline_REFUSES_shape_A_rather_than_falling_back(
     assert verdict is False
 
 
+# ------------------------- shape A's evidence, confirmed against the FINAL read
+
+
+def test_a_clean_comment_DELETED_before_the_verdict_stops_granting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **Shape A granted on evidence it never re-confirmed.** The other shape did.
+
+    ⚠️ Named input: the bot posts a clean comment naming head ``H`` at 09:07, the
+    sweep reads it, the comment is deleted before the verdict is pronounced, the
+    final conversation read lacks it, and every other gate is clean. The comment
+    was built from the FIRST read alone and reached the verdict through
+    ``_still_current`` only, so READY printed over a body that no longer carries
+    a clean signal.
+
+    ⭐ The pair is the proof, exactly as ``test_183s_own_named_input_is_NOT_READY``
+    pairs. The two sweeps are byte-identical apart from the second read: with the
+    comment surviving it is still READY, so the refusal is the deletion's doing
+    and not some unrelated gate's.
+
+    ⚠️ **The two clean shapes disagreed about this and only one of them was
+    right.** A bare 👍 is confirmed against a second read through
+    ``_still_granted``; the comment was not. A codebase carrying two shapes where
+    one is wrong is worse than one carrying a single known-bad shape, because a
+    reader cannot tell which path runs.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+
+    assert _sweep(monkeypatch, conversation=[clean]) is True
+    assert _sweep(monkeypatch, conversation=[clean], final_conversation=[]) is False
+
+
+def test_a_clean_comment_that_ARRIVED_mid_sweep_does_not_grant_either(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **Confirmation may not become admission**, the line already held for the
+    thumb by ``test_a_thumb_that_ARRIVED_mid_sweep_does_not_grant_either``.
+
+    ⚠️ Taking the final read alone would let a clean comment published mid-sweep
+    grant a verdict on evidence gathered before it -- the checks, the threads and
+    the head were all read before that comment existed. Intersection, not
+    replacement: only what BOTH reads show.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+
+    verdict = _sweep(monkeypatch, conversation=[], final_conversation=[clean])
+
+    assert verdict is False
+
+
 # --------------------------------------------- #219: printing its own verdict
 
 

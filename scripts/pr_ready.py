@@ -1214,8 +1214,33 @@ def _report(pull: int) -> bool:
     began = _round_start(str(final.get("createdAt") or ""), began_trigger, seen_ready)
     print(f"       round began at     : {began or '(UNREADABLE -- nothing can be placed in it)'}")
 
-    accepted_clean = _still_current(clean_comments, began) if began else []
-    superseded_clean = [c for c in clean_comments if c not in accepted_clean]
+    # ⛔ **Shape A's evidence is confirmed against the FINAL read, exactly as the
+    # +1 is.** ``clean_comments`` came from the first conversation read alone.
+    #
+    # ⚠️ Named input: the bot posts a clean comment naming this head at 09:07,
+    # this sweep reads it, the comment is DELETED before the verdict, the final
+    # read lacks it, every other gate is clean -- and READY printed over a body
+    # that no longer carries a clean signal.
+    #
+    # ⛔ **The two clean shapes disagreed about whether granting evidence must
+    # survive to the verdict, and only one of them was right.** That asymmetry is
+    # worse than either answer applied consistently, because a reader cannot tell
+    # which path a verdict rests on.
+    #
+    # ⭐ Intersection, not replacement -- ``_still_granted``, the same rule and
+    # the same identity test shape B uses. Taking the final read alone would let a
+    # clean comment ARRIVING mid-sweep grant a verdict on evidence gathered before
+    # it: the checks, the threads and the head were all read before it existed.
+    standing_clean = _still_granted(clean_comments, by_bot(final_conversation))
+    withdrawn_clean = [c for c in clean_comments if c not in standing_clean]
+    if withdrawn_clean:
+        print(
+            f"       WITHDRAWN clean     : {len(withdrawn_clean)}"
+            f"  ({withdrawn_clean[-1].get('created_at')} -- gone from the final read)"
+        )
+
+    accepted_clean = _still_current(standing_clean, began) if began else []
+    superseded_clean = [c for c in standing_clean if c not in accepted_clean]
     if superseded_clean:
         print(
             f"       SUPERSEDED clean    : {len(superseded_clean)}"
@@ -1259,6 +1284,15 @@ def _report(pull: int) -> bool:
             failures.append(
                 "no CLEAN verdict naming this head -- the bot's clean comment quotes "
                 "the commit it reviewed, and none quoting this one was found"
+            )
+        elif not standing_clean:
+            # ⛔ Said in its own words rather than folded into the branch below.
+            # A withdrawn verdict does not predate anything, and a reason that is
+            # true of a different input is evidence nobody can act on.
+            failures.append(
+                "the CLEAN verdict naming this head is no longer on the pull request -- "
+                "it was there when this sweep began and the final read does not show it, "
+                "so no clean signal stands"
             )
         elif not began:
             failures.append(

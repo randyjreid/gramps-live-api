@@ -118,6 +118,31 @@ Force pushes, and any ref event at all after T, fail condition 2.
   The comparison moves to step 8 for both shapes, because T is not known until the final
   reads, and `_round_start` is the single place it is computed.
 
+⚠️ **RECORDED SCOPE CHANGE, taken deliberately: shape A's granting evidence is confirmed
+  against the FINAL conversation read, the way the bare 👍 is.** `clean_comments` was built
+  from the first conversation read alone and reached the verdict through `_still_current`
+  only. **Found by the round 1 fix seat**, which named the input and declined to fix it
+  because it was a seventh finding rather than one of the six -- the restraint the plan gate
+  exists to produce. The scope decision has now been made rather than left to omission.
+  Its named input: the bot posts a clean comment naming head `H` at 09:07, the sweep reads
+  it, the comment is deleted before the verdict, the final read lacks it, every other gate is
+  clean, and **READY printed over a body that no longer carries a clean signal**.
+  ⛔ **The asymmetry was the point, not only the bug.** The 👍 was confirmed against a second
+  read through `_still_granted` and the comment was not, so the two clean shapes disagreed
+  about whether granting evidence must survive to the verdict. A codebase carrying two shapes
+  where one is wrong is worse than one carrying a single known-bad shape, because a reader
+  cannot tell which path a verdict rests on.
+  ⛔ **Intersection, not replacement**, using the helper already in the file. The naive
+  reading -- reread and use the final read -- would let a clean comment ARRIVING mid-sweep
+  grant a verdict on evidence gathered before it, which is the widening the thumb's own test
+  already refuses. Both directions are held for the comment too:
+  `test_a_clean_comment_DELETED_before_the_verdict_stops_granting` (paired with the
+  byte-identical surviving-comment sweep, which still reports READY) and
+  `test_a_clean_comment_that_ARRIVED_mid_sweep_does_not_grant_either`.
+  ⚠️ A withdrawn verdict is refused **in its own words**, not folded into the
+  predates-the-round branch: that reason is true of a different input, and a reason nobody
+  can act on is what a report is for.
+
 ## Where the judgement lives
 
 The test file's thesis holds: the decision is a pure function, the API feeds it.
