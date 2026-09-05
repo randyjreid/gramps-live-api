@@ -30,6 +30,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from gramps_live_api.core import render_guard
 from gramps_live_api.core._note_types import ACCEPTED_NOTE_TYPES
 from gramps_live_api.host import paths
 
@@ -1707,6 +1708,28 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
     out.append("")
     out.append("Write it writes all of the above, in ONE transaction.")
     out.append("Cancel writes nothing at all.")
+    # ⛔ **The render guard, and it is the LAST thing this function does.**
+    #
+    # ⭐ **One seam covers both approval-time call sites**, because both go
+    # through here: the dialog the owner reads, and the approved text the
+    # journal records. A field added to this renderer later is covered without
+    # the guard being edited, which is the doctrine the guard's own comment
+    # block states -- it is over what this function EMITS, not over what any
+    # field may hold.
+    #
+    # ⚠️ **Over the LINES, before the join, and that ordering is the mechanism
+    # rather than a detail.** Every append above is a single line and ``_wrap``
+    # splits multiline note text into separate lines first, so no element of
+    # ``out`` legitimately carries U+000A. Scanning the joined string instead
+    # would have to permit U+000A everywhere -- and a payload newline smuggled
+    # through a field this renderer interpolates raw, such as a person's
+    # ``given``, forges a whole line in the approval dialog reading as a record
+    # the graph never named. Here it is refused as the ``Cc`` it is.
+    #
+    # ⚠️ **It raises rather than returning a marker, and the caller must not
+    # catch it narrowly.** In the plugin it lands in the approval path's
+    # catch-all: fail closed, nothing written, the owner told the write failed.
+    render_guard.refuse_unrenderable(out)
     return "\n".join(out)
 
 
