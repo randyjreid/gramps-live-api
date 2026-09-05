@@ -30,6 +30,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from gramps_live_api.core import render_guard
 from gramps_live_api.core._note_types import ACCEPTED_NOTE_TYPES
 from gramps_live_api.host import paths
 
@@ -44,10 +45,16 @@ for events and is deliberate: an event type comes off a document and its
 vocabulary is open in practice, while a note's type is a filing decision drawn
 from a list Gramps itself publishes.
 
-⚠️ **This is the same object as ``schema.NOTE_TYPES``**, and a test asserts the
-identity rather than the equality. Importing it here rather than importing
-``schema`` keeps this module's one dependency on the package a data module with
-nothing in it to run.
+⚠️ **This is the frozen table itself and not a copy of it**, and a test asserts
+the identity rather than the equality.
+
+⚠️ **The paragraph that used to stand here said ``schema.NOTE_TYPES`` was the
+same object, and that importing the data module rather than ``schema`` kept this
+module's one dependency on the package something with nothing in it to run.**
+Both halves are gone: ``core/schema.py`` is deleted, so there is no second name
+for this set, and this module now also imports ``core.render_guard``, which is
+code. The dependency is stated as it is rather than left reading as a constraint
+this module is still keeping.
 """
 
 DEFAULT_NOTE_TYPE = "transcript"
@@ -506,9 +513,9 @@ def note_type_of(note: dict[str, Any], where: str = "a note") -> str:
     it is made by having two of these.
 
     ⚠️ **The default is the ABSENCE OF THE KEY, never falsiness.** The natural
-    spelling -- ``if not value or value in TABLE`` -- is the shape
-    ``schema._note_type_unknown`` uses today, and it is safe there only because
-    ``_text`` has already coerced. Copied here without that coercion it reads
+    spelling -- ``if not value or value in TABLE`` -- is the shape the retired
+    ``schema._note_type_unknown`` used, and it was safe there only because that
+    module's ``_text`` had already coerced. Copied here without that coercion it reads
     ``type: []`` and ``type: 0`` as *omitted* and silently writes a transcript,
     which is a chosen value becoming a default without anybody being told. ⛔ A
     present ``type`` that is not an accepted string is refused; only an absent one
@@ -1707,6 +1714,28 @@ def preview(graph: Graph, resolution: Resolution | None = None) -> str:
     out.append("")
     out.append("Write it writes all of the above, in ONE transaction.")
     out.append("Cancel writes nothing at all.")
+    # ⛔ **The render guard, and it is the LAST thing this function does.**
+    #
+    # ⭐ **One seam covers both approval-time call sites**, because both go
+    # through here: the dialog the owner reads, and the approved text the
+    # journal records. A field added to this renderer later is covered without
+    # the guard being edited, which is the doctrine the guard's own comment
+    # block states -- it is over what this function EMITS, not over what any
+    # field may hold.
+    #
+    # ⚠️ **Over the LINES, before the join, and that ordering is the mechanism
+    # rather than a detail.** Every append above is a single line and ``_wrap``
+    # splits multiline note text into separate lines first, so no element of
+    # ``out`` legitimately carries U+000A. Scanning the joined string instead
+    # would have to permit U+000A everywhere -- and a payload newline smuggled
+    # through a field this renderer interpolates raw, such as a person's
+    # ``given``, forges a whole line in the approval dialog reading as a record
+    # the graph never named. Here it is refused as the ``Cc`` it is.
+    #
+    # ⚠️ **It raises rather than returning a marker, and the caller must not
+    # catch it narrowly.** In the plugin it lands in the approval path's
+    # catch-all: fail closed, nothing written, the owner told the write failed.
+    render_guard.refuse_unrenderable(out)
     return "\n".join(out)
 
 

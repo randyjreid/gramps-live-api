@@ -24,8 +24,18 @@ decision:
   All four are invisible and all four reached the screen.
 
 A derived table answers both at their shared root: the verdict becomes a fact about the published
-standard rather than about the interpreter. Measured after the change: **143,787 code points,
+standard rather than about the interpreter. Measured after the change: **143,789 code points,
 identical on all three**, divergence **0**.
+
+⚠️ **Both figures on this page are counts of a GENERATED artifact and they move whenever
+the derivation is re-run.** They read 143,787 across four categories until 2026-09-05, when
+`Zl` and `Zp` joined the class to close a bypass: U+2028 could forge a line of the approval
+sentence exactly as U+000A can, and the class had never excluded structural characters, only
+these two separators. The delta was exactly two code points and two rows.
+
+⛔ **Nothing checks these numbers against the table.** No test asserts that the generator
+reproduces the committed file, which is filed as #238, so a figure here that has gone stale
+will not fail a gate. It went stale once already, in the same change that moved the class.
 
 ## The two sources
 
@@ -81,7 +91,7 @@ The class is the **union of two published facts, and neither contains the other*
 
 A table supplementing a surviving `unicodedata.category` call would have left the second half
 interpreter-derived, and the version dependence would have come straight back for it. So both
-halves are derived and committed, and **`unicodedata` no longer appears in `schema.py` at all** —
+halves are derived and committed, and **`unicodedata` no longer appears in the guard at all** —
 including in the refusal message, which used to name `unicodedata.category(character)`. Under a
 pinned table that call reports `Cn` for code points the table guards as `Cf`: a refusal naming the
 one category the class does not hold.
@@ -90,7 +100,8 @@ one category the class does not hold.
 
 Unassigned code points, and every readable category. **`Cn` is stated explicitly in
 `DerivedGeneralCategory.txt` — it is not absent from the source.** What keeps it out is that the
-derivation names the categories it *wants* (`Cc`, `Cf`, `Co`, `Cs`) plus one property, so there is
+derivation names the categories it *wants* (`Cc`, `Cf`, `Co`, `Cs`, `Zl`, `Zp`) plus one
+property, so there is
 no `!= "Cn"` anywhere downstream to get wrong. The exclusion is structural rather than a special
 case, and the arithmetic the old `Cn` argument rested on — 9 divergent code points against 5,327 —
 retires with it, because the class no longer moves between interpreters at all.
@@ -136,7 +147,7 @@ test; a table checked only against itself is not.
 
 The guard vocabulary's derivation note records that **nothing imports** its generated module: there
 the table is a checklist beside a hand-written weighting, and a test binds the two. **Here
-`schema.py` imports the generated module directly**, because the table *is* the class. A
+`core/render_guard.py` imports the generated module directly**, because the table *is* the class. A
 hand-maintained copy bound by a test would be the exact thing this derivation exists to remove, and
 the principle that note states — *derived means nothing is maintained by hand without a test that
 would fail* — is satisfied more strongly by importing than by copying.
@@ -144,7 +155,7 @@ would fail* — is satisfied more strongly by importing than by copying.
 ## What this closes, and what it does not
 
 **Closes:** the class is a fact about a named Unicode release. It is identical on every supported
-interpreter — 143,787 code points, one membership digest, measured on 3.10.20, 3.11.15 and
+interpreter, 143,789 code points, one membership digest, measured on 3.10.20, 3.11.15 and
 3.12.13 — and the four invisible characters round 4 named are refused.
 
 **Does not close** — recorded rather than chased:
@@ -156,19 +167,26 @@ interpreter — 143,787 code points, one membership digest, measured on 3.10.20,
 - **The class refuses characters some scripts use legitimately**, and the set is wider than it was:
   the zero-width joiner and non-joiner, the Mongolian free variation selectors, the variation
   selectors used in ideographic variation sequences, the Hangul fillers. Recorded in full, with the
-  argument for taking the trade, in `schema.py`'s costs block. It is a real cost and it is not
-  negligible.
-- **A character past the preview's elision limit is never emitted and so never refused.** A guard
-  over what is *displayed* has nothing to say about a character that reaches no screen.
+  argument for taking the trade, in the costs block `core/render_guard.py` carries. It is a real
+  cost and it is not negligible.
+- ~~**A character past the preview's elision limit is never emitted and so never refused.**~~
+  **Retired when the guard moved to the document route**, which elides nothing: `document.WRAP_AT`
+  wraps and never truncates, because R3's ruled criterion is that no byte reaches the tree that was
+  not rendered in full. There is no elision point for a character to hide past.
 - **Implicit reordering is not covered and must not be.** A strong right-to-left letter reorders
   the neutrals around it under UAX #9 with no formatting character present at all; covering it
   would mean refusing ordinary names.
-- **`preview()`'s single-line rule normalises through `str.split()`, whose whitespace set is
-  interpreter data this table does not pin.** CPython derives it from the UCD it was built with,
-  so in principle a code point could be whitespace on one supported interpreter and not on
-  another — and a character removed before the guard reads the sentence is never refused.
-  **Measured, it does not diverge:** 29 code points on 3.10.20, 3.11.15 and 3.12.13, the same set
-  on all three, and end-to-end `preview()` verdicts over the whole code space are identical
-  (143,777 refused, one digest). So it is a mechanism worth knowing about and not a live gap; it is
-  recorded here rather than fixed, because pinning it would mean this project reimplementing
-  `str.split()`.
+- ~~**`preview()`'s single-line rule normalises through `str.split()`, whose whitespace set is
+  interpreter data this table does not pin.**~~ **Retired when the guard moved to the document
+  route, and the retirement changed a verdict rather than only a rationale.** The note flow's
+  `preview` collapsed the whole rendered sentence through `str.split()` before scanning, so a
+  whitespace control could never be refused, and the residual above recorded that the collapsing
+  set was unpinned interpreter data. `document.preview` performs no such collapse. Note text still
+  passes through `_wrap`, which uses `textwrap` and removes whitespace controls, but a field
+  interpolated straight into a rendered line, a person's `given` or a place `title`, does not.
+  ⛔ **So a tab in a name IS now refused, labelled `Cc`, where it was silently
+  accepted before.** That is not a regression to repair: it is the same mechanism that refuses a
+  payload newline forging a line of the approval sentence, and exempting one takes the other. The
+  trade is recorded as #236 and pinned by tests in both directions. The measured figures in the
+  retired bullet, 29 whitespace code points and 143,777 refused, described the collapsing route and
+  do not describe this one.

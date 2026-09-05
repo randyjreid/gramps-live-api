@@ -58,10 +58,25 @@ from pathlib import Path
 # read. Default-ignorable reaches outside the "Other" group -- U+034F is `Mn`,
 # U+115F and U+1160 are `Lo` -- and the group reaches outside default-ignorable,
 # where the controls, the surrogates and the private-use areas live.
+#
+# ⚠️ **`Zl` and `Zp` are named beside the "Other" categories, and they are not
+# invisible.** The class has never meant "invisible": `Cc` is in it, and `Cc`
+# holds U+000A and U+0009. What it refuses is a character that forges the
+# STRUCTURE of a sentence somebody is being asked to approve, and the two
+# Unicode separators are the ones the "Other" group does not reach -- a text
+# view breaks a line on either, so a payload carrying one puts a line into the
+# approval dialog that the graph never named. Naming them here rather than
+# anywhere downstream keeps the class one derivation from published facts.
 # ---------------------------------------------------------------------------
 
-UNRENDERABLE_CATEGORIES: tuple[str, ...] = ("Cc", "Cf", "Co", "Cs")
-"""The General_Category values the class holds, from UAX #44."""
+UNRENDERABLE_CATEGORIES: tuple[str, ...] = ("Cc", "Cf", "Co", "Cs", "Zl", "Zp")
+"""The General_Category values the class holds, from UAX #44.
+
+⚠️ **Order is load-bearing to one test and to nothing else.**
+``test_the_general_category_wins_where_the_two_sources_overlap`` reads index 1
+to get a category that is also default-ignorable, so a value added here goes on
+the end. The emitted table is sorted by code point and does not depend on it.
+"""
 
 DEFAULT_IGNORABLE = "Default_Ignorable_Code_Point"
 """The derived core property that carries the invisible characters outside those."""
@@ -215,11 +230,11 @@ _HEADER = '''"""The characters ``preview`` refuses, derived from the published U
 ``scripts/derive_unrenderable.py`` over artifacts matching the digests below,
 and see the derivation note in ``docs`` for where each one comes from.
 
-⚠️ **This module IS the class**, and ``schema.py`` imports it. That is a stated
-deviation from the precedent this table follows, whose generated module nothing
-imports: there the table was a checklist beside a hand-written weighting, and
-duplicating it by hand was tractable. Here a hand-maintained copy would be the
-thing the derivation exists to remove.
+⚠️ **This module IS the class**, and ``core/render_guard.py`` imports it. That is
+a stated deviation from the precedent this table follows, whose generated module
+nothing imports: there the table was a checklist beside a hand-written weighting,
+and duplicating it by hand was tractable. Here a hand-maintained copy would be
+the thing the derivation exists to remove.
 
 ⚠️ **No fetch date is recorded here.** Verification is re-fetch, compare digest,
 re-run, and diff against this file; a timestamp would make every such run differ

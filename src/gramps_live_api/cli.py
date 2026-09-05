@@ -346,6 +346,12 @@ HOST_MODULES = (
     # note-type table, which lives in ``core/`` because it is the vocabulary both
     # routes validate against. A package missing it starts no host.
     "core._note_types",
+    # ⚠️ **The render guard and the committed table it reads.**
+    # ``host.document`` refuses the approval text at its rendering seam, so a
+    # package missing either of these starts no host -- and the one it would
+    # fail on is the write surface's last check on what a person agrees to.
+    "core._unrenderable",
+    "core.render_guard",
     "host.accessor",
     "host.auth",
     "host.backup",
