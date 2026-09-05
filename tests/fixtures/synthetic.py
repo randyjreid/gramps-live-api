@@ -164,6 +164,30 @@ def importable_tree_document() -> str:
     )
 
 
+def empty_tree_document() -> str:
+    """A whole Gramps XML document holding nobody at all.
+
+    ⚠️ **Gramps' CLI will not create a tree from nothing.** ``-C <name>`` alone
+    refuses with *supply at least one input file to process*, so a test that
+    wants an EMPTY throwaway tree still has to import something -- and this is
+    the smallest something there is.
+
+    ⭐ **Empty rather than seeded, and the difference is what a read-back
+    proves.** ``tests/integration/test_round_trip.py`` asserts the tree holds
+    exactly the people its document created; a seed person would be one more
+    record to tell apart, and telling them apart is what the assertion is for.
+    """
+    namespace = "http:" + "//gramps-project" + ".org/xml/" + GRAMPS_XML_VERSION + _SLASH
+    header = _element(
+        "header",
+        body=_element("created", attributes='date="2026-09-05" version="6.0.8"', empty=True)
+        + _element("researcher"),
+    )
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + _element(
+        "database", attributes=f'xmlns="{namespace}"', body=header
+    )
+
+
 def gramps_name_block() -> str:
     """A name and nothing else: three elements and a complete person."""
     return _element(
