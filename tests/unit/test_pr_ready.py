@@ -14,6 +14,8 @@ the point of the simplification, not a convenience for testing.
 from __future__ import annotations
 
 import importlib.util
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -435,3 +437,37 @@ def test_a_FIRST_request_arriving_mid_sweep_blocks_too() -> None:
     have missed exactly the case where a round starts during the sweep.
     """
     assert pr_ready._request_arrived_mid_sweep("", "2026-09-01T01:34:49Z")
+
+
+# --------------------------------------------- #219: printing its own verdict
+
+
+def test_the_verdict_prints_on_a_console_that_cannot_ENCODE_it() -> None:
+    """⛔ #219: the tool died rendering the answer it had already computed.
+
+    ⚠️ The failure was indistinguishable at a glance from a real NOT-READY --
+    ``the check could not complete``, exit non-zero -- while the finding that
+    mattered sat in the part that never printed.
+
+    ⭐ **The parent is pinned to cp1252 so inheritance cannot supply the answer**,
+    exactly as ``test_gate_child_encoding`` does: under a UTF-8 parent this test
+    would pass with the fix deleted. The no-argument path makes no API call, and
+    the cp1252 codec exists on every platform, so this binds on CI's Linux
+    runners too.
+    """
+    hostile = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    hostile.pop("PYTHONUTF8", None)
+
+    finished = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "pr_ready.py")],
+        capture_output=True,
+        env=hostile,
+        check=False,
+    )
+
+    # ⛔ 2 is the usage exit. Without the fix this is 1, from an unhandled
+    # UnicodeEncodeError -- which is why the code is asserted and not just the text.
+    assert finished.returncode == 2, finished.stderr.decode("utf-8", "replace")
+    printed = finished.stdout.decode("utf-8")
+    assert "⛔" in printed
+    assert "⭐" in printed

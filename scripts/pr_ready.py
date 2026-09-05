@@ -708,6 +708,26 @@ def _report(pull: int) -> bool:
 
 
 def main(argv: list[str]) -> int:
+    # ⛔ **#219: this tool's output encoding is its OWN, not the console's.**
+    #
+    # ⚠️ It printed three sections and then died on ``⚠`` -- and the reason that
+    # mattered was in the part that never printed. A crash reporting *the check
+    # could not complete* is indistinguishable at a glance from a genuine
+    # NOT-READY, and the exit code is 1 either way.
+    #
+    # ⭐ Not by removing the glyphs: they carry meaning here, and the next one
+    # added would reintroduce this. ``errors="replace"`` so a codec that still
+    # cannot render something loses that character rather than the verdict.
+    #
+    # ⚠️ **stderr too, and it is not symmetry for its own sake.** A traceback
+    # quotes the source line it failed on, and the lines in this file carry these
+    # same glyphs -- so a crash could die again while reporting itself, on the
+    # stream that carries the only remaining evidence.
+    #
+    # ⚠️ ``hasattr`` because a captured stream need not be a text wrapper.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     if not argv:
         print(__doc__)
         return 2
