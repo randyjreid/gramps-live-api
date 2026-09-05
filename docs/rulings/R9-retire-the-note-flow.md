@@ -30,7 +30,7 @@ Option B, deprecate for one release, was rejected on its own terms: a deprecatio
 discover an unknown user, the tool is not shipped, and so it buys information that does not exist to
 be bought.
 
-## ⛔ Three things the retirement build may NOT take with it
+## ⛔ Four things the retirement build may NOT take with it
 
 These sit inside the blast radius and would each be removed by a careful reading of the inventory
 below. Each one is load bearing somewhere else.
@@ -121,6 +121,96 @@ longer configures `export_path` or works out why one tool reads a snapshot.
   weaker of the two is what remains.
 - Typed notes survive only because note types move first. **That is the precondition, and it is the
   reason this ruling has one.**
+
+## ⛔ The removal checklist, MEASURED. And it is a LOWER BOUND
+
+⛔ **This list was produced by deleting and running the gate, not by reading and
+reasoning.** The inventory above had been wrong five times, and the fifth was found by a reviewer
+rather than by the analysis that produced it. So the checklist below was measured: branch from the
+note types head, delete the surface this ruling names, run the full gate, and record every failure.
+That set is the checklist.
+
+⛔ **IT IS A LOWER BOUND, AND THAT IS A PROPERTY OF THE LIST RATHER THAN A CAVEAT ON IT.** Only part
+of the named surface could be removed by deleting; the rest is surgery, and a probe that performed it
+would have been authoring rather than measuring. **A reader who treats what follows as the complete
+set will be wrong**, and will be wrong in the same way the five earlier inventories were, one level
+down and harder to catch because these numbers look measured.
+
+### What was probed
+
+Deleted, as whole files or whole settings, from the note types head: `src/gramps_live_api/core/people.py`,
+`gramps_plugin/gramps_live_api_apply.py`, `gramps_plugin/gramps_live_api_apply.gpr.py`, and
+`export_path` with `ENV_EXPORT` out of `src/gramps_live_api/config.py`.
+
+### ⛔ What was NOT probed, and why
+
+| not probed | why |
+| --- | --- |
+| `AddNote` in `core/schema.py` | a registered dataclass with a registry entry; removing it is surgery, not deletion |
+| the note only parts of `core/proposals.py` | carve out 3 forbids deleting the file, and separating the note parts is a judgement the removal build makes by reading |
+| the MCP tool registrations for `propose_note`, `approve`, `list_people` | decorated functions inside a builder, removed by editing rather than by deleting a file |
+| the CLI `preview`, `apply` and console `approve` subcommands | subparser registrations and handlers, same shape |
+
+⚠️ **Each of those is expected to produce failures this probe could not reach.** When the removal
+build finds them, that is the lower bound behaving as described, not the plan being wrong.
+
+### The measured failure set
+
+**mypy, 7 errors in 2 files.** It fails before pytest runs, so pytest was run separately.
+
+| where | what it names |
+| --- | --- |
+| `cli.py` | `export_path` twice and `ENV_EXPORT` once, in the staleness check |
+| `server.py` | the `core.people` import, `export_path`, `ENV_EXPORT`, and one return type that follows from them |
+
+**pytest, 56 failed and 4 collection errors, against 1782 passed.**
+
+| entry | count | reading |
+| --- | --- | --- |
+| `tests/unit/test_cli_approve.py` | 32 | the console approve, which this ruling names |
+| ⭐ **`tests/unit/test_cli.py`** | **18** | ⛔ **the headline. See below** |
+| `tests/unit/test_config.py` | 4 | the `export_path` settings, named |
+| `tests/integration/test_round_trip.py` | 2 | the port carve out 4 requires |
+| `tests/unit/test_mcp_seam.py` | collection | coupled to the deleted surface |
+| `tests/unit/test_mcp_server.py` | collection | coupled to the deleted surface |
+| `tests/unit/test_people.py` | collection | coupled to `core/people.py` |
+| `tests/unit/test_tool_descriptions_fit.py` | collection | coupled to the deleted surface |
+
+⚠️ **The four collection errors are entries, not gaps in the measurement.** A module that cannot
+import because the surface is gone is coupled to that surface, and the coupling is what a checklist
+records. What their failing to collect masks is the failure **count** inside them, never the fact of
+the coupling.
+
+### ⭐ The headline entry: `check` survives and is coupled to what goes
+
+**`tests/unit/test_cli.py` produced 18 failures and this ruling names none of them.** They are almost
+all `check` tests: `test_check_reports_a_blessed_copy_as_writable`,
+`test_PLUGIN_FILES_is_what_the_plugin_directory_actually_holds`,
+`test_the_candidate_the_HOST_would_bind_is_the_one_checked`, and the source check family.
+
+`check` is the doctor command. **It survives the retirement**, and it breaks because it is coupled to
+the retired surface in two ways this page did not record:
+
+- `PLUGIN_FILES` in `src/gramps_live_api/cli.py` names `gramps_live_api_apply.gpr.py` and
+  `gramps_live_api_apply.py`, so it demands files the retirement deletes;
+- its staleness branch reads `export_path`, which the retirement removes.
+
+⛔ **Neither is in the inventory above.** That is the sixth inventory miss, and the first one found by
+measurement rather than by a review round, which is what the probe was for.
+
+### Build time questions, for the removal build to answer
+
+⚠️ **Not answered here, deliberately.** Once the remaining items are hypotheses about code nobody has
+written, the build is the cheaper and more accurate reviewer, and answering them from this page would
+be producing a seventh unmeasured inventory.
+
+1. What does the unprobed surface break that the probe could not reach? Expect entries beyond this
+   list, from `AddNote`, the note parts of `core/proposals.py`, the tool registrations and the CLI
+   subcommands.
+2. What is left of `core/apply.py` once `AddNote` and its writer are gone? This page never named that
+   module, and carve out 1 keeps `NOTE_TYPE_ATTRIBUTES` inside it.
+3. What does `check` report once `PLUGIN_FILES` no longer names the apply plugin, and is a doctor that
+   reports on one route still the right shape?
 
 ## ⚠️ `AddCitation` is schema only, and this ruling does not decide it
 
