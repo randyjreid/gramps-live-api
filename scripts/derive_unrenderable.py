@@ -215,11 +215,11 @@ _HEADER = '''"""The characters ``preview`` refuses, derived from the published U
 ``scripts/derive_unrenderable.py`` over artifacts matching the digests below,
 and see the derivation note in ``docs`` for where each one comes from.
 
-⚠️ **This module IS the class**, and ``schema.py`` imports it. That is a stated
-deviation from the precedent this table follows, whose generated module nothing
-imports: there the table was a checklist beside a hand-written weighting, and
-duplicating it by hand was tractable. Here a hand-maintained copy would be the
-thing the derivation exists to remove.
+⚠️ **This module IS the class**, and ``core/render_guard.py`` imports it. That is
+a stated deviation from the precedent this table follows, whose generated module
+nothing imports: there the table was a checklist beside a hand-written weighting,
+and duplicating it by hand was tractable. Here a hand-maintained copy would be
+the thing the derivation exists to remove.
 
 ⚠️ **No fetch date is recorded here.** Verification is re-fetch, compare digest,
 re-run, and diff against this file; a timestamp would make every such run differ
