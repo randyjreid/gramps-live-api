@@ -33,9 +33,15 @@ the derivation is re-run.** They read 143,787 across four categories until 2026-
 sentence exactly as U+000A can, and the class had never excluded structural characters, only
 these two separators. The delta was exactly two code points and two rows.
 
-⛔ **Nothing checks these numbers against the table.** No test asserts that the generator
-reproduces the committed file, which is filed as #238, so a figure here that has gone stale
-will not fail a gate. It went stale once already, in the same change that moved the class.
+⛔ **Nothing checks these numbers against the table.** A figure on this page that has gone stale
+will not fail a gate, and one went stale once already, in the same change that moved the class.
+That is still open.
+
+**The derivation itself is now checked**, which is a different claim about a different pair of
+things: `tests/unit/test_derived_tables_reproduce.py` asserts on every run that the generator
+reproduces the committed file, and that the table's labels are exactly the classes the script
+declares. ⚠️ **Neither of those reads this page**, so a count in the paragraph above remains prose
+nobody compares against the table.
 
 ## The two sources
 
@@ -142,6 +148,16 @@ committed table against a *second* source instead — the running interpreter's 
 `test_every_character_this_interpreter_calls_other_but_assigned_is_guarded`, which is the whole of
 the old class and therefore the assertion that nothing was lost. Two sources that must agree is a
 test; a table checked only against itself is not.
+
+⚠️ **The reproduction step above also runs offline, on every suite run**, in
+`tests/unit/test_derived_tables_reproduce.py`. It drives `emit` with the arguments the committed
+module already records and compares the result against the committed file, read with universal
+newlines because `core.autocrlf` makes a byte comparison false on a Windows checkout for reasons
+that have nothing to do with drift. ⛔ **It is vacuous for the ROWS**, which are its own input, so
+what it binds is the generator's header, the docstrings it emits and its formatting rules. The
+second assertion in that file is the one that is not vacuous: the committed labels must be exactly
+the classes `derive_unrenderable.py` declares, which is what catches a class that moved with the
+table left unregenerated. **The re-fetch and the digest comparison stay human.**
 
 ## The one deviation from the precedent it follows
 

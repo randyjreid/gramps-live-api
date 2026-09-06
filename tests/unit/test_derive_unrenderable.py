@@ -12,8 +12,10 @@ pairs.
 
 ⚠️ **No network, and no fetched artifact.** These lines are assembled here, so
 the property is asserted on every run rather than on the days somebody has the
-two files to hand. The committed table is checked separately, by hand, against
-the digests recorded in the derivation note.
+two files to hand. The committed table is checked separately: the byte
+reproduction and the label binding run on every suite run in
+``test_derived_tables_reproduce.py``, and what stays a hand step is the re-fetch
+and the comparison against the digests recorded in the derivation note.
 
 The script is not an importable module -- it is a hand-run build step in
 ``scripts/`` -- so it is loaded by path, exactly as C1's derivation test loads

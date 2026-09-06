@@ -8,8 +8,10 @@ row: the fabricated row is visible in that diff and **the omitted one is not.**
 
 ⚠️ **No network, and no fetched artifact.** These declarations are assembled
 here, so the property is asserted on every run rather than on the days somebody
-has the three files to hand. The committed table is checked separately, by hand,
-against digests recorded in the derivation note.
+has the three files to hand. The committed table is checked separately: the byte
+reproduction runs on every suite run in ``test_derived_tables_reproduce.py``, and
+what stays a hand step is the re-fetch and the comparison against the digests
+recorded in the derivation note.
 
 The script is not an importable module -- it is a hand-run build step in
 ``scripts/`` -- so it is loaded by path. That is deliberate: making it importable

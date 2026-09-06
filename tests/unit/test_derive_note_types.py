@@ -17,7 +17,9 @@ committed table, which is the counter bug this repository has already paid for.
 ⚠️ **No Gramps, and no installation.** These class bodies are assembled here, so
 the properties are asserted on every run rather than on a machine that happens to
 have Gramps on it. The committed table's agreement with a real installation is
-the separate, skipping test in ``tests/integration``.
+the separate, skipping test in ``tests/integration``, and that it is still what
+this script would emit is the offline round trip in
+``test_derived_tables_reproduce.py``, which skips nowhere.
 
 The script is not an importable module -- it is a hand-run build step in
 ``scripts/`` -- so it is loaded by path, exactly as the two existing derivation
