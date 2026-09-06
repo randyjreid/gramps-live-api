@@ -937,6 +937,58 @@ def test_confirmation_is_by_ID_where_the_rows_carry_one() -> None:
     assert pr_ready._still_granted([_comment(CLEAN_AT)], [_comment(LATER)]) == []
 
 
+def test_the_clean_verdict_filter_asks_ALL_THREE_questions_of_a_comment() -> None:
+    """⛔ Bot-authored, a clean phrase, and naming this head. All three, or none.
+
+    ⭐ Extracted so the SAME predicate runs over both reads. It was inline over
+    the first read only, and the second read was confirmed by identity alone.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+
+    assert pr_ready._clean_verdicts([clean], HEAD_SHA) == [clean]
+    assert pr_ready._clean_verdicts([{**clean, "user": {"login": "randyjreid"}}], HEAD_SHA) == []
+    assert pr_ready._clean_verdicts([{**clean, "body": "1 finding"}], HEAD_SHA) == []
+    assert pr_ready._clean_verdicts([clean], OTHER_HEAD) == []
+
+
+def test_a_clean_comment_EDITED_into_a_findings_report_stops_granting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **Round 2's finding, quoted by subject:** the confirmation matched on
+    ``id``, and **identity survives an edit that destroys content**.
+
+    ⚠️ Named input: the bot posts a comment at 09:07 carrying id 4815162342 and a
+    clean verdict naming this head; the sweep reads it; before the verdict the
+    bot edits that same comment into a findings report -- or edits the quoted
+    commit to a different one; the final read returns id 4815162342 with the new
+    body; every other gate is clean. ``clean_comments`` was filtered by the clean
+    phrase and the head, ``by_bot(final_conversation)`` was **not filtered at
+    all**, so ``_same_row`` matched on id and the FIRST read's row stood.
+    **READY over a body that no longer carries a clean verdict.**
+
+    ⭐ Three sweeps, one row edited between them and nothing else. The first is
+    the control: the same comment surviving unedited is still READY, so each
+    refusal is that edit's doing.
+    """
+    clean = {**_bot_comment(CLEAN_AT, CLEAN_BODY), "id": 4815162342}
+    into_findings = {
+        **clean,
+        "body": f"Codex Review: 1 finding. **Reviewed commit:** `{HEAD_SHA[:10]}`",
+    }
+    onto_another_commit = {
+        **clean,
+        "body": (
+            f"Codex Review: Didn't find any major issues. **Reviewed commit:** `{OTHER_HEAD[:10]}`"
+        ),
+    }
+
+    assert _sweep(monkeypatch, conversation=[clean], final_conversation=[clean]) is True
+    assert _sweep(monkeypatch, conversation=[clean], final_conversation=[into_findings]) is False
+    assert (
+        _sweep(monkeypatch, conversation=[clean], final_conversation=[onto_another_commit]) is False
+    )
+
+
 def test_a_clean_comment_DELETED_before_the_verdict_stops_granting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -151,6 +151,34 @@ def _names_the_head(body: str, head: str) -> bool:
     return any(lowered.count(head[:length].lower()) for length in range(7, len(head) + 1))
 
 
+def _clean_verdicts(comments: list[dict[str, Any]], head: str) -> list[dict[str, Any]]:
+    """The comments that ARE a clean verdict on this head. ⛔ **All three, or none.**
+
+    ⛔ Bot-authored, matching a clean phrase, and naming the head. This is the
+    only granting evidence the file has left, so it is a named predicate rather
+    than a comprehension, and it runs over **both** reads.
+
+    ⚠️ It was inline over the first read only, and the second read confirmed it
+    by identity: ``_still_granted`` compares ``id``, and **identity survives an
+    edit that destroys content**. Named input: the bot posts a clean comment
+    naming this head, the sweep reads it, the bot edits that same comment into a
+    findings report -- or edits the quoted commit to a different one -- and the
+    final read returns the same id with the new body. The first read's row stood
+    and READY printed over a body no longer carrying a clean verdict.
+
+    ⭐ **Confirmation is on CONTENT; identity only pairs the rows.** Filtering
+    both sides is what makes ``_still_granted``'s identity test safe, and it is
+    cheaper than teaching that helper what a clean verdict is.
+    """
+    return [
+        c
+        for c in comments
+        if _is_bot((c.get("user") or {}).get("login"))
+        and any(phrase in (c.get("body") or "").lower() for phrase in CLEAN_PHRASES)
+        and _names_the_head(c.get("body") or "", head)
+    ]
+
+
 def _when(text: str) -> datetime:
     return datetime.fromisoformat(text.replace("Z", "+00:00"))
 
@@ -288,6 +316,11 @@ def _still_granted(
     alone would let a clean comment that arrived mid-sweep grant a verdict on
     evidence gathered before it: the checks, the threads and the head were all
     read before it existed. The intersection refuses both ways.
+
+    ⛔ **Identity PAIRS the rows; it does not judge them.** ``_same_row``
+    compares ``id``, which survives an edit that destroys content -- so the
+    caller filters BOTH arguments through ``_clean_verdicts`` first. This helper
+    sees only what it is given, and that is deliberate: it holds one rule.
     """
     return [row for row in first if any(_same_row(row, other) for other in second)]
 
@@ -703,12 +736,7 @@ def _report(pull: int) -> bool:
     fresh_conversation = [
         c for c in by_bot(conversation) if head_when and c.get("created_at", "") > head_when
     ]
-    clean_comments = [
-        c
-        for c in by_bot(conversation)
-        if any(phrase in (c.get("body") or "").lower() for phrase in CLEAN_PHRASES)
-        and _names_the_head(c.get("body") or "", head)
-    ]
+    clean_comments = _clean_verdicts(conversation, head)
 
     # ⛔ **A clean verdict must postdate THE ROUND IT CLAIMS TO BE ABOUT.**
     #
@@ -961,12 +989,21 @@ def _report(pull: int) -> bool:
     # read alone would let a clean comment ARRIVING mid-sweep grant a verdict on
     # evidence gathered before it: the checks, the threads and the head were all
     # read before it existed.
-    standing_clean = _still_granted(clean_comments, by_bot(final_conversation))
+    #
+    # ⛔ **``_clean_verdicts`` over the FINAL read too, not ``by_bot`` alone.**
+    #
+    # ⚠️ ``_same_row`` compares ``id``, and identity survives an edit that
+    # destroys content. With the second read unfiltered, a comment edited from a
+    # clean verdict into a findings report -- same id, new body -- still matched,
+    # and the FIRST read's row granted. **Confirmation is on content; identity
+    # only pairs the rows.**
+    standing_clean = _still_granted(clean_comments, _clean_verdicts(final_conversation, head))
     withdrawn_clean = [c for c in clean_comments if c not in standing_clean]
     if withdrawn_clean:
         print(
             f"       WITHDRAWN clean     : {len(withdrawn_clean)}"
-            f"  ({withdrawn_clean[-1].get('created_at')} -- gone from the final read)"
+            f"  ({withdrawn_clean[-1].get('created_at')}"
+            " -- deleted, or edited out of a clean verdict, before the final read)"
         )
 
     accepted_clean = _still_current(standing_clean, began) if began else []
@@ -1007,9 +1044,10 @@ def _report(pull: int) -> bool:
                 )
         elif not standing_clean:
             failures.append(
-                "the CLEAN verdict naming this head is no longer on the pull request -- "
-                "it was there when this sweep began and the final read does not show it, "
-                "so no clean signal stands. Re-trigger the bot on this head."
+                "the CLEAN verdict naming this head no longer stands -- it was there when "
+                "this sweep began, and the final read shows it deleted or edited into "
+                "something that is no longer a clean verdict on this head. "
+                "Re-trigger the bot on this head."
             )
         elif not began:
             failures.append(
