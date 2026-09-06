@@ -155,8 +155,37 @@ def _when(text: str) -> datetime:
     return datetime.fromisoformat(text.replace("Z", "+00:00"))
 
 
-def _latest_request(comments: list[dict[str, Any]]) -> str:
-    """When a new review round was most recently ASKED FOR, or ``""``.
+def _said(answer: str | None, nothing: str) -> str:
+    """Render a three-answer value for the report. ⛔ **Three renderings, not two.**
+
+    ⚠️ ``value or "(none)"`` prints the same words for *the read says nobody
+    asked* and *the read did not say*, which is the collapse this file spent a
+    false READY on. A reader deciding whether to re-trigger needs to know which
+    one they are looking at.
+    """
+    if answer is None:
+        return "(UNREADABLE -- a request carries no timestamp)"
+    return answer or nothing
+
+
+def _latest_request(comments: list[dict[str, Any]]) -> str | None:
+    """When a new round was most recently ASKED FOR. ⛔ **Three answers, not two.**
+
+    ⛔ A timestamp; ``""`` when **no round was ever asked for**; ``None`` when a
+    request exists that this read **cannot place in time**.
+
+    ⚠️ **The first two used to be the same value, and that was a false READY.**
+    This built ``str(c.get("created_at") or "")`` and returned
+    ``max(stamps, default="")``, so a trigger comment whose timestamp is absent
+    or null contributed ``""`` -- and if it was the only one, the function
+    answered *nobody asked*. T fell back to the open time, the PREVIOUS round's
+    clean comment postdated it, and the verdict for a round that had published
+    nothing was printed as this round's. **An empty read presented as an
+    absence**, which is this project's most-recorded defect class.
+
+    ⭐ The three-answer shape is ``_ready_for_review``'s, already in this file:
+    readable / empty / did not say. ``""`` is a real answer and stays cheap;
+    ``None`` is an unanswered question and refuses.
 
     ⛔ **The BOT'S own comments are excluded, and skipping that made this rule
     defeat itself.**
@@ -184,7 +213,27 @@ def _latest_request(comments: list[dict[str, Any]]) -> str:
         if TRIGGER in (c.get("body") or "").lower()
         and not _is_bot((c.get("user") or {}).get("login"))
     ]
+    # ⛔ Any unreadable one, not only the newest: the newest is what T needs, and
+    # a request that cannot be ordered cannot be shown not to be the newest.
+    if any(not stamp for stamp in stamps):
+        return None
     return max(stamps, default="")
+
+
+def _both_triggers(first: str | None, second: str | None) -> str | None:
+    """The request across TWO reads. ⛔ **T never goes BACKWARDS between them.**
+
+    ⚠️ A request present while gathering and gone from the final read leaves
+    ``_request_arrived_mid_sweep`` silent -- that rule fires on a request moving
+    FORWARD -- so the final read alone would drop T back to the open time and
+    make the previous round's clean comment read as this round's verdict.
+
+    ⭐ Max for the movable term, ``None`` propagating for the unreadable one:
+    exactly ``_both_timelines``, on the other thing that starts a round.
+    """
+    if first is None or second is None:
+        return None
+    return max(first, second)
 
 
 def _still_current(comments: list[dict[str, Any]], began: str) -> list[dict[str, Any]]:
@@ -310,7 +359,9 @@ def _round_began(created_at: str, latest_trigger: str, ready_events: list[str]) 
     return max([created_at, latest_trigger, *ready_events])
 
 
-def _round_start(created_at: str, latest_trigger: str, ready_events: list[str] | None) -> str:
+def _round_start(
+    created_at: str, latest_trigger: str | None, ready_events: list[str] | None
+) -> str:
     """T, or ``""`` when it cannot be computed.
 
     ⛔ **``""`` is a refusal and never a floor.** Callers must not compare
@@ -321,13 +372,19 @@ def _round_start(created_at: str, latest_trigger: str, ready_events: list[str] |
     ⭐ The clean comment is judged against the instant this returns, and against
     nothing else. A second answer to *when did this round begin* is this
     project's most-recorded defect class, so there is exactly one.
+
+    ⚠️ **Two of the three terms have an unreadable answer and BOTH refuse here.**
+    ``ready_events is None`` is an unreadable timeline; ``latest_trigger is
+    None`` is a request this read cannot place. Either left to collapse into a
+    falsy value loses the ``max`` to ``created_at``, and T reads as the open
+    time -- which is the fallback that accepted the previous round's verdict.
     """
-    if not created_at or ready_events is None:
+    if not created_at or ready_events is None or latest_trigger is None:
         return ""
     return _round_began(created_at, latest_trigger, ready_events)
 
 
-def _request_arrived_mid_sweep(before: str, after: str) -> str:
+def _request_arrived_mid_sweep(before: str | None, after: str | None) -> str:
     """A reason, or ``""``. ⛔ **The trigger is evidence, and evidence goes stale.**
 
     ⚠️ The latest request is read while gathering, and the verdict is pronounced
@@ -346,6 +403,17 @@ def _request_arrived_mid_sweep(before: str, after: str) -> str:
     accepted explicitly. What changes is its size: from the whole sweep down to
     one call, which is the same bound every other field here gets.
     """
+    # ⛔ **``None`` blocks in its own words**, and it is the SECOND condition an
+    # unreadable request meets: ``_round_start`` already refuses T for it. Two
+    # independent branches rather than one, because a single one standing between
+    # an unanswered read and a READY is what this file exists to avoid -- and
+    # because *T could not be computed* does not tell the reader which read was
+    # unreadable, where this does.
+    if before is None or after is None:
+        return (
+            "a review round was requested in a comment whose timestamp this read did not "
+            "carry, so nothing can show which round the clean verdict above belongs to"
+        )
     if after and after != before:
         return (
             f"a review round was requested while this sweep ran ({after}) -- the "
@@ -692,7 +760,9 @@ def _report(pull: int) -> bool:
         + "  (evidence, never a verdict)"
     )
 
-    print(f"       last round requested: {latest_trigger or '(never -- automatic review only)'}")
+    print(
+        f"       last round requested: {_said(latest_trigger, '(never -- automatic review only)')}"
+    )
 
     # ⛔ **The verdict on the clean signal is pronounced at step 8, not here.**
     # The reads above are several calls old by the time this returns, so what is
@@ -857,7 +927,7 @@ def _report(pull: int) -> bool:
 
     # ⛔ The request is evidence too, and it was read several calls ago.
     trigger_now = _latest_request(final_conversation)
-    print(f"       last request now   : {trigger_now or '(none)'}")
+    print(f"       last request now   : {_said(trigger_now, '(none)')}")
     moved = _request_arrived_mid_sweep(latest_trigger, trigger_now)
     if moved:
         failures.append(moved)
@@ -868,7 +938,7 @@ def _report(pull: int) -> bool:
     # fires on a request moving FORWARD -- and a ready-for-review event missing
     # from the final timeline drops T to the open time. Either regression makes
     # the PREVIOUS round's clean comment read as this round's verdict.
-    began_trigger = max(latest_trigger, trigger_now)
+    began_trigger = _both_triggers(latest_trigger, trigger_now)
     seen_ready = _both_timelines(_ready_for_review(provisional), _ready_for_review(final))
 
     # ⛔ **T, once**, and the clean comment is judged against it rather than

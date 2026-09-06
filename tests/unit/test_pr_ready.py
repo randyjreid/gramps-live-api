@@ -119,6 +119,40 @@ def test_no_request_at_all_leaves_the_other_evidence_standing() -> None:
     assert pr_ready._still_current(clean, "") == clean
 
 
+def test_an_UNREADABLE_trigger_timestamp_is_a_THIRD_answer__not_never_asked() -> None:
+    """⛔ **Round 2's finding, quoted:** ``_latest_request`` built
+    ``str(c.get("created_at") or "")`` and returned ``max(stamps, default="")``,
+    so a trigger comment whose timestamp is absent or null contributed ``""`` --
+    **the same value the function returns when no round was ever asked for.**
+
+    ⚠️ T then fell back to the open time and the previous round's clean comment
+    was accepted through it. A false READY, on the one endpoint whose emptiness
+    this project has recorded as a defect eleven times.
+
+    ⭐ Three answers, exactly as ``_ready_for_review`` already has them: a
+    timestamp, ``""`` for *nobody asked*, and ``None`` for *the read did not
+    say*. ``""`` is a real answer; ``None`` is an unanswered question.
+    """
+    asked = {"created_at": "2026-04-02T10:00:00Z", "body": pr_ready.TRIGGER}
+
+    assert pr_ready._latest_request([]) == ""
+    assert pr_ready._latest_request([asked]) == "2026-04-02T10:00:00Z"
+    assert pr_ready._latest_request([{"body": pr_ready.TRIGGER}]) is None
+    assert pr_ready._latest_request([{"created_at": None, "body": pr_ready.TRIGGER}]) is None
+    assert pr_ready._latest_request([asked, {"body": pr_ready.TRIGGER}]) is None
+
+
+def test_an_unreadable_trigger_from_the_BOT_is_still_not_a_request() -> None:
+    """⚠️ The third answer may not undo the fix it is bolted onto. Every clean
+    verdict the bot posts documents the trigger phrase in its footer, so a bot
+    comment with no readable timestamp must still be no request at all -- not an
+    unanswered one that stalls every pull request the bot has ever passed.
+    """
+    footer = {"body": f'Comment "{pr_ready.TRIGGER}".', "user": {"login": pr_ready.BOT}}
+
+    assert pr_ready._latest_request([footer]) == ""
+
+
 def test_a_verdict_PREDATING_the_latest_request_is_superseded() -> None:
     """⛔ The twelfth defect, and it fired on the path this project uses constantly.
 
@@ -479,6 +513,45 @@ def test_T_is_EMPTY_rather_than_early_when_it_cannot_be_computed() -> None:
     assert pr_ready._round_start(OPENED, "", None) == ""
 
 
+def test_an_UNREADABLE_trigger_makes_T_UNREADABLE_too() -> None:
+    """⛔ The third answer reaches T, or it changes nothing.
+
+    ⚠️ ``None`` is *a round was asked for and this read cannot place it*. Left to
+    collapse into ``""`` it loses to ``created_at`` in the ``max``, and T reads
+    as the open time -- which is exactly the fallback that accepted the previous
+    round's verdict. The refusal has to be at T, because T is what the clean
+    comment is compared against.
+    """
+    assert pr_ready._round_start(OPENED, None, []) == ""
+    assert pr_ready._round_start(OPENED, None, [MARKED_READY]) == ""
+
+
+def test_the_TWO_trigger_reads_never_let_T_go_backwards() -> None:
+    """⛔ The same rule ``_both_timelines`` holds, for the other movable term.
+
+    ⚠️ A request present while gathering and gone from the final read leaves
+    ``_request_arrived_mid_sweep`` silent -- that rule fires on a request moving
+    FORWARD -- so without this the final read alone would drop T back.
+
+    ⭐ And ``None`` in either read propagates, for the same reason it does there:
+    half an answer about when the round began is not an answer.
+    """
+    assert pr_ready._both_triggers(REQUESTED, "") == REQUESTED
+    assert pr_ready._both_triggers("", REQUESTED) == REQUESTED
+    assert pr_ready._both_triggers("", "") == ""
+    assert pr_ready._both_triggers(None, REQUESTED) is None
+    assert pr_ready._both_triggers(REQUESTED, None) is None
+
+
+def test_an_unreadable_request_BLOCKS_as_well_as_refusing_T() -> None:
+    """⭐ Two independent conditions, because one branch standing between an
+    unreadable read and a READY is what this file exists to avoid. T refuses,
+    and the mid-sweep rule names the input in the report's own words.
+    """
+    assert "did not carry" in pr_ready._request_arrived_mid_sweep(None, REQUESTED)
+    assert "did not carry" in pr_ready._request_arrived_mid_sweep(REQUESTED, None)
+
+
 # ------------------------------------------- T, when the current round began
 
 # ⛔ Every value here is INVENTED. No SHA is completed from a real one, no
@@ -714,6 +787,50 @@ def test_a_TRIGGER_that_disappears_from_the_final_read_still_moves_T(
 
     assert _sweep(monkeypatch, conversation=[clean, asked], final_conversation=[clean]) is False
     assert _sweep(monkeypatch, conversation=[clean], final_conversation=[clean]) is True
+
+
+def test_a_TRIGGER_the_read_could_not_TIMESTAMP_refuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **Round 2's finding, end to end, on its own named input.**
+
+    ⚠️ A pull request opened at 09:00; the bot posts a clean comment naming this
+    head at 09:07; a human asks for a new round at 10:00 in a comment the read
+    returns with **no ``created_at``**; no push; the sweep runs before the new
+    round publishes anything. ``_latest_request`` returned ``""`` -- the value
+    that means *nobody ever asked* -- T fell back to 09:00, the 09:07 comment
+    postdated it, and **READY printed on the previous round's verdict.**
+
+    ⭐ Three sweeps, and the middle one is the control. Byte-identical apart from
+    that one comment: absent, the verdict is READY; readable, it supersedes and
+    refuses; unreadable, it refuses too -- which is the whole claim, that an
+    unanswered question is not an answer of *no*.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+    unstamped = {"body": pr_ready.TRIGGER, "user": {"login": "randyjreid"}}
+    stamped = {**unstamped, "created_at": "2026-04-02T10:00:00Z"}
+
+    assert _sweep(monkeypatch, conversation=[clean]) is True
+    assert _sweep(monkeypatch, conversation=[clean, stamped]) is False
+    assert _sweep(monkeypatch, conversation=[clean, unstamped]) is False
+
+
+def test_a_TRIGGER_that_loses_its_timestamp_MID_SWEEP_refuses_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⚠️ The unreadable answer has to survive the second read, or the rule is
+    only about the first one. Here the request is readable while gathering and
+    comes back unstamped at the verdict; T is unreadable either way.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+    unstamped = {"body": pr_ready.TRIGGER, "user": {"login": "randyjreid"}}
+    stamped = {**unstamped, "created_at": "2026-04-02T09:01:00Z"}
+
+    assert _sweep(monkeypatch, conversation=[clean, stamped]) is True
+    assert (
+        _sweep(monkeypatch, conversation=[clean, stamped], final_conversation=[clean, unstamped])
+        is False
+    )
 
 
 # ------------------------------------------------- #183, closed by measurement
