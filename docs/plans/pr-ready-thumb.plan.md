@@ -1,3 +1,27 @@
+> ## ⛔ SUPERSEDED 2026-09-05 by `docs/plans/delete-granting-path.plan.md`
+>
+> **This document describes a plan that was built and then withdrawn. Nothing
+> below is edited, and nothing below describes the code as it stands.**
+>
+> Shape B -- a bare bot 👍 accepted as a clean verdict -- shipped in nine commits
+> and was deleted. It drew **thirteen blocking findings across three review
+> rounds, eleven of them a false READY**, and round 2 found a defect inside round
+> 1's own repair. The owner's ruling: the problem that started this was a false
+> NOT READY, which is friction; the fix manufactured false READY, which is
+> danger. *No state produces a spurious grant* is a universally quantified
+> negative over an unbounded input space and has no fixed point. *Never grant on
+> a bare thumb* closes.
+>
+> **What survives from this plan is refusal-side only**, and it survives on its
+> own merits: T built from three round-start instants rather than one (#183), the
+> encoding fix (#219), `--paginate` on the reactions read, and the clean comment
+> confirmed against the final read. Everything this document says about shape B,
+> the branch-activity log, and the two-shape report is history.
+>
+> Kept unedited on purpose. The record of what was tried and why it was withdrawn
+> is worth more than a document corrected sentence by sentence into agreement
+> with the code.
+
 # Plan: #233, accept a fresh bare 👍 as CLEAN in `pr_ready.py` (and #219's encoding crash)
 
 ## Context
