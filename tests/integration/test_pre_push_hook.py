@@ -24,6 +24,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.fixtures.shell import posix_shell
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 HOOK = REPOSITORY_ROOT / "scripts" / "hooks" / "pre-push"
 ZERO = "0" * 40
@@ -35,18 +37,38 @@ ZERO = "0" * 40
 PLANTED = "C:" + chr(92) + "Users" + chr(92) + "someone" + chr(92) + "thing.txt"
 
 
-def _sh() -> str:
-    """The shell git uses for hooks. Windows gets it from Git for Windows."""
-    for candidate in ("sh", "bash"):
-        found = shutil.which(candidate)
-        if found:
-            return found
-    pytest.skip(
-        "there is nothing to cover: git runs hooks through a POSIX shell, so a "
-        "machine without one cannot run this hook at all and the behaviour under "
-        "test does not exist there. Windows gets sh from Git for Windows, which is "
-        "required to use git at all, and every CI runner is Linux."
-    )
+def _hook_shell() -> str:
+    """⛔ The shell git runs hooks through, PINNED rather than looked up on PATH.
+
+    ⚠️ **This used to ask PATH for ``sh`` and then for ``bash``, so the answer was
+    supplied by whoever launched pytest.** From a shell where ``sh`` does not
+    resolve, that fell through to the Windows Subsystem launcher -- a different
+    operating system, where the ``;``-separated Windows PATH this file constructs
+    does not apply at all. The hook then found the Subsystem's own ``python3``,
+    ran the guard for real, and allowed the clean push it was handed, so the test
+    written to prove that an unrunnable gate is refused went red on a hook that
+    was behaving correctly. Issue #225.
+
+    ⭐ ``posix_shell`` derives it from ``git --exec-path`` on Windows and probes
+    it, so the launcher is unreachable by construction rather than by an
+    exclusion list. ``flavour="sh"`` and not bash: git runs hooks through ``sh``,
+    the hook declares ``#!/bin/sh``, and on Linux that is dash -- the portability
+    ``test_the_committed_hook_has_no_CARRIAGE_RETURNS`` exists to protect.
+    """
+    try:
+        return str(posix_shell(flavour="sh"))
+    except RuntimeError as absent:
+        # ⛔ Converted to a skip HERE, and only on Windows. The fixture keeps
+        # raising, because on Linux a missing sh means a broken container and a
+        # suite that skips there fails open (#31).
+        if os.name != "nt":
+            raise
+        pytest.skip(
+            "there is nothing to cover: git runs hooks through a POSIX shell, so a "
+            "machine without one cannot run this hook at all and the behaviour under "
+            f"test does not exist there. Windows gets sh from Git for Windows, which "
+            f"is required to use git at all, and every CI runner is Linux. {absent}"
+        )
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -204,7 +226,7 @@ def _push(
     the guard at all, which looks exactly like the guard finding something. Pass
     ``None`` to exercise that path deliberately.
     """
-    shell = _sh()
+    shell = _hook_shell()
     environment = dict(os.environ)
     if interpreter is _THIS_RUNS_PYTHON:
         environment["GRAMPS_LIVE_API_PYTHON"] = sys.executable
@@ -374,6 +396,42 @@ def test_the_hook_is_not_claimed_to_be_unbypassable(tmp_path: Path) -> None:
     assert "not self-installing" in text or "never installs a hook" in text, (
         "the hook does not say that git will not install it from a clone"
     )
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="PATH cannot hand back a shell from another operating system here, so the "
+    "failure this asserts against is not reachable off Windows",
+)
+def test_the_shell_this_file_runs_the_hook_with_COMES_FROM_GIT() -> None:
+    """⛔ The launcher in the system directory must be unreachable, not merely unpreferred.
+
+    ⚠️ An exclusion list naming it would be an enumeration, and the next shell
+    from another operating system would not be on it. Deriving the shell from
+    ``git --exec-path`` and requiring the answer to live under that distribution
+    root refuses the whole class: nothing outside Git for Windows can be
+    returned, whatever PATH says today.
+
+    ⭐ Both flavours, because ``pushes.py`` takes the default one and inherits
+    exactly the same hazard.
+    """
+    exec_path = subprocess.run(
+        ["git", "--exec-path"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    root = Path(exec_path).parents[2]
+
+    for flavour in ("bash", "sh"):
+        resolved = posix_shell(flavour=flavour)  # type: ignore[arg-type]
+
+        assert root in resolved.parents, (
+            f"the {flavour} this suite drives is {resolved}, which is not under the "
+            f"Git distribution at {root} -- a shell from anywhere else has its own "
+            "filesystem and its own PATH, and its failures are indistinguishable "
+            "from the thing under test failing"
+        )
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="the mode bit is not meaningful on Windows")
