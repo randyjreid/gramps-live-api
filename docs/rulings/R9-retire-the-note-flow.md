@@ -144,14 +144,44 @@ hint about where to look, never an instruction about what to cut.
 | the CLI operation surface | `src/gramps_live_api/cli.py`: the `preview` and `apply` subcommands and their handlers. ⛔ **`AddNote` is the only writable operation, so `apply` has nothing left to write** |
 | the documentation | ⛔ **measured, not listed. See the section below** |
 
-⚠️ **`core/schema.py` is the note flow's operation model, and an earlier revision of this line said
-it "also validates the document graph". That was false.** Graph validation is `host/document.py`,
-which imports nothing from `core/schema.py`; the document route calls `document.parse`, never
-`schema.validate`. Every surviving reference to `schema` is either the note flow (`validate`,
-`AddNote`, `ObjectRef`, `NOTE_TYPES` in the `propose_note` description, and `cli.py`'s retiring
-subcommands) or `schema.OBJECT_TYPES` in `server.py`, which sits inside `PROPOSE_NOTE_DESCRIPTION` and retires with it. **After the retirement nothing surviving imports `core/schema.py`.** ⛔ **Do not
-retain the operation model on the premise that the document route validates through it.** What the
-document route needs from `core/` is the note type table, carve out 1.
+⚠️ **`core/schema.py` is the note flow's operation model, and nothing surviving imports it.**
+Graph validation is `host/document.py`, which imports nothing from `core/schema.py`; the document
+route calls `document.parse`, never `schema.validate`. ⛔ **Do not retain the operation model
+on the premise that the document route validates through it.** What the document route needs from
+`core/` is the note type table, carve out 1.
+
+⛔ **CORRECTED 2026-09-05: none of that is why the module survives, and it does survive.** The
+paragraph above reasons only about imports, and on imports it is right. It is the wrong question.
+`core/schema.py` also holds this project's **render guard**: the refusal, in the sentence a person
+reads and approves before anything is written to a tree, of a bounded and frozen class of
+characters, the explicit formatting and default-ignorable code points that can hide text or
+override its direction. `_class_of`, `_refuse_unrenderable` and `UnrenderableFieldError`, over
+the derived table in `core/_unrenderable.py`.
+
+⚠️ **It is not a refusal of everything that can reorder text, and it must not become one.**
+The guard's own comment records the exclusion and the reason: a strong right-to-left letter, an
+ordinary name of category Lo, reorders the neutral characters around it under UAX #9 with no
+formatting character present at all, and refusing that class would mean refusing legitimate
+names in a genealogy tool. That mitigation belongs to whatever displays the sentence and can
+isolate each field, not to a function returning a string. ⛔ **A reader taking the
+extraction in #228 as complete protection against reordered approval text would be wrong**, and
+the residual travels with the guard rather than being discharged by moving it. **It is the only implementation of that property in the project,
+and the document route does not run it.** Deleting the module as unimported would have removed a
+write surface guard the surviving route needs and does not have. The owner ruled on 2026-09-05
+that **the module survives the retirement**, which is not the same as surviving unchanged.
+
+⛔ **What the retirement removed from it, and what is left.** The operation types went, as
+this ruling's inventory and the `AddCitation` ruling below both require: `AddNote` and
+`AddCitation` with their `_register` decorators and registry entries, and the `NOTE_TYPES` alias.
+`_REGISTRY` is now empty and the module's own docstring says so. **What survives is the render
+machinery**, the guard named above with its lookup and the frozen table behind it, plus the
+validation and preview scaffolding that machinery sits in. ⚠️ **So do not read this
+ruling as recording that `core/schema.py` was preserved whole.** It was preserved as a module
+because of what one part of it holds; the operation model it was built around is gone, and a
+reader reconstructing the retirement's scope from this page needs that distinction.
+
+The gap, and the extraction that closes it, are #228: sequenced before packaging. See the
+corrections section at the end of this page.
 
 ## What this buys, and what it costs
 
@@ -313,8 +343,14 @@ wrong, and the distinction decides what happens next.
 | `pyproject.toml` | the comment over the empty dependency list counts *"the CLI console"* among the standard library core | "CLI console" names no identifier |
 | `.github/workflows/ci.yml` | the header comment lists *"schema, write path, CLI console, pii_guard"* as what the core leg measures | same phrase |
 
-**These are current guidance, not records, and the retirement build updates them.** That makes
-**ten** files: six under `docs/` counting the moved plan, the README, and these three outside it.
+**These are current guidance, not records, and the retirement build updates them.**
+
+⚠️ **CORRECTED 2026-09-05, and the two counts here are different things.** The **guidance**
+count is **nine**: five under `docs/` counting the moved plan, the README, and these three outside
+it. It was ten until `docs/slice2-mcp.md` moved to the records table above. The count of **files
+the retirement build changed** stayed at ten, because that page still took a forward pointer, which
+is the records treatment and not an edit to its body. ⛔ **Neither number is evidence for
+the other, and a later change touching one of these files moves only the count it belongs to.**
 
 ⛔ **This row is CLOSED, by a rule set before the round rather than after it.** Three consecutive
 rounds each added one page, so the whole set was measured, and the rule for the round after that was
@@ -331,7 +367,6 @@ ruling.**
 | `README.md` | names `propose_note` and `list_people` in the tool groups |
 | `docs/STATUS.md` | counts the tools with `propose_note`, `approve` and `list_people` in the table, and says outright *"They are not retired; they are simply not the route the project is built around"* |
 | `docs/using.md` | documents the three commands and `export_path` as current setup |
-| `docs/slice2-mcp.md` | names `TOOL_NAMES`, `TargetNotInExport`, `export_path`, `list_people`, `propose_note` |
 | `docs/census-brief.md` | tells agents `list_people` reads an export and why to prefer `find_people`, in the brief that drives the demo |
 | `docs/restoring.md` | ⭐ **found only by the hand search.** Its opening callout warns that `preview`, `apply` and `approve` take no backup, about commands that will not exist, on the page somebody reads while recovering a tree |
 
@@ -340,7 +375,16 @@ ruling.**
 **Genre is the wrong discriminator, and the first version of this section used it.** A ruling dated
 2026-08-21 makes a claim about that date and its body is untouchable. But a document that asserts
 what the project **intends** is making a claim about the present, whatever heading it sits under. So
-each of the eight was re-read against the question rather than its type.
+each page was re-read against the question rather than its type.
+
+⚠️ **The count here was EIGHT when this section was written, and is NINE after the
+correction below moved `docs/slice2-mcp.md` in.** ⛔ **It counts RECORDS, not rows.**
+The table below has ten rows, and one of them, `docs/plans/shippable.plan.md`, is a page this
+section reclassifies to guidance rather than a record it keeps. One further row covers a group
+of plans rather than a single page. So nine records, ten rows, and neither number is derivable
+from the other by counting lines. ⛔ **A correction whose own subject was a stale
+inventory count is exactly where the next one gets introduced**, which is why this says what it
+is a count of.
 
 | page | verdict | why |
 | --- | --- | --- |
@@ -352,6 +396,7 @@ each of the eight was re-read against the question rather than its type.
 | `docs/rulings/R3` | **body untouched, STATUS banner takes a forward pointer** | its egress bounds are grounded in `core/people.py` and the console; both are retired, the bounds survive in `host/reads.py` |
 | `docs/rulings/R4` | **body untouched, STATUS banner takes a forward pointer** | its caveat names the unbacked write paths; R9 retires exactly those, so after the build every write path takes the backup |
 | `docs/rulings/R8` | **body untouched, STATUS banner takes a forward pointer** | its two named exceptions are the two surfaces R9 removes |
+| ⛔ **`docs/slice2-mcp.md`** | **record, body untouched, takes a forward pointer** | ⚠️ **CORRECTED 2026-09-05.** An earlier revision of this ruling listed it as current guidance, from a token hit, without reading the page's own first line: *"A RECORD OF SLICE 2, NOT THE CURRENT DESIGN."* Its body describes what slice 2 built, in the present tense, which is what a record does. It takes a pointer saying the flow is retired, the treatment R3, R4 and R8 received |
 | `docs/rulings/README.md` | **one sentence takes a forward pointer** | it says R8's scope has exceptions; after R9 it has none |
 
 ⭐ **A forward pointer is the third option between editing and silence.** It is dated, it says what
@@ -362,6 +407,14 @@ different properties, and only the first is protected by not editing.**
 
 ⛔ **The bodies stay as ruled.** The pointers are added by this ruling's own pull request, not by
 the retirement build, so a reader of any of those pages is told before the build runs.
+
+⚠️ **One exception, and it is the row added by the correction below.**
+`docs/slice2-mcp.md` took its pointer from the RETIREMENT BUILD, not from this ruling's pull
+request, because at the time that build ran the page was still listed as current guidance and the
+build treated it correctly as a record. So a reader of that one page was told when the build
+merged rather than before it. Recorded here rather than smoothed over: the sentence above is a
+claim about provenance, and a claim that is true of eight rows and false of the ninth is a false
+claim.
 
 ## ⭐ Two questions this page left open, now ruled
 
@@ -413,3 +466,163 @@ mistake it records, not because the question is still open.
   to the owner explicitly and it was not the deciding factor either way. If it later proves to
   matter, it is a new question about the approval surface and not a reopening of this ruling.
 - **The order of the retirement build's own steps.** That belongs to its plan gate.
+
+## ⛔ Corrections after merge, each with the finding quoted verbatim
+
+**Filed as #229 on 2026-09-05, applied here.** This ruling merged as #222. Anything a later reader
+finds in it after that is a documentation correction with the finding quoted, never a silent edit,
+and never folded into another entry.
+
+⛔ **The rule is BOUNDED, and the first revision of it was not.** As first written it said
+every later finding gets its own quoted entry, full stop. That has no fixed point. Each entry is
+itself editable text, so a finding against an entry needs an entry, and a finding against that one
+needs another; the review of this very correction produced exactly that sequence, four rounds of
+it, each round finding something true about the text the previous round had written. **A rule that
+cannot be satisfied is not a strict rule, it is an unclosable one**, and this project's standing
+practice is to bound such a claim to a space that closes rather than to keep paying rounds against
+it. So, in two parts:
+
+- **Findings against the MERGED ruling get one quoted entry each, and always will.** That is the
+  part with the value: it is unbounded in time but each entry is finished when written, because
+  the thing it describes is already merged and will not move. **Two were found**, entries 1 and 2.
+- **Findings raised against this correction during its own pull request go into ONE entry**,
+  entry 3, which lists them and is updated in place as that pull request's rounds close.
+  ⛔ **Entry 3 cannot spawn successors. That is the fixed point.** Its findings are
+  still quoted verbatim, which is the part of the rule that carries the value; what is dropped is
+  only the promise of a fresh numbered entry per round, which is the part that could not close.
+
+### 1. The reason given for `core/schema.py` surviving was a reason this ruling itself calls false
+
+The finding, quoting what this page said before the correction:
+
+> ⚠️ **`core/schema.py` is the note flow's operation model, and an earlier revision of this
+> line said it "also validates the document graph". That was false.** Graph validation is
+> `host/document.py`, which imports nothing from `core/schema.py`; the document route calls
+> `document.parse`, never `schema.validate`. Every surviving reference to `schema` is either the
+> note flow (`validate`, `AddNote`, `ObjectRef`, `NOTE_TYPES` in the `propose_note` description,
+> and `cli.py`'s retiring subcommands) or `schema.OBJECT_TYPES` in `server.py`, which sits inside
+> `PROPOSE_NOTE_DESCRIPTION` and retires with it. **After the retirement nothing surviving imports
+> `core/schema.py`.** ⛔ **Do not retain the operation model on the premise that the
+> document route validates through it.** What the document route needs from `core/` is the note
+> type table, carve out 1.
+
+The retirement build read that as leaving the module's fate open and asked for a ruling. The owner
+ruled the module survives, **and the reason is none of the above**: it holds the render guard,
+the only implementation of it in the project, on a route nobody calls. What survives is the
+module, not its contents. The operation types went with the flow they modelled.
+
+⭐ **The general shape, which is this project's most recorded defect class:** a check that
+answers a narrower question than the one being asked, and succeeds for a reason unrelated to the
+property it names. "Nothing imports it" was measured, it is true, and it did not decide the
+question it was used to decide. An unimported module is not thereby a deletable one.
+
+### 2. `docs/slice2-mcp.md` was listed as current guidance, and it is a record
+
+The finding, quoting the sweep of the retirement build's tree, whose calibration was valid in both
+directions (`propose_document` in 12 files, a token that cannot exist in 0):
+
+> ```
+> docs/slice2-mcp.md    AddNote, TOOL_NAMES, TargetNotInExport, export_path, list_people, propose_note
+> ```
+
+and reading those hits in context, the body describes the retired tools in the present tense:
+`propose_note` builds the operation, `list_people` reads two fields verbatim out of the export, and
+the demo steps say the agent calls `list_people` and then `propose_note`.
+
+That is not a build defect. The page's first line, on `main` before the retirement build touched
+it:
+
+> ⛔ **A RECORD OF SLICE 2, NOT THE CURRENT DESIGN.** It is accurate about what slice 2
+> built and is kept for the reasoning it holds.
+
+The build extended that banner and left the body alone, which is what this ruling's own records
+rule prescribes and what R3, R4 and R8 received. The error was in the guidance table, whose row was
+written from a token hit without reading the page's banner. ⚠️ **That is the same mistake
+the records re-test section of this page describes making once already and correcting**, which is
+why it is recorded here rather than quietly fixed: the instrument found the page twice, and the
+reader misclassified it twice.
+
+### 3. Findings raised against this correction during its own pull request (#234)
+
+⚠️ **One entry by design, per the bound above, updated in place. Four review rounds, five
+findings, every one against text this pull request wrote rather than against the build or the
+merged ruling.** Each is quoted; none is folded into entries 1 or 2.
+
+#### Round 1: the correction to entry 1 first claimed `core/schema.py` survived unchanged
+
+⚠️ **Found in review of the pull request that applied entries 1 and 2, against text that
+pull request had just written.** Raised by the PR bot on #234, round 1, as P2.
+
+The finding, verbatim:
+
+> **Describe the residual schema instead of claiming it stayed whole**
+>
+> When this ruling is used to reconstruct the retirement scope or plan #228, this sentence
+> incorrectly says that `core/schema.py` stayed whole and that only `NOTE_TYPES` was removed. In
+> the reviewed tree, the retirement also deleted `AddNote`, `AddCitation`, their registry entries,
+> and related schema definitions, leaving an empty operation registry; the same ruling explicitly
+> requires those removals elsewhere. State that the remaining render machinery was preserved after
+> the operation types and alias were removed, rather than recording the completed change as a
+> whole-module preservation.
+
+Correct as described, and measured before the fix. The retirement's diff of `core/schema.py` is 40
+insertions and 90 deletions, removing the `AddCitation` and `AddNote` classes with their
+`_register` decorators and registry entries, leaving `_REGISTRY` empty. Both removals were
+required, by this ruling's inventory and by the `AddCitation` ruling, so the error was in the
+correction's description of the outcome and not in the retirement. Fixed in `6f4dae4`.
+
+⭐ **Recorded as its own entry because the alternative was to fold it into entry 1, which is
+what the paragraph opening this section forbids.** The temptation was real: entry 1 is about the
+same module, and the fix reads as a refinement of it. That is exactly the shape the no-folding
+rule exists to catch, since a folded entry leaves the ledger describing the category while the
+specific claim that was false, and the input that exposed it, appear nowhere.
+
+#### Round 3, first finding: the count behind the records table went stale
+
+> **Increment the re-tested record count**
+>
+> When this section is used to verify the record sweep, moving `docs/slice2-mcp.md` into this
+> table adds a ninth record to the eight referenced at line 368 (the `shippable` entry moves to
+> guidance and is not one of those eight). Leaving the count unchanged makes this correction
+> introduce another stale inventory count, so update the section's count when adding this record.
+
+Correct. The sentence now says what it is a count of and gives both numbers, nine records against
+ten rows, because one row is a page reclassified to guidance and one covers a group of plans.
+⭐ **A correction whose subject was a stale count introduced a stale count.** The first
+attempt at the fix then tied the number to rows, which would have read nine against ten; caught by
+counting the rows before the commit.
+
+#### Round 3, second finding: the pointer provenance claim was false of the new row
+
+> **Qualify the pointer provenance for slice2-mcp**
+>
+> Adding this page to the records table makes the section-wide claim at lines 389-390 false: that
+> claim says every pointer here was added by the ruling PR before the retirement build, while the
+> correction at lines 495-496 explicitly records that the retirement build extended this page's
+> banner. Qualify the provenance statement or identify this row as the retirement-build exception
+> so the ruling does not misattribute when the pointer was added.
+
+Correct. The exception is now stated where the claim is made, rather than the claim being narrowed
+until it was technically true of everything, which would have preserved the sentence and lost the
+fact that one page was treated differently.
+
+#### Round 4: the ledger did not record rounds 3, and the rule that said it must had no fixed point
+
+> **Add the latest findings to the correction ledger**
+>
+> When this section is used as the promised correction ledger, it is already incomplete: fresh
+> evidence in `5b1b191` is the two distinct round-3 findings about the record count and pointer
+> provenance, which were fixed in place without being quoted or added as entries. That contradicts
+> the stated rule that every later finding is quoted and never silently edited, and leaves "Three
+> were found" stale; record those findings as separate corrections and update the count.
+
+Correct on the facts, and it is the finding that exposed the rule's shape. Both round 3 findings
+are now quoted above and the stale count is gone. ⛔ **The literal remedy it proposes,
+a separate numbered correction per finding, is what the bound at the top of this section declines**,
+because following it makes the next round's finding inevitable: this entry would itself need an
+entry. The findings are recorded, quoted, in one entry that closes.
+
+### What was NOT corrected
+
+The build time questions, the measured failure set and the five carve outs stand as ruled. Carve
+out 1 is unchanged in what it deletes: the alias and the map went, and the retirement removed both.
