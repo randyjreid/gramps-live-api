@@ -22,6 +22,20 @@ settled the interpreter question: stop re-implementing the judgement in prose an
 run it.** A script cannot forget ``state``, cannot decide a stale reaction looks
 recent enough, and cannot round "answered" up to "resolved".
 
+⚠️ **The second row was ANSWERED for nine commits, and the answer is
+WITHDRAWN.** #233 records what the blanket refusal costs -- a pull request the
+bot had passed, reported NOT READY -- and a grant was built for it: a reaction
+tied to a head by the branch's own arrival log. **It drew thirteen blocking
+findings across three review rounds, eleven of them a false READY**, and one of
+those lived inside an earlier round's own repair.
+
+⭐ *No state produces a spurious grant* is a universally quantified negative over
+an unbounded input space and has no fixed point. *Never grant on a bare thumb*
+closes. **A reaction carries no ``commit_id``, so it is EVIDENCE and never a
+verdict.** The report still reads it, still prints it, and names it in the
+refusal so the reader knows the bot passed and left no comment naming this head.
+An instrument reports; a human decides.
+
 **The exit code is the verdict. The output is the evidence.** Nothing downstream
 should restate either.
 
@@ -34,6 +48,7 @@ Usage::
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -69,6 +84,26 @@ _WHITESPACE = frozenset({chr(32), chr(9), chr(13), chr(10)})
 """Space, tab, CR, LF -- built from ordinals so no escape layer can mangle them."""
 
 CLEAN_PHRASES = ("didn't find any major issues", "didn't find any issues", "no major issues")
+
+# ⛔ **The bot's own label on the opening line of a clean verdict.** Optional:
+# stripped before the phrase is matched, never required.
+#
+# ⚠️ It exists because the phrase is now the body's OPENING CLAIM rather than a
+# substring of it, and the bot writes the label in front of the sentence.
+CLEAN_LABEL = "codex review:"
+
+# ⛔ The commit a verdict line QUOTES: hex inside backticks, seven characters or
+# more. Written as explicit ASCII classes rather than with ``re.IGNORECASE``,
+# whose fold is the interpreter's and not this file's.
+VERDICT_CLAIM = re.compile(r"`([0-9a-fA-F]{7,40})`")
+
+# ⛔ The four spacings ``_WHITESPACE`` names, as a string ``str.strip`` accepts.
+#
+# ⚠️ NOT bare ``.strip()``. Python's default set is 26 characters wide and comes
+# from the interpreter; this one is four, written here. A guard whose definition
+# arrives from the runtime is the defect class this repository has recorded four
+# times in one week.
+TRIM = "".join(sorted(_WHITESPACE))
 
 # ⛔ **Assembled from parts so this file never CONTAINS the phrase it looks for.**
 #
@@ -126,23 +161,162 @@ def _json(*arguments: str) -> object:
     return merged
 
 
-def _names_the_head(body: str, head: str) -> bool:
-    """Does this comment quote the head SHA?
+def _ascii_lower(text: str) -> str:
+    """Lowercase ``A``-``Z`` and nothing else. ⛔ **Length-preserving by construction.**
 
-    ⛔ The bot writes ``**Reviewed commit:** `<abbreviated sha>`​``, so the
-    association is explicit and does not depend on any clock. Matched against
-    every prefix length the abbreviation might use rather than one guess.
+    ⚠️ ``str.lower()`` is a Unicode operation and it can change a string's
+    LENGTH -- ``U+0130`` lowercases to two code points. An offset found in a
+    lowered copy and then used to index the original is off by that much, which
+    would let a body place its real claim outside the slice this file searches.
+    Every character here maps to exactly one character, so the two strings index
+    identically.
+
+    ⭐ And the fold is written here, in ASCII code points, rather than taken from
+    whatever Unicode table the interpreter shipped. That is this repository's
+    recorded rule: a check whose definition depends on where it runs is not a
+    check on what it names.
     """
-    lowered = body.lower()
-    return any(lowered.count(head[:length].lower()) for length in range(7, len(head) + 1))
+    return "".join(chr(ord(c) + 32) if "A" <= c <= "Z" else c for c in text)
+
+
+def _verdict_names_the_head(body: str, head: str) -> bool:
+    """Does this comment's own ``Reviewed commit:`` LINE claim this head?
+
+    ⛔ **Anchored to the line, and this is the repair.** It read the whole body
+    lowercased and counted the head's hex anywhere in it, and its docstring said
+    *the association is explicit* -- which was exactly what was untrue. Nothing
+    tied the hex it found to the verdict. Named input, run with every other gate
+    perfect: ``Didn't find any major issues. **Reviewed commit:** `abc1234567`.
+    Rebased onto eeeeeeeeee.`` **printed READY on a verdict naming a different
+    commit.**
+
+    ⛔ **Fail closed, three ways.** No marker line is no claim. A marker line
+    this read cannot parse is no claim. And a body making TWO claims cannot show
+    which is true, so every marker line must name this head or none of them
+    grants -- ``all`` over a non-empty list.
+
+    ⭐ **Cut to a MEASURED shape.** Across pull requests #150 to #245 the bot
+    published 40 conversation verdicts: 40 of 40 carry exactly one line reading
+    ``**Reviewed commit:** `<sha>` ``, and every abbreviation is ten characters.
+    The seven-character floor is the older, wider bound and is kept.
+
+    ⚠️ ``splitlines`` rather than ``split(chr(10))`` on purpose. It breaks on
+    strictly more characters, so a marker line it produces is a PREFIX of the one
+    a newline split would give -- and truncating a line's tail can only drop a
+    candidate claim, never promote a later one ahead of an earlier. The wider
+    splitter is the stricter reading here.
+    """
+    claims: list[str] = []
+    for line in body.splitlines():
+        marker = _ascii_lower(line).find(ROUND_MARKER)
+        if marker < 0:
+            continue
+        quoted = VERDICT_CLAIM.search(line, marker + len(ROUND_MARKER))
+        claims.append(quoted.group(1) if quoted else "")
+    if not claims:
+        return False
+    return all(bool(c) and _ascii_lower(head).startswith(_ascii_lower(c)) for c in claims)
+
+
+def _opens_with_a_clean_phrase(body: str) -> bool:
+    """Is a clean verdict what this comment OPENS by saying?
+
+    ⛔ **Anchored to the opening line, and this is the other half of the repair.**
+    The phrase was matched anywhere in the body, so a findings comment carrying
+    one as a substring granted the merge. Named input, run with every other gate
+    perfect: ``P3 - no major issues, but consider X. **Reviewed commit:**
+    `eeeeeeeeee``` **printed READY on a findings comment.**
+
+    ⭐ **Measured, not guessed.** All 40 of the bot's conversation verdicts over
+    pull requests #150 to #245 open ``Codex Review: Didn't find any major
+    issues.`` and then vary only the tail -- sixteen distinct flourishes, from
+    ``Hooray!`` to ``Chef's kiss.`` So the anchor asks for the opening sentence
+    the bot has never once departed from, and the varying part stays free.
+
+    ⚠️ **The label is optional and the phrase list is unchanged.** Widening
+    either would be this file's own recorded mistake -- a fix widening the claim
+    it fixes. A wording the bot has not used yet is refused, which costs a
+    re-trigger and is the direction this instrument fails in.
+    """
+    opening = ""
+    for line in body.splitlines():
+        opening = _ascii_lower(line.strip(TRIM))
+        if opening:
+            break
+    if opening.startswith(CLEAN_LABEL):
+        opening = opening[len(CLEAN_LABEL) :].lstrip(TRIM)
+    return any(opening.startswith(phrase) for phrase in CLEAN_PHRASES)
+
+
+def _clean_verdicts(comments: list[dict[str, Any]], head: str) -> list[dict[str, Any]]:
+    """The comments that ARE a clean verdict on this head. ⛔ **All three, or none.**
+
+    ⛔ Bot-authored, matching a clean phrase, and naming the head. This is the
+    only granting evidence the file has left, so it is a named predicate rather
+    than a comprehension, and it runs over **both** reads.
+
+    ⚠️ It was inline over the first read only, and the second read confirmed it
+    by identity: ``_still_granted`` compares ``id``, and **identity survives an
+    edit that destroys content**. Named input: the bot posts a clean comment
+    naming this head, the sweep reads it, the bot edits that same comment into a
+    findings report -- or edits the quoted commit to a different one -- and the
+    final read returns the same id with the new body. The first read's row stood
+    and READY printed over a body no longer carrying a clean verdict.
+
+    ⭐ **Confirmation is on CONTENT; identity only pairs the rows.** Filtering
+    both sides is what makes ``_still_granted``'s identity test safe, and it is
+    cheaper than teaching that helper what a clean verdict is.
+
+    ⛔ **Both content questions are now ANCHORED, and neither was.** They were
+    two independent substring searches over the whole body, and once the bare-👍
+    grant was deleted they were the only granting evidence in the file. The
+    phrase is the body's opening claim; the head match is the verdict line's own
+    claim. Each helper names the input it was shown failing on.
+    """
+    return [
+        c
+        for c in comments
+        if _is_bot((c.get("user") or {}).get("login"))
+        and _opens_with_a_clean_phrase(c.get("body") or "")
+        and _verdict_names_the_head(c.get("body") or "", head)
+    ]
 
 
 def _when(text: str) -> datetime:
     return datetime.fromisoformat(text.replace("Z", "+00:00"))
 
 
-def _latest_request(comments: list[dict[str, Any]]) -> str:
-    """When a new review round was most recently ASKED FOR, or ``""``.
+def _said(answer: str | None, nothing: str) -> str:
+    """Render a three-answer value for the report. ⛔ **Three renderings, not two.**
+
+    ⚠️ ``value or "(none)"`` prints the same words for *the read says nobody
+    asked* and *the read did not say*, which is the collapse this file spent a
+    false READY on. A reader deciding whether to re-trigger needs to know which
+    one they are looking at.
+    """
+    if answer is None:
+        return "(UNREADABLE -- a request carries no timestamp)"
+    return answer or nothing
+
+
+def _latest_request(comments: list[dict[str, Any]]) -> str | None:
+    """When a new round was most recently ASKED FOR. ⛔ **Three answers, not two.**
+
+    ⛔ A timestamp; ``""`` when **no round was ever asked for**; ``None`` when a
+    request exists that this read **cannot place in time**.
+
+    ⚠️ **The first two used to be the same value, and that was a false READY.**
+    This built ``str(c.get("created_at") or "")`` and returned
+    ``max(stamps, default="")``, so a trigger comment whose timestamp is absent
+    or null contributed ``""`` -- and if it was the only one, the function
+    answered *nobody asked*. T fell back to the open time, the PREVIOUS round's
+    clean comment postdated it, and the verdict for a round that had published
+    nothing was printed as this round's. **An empty read presented as an
+    absence**, which is this project's most-recorded defect class.
+
+    ⭐ The three-answer shape is ``_ready_for_review``'s, already in this file:
+    readable / empty / did not say. ``""`` is a real answer and stays cheap;
+    ``None`` is an unanswered question and refuses.
 
     ⛔ **The BOT'S own comments are excluded, and skipping that made this rule
     defeat itself.**
@@ -170,21 +344,48 @@ def _latest_request(comments: list[dict[str, Any]]) -> str:
         if TRIGGER in (c.get("body") or "").lower()
         and not _is_bot((c.get("user") or {}).get("login"))
     ]
+    # ⛔ Any unreadable one, not only the newest: the newest is what T needs, and
+    # a request that cannot be ordered cannot be shown not to be the newest.
+    if any(not stamp for stamp in stamps):
+        return None
     return max(stamps, default="")
 
 
-def _still_current(comments: list[dict[str, Any]], latest_request: str) -> list[dict[str, Any]]:
-    """Those comments that POSTDATE the most recent request for a round.
+def _both_triggers(first: str | None, second: str | None) -> str | None:
+    """The request across TWO reads. ⛔ **T never goes BACKWARDS between them.**
+
+    ⚠️ A request present while gathering and gone from the final read leaves
+    ``_request_arrived_mid_sweep`` silent -- that rule fires on a request moving
+    FORWARD -- so the final read alone would drop T back to the open time and
+    make the previous round's clean comment read as this round's verdict.
+
+    ⭐ Max for the movable term, ``None`` propagating for the unreadable one:
+    exactly ``_both_timelines``, on the other thing that starts a round.
+    """
+    if first is None or second is None:
+        return None
+    return max(first, second)
+
+
+def _still_current(comments: list[dict[str, Any]], began: str) -> list[dict[str, Any]]:
+    """Those comments that POSTDATE the start of the current round.
 
     ⛔ Lexicographic comparison is correct here and only here: every timestamp
     GitHub returns is the same fixed-width UTC format, so string order is time
     order. It would not be for mixed offsets, and nothing in this file has any.
 
-    ⭐ With ``latest_request`` empty -- the automatic review on open, never
-    re-triggered -- every comment postdates it and the caller's other evidence
-    stands alone. That is deliberate: there is no request to be stale against.
+    ⛔ **``began`` is T, not the trigger comment.** It was the trigger alone for
+    this function's whole life, and #183's input walked through the gap: a
+    mark-ready starts a round and leaves no comment, so the previous round's
+    clean verdict still postdated the last request and was still accepted.
+
+    ⚠️ **Never call this with ``""``.** Every timestamp sorts after it, so every
+    comment would read as current -- absence of evidence becoming permission.
+    ``_round_start`` returns ``""`` to say T is unknown, and the caller refuses
+    instead of comparing. The empty case survives here only as arithmetic; it is
+    not a mode of operation.
     """
-    return [c for c in comments if str(c.get("created_at") or "") > latest_request]
+    return [c for c in comments if str(c.get("created_at") or "") > began]
 
 
 def _is_bot(login: object) -> bool:
@@ -192,7 +393,134 @@ def _is_bot(login: object) -> bool:
     return str(login or "") in BOT_LOGINS
 
 
-def _request_arrived_mid_sweep(before: str, after: str) -> str:
+def _same_row(one: dict[str, Any], other: dict[str, Any]) -> bool:
+    """Are these two reads showing the SAME row?
+
+    ⛔ ``id`` when either row carries one, whole-row equality otherwise. Equality
+    alone is defeated by any field the two reads render differently; ``id`` alone
+    is defeated by a row that has none.
+    """
+    if one.get("id") is not None or other.get("id") is not None:
+        return one.get("id") == other.get("id")
+    return one == other
+
+
+def _still_granted(
+    first: list[dict[str, Any]], second: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Rows the SECOND read still shows. ⛔ **Granting evidence must SURVIVE to the verdict.**
+
+    ⚠️ Named input: the bot posts a clean comment naming this head at 09:07, the
+    sweep reads it, the comment is DELETED before the verdict is pronounced, and
+    the final read lacks it. Built from the first read alone, that comment still
+    granted -- READY over a body no longer carrying a clean signal.
+
+    ⭐ And the remedy is CONFIRMATION, not replacement. Taking the second read
+    alone would let a clean comment that arrived mid-sweep grant a verdict on
+    evidence gathered before it: the checks, the threads and the head were all
+    read before it existed. The intersection refuses both ways.
+
+    ⛔ **Identity PAIRS the rows; it does not judge them.** ``_same_row``
+    compares ``id``, which survives an edit that destroys content -- so the
+    caller filters BOTH arguments through ``_clean_verdicts`` first. This helper
+    sees only what it is given, and that is deliberate: it holds one rule.
+    """
+    return [row for row in first if any(_same_row(row, other) for other in second)]
+
+
+def _ready_for_review(meta: dict[str, Any]) -> list[str] | None:
+    """When this pull request was marked ready, or ``None`` if that cannot be read.
+
+    ⛔ **``None`` and ``[]`` are DIFFERENT answers and the caller must not merge
+    them.** ``[]`` means the pull request was never a draft, which is the common
+    case and a real answer. ``None`` means the read did not say -- an absent key,
+    a node that is not an object, a node with no timestamp -- and an unanswerable
+    question is refused rather than skipped.
+
+    ⚠️ **A missing event would leave T too EARLY**, which is the permissive
+    direction: the PREVIOUS round's clean comment would then postdate it and read
+    as this round's verdict. That is this project's most-recorded defect, an
+    empty read presented as an absence.
+    """
+    timeline = meta.get("timelineItems")
+    if not isinstance(timeline, dict):
+        return None
+    nodes = timeline.get("nodes")
+    if not isinstance(nodes, list):
+        return None
+    stamps: list[str] = []
+    for node in nodes:
+        when = str(node.get("createdAt") or "") if isinstance(node, dict) else ""
+        if not when:
+            return None
+        stamps.append(when)
+    return stamps
+
+
+def _both_timelines(first: list[str] | None, second: list[str] | None) -> list[str] | None:
+    """Round-start instants across TWO reads. ⛔ **Either read unreadable is unreadable.**
+
+    ⚠️ T is built from this, and T going BACKWARDS between two reads is the
+    permissive direction: a mark-ready observed while gathering and missing from
+    the final answer would drop T back to the open time, and the clean comment
+    from the round before would postdate it and read as this round's verdict.
+
+    ⭐ Union rather than a regression check: every term here can only ever move
+    T later, and later is stricter. There is nothing to trade, so keeping both
+    reads needs no new failure path.
+    """
+    if first is None or second is None:
+        return None
+    return sorted(set(first) | set(second))
+
+
+def _round_began(created_at: str, latest_trigger: str, ready_events: list[str]) -> str:
+    """T -- the instant the CURRENT round began. ⛔ **Three triggers, not one.**
+
+    ⚠️ The bot names all three in the footer of every verdict it posts: opening a
+    pull request for review, marking a draft as ready, and commenting the phrase.
+    ``_latest_request`` watches the third only, and #183 records the second as a
+    door the rule does not watch: a clean signal, a conversion back to draft, a
+    mark-ready, and the OLD signal still postdates the last comment.
+
+    ⭐ Lexicographic max for the same reason ``_still_current`` compares that way:
+    every timestamp here is fixed-width UTC, so string order is time order.
+
+    ⚠️ ``latest_trigger`` is ``""`` when no round was ever asked for, and ``""``
+    sorts before every timestamp -- so it loses, which is what it should do.
+    **``created_at`` is the floor and it is never empty on a real read**;
+    ``_round_start`` refuses outright if it is, because a T of ``""`` would let
+    every clean comment ever posted read as this round's verdict.
+    """
+    return max([created_at, latest_trigger, *ready_events])
+
+
+def _round_start(
+    created_at: str, latest_trigger: str | None, ready_events: list[str] | None
+) -> str:
+    """T, or ``""`` when it cannot be computed.
+
+    ⛔ **``""`` is a refusal and never a floor.** Callers must not compare
+    against it: ``""`` sorts before every timestamp, so every artifact ever
+    published would postdate it -- absence of evidence becoming permission one
+    more time.
+
+    ⭐ The clean comment is judged against the instant this returns, and against
+    nothing else. A second answer to *when did this round begin* is this
+    project's most-recorded defect class, so there is exactly one.
+
+    ⚠️ **Two of the three terms have an unreadable answer and BOTH refuse here.**
+    ``ready_events is None`` is an unreadable timeline; ``latest_trigger is
+    None`` is a request this read cannot place. Either left to collapse into a
+    falsy value loses the ``max`` to ``created_at``, and T reads as the open
+    time -- which is the fallback that accepted the previous round's verdict.
+    """
+    if not created_at or ready_events is None or latest_trigger is None:
+        return ""
+    return _round_began(created_at, latest_trigger, ready_events)
+
+
+def _request_arrived_mid_sweep(before: str | None, after: str | None) -> str:
     """A reason, or ``""``. ⛔ **The trigger is evidence, and evidence goes stale.**
 
     ⚠️ The latest request is read while gathering, and the verdict is pronounced
@@ -211,6 +539,17 @@ def _request_arrived_mid_sweep(before: str, after: str) -> str:
     accepted explicitly. What changes is its size: from the whole sweep down to
     one call, which is the same bound every other field here gets.
     """
+    # ⛔ **``None`` blocks in its own words**, and it is the SECOND condition an
+    # unreadable request meets: ``_round_start`` already refuses T for it. Two
+    # independent branches rather than one, because a single one standing between
+    # an unanswered read and a READY is what this file exists to avoid -- and
+    # because *T could not be computed* does not tell the reader which read was
+    # unreadable, where this does.
+    if before is None or after is None:
+        return (
+            "a review round was requested in a comment whose timestamp this read did not "
+            "carry, so nothing can show which round the clean verdict above belongs to"
+        )
     if after and after != before:
         return (
             f"a review round was requested while this sweep ran ({after}) -- the "
@@ -300,11 +639,27 @@ def _metadata(pull: int) -> dict[str, Any]:
     along: the live base tip and the base the head was verified against come back
     **in the same answer**, which is what makes the comparison meaningful.
     """
+    # ⛔ ``createdAt`` and the ready-for-review events ride here rather than in
+    # reads of their own, for the reason the docstring gives: the facts a verdict
+    # rests on must come back in ONE answer or they can disagree about when they
+    # were true. They are deliberately NOT in ``METADATA_FIELDS`` -- ``_judge``
+    # does not judge them; the clean comment is refused without them.
+    #
+    # ⚠️ ``headRefName`` rode here too, for the branch-activity read that tied a
+    # bare 👍 to a head. #233 withdrew that grant, so nothing asks a branch about
+    # its own quiet any more and the field is gone with its only consumer.
+    #
+    # ⚠️ ``last:100``, never ``first``. ``first`` anchors at the OLDEST end, so on
+    # a long timeline it would return the earliest events and miss the newest --
+    # which is the only one T needs. Anchored at the newest end, the maximum over
+    # what comes back is the true maximum whatever the page size.
     query = (
         '{repository(owner:"randyjreid",name:"gramps-live-api")'
         f"{{pullRequest(number:{pull})"
         "{state isDraft headRefOid baseRefOid mergeable mergeStateStatus "
-        "baseRef{name target{oid}}}}}"
+        "createdAt baseRef{name target{oid}} "
+        "timelineItems(itemTypes:[READY_FOR_REVIEW_EVENT], last:100)"
+        "{nodes{... on ReadyForReviewEvent{createdAt}}}}}}"
     )
     graph = json.loads(_gh("api", "graphql", "-f", f"query={query}") or "{}")
     pull_request = ((graph.get("data") or {}).get("repository") or {}).get("pullRequest")
@@ -443,7 +798,12 @@ def _report(pull: int) -> bool:
     reviews = _json("api", f"repos/{REPOSITORY}/pulls/{pull}/reviews", "--paginate")
     inline = _json("api", f"repos/{REPOSITORY}/pulls/{pull}/comments", "--paginate")
     conversation = _json("api", f"repos/{REPOSITORY}/issues/{pull}/comments", "--paginate")
-    reactions = _json("api", f"repos/{REPOSITORY}/issues/{pull}/reactions")
+    # ⛔ ``--paginate``, and it stays load-bearing even though a reaction now
+    # grants nothing. The report must still know a bare 👍 EXISTS in order to say
+    # so: a 👍 stranded on a later page would silently degrade the actionable
+    # refusal -- *the bot passed and left no comment naming this head, re-trigger
+    # it* -- into the generic one, which tells the reader nothing they can act on.
+    reactions = _json("api", f"repos/{REPOSITORY}/issues/{pull}/reactions", "--paginate")
     assert isinstance(reviews, list) and isinstance(inline, list)
     assert isinstance(conversation, list) and isinstance(reactions, list)
 
@@ -463,24 +823,25 @@ def _report(pull: int) -> bool:
     # ⭐ The bot's clean comment names its subject: "**Reviewed commit:**
     # `7905da6ddd`". That is evidence explicitly associated with a SHA, so the
     # comparison is against the head's own hex rather than against a clock.
-    # A reaction carries no commit_id and can never be tied to a head, so it is
-    # corroboration only and is no longer sufficient on its own.
-    fresh_reactions = [
-        r
-        for r in by_bot(reactions)
-        if r.get("content") == "+1" and head_when and r.get("created_at", "") > head_when
-    ]
+    #
+    # ⛔ **A reaction carries no commit_id, so it is EVIDENCE and never a
+    # verdict.** #233 built a grant on one anyway, tying it to a head through the
+    # branch's arrival log; that path produced eleven false READYs across three
+    # review rounds and was withdrawn. What is counted here is counted so the
+    # refusal at step 8 can NAME it -- *the bot passed and left no comment naming
+    # this head* is actionable where *no clean verdict was found* is not.
+    #
+    # ⛔ **Counted, not classified.** An earlier version split these into fresh
+    # and stale on the head's COMMITTER DATE -- the comparison the paragraph
+    # above calls unsound. Nothing here decides freshness, because nothing here
+    # decides anything.
+    bot_thumbs = [r for r in by_bot(reactions) if r.get("content") == "+1"]
     fresh_conversation = [
         c for c in by_bot(conversation) if head_when and c.get("created_at", "") > head_when
     ]
-    clean_comments = [
-        c
-        for c in by_bot(conversation)
-        if any(phrase in (c.get("body") or "").lower() for phrase in CLEAN_PHRASES)
-        and _names_the_head(c.get("body") or "", head)
-    ]
+    clean_comments = _clean_verdicts(conversation, head)
 
-    # ⛔ **A clean verdict must postdate the TRIGGER THAT ASKED FOR IT.**
+    # ⛔ **A clean verdict must postdate THE ROUND IT CLAIMS TO BE ABOUT.**
     #
     # ⚠️ Naming the head is not enough, because a round can be requested without
     # changing the head -- which is this project's ordinary path, not an edge
@@ -497,11 +858,18 @@ def _report(pull: int) -> bool:
     #
     # ⚠️ A one-shot sweep cannot "capture and wait", so the same rule is applied
     # to what is already recorded: the accepted verdict must be NEWER than the
-    # most recent request. With no request at all -- the automatic review on
-    # open -- there is nothing to postdate, and naming the head stands alone.
+    # round it claims to be about.
+    #
+    # ⛔ **And that round is T, not the trigger comment. RECORDED SCOPE CHANGE,
+    # owner approved** -- see `docs/plans/pr-ready-thumb.plan.md`. The trigger is
+    # only ONE of the three things that start a round, so #183's input still
+    # produced a false READY through this path: a clean comment naming head H, a
+    # conversion back to draft, a mark-ready on the same head, no push, and the
+    # previous round's verdict still accepted.
+    #
+    # ⚠️ **The comparison itself happens at step 8**, because T is not known
+    # until the final reads. What is computed here is evidence.
     latest_trigger = _latest_request(conversation)
-    accepted_clean = _still_current(clean_comments, latest_trigger)
-    superseded_clean = [c for c in clean_comments if c not in accepted_clean]
 
     print("  2. bot verdict on head  :")
     print(
@@ -514,41 +882,22 @@ def _report(pull: int) -> bool:
         + (f"  ({fresh_conversation[-1].get('created_at')})" if fresh_conversation else "")
     )
     print(
-        f"       clean-phrase comment: {len(clean_comments)}"
+        f"       clean verdict on head: {len(clean_comments)}"
         + (f"  ({clean_comments[-1].get('created_at')})" if clean_comments else "")
     )
     print(
-        f"       fresh +1 on body   : {len(fresh_reactions)}"
-        + (f"  ({fresh_reactions[-1].get('created_at')})" if fresh_reactions else "")
+        f"       bot +1 on body     : {len(bot_thumbs)}"
+        + (f"  ({bot_thumbs[-1].get('created_at')})" if bot_thumbs else "")
+        + "  (evidence, never a verdict)"
     )
-    stale_reactions = [
-        r
-        for r in by_bot(reactions)
-        if r.get("content") == "+1" and head_when and r.get("created_at", "") <= head_when
-    ]
-    if stale_reactions:
-        print(
-            f"       STALE +1 ignored   : {len(stale_reactions)}"
-            f"  ({stale_reactions[-1].get('created_at')} <= head)"
-        )
 
-    print(f"       last round requested: {latest_trigger or '(never -- automatic review only)'}")
-    if superseded_clean:
-        print(
-            f"       SUPERSEDED clean    : {len(superseded_clean)}"
-            f"  ({superseded_clean[-1].get('created_at')} <= the request above)"
-        )
+    print(
+        f"       last round requested: {_said(latest_trigger, '(never -- automatic review only)')}"
+    )
 
-    if not clean_comments:
-        failures.append(
-            "no CLEAN verdict naming this head -- the bot's clean comment quotes "
-            "the commit it reviewed, and none quoting this one was found"
-        )
-    elif not accepted_clean:
-        failures.append(
-            "the CLEAN verdict predates the most recent review request -- a round "
-            "was asked for after it, so that verdict is about an earlier round"
-        )
+    # ⛔ **The verdict on the clean signal is pronounced at step 8, not here.**
+    # The reads above are several calls old by the time this returns, so what is
+    # printed here is evidence; what decides is read again at the end.
 
     # -- 3. how many rounds has this had? ------------------------------------
     #
@@ -689,14 +1038,131 @@ def _report(pull: int) -> bool:
     )
     failures.extend(_judge(final, head, base_tip_when_gathering))
 
-    # ⛔ The request is evidence too, and it was read several calls ago.
+    # -- 8. the clean verdict, on what the bot has published BY NOW -----------
+    #
+    # ⛔ **ONE endpoint is re-read here, and it is the one the grant rests on.**
+    #
+    # ⚠️ The reads at step 2 are a dozen calls old by now, and the clean comment
+    # was built from that first read alone: a comment deleted -- or edited out of
+    # a clean verdict -- inside that window still granted. So the conversation is
+    # asked again and the two answers are intersected.
+    #
+    # ⚠️ **The reviews and inline endpoints were re-read here too, and they are
+    # not any more.** Their second answer fed one consumer, ``_both_reads`` into
+    # the bare-👍 judgement, whose premise was that the bot had said nothing since
+    # T. #233 withdrew that judgement; nothing else ever read those answers, so
+    # two ``gh`` calls a report were being spent on a value no branch consulted.
+    # Removed with their consumer rather than left behind to read as load-bearing.
     final_conversation = _json("api", f"repos/{REPOSITORY}/issues/{pull}/comments", "--paginate")
     assert isinstance(final_conversation, list)
+
+    # ⛔ The request is evidence too, and it was read several calls ago.
     trigger_now = _latest_request(final_conversation)
-    print(f"       last request now   : {trigger_now or '(none)'}")
+    print(f"       last request now   : {_said(trigger_now, '(none)')}")
     moved = _request_arrived_mid_sweep(latest_trigger, trigger_now)
     if moved:
         failures.append(moved)
+
+    # ⛔ **T NEVER GOES BACKWARDS between two reads**, and both of its movable
+    # terms could take it there. A trigger that vanishes from the final
+    # conversation leaves ``_request_arrived_mid_sweep`` silent -- that rule
+    # fires on a request moving FORWARD -- and a ready-for-review event missing
+    # from the final timeline drops T to the open time. Either regression makes
+    # the PREVIOUS round's clean comment read as this round's verdict.
+    began_trigger = _both_triggers(latest_trigger, trigger_now)
+    seen_ready = _both_timelines(_ready_for_review(provisional), _ready_for_review(final))
+
+    # ⛔ **T, once**, and the clean comment is judged against it rather than
+    # against the trigger alone. ``""`` is a refusal here: the comment must not
+    # fall back to the old comparison when the timeline cannot be read, because
+    # an unreadable timeline is exactly the input that produced the defect -- a
+    # fallback would be it returning under a different name.
+    began = _round_start(str(final.get("createdAt") or ""), began_trigger, seen_ready)
+    print(f"       round began at     : {began or '(UNREADABLE -- nothing can be placed in it)'}")
+
+    # ⛔ **The clean comment is confirmed against the FINAL read.**
+    # ``clean_comments`` came from the first conversation read alone.
+    #
+    # ⚠️ Named input: the bot posts a clean comment naming this head at 09:07,
+    # this sweep reads it, the comment is DELETED before the verdict, the final
+    # read lacks it, every other gate is clean -- and READY printed over a body
+    # that no longer carries a clean signal.
+    #
+    # ⭐ Intersection, not replacement -- ``_still_granted``. Taking the final
+    # read alone would let a clean comment ARRIVING mid-sweep grant a verdict on
+    # evidence gathered before it: the checks, the threads and the head were all
+    # read before it existed.
+    #
+    # ⛔ **``_clean_verdicts`` over the FINAL read too, not ``by_bot`` alone.**
+    #
+    # ⚠️ ``_same_row`` compares ``id``, and identity survives an edit that
+    # destroys content. With the second read unfiltered, a comment edited from a
+    # clean verdict into a findings report -- same id, new body -- still matched,
+    # and the FIRST read's row granted. **Confirmation is on content; identity
+    # only pairs the rows.**
+    standing_clean = _still_granted(clean_comments, _clean_verdicts(final_conversation, head))
+    withdrawn_clean = [c for c in clean_comments if c not in standing_clean]
+    if withdrawn_clean:
+        print(
+            f"       WITHDRAWN clean     : {len(withdrawn_clean)}"
+            f"  ({withdrawn_clean[-1].get('created_at')}"
+            " -- deleted, or edited out of a clean verdict, before the final read)"
+        )
+
+    accepted_clean = _still_current(standing_clean, began) if began else []
+    superseded_clean = [c for c in standing_clean if c not in accepted_clean]
+    if superseded_clean:
+        print(
+            f"       SUPERSEDED clean    : {len(superseded_clean)}"
+            f"  ({superseded_clean[-1].get('created_at')} <= the round start above)"
+        )
+
+    # ⛔ **The four branches are EXHAUSTIVE over an empty ``accepted_clean``**, and
+    # that is what makes the one ``return True`` below checkable: no clean comment
+    # at all, none surviving the final read, T uncomputable, all of them
+    # superseded by T. Whichever holds, ``failures`` gains an entry.
+    #
+    # ⚠️ **Each names the input it is true of.** A reason true of a different
+    # input is evidence nobody can act on -- a withdrawn verdict does not predate
+    # anything, and a T that cannot be computed is not fixed by re-triggering,
+    # which is why the last sentence is not appended to that one.
+    if not accepted_clean:
+        if not clean_comments:
+            # ⛔ **The bare-👍 case, said in ONE sentence rather than two.** The
+            # generic reason plus a separate *the +1 is not a clean verdict* line
+            # left the reader with two half-answers; this branch is the whole one.
+            if bot_thumbs:
+                failures.append(
+                    f"the bot left a +1 on the pull request body at "
+                    f"{bot_thumbs[-1].get('created_at')} and no comment naming this head: "
+                    f"a reaction carries no commit id, so nothing ties it to {head[:12]}. "
+                    "Re-trigger the bot on this head so it publishes a comment naming the "
+                    "commit it reviewed."
+                )
+            else:
+                failures.append(
+                    "no CLEAN verdict naming this head -- the bot's clean comment quotes "
+                    "the commit it reviewed, and none quoting this one was found. "
+                    "Re-trigger the bot on this head."
+                )
+        elif not standing_clean:
+            failures.append(
+                "the CLEAN verdict naming this head no longer stands -- it was there when "
+                "this sweep began, and the final read shows it deleted or edited into "
+                "something that is no longer a clean verdict on this head. "
+                "Re-trigger the bot on this head."
+            )
+        elif not began:
+            failures.append(
+                "a CLEAN verdict names this head, but the start of the current round "
+                "could not be computed, so nothing can show the verdict belongs to it"
+            )
+        else:
+            failures.append(
+                f"the CLEAN verdict predates the start of the current round ({began}) -- "
+                "the round was opened, re-triggered or marked ready after that verdict, "
+                "so it is about an earlier one. Re-trigger the bot on this head."
+            )
 
     if failures:
         print("  RESULT: NOT the owner's click")
@@ -708,6 +1174,26 @@ def _report(pull: int) -> bool:
 
 
 def main(argv: list[str]) -> int:
+    # ⛔ **#219: this tool's output encoding is its OWN, not the console's.**
+    #
+    # ⚠️ It printed three sections and then died on ``⚠`` -- and the reason that
+    # mattered was in the part that never printed. A crash reporting *the check
+    # could not complete* is indistinguishable at a glance from a genuine
+    # NOT-READY, and the exit code is 1 either way.
+    #
+    # ⭐ Not by removing the glyphs: they carry meaning here, and the next one
+    # added would reintroduce this. ``errors="replace"`` so a codec that still
+    # cannot render something loses that character rather than the verdict.
+    #
+    # ⚠️ **stderr too, and it is not symmetry for its own sake.** A traceback
+    # quotes the source line it failed on, and the lines in this file carry these
+    # same glyphs -- so a crash could die again while reporting itself, on the
+    # stream that carries the only remaining evidence.
+    #
+    # ⚠️ ``hasattr`` because a captured stream need not be a text wrapper.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     if not argv:
         print(__doc__)
         return 2
