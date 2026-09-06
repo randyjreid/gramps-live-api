@@ -122,18 +122,18 @@ def utility_directory(shell: Path) -> Path:
 
     ⛔ **Not ``shell.parent``**, which is right for the first candidate and an
     accident for the second: the distribution's ``usr`` subtree holds the whole
-    utility set -- 245 executables here, ``tr`` among them -- while its top-level
-    ``bin`` holds three, ``git``, ``sh`` and ``bash``.
+    utility set, ``tr`` among it, while its top-level ``bin`` holds ``git``,
+    ``sh`` and ``bash`` and nothing else.
 
     ⚠️ **And "an accident" is the measured word, not "wrong".** The shell converts
     an inherited Windows PATH entry into a POSIX one, and its runtime then
     resolves the top-level ``bin`` onto the ``usr`` one behind it: handed only
-    the three-executable directory, ``command -v tr`` answers out of it
-    perfectly happily. So the fallback
-    candidate's own directory would have supplied the utilities after all, and
-    **no test in this repository can tell the two derivations apart.** That is
-    recorded rather than papered over -- claiming a defect here that cannot be
-    shown breaking would be worth less than saying so.
+    that three-executable directory, ``command -v tr`` answers out of it
+    perfectly happily. So the fallback candidate's own directory would have
+    supplied the utilities after all, and **no test in this repository can tell
+    the two derivations apart** -- recorded rather than papered over, because
+    claiming a defect that cannot be shown breaking is worth less than saying
+    plainly that it cannot.
 
     ⭐ What the change buys is that the answer no longer rests on that mapping,
     which is a property of the runtime rather than of anything this suite states,
