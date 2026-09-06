@@ -222,10 +222,9 @@ def _the_hooks_own_path(shell: str, ahead: Path | None = None) -> str:
     whoever launched pytest, not by the fixture.
 
     ⚠️ The directory comes from ``utility_directory`` and **not** from
-    ``Path(shell).parent``, which was right only for the first candidate: the
-    fallback shell lives in a directory holding three executables and no ``tr``
-    at all, so a run that fell through to it would have prepended a directory
-    that supplies nothing while looking exactly like a run that worked.
+    ``Path(shell).parent``, which was right for the first candidate and only an
+    accident for the second -- see that function for what was measured, including
+    the reason no test here can tell the two derivations apart.
 
     ``ahead`` goes in front of everything, so a planted shadow still wins.
     """

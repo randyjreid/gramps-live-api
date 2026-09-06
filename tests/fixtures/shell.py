@@ -120,15 +120,26 @@ def _candidates(flavour: Flavour) -> list[Path]:
 def utility_directory(shell: Path) -> Path:
     """The directory holding the ``tr``, ``sed`` and ``grep`` a hook's shell reaches.
 
-    ⛔ **Not ``shell.parent``, and the difference is only visible on the fallback
-    candidate.** The distribution's ``usr`` subtree holds the whole utility set;
-    its top-level ``bin`` holds three executables -- ``git``, ``sh`` and ``bash``
-    -- and nothing else. So a caller deriving the directory from whichever shell
-    it happened to get is right for the first candidate and silently wrong for
-    the second, which is the shape this module exists to refuse one level up.
+    ⛔ **Not ``shell.parent``**, which is right for the first candidate and an
+    accident for the second: the distribution's ``usr`` subtree holds the whole
+    utility set -- 245 executables here, ``tr`` among them -- while its top-level
+    ``bin`` holds three, ``git``, ``sh`` and ``bash``.
 
-    ⭐ Derived the way ``_candidates`` derives the shells themselves, from the
-    distribution root, so the answer does not depend on which candidate answered.
+    ⚠️ **And "an accident" is the measured word, not "wrong".** The shell converts
+    an inherited Windows PATH entry into a POSIX one, and its runtime then
+    resolves the top-level ``bin`` onto the ``usr`` one behind it: handed only
+    the three-executable directory, ``command -v tr`` answers out of it
+    perfectly happily. So the fallback
+    candidate's own directory would have supplied the utilities after all, and
+    **no test in this repository can tell the two derivations apart.** That is
+    recorded rather than papered over -- claiming a defect here that cannot be
+    shown breaking would be worth less than saying so.
+
+    ⭐ What the change buys is that the answer no longer rests on that mapping,
+    which is a property of the runtime rather than of anything this suite states,
+    and no longer depends on which candidate happened to answer. It is derived
+    the way ``_candidates`` derives the shells themselves, from the distribution
+    root.
 
     Off Windows the shell's own directory IS the utility directory -- there is no
     second layout to be wrong about, and ``_candidates`` locates the shell there
