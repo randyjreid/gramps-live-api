@@ -126,6 +126,12 @@ def _a_repository(tmp_path: Path) -> Path:
 
 _THIS_RUNS_PYTHON = object()
 
+# ⭐ The negative control's interpreter setting: the same pointer at nothing that
+# ``interpreter=None`` uses, and **no shadow planted behind it**. Everything else
+# about the run -- the shell, the working directory, the ref line, the rest of the
+# environment -- is the same, so the shadow is the only variable between them.
+_NOTHING_IS_PLANTED = object()
+
 # ⛔ **The precondition that makes the shadow LOAD-BEARING, run in the hook's own
 # shell, with the hook's own environment and working directory.**
 #
@@ -171,6 +177,46 @@ for name in python python3; do
         exit 6
     fi
 done
+"""
+
+
+def _the_hooks_own_path(shell: str, ahead: Path | None = None) -> str:
+    """⛔ The PATH git gives a hook: the shell's own utility directory, then the rest.
+
+    ⚠️ **Measured, and it is the reason this function exists.** A real
+    ``git push`` on this machine, launched from a shell where Git's utility
+    directory is not on PATH, hands its pre-push hook a ``tr`` and a ``sed`` out
+    of that directory: git puts it there itself. This fixture did not, and
+    once the shell stopped being ambient the committed hook's first command --
+    ``tr``, on the line that derives the all-zero object id -- was **not found**,
+    so that derivation silently took its ``|| echo`` fallback. Launched from Git
+    Bash the same fixture found ``tr``, because that launcher had already put the
+    directory on PATH.
+
+    ⭐ **That is this issue's own shape one layer down**, and it was invisible
+    while the shell was ambient: the utility a shell can reach was supplied by
+    whoever launched pytest, not by the fixture.
+
+    ``ahead`` goes in front of everything, so a planted shadow still wins.
+    """
+    parts = [str(Path(shell).parent), os.environ.get("PATH", "")]
+    if ahead is not None:
+        parts.insert(0, str(ahead))
+    return os.pathsep.join(part for part in parts if part)
+
+
+# ⭐ Asked in the hook's own shell, because that is where the answer differs: the
+# question is not whether THIS interpreter runs, it is whether the shell the hook
+# is executed by can find one on the PATH it inherits.
+_A_PATH_CANDIDATE_THAT_RUNS = """\
+set -u
+for name in python3 python; do
+    if "$name" -c '' >/dev/null 2>&1; then
+        echo "$name"
+        exit 0
+    fi
+done
+exit 1
 """
 
 
@@ -225,11 +271,17 @@ def _push(
     the wrong reason: the hook was refusing every push because it could not run
     the guard at all, which looks exactly like the guard finding something. Pass
     ``None`` to exercise that path deliberately.
+
+    ⭐ ``_NOTHING_IS_PLANTED`` is that same pointer at nothing with **no shadow
+    behind it**, which is the negative control below: one variable between them.
     """
     shell = _hook_shell()
     environment = dict(os.environ)
+    environment["PATH"] = _the_hooks_own_path(shell)
     if interpreter is _THIS_RUNS_PYTHON:
         environment["GRAMPS_LIVE_API_PYTHON"] = sys.executable
+    elif interpreter is _NOTHING_IS_PLANTED:
+        environment["GRAMPS_LIVE_API_PYTHON"] = str(repo / "no-such-python")
     elif interpreter is None:
         environment["GRAMPS_LIVE_API_PYTHON"] = str(repo / "no-such-python")
         # ⛔ Hide PYTHON, not everything. Emptying PATH also hid **git**, so the
@@ -245,7 +297,7 @@ def _push(
             for path in (shadow / name, shadow / f"{name}.bat"):
                 path.write_text("#!/bin/sh" + chr(10) + "exit 1" + chr(10), encoding="utf-8")
                 path.chmod(0o755)
-        environment["PATH"] = str(shadow) + os.pathsep + environment.get("PATH", "")
+        environment["PATH"] = _the_hooks_own_path(shell, ahead=shadow)
         _the_shadow_must_decide(shell, repo, environment, shadow)
     else:
         environment["GRAMPS_LIVE_API_PYTHON"] = str(interpreter)
@@ -434,6 +486,47 @@ def test_the_shell_this_file_runs_the_hook_with_COMES_FROM_GIT() -> None:
         )
 
 
+def test_the_hook_gets_the_UTILITIES_a_real_git_push_would_give_it() -> None:
+    """⛔ A pinned shell with an unpinned PATH runs the hook in a way git never does.
+
+    ⚠️ **Measured on this machine, from a shell where Git's utility directory is
+    not on PATH:** a real ``git push`` hands its pre-push hook the ``tr`` that
+    lives in that directory.
+    The moment this file stopped taking whatever shell PATH offered, it stopped
+    handing it anything -- and the committed hook's very first command is ``tr``,
+    on the line deriving the all-zero object id. It was not found, the derivation
+    fell through to its ``|| echo`` literal, and nothing said so. Launched from
+    Git Bash the same code found ``tr``, because that launcher had already put
+    the directory on PATH.
+
+    ⭐ So this asserts the second half of the pin. Pinning the shell binary while
+    leaving what the shell can REACH to the launching environment is the same
+    defect with a smaller blast radius, and it would have been invisible: every
+    assertion in this file stays green either way, because the fallback is
+    correct for a SHA-1 repository.
+
+    ``tr`` by name because it is the utility the committed hook actually calls;
+    if the hook stops calling it, this test is measuring the wrong thing and
+    should be pointed at whatever replaced it.
+    """
+    shell = _hook_shell()
+
+    resolved = subprocess.run(
+        [shell, "-c", "command -v tr"],
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        env={**os.environ, "PATH": _the_hooks_own_path(shell)},
+    )
+
+    assert resolved.returncode == 0 and resolved.stdout.strip(), (
+        "the fixture did not build the case: the hook is run through a shell that "
+        "cannot find tr, which git's own hook environment supplies -- so the hook's "
+        "all-zero derivation takes a fallback here that it never takes under git"
+    )
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="the mode bit is not meaningful on Windows")
 def test_the_hook_is_executable() -> None:
     """⚠️ Git silently ignores a hook it cannot execute. Nothing reports it."""
@@ -473,6 +566,71 @@ def test_a_MISSING_interpreter_refuses_the_push_and_says_it_is_NOT_a_finding(
         "the refusal reads as though personal data was found, when the gate "
         f"simply could not run: {combined}"
     )
+
+
+def test_the_SHADOW_is_what_refuses_that_push_and_not_the_machine(tmp_path: Path) -> None:
+    """⛔ The negative control for the test above: take the shadow away and it passes.
+
+    ⚠️ **This control is CARRIED BY CI, and its local skip is not coverage.** On
+    the machine this was written on the ambient ``python`` and ``python3`` are the
+    Microsoft Store shim, which exists, is executable and fails on every
+    invocation -- so the hook refuses with or without the shadow and the control
+    cannot tell the two apart. It probes for that first and skips saying so. On a
+    runner where a real interpreter is on PATH it runs, and it bites.
+
+    ⭐ The layer that fires everywhere is the precondition inside ``_push``, which
+    asserts that the candidates the hook is about to try are the planted stubs.
+    This is the second layer, not the only one, and it is the weaker of the two.
+    """
+    repo = _a_repository(tmp_path)
+    base = _head(repo)
+    (repo / "notes.md").write_text("an ordinary line of prose\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "clean")
+
+    # ⚠️ Only the two PATH candidates are probed. The two before them in the
+    # hook's list cannot resolve here -- GRAMPS_LIVE_API_PYTHON is about to point
+    # at a file that does not exist, and the throwaway repository has no .venv,
+    # asserted rather than assumed -- and an over-narrow probe here costs a skip
+    # that could have run, never a pass that measured nothing.
+    assert not (repo / ".venv").exists(), (
+        "the fixture did not build the case: a .venv in the throwaway repository "
+        "would be tried before anything on PATH, so this probe would not be asking "
+        "about the interpreter the hook will actually use"
+    )
+    shell = _hook_shell()
+    runnable = subprocess.run(
+        [shell, "-c", _A_PATH_CANDIDATE_THAT_RUNS],
+        cwd=repo,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        # The same PATH the push below will get, so the probe answers about the
+        # run it is deciding, not about this process.
+        env={**os.environ, "PATH": _the_hooks_own_path(shell)},
+    )
+    if runnable.returncode != 0:
+        pytest.skip(
+            "no interpreter the hook would try can execute here, so the push is "
+            "refused with and without the shadow directory and this control cannot "
+            "tell them apart -- on this development machine the ambient python and "
+            "python3 are the Microsoft Store shim. It is carried by CI, where a real "
+            "interpreter is on PATH. What still holds locally is the precondition "
+            "inside _push, seam twin "
+            "test_a_MISSING_interpreter_refuses_the_push_and_says_it_is_NOT_a_finding, "
+            "which asserts that the candidates the hook resolves are the planted stubs "
+            "and that each of them fails"
+        )
+
+    result = _push(repo, _head(repo), base, interpreter=_NOTHING_IS_PLANTED)
+
+    combined = result.stdout + result.stderr
+    assert result.returncode == 0, (
+        "the same clean push was refused with no shadow planted, so the refusal in "
+        f"the test above is not evidence that the shadow caused it: {combined}"
+    )
+    assert "no working Python" not in combined, combined
 
 
 def test_a_TAG_pointing_at_a_BLOB_is_refused_rather_than_skipped(tmp_path: Path) -> None:
