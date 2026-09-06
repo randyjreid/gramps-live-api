@@ -8,10 +8,18 @@ row: the fabricated row is visible in that diff and **the omitted one is not.**
 
 ⚠️ **No network, and no fetched artifact.** These declarations are assembled
 here, so the property is asserted on every run rather than on the days somebody
-has the three files to hand. The committed table is checked separately: the byte
-reproduction runs on every suite run in ``test_derived_tables_reproduce.py``, and
-what stays a hand step is the re-fetch and the comparison against the digests
-recorded in the derivation note.
+has the three files to hand. The committed table is checked separately, in
+``test_derived_tables_reproduce.py`` and on every suite run: ``emit`` is driven
+with the arguments the committed module records and the result is compared
+against the committed file **read with universal newlines**, which is not a byte
+comparison and deliberately not one -- ``core.autocrlf`` makes raw bytes differ
+between a Windows checkout and a Linux runner for reasons that have nothing to
+do with drift. ⛔ **That reproduction is vacuous for the rows**, which are its
+own input; what it binds is the generator's header, the docstrings it emits and
+its formatting rules. What is not vacuous is the binding beside it: the content
+models and declared types this table carries must be the ones the script itself
+selects with. What stays a hand step is the re-fetch and the comparison against
+the digests recorded in the derivation note.
 
 The script is not an importable module -- it is a hand-run build step in
 ``scripts/`` -- so it is loaded by path. That is deliberate: making it importable
@@ -21,6 +29,7 @@ guard nor allowed to become one.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 from pathlib import Path
 from types import ModuleType
@@ -312,4 +321,53 @@ def test_a_fixed_default_never_reaches_the_emitted_module_as_one_literal() -> No
     )
     assert all(piece in emitted for piece in defaults[0][2]), (
         f"and the pieces it is split into are all there: {defaults}"
+    )
+
+
+def _emitted_value(module_text: str, name: str) -> object:
+    """One annotated assignment of ``module_text``, evaluated.
+
+    ``ast.literal_eval`` rather than ``exec``: the question is what the emitted
+    text MEANS, and a module that is executed to answer it is a module whose
+    answer depends on running generated code.
+    """
+    for node in ast.parse(module_text).body:
+        target = getattr(node, "target", None)
+        if isinstance(node, ast.AnnAssign) and isinstance(target, ast.Name) and target.id == name:
+            assert node.value is not None, f"{name} is annotated in the emitted module but unset"
+            return ast.literal_eval(node.value)
+    raise AssertionError(f"the emitted module has no assignment to {name}")
+
+
+def test_a_fixed_default_is_emitted_as_a_tuple_however_many_pieces_it_has() -> None:
+    """⛔ **A one-piece default was emitted as a parenthesised STRING, not a tuple.**
+
+    ``("value")`` is a string. The emitted module then contradicts the
+    annotation it carries -- mypy reads that row as ``tuple[str, str, str]`` --
+    and the round trip in ``test_derived_tables_reproduce.py`` reads the string
+    back, iterates it CHARACTER by character and reports the table as a hand
+    edit. A schema fixing a value with no separator in it is ordinary input, so
+    the misdiagnosis would arrive on a correct derivation.
+
+    ⚠️ **Quantified over the piece count**, not asserted on the one-piece case
+    alone: the repair is a trailing comma written only when there is one piece,
+    and a repair that moved the many-piece spelling would force a regeneration
+    of the committed table for nothing.
+    """
+    derivation = _derivation()
+    misemitted = []
+
+    for value in ("aninventedfixedvalue", "an/invented/fixed/value"):
+        rows, defaults = derivation.attributes_of(
+            _attlist(_definition(_ATTRIBUTE, "CDATA", '#FIXED "' + value + '"'))
+        )
+        emitted = derivation.emit([], derivation.elements_of(""), rows, defaults, set())
+        written = _emitted_value(emitted, "FIXED_ATTRIBUTE_DEFAULTS")
+        expected = ((_ELEMENT, _ATTRIBUTE, tuple(value.split("/"))),)
+        if written != expected:
+            misemitted.append(f"{value!r} -> {written!r}")
+
+    assert misemitted == [], (
+        f"a #FIXED default is emitted as the tuple of pieces it is, and these were not: "
+        f"{misemitted}"
     )

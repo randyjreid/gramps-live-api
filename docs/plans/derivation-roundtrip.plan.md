@@ -128,13 +128,24 @@ is a fourth copy of a four line loader; consolidating the four is out of scope.
 4. `assert not divergence, message`, never `assert emitted == committed`, so pytest does not
    dump both copies of a 450 line module.
 
-### Test 2: the label binding, `_unrenderable` only
+### Test 2: the label binding, `_unrenderable` -- and the same for `_specified_containers`
 
 The equality above, in the same file, sectioned beside the round trip so a reader meets the
 round trip's limit next to the thing that covers it. `_note_types` needs no equivalent: its
 three selection constants are emitted into the table and are already bound by test 1.
-`_specified_containers` has no selection constant that reaches its output, so it gets no
-equivalent either, and that is recorded rather than invented.
+
+⛔ **This section said `_specified_containers` has no selection constant reaching its output, and
+that was false.** `derive_specified_containers.emit` names none, which is what the claim was read
+off, but the script's selecting constants reach the table **as data, in a column**: `content_model`'s
+returns are the second column of `SPECIFIED_ELEMENTS`, and the name the parser gives an enumerated
+attribute is the third column of every enumerated row. A round trip hands both straight back, so
+renaming either left the committed table stale with nothing failing for it -- measured once per
+constant on this branch, each run coming back with the same single documented baseline failure an
+unmutated run does. The pair therefore gets a binding of its own, built in the fix round:
+every content model the table carries must be one `content_model` returns, and the name the
+parser gives an enumerated attribute must be carried by the table. The reverse direction for the
+models is deliberately not asserted, and the file says why: a model no element in the schema
+exhibits regenerates to the identical table, so its absence is not drift.
 
 ### Test 3: positive controls, per case
 

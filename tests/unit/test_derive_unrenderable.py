@@ -12,10 +12,16 @@ pairs.
 
 ⚠️ **No network, and no fetched artifact.** These lines are assembled here, so
 the property is asserted on every run rather than on the days somebody has the
-two files to hand. The committed table is checked separately: the byte
-reproduction and the label binding run on every suite run in
-``test_derived_tables_reproduce.py``, and what stays a hand step is the re-fetch
-and the comparison against the digests recorded in the derivation note.
+two files to hand. The committed table is checked separately, in
+``test_derived_tables_reproduce.py`` and on every suite run: the reproduction
+compares ``emit``'s output against the committed file **read with universal
+newlines**, which is not a byte comparison and deliberately not one --
+``core.autocrlf`` makes raw bytes differ between a Windows checkout and a Linux
+runner for reasons that have nothing to do with drift. ⛔ **That reproduction is
+vacuous for the rows**, which are its own input; the label binding beside it is
+the half that is not, and it is what catches a class that moved with the table
+left unregenerated. What stays a hand step is the re-fetch and the comparison
+against the digests recorded in the derivation note.
 
 The script is not an importable module -- it is a hand-run build step in
 ``scripts/`` -- so it is loaded by path, exactly as C1's derivation test loads

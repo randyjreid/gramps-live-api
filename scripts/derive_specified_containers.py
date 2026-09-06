@@ -361,7 +361,21 @@ def emit(
 
     lines.append("FIXED_ATTRIBUTE_DEFAULTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (")
     for element, attribute, pieces in fixed_defaults:
+        # ⚠️ **A ONE-PIECE DEFAULT IS STILL A TUPLE, and without the trailing
+        # comma it is not.** `("value")` is a parenthesised string: the emitted
+        # module would then contradict the annotation on the line above -- mypy
+        # reads that row as `tuple[str, str, str]` and refuses -- and the round
+        # trip in `test_derived_tables_reproduce.py` would read the string back,
+        # iterate it CHARACTER by character and report a hand edit. A value the
+        # schema fixes with no separator in it is ordinary input, so the
+        # misdiagnosis would arrive on a correct derivation.
+        #
+        # ⛔ **Written for the one-piece case ALONE, so the committed table's
+        # bytes do not move.** A trailing comma on every row would be tidier and
+        # would force a regeneration for no gain in what the file says.
         written = ", ".join(quoted(piece) for piece in pieces)
+        if len(pieces) == 1:
+            written += ","
         lines.append(f"    ({quoted(element)}, {quoted(attribute)}, ({written})),")
     lines.append(")")
     lines.append('"""Every value the schema FIXES an attribute at, split at each separator.')
