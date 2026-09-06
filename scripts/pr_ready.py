@@ -22,12 +22,19 @@ settled the interpreter question: stop re-implementing the judgement in prose an
 run it.** A script cannot forget ``state``, cannot decide a stale reaction looks
 recent enough, and cannot round "answered" up to "resolved".
 
-⚠️ **The second row is now ANSWERED rather than refused outright, and the
-distinction matters.** A reaction still carries no ``commit_id``; what ties it to
-a head is the branch's own arrival log, which no push can backdate. #233 records
-what the blanket refusal cost -- a pull request the bot had passed, reported NOT
-READY, and **an instrument nobody trusts gets overridden by argument**, which
-happened twice. The refusal remains for every reaction that cannot be placed.
+⚠️ **The second row was ANSWERED for nine commits, and the answer is
+WITHDRAWN.** #233 records what the blanket refusal costs -- a pull request the
+bot had passed, reported NOT READY -- and a grant was built for it: a reaction
+tied to a head by the branch's own arrival log. **It drew thirteen blocking
+findings across three review rounds, eleven of them a false READY**, and one of
+those lived inside an earlier round's own repair.
+
+⭐ *No state produces a spurious grant* is a universally quantified negative over
+an unbounded input space and has no fixed point. *Never grant on a bare thumb*
+closes. **A reaction carries no ``commit_id``, so it is EVIDENCE and never a
+verdict.** The report still reads it, still prints it, and names it in the
+refusal so the reader knows the bot passed and left no comment naming this head.
+An instrument reports; a human decides.
 
 **The exit code is the verdict. The output is the evidence.** Nothing downstream
 should restate either.
@@ -44,7 +51,7 @@ import json
 import subprocess
 import sys
 from datetime import datetime, timezone
-from typing import Any, NamedTuple
+from typing import Any
 
 REPOSITORY = "randyjreid/gramps-live-api"
 
@@ -83,13 +90,6 @@ CLEAN_PHRASES = ("didn't find any major issues", "didn't find any issues", "no m
 # request's diff. A literal here would be a review request written into a file --
 # the same reason CONTRIBUTING forbids the phrase in prose.
 TRIGGER = "@" + "codex" + " " + "review"
-
-# ⛔ **The TWO shapes a clean verdict arrives in**, named in the output so a
-# reader can tell which one the verdict rests on. The gate definition's §5 gives
-# both: a 👍 from the bot, or a review naming the final head declaring no issues.
-# ⚠️ This file accepted only the second for its whole life, and #233 is the cost.
-SHAPE_COMMENT = "comment naming head"
-SHAPE_THUMB = "bare +1, head unmoved"
 
 
 def _gh(*arguments: str) -> str:
@@ -213,41 +213,6 @@ def _is_bot(login: object) -> bool:
     return str(login or "") in BOT_LOGINS
 
 
-def _author(row: dict[str, Any]) -> str | None:
-    """Who published this row, or ``None`` when the read DID NOT SAY.
-
-    ⛔ **Three answers, not two: the bot, somebody else, and unreadable.** The
-    bot filter asks one question -- *is this login the bot's?* -- and a row whose
-    ``user`` is absent, null, or not an object answers *no* for a reason that has
-    nothing to do with who wrote it. The row is then dropped, and a dropped row
-    on a DENYING endpoint reads as bot silence.
-
-    ⚠️ Absence of an author cannot show the bot did not publish it, which is this
-    project's recorded defect class one more time: an unanswered question
-    presented as an answer.
-    """
-    user = row.get("user")
-    if not isinstance(user, dict):
-        return None
-    login = user.get("login")
-    if not isinstance(login, str) or not login:
-        return None
-    return login
-
-
-def _unsigned_stamps(*groups: tuple[list[dict[str, Any]], str]) -> list[str]:
-    """When each artifact with NO readable author was published; ``""`` if unstamped.
-
-    ⭐ Carried to the verdict rather than filtered out, so shape B can refuse a
-    row it cannot classify instead of counting it as quiet. Each group is
-    ``(rows, the field that timestamps them)`` because the three endpoints do not
-    agree on the name.
-    """
-    return [
-        str(row.get(field) or "") for rows, field in groups for row in rows if _author(row) is None
-    ]
-
-
 def _same_row(one: dict[str, Any], other: dict[str, Any]) -> bool:
     """Are these two reads showing the SAME row?
 
@@ -260,39 +225,20 @@ def _same_row(one: dict[str, Any], other: dict[str, Any]) -> bool:
     return one == other
 
 
-def _both_reads(first: list[dict[str, Any]], second: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Every row EITHER read saw. ⛔ **For DENYING evidence, a reread may not forget.**
-
-    ⚠️ The endpoints that carry the bot's findings are read twice -- once while
-    gathering, once at the verdict -- and the second read was trusted alone. A
-    review observed in the first read and missing from the second (an empty
-    answer, a short page, a replica behind) was then discarded, and a fresh thumb
-    with otherwise clean gates printed READY over a finding already seen.
-
-    ⭐ Union rather than a regression check, because for evidence that can only
-    refuse there is nothing to trade: keeping both reads is always at least as
-    strict as either one, and it needs no new failure path.
-    """
-    merged = list(first)
-    for row in second:
-        if not any(_same_row(row, seen) for seen in merged):
-            merged.append(row)
-    return merged
-
-
 def _still_granted(
     first: list[dict[str, Any]], second: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Rows the SECOND read still shows. ⛔ **The opposite rule, for the other direction.**
+    """Rows the SECOND read still shows. ⛔ **Granting evidence must SURVIVE to the verdict.**
 
-    ⚠️ This file used to record that reactions need no reread because *a
-    reaction only ever grants*. **Deletion disproves that**: a +1 present when
-    the sweep began and removed before the verdict left a stale grant standing.
+    ⚠️ Named input: the bot posts a clean comment naming this head at 09:07, the
+    sweep reads it, the comment is DELETED before the verdict is pronounced, and
+    the final read lacks it. Built from the first read alone, that comment still
+    granted -- READY over a body no longer carrying a clean signal.
 
     ⭐ And the remedy is CONFIRMATION, not replacement. Taking the second read
-    alone would let a +1 that arrived mid-sweep grant a verdict on evidence
-    gathered before it -- the widening the original comment was right to refuse.
-    The intersection refuses both ways.
+    alone would let a clean comment that arrived mid-sweep grant a verdict on
+    evidence gathered before it: the checks, the threads and the head were all
+    read before it existed. The intersection refuses both ways.
     """
     return [row for row in first if any(_same_row(row, other) for other in second)]
 
@@ -307,9 +253,9 @@ def _ready_for_review(meta: dict[str, Any]) -> list[str] | None:
     question is refused rather than skipped.
 
     ⚠️ **A missing event would leave T too EARLY**, which is the permissive
-    direction: a reaction from the round before would then postdate it and read
-    as fresh. That is this project's most-recorded defect, an empty read
-    presented as an absence.
+    direction: the PREVIOUS round's clean comment would then postdate it and read
+    as this round's verdict. That is this project's most-recorded defect, an
+    empty read presented as an absence.
     """
     timeline = meta.get("timelineItems")
     if not isinstance(timeline, dict):
@@ -331,36 +277,16 @@ def _both_timelines(first: list[str] | None, second: list[str] | None) -> list[s
 
     ⚠️ T is built from this, and T going BACKWARDS between two reads is the
     permissive direction: a mark-ready observed while gathering and missing from
-    the final answer would drop T back to the open time, and a reaction from the
-    round before would postdate it and read as fresh.
+    the final answer would drop T back to the open time, and the clean comment
+    from the round before would postdate it and read as this round's verdict.
 
-    ⭐ Union rather than a regression check, for the same reason ``_both_reads``
-    unions: every term here can only ever move T later, and later is stricter.
+    ⭐ Union rather than a regression check: every term here can only ever move
+    T later, and later is stricter. There is nothing to trade, so keeping both
+    reads needs no new failure path.
     """
     if first is None or second is None:
         return None
     return sorted(set(first) | set(second))
-
-
-def _settled_branch(gathered: str, final: str) -> tuple[str, str]:
-    """Which branch's history may be read, and a reason it may not be.
-
-    ⛔ **The FINAL read decides**, exactly as it decides the head SHA and the
-    base tip. The name captured while gathering is provisional: a final metadata
-    answer that omits or nulls ``headRefName`` left the cached one standing, and
-    shape B then judged a branch whose identity the verdict's own read could not
-    confirm.
-
-    ⚠️ **A rename keeps the head SHA**, so ``_judge``'s head comparison says
-    nothing about it -- and the activity read would go on to ask a different ref
-    about this one's quiet. Disagreement between the two reads is refused rather
-    than resolved in either read's favour.
-    """
-    if not final:
-        return "", "the head branch name was not in the final metadata read"
-    if gathered and gathered != final:
-        return "", f"the head branch was renamed while this sweep ran ({gathered} -> {final})"
-    return final, ""
 
 
 def _round_began(created_at: str, latest_trigger: str, ready_events: list[str]) -> str:
@@ -377,225 +303,28 @@ def _round_began(created_at: str, latest_trigger: str, ready_events: list[str]) 
 
     ⚠️ ``latest_trigger`` is ``""`` when no round was ever asked for, and ``""``
     sorts before every timestamp -- so it loses, which is what it should do.
-    **``created_at`` is the floor and it is never empty on a real read**; the
-    caller refuses shape B outright if it is, because a T of ``""`` would let
-    every reaction ever left read as fresh.
+    **``created_at`` is the floor and it is never empty on a real read**;
+    ``_round_start`` refuses outright if it is, because a T of ``""`` would let
+    every clean comment ever posted read as this round's verdict.
     """
     return max([created_at, latest_trigger, *ready_events])
 
 
 def _round_start(created_at: str, latest_trigger: str, ready_events: list[str] | None) -> str:
-    """T for BOTH shapes, or ``""`` when it cannot be computed.
+    """T, or ``""`` when it cannot be computed.
 
     ⛔ **``""`` is a refusal and never a floor.** Callers must not compare
     against it: ``""`` sorts before every timestamp, so every artifact ever
     published would postdate it -- absence of evidence becoming permission one
     more time.
 
-    ⭐ One function, so the two clean shapes cannot hold two answers to the same
-    question. Shape A's comment and shape B's reaction are both judged against
-    the instant this returns.
+    ⭐ The clean comment is judged against the instant this returns, and against
+    nothing else. A second answer to *when did this round begin* is this
+    project's most-recorded defect class, so there is exactly one.
     """
     if not created_at or ready_events is None:
         return ""
     return _round_began(created_at, latest_trigger, ready_events)
-
-
-class _Thumb(NamedTuple):
-    """Shape B's answer. ⛔ **``accepted`` is evidence; ``reason`` is refusal.**
-
-    ⚠️ Exactly one is truthy, and the caller requires BOTH signals to agree
-    before it counts the reaction. Two independent conditions rather than one,
-    because a single slipped branch in a function this long would otherwise turn
-    an unwritten reason into permission -- which is the only direction this file
-    exists to prevent.
-    """
-
-    accepted: dict[str, Any] | None
-    reason: str
-
-
-def _bare_thumb_clean(
-    bot_reactions: list[dict[str, Any]],
-    bot_reactions_now: list[dict[str, Any]],
-    bot_reviews: list[dict[str, Any]],
-    bot_inline: list[dict[str, Any]],
-    bot_conversation: list[dict[str, Any]],
-    unsigned: list[str],
-    activity: list[dict[str, Any]],
-    head: str,
-    head_ref: str,
-    created_at: str,
-    latest_trigger: str,
-    ready_events: list[str] | None,
-) -> _Thumb:
-    """Is a bare 👍 on the body a clean verdict on THIS head? ⛔ **Fails closed.**
-
-    ⭐ **The gate definition names two clean shapes and this file only accepted
-    one.** §5: clean is either a 👍 from the bot, or a review naming the final
-    head declaring no issues. On #232 the bot wrote no comment at all -- its
-    entire output was one reaction -- and this script counted that reaction,
-    printed it, and said NOT READY. **A false NOT-READY is the safe direction and
-    it is still a defect**: an instrument nobody trusts gets overridden by
-    argument, which happened twice.
-
-    ⛔ **A reaction carries no ``commit_id`` and never can be tied to a head by
-    itself.** So the association is built out of three facts instead, all judged
-    against T -- the instant the current round began (``_round_began``):
-
-    1. the reaction POSTDATES T, so it belongs to this round rather than a past one;
-    2. the branch has not moved: the log shows this head arriving, and shows no
-       event of any kind after T;
-    3. the bot has published NOTHING since T. If it spoke, its artifact governs.
-
-    ⚠️ **Condition 2 does not rest on committer dates**, which this file records a
-    few hundred lines up as unsound: a commit created before a verdict and pushed
-    after it carries a date that predates the verdict. The ref's own arrival log
-    is the fact that a push cannot backdate.
-
-    ⚠️ **Every unreadable input REFUSES rather than being skipped.** An empty
-    activity log, a missing open time, a timeline that did not answer, an
-    artifact with no timestamp, an activity row with no ref, an artifact with no
-    readable author: each of them, left alone, would make the comparison silently
-    vacuous and the reaction look fresh.
-
-    ⛔ **``bot_reactions_now`` is the SAME body read again, and the reaction must
-    be in both.** A reaction can be deleted, so a stale read does not only ever
-    lose a grant -- and confirmation rather than replacement is what stops the
-    reread from also widening. See ``_still_granted``.
-    """
-    if not head:
-        return _Thumb(None, "the head SHA was not read, so no reaction can be tied to it")
-    if not head_ref:
-        return _Thumb(None, "the head branch name was not read, so its history cannot be found")
-    if not created_at:
-        return _Thumb(
-            None,
-            "the pull request's open time was not read, so the current round has no start "
-            "-- without it every reaction ever left would read as fresh",
-        )
-    if ready_events is None:
-        return _Thumb(
-            None,
-            "the ready-for-review timeline could not be read -- marking a draft ready "
-            "starts a round, and a round that started cannot be shown not to have",
-        )
-    began = _round_start(created_at, latest_trigger, ready_events)
-
-    # -- 1. a reaction belonging to THIS round -------------------------------
-    thumbs = [r for r in bot_reactions if r.get("content") == "+1"]
-    if not thumbs:
-        return _Thumb(None, "no bot +1 on the pull request body")
-    present = _still_granted(thumbs, [r for r in bot_reactions_now if r.get("content") == "+1"])
-    if not present:
-        return _Thumb(
-            None,
-            "the bot's +1 is no longer on the pull request body -- it was there when this "
-            "sweep began and the final read does not show it, so no clean signal stands",
-        )
-    fresh = [r for r in present if str(r.get("created_at") or "") > began]
-    if not fresh:
-        return _Thumb(
-            None,
-            f"the bot's +1 predates the start of the current round ({began}) -- "
-            "it is a verdict on an earlier one",
-        )
-
-    # -- 2. a branch that has not moved since ---------------------------------
-    #
-    # ⚠️ Filtered by ref HERE as well as in the query. The read asks for one
-    # ref, and a server that ignored that parameter would otherwise let another
-    # branch's quiet stand in for this one's.
-    #
-    # ⛔ **A row with NO ref is refused before the filter runs**, because the
-    # filter drops what it cannot match and a dropped row reads as quiet. The
-    # queried log cannot show where an unlabelled row belongs, and an unlabelled
-    # push after T is exactly the movement this condition exists to see.
-    ref = f"refs/heads/{head_ref}"
-    if any(not str(row.get("ref") or "") for row in activity):
-        return _Thumb(
-            None,
-            "an activity row carries no ref, so the log cannot show which branch it "
-            "belongs to -- an unlabelled row may be this branch's",
-        )
-    mine = [row for row in activity if str(row.get("ref") or "") == ref]
-    if not mine:
-        return _Thumb(
-            None,
-            f"no activity rows for {ref} -- an empty read is not proof the head has not moved",
-        )
-    if any(not str(row.get("timestamp") or "") for row in mine):
-        return _Thumb(None, "an activity row carries no timestamp, so the branch cannot be ordered")
-    if not any(str(row.get("after") or "") == head for row in mine):
-        return _Thumb(
-            None,
-            f"no activity row shows {head[:12]} arriving on {head_ref}, so nothing in the "
-            "log is about the commit this verdict would be about",
-        )
-    since = [row for row in mine if str(row.get("timestamp") or "") > began]
-    if since:
-        newest = max(since, key=lambda row: str(row.get("timestamp") or ""))
-        return _Thumb(
-            None,
-            f"the branch moved after the current round began: {newest.get('activity_type')} "
-            f"at {newest.get('timestamp')} > {began}",
-        )
-
-    # -- 3. a bot that has published nothing since ----------------------------
-    for what, rows, field in (
-        ("review", bot_reviews, "submitted_at"),
-        ("inline comment", bot_inline, "created_at"),
-        ("conversation comment", bot_conversation, "created_at"),
-    ):
-        for row in rows:
-            when = str(row.get(field) or "")
-            if not when:
-                return _Thumb(None, f"a bot {what} carries no timestamp and cannot be placed")
-            if when > began:
-                return _Thumb(
-                    None,
-                    f"the bot published a {what} at {when}, after the current round began "
-                    f"({began}) -- that artifact is the verdict, not the reaction",
-                )
-
-    # ⛔ **And the artifacts nobody can attribute**, which the bot filter above
-    # never saw because it dropped them. A row from an earlier round is harmless
-    # whoever wrote it, so only the ones that cannot be placed BEFORE T refuse --
-    # anything wider would refuse every pull request with a deleted account in
-    # its thread.
-    for when in unsigned:
-        if not when:
-            return _Thumb(
-                None,
-                "an artifact carries neither a timestamp nor a readable author, so it "
-                "cannot be shown to belong to an earlier round",
-            )
-        if when > began:
-            return _Thumb(
-                None,
-                f"an artifact published at {when} has no readable author and postdates the "
-                f"start of the current round ({began}) -- an absent author cannot show the "
-                "bot did not publish it",
-            )
-
-    return _Thumb(max(fresh, key=lambda r: str(r.get("created_at") or "")), "")
-
-
-def _clean_shape(accepted_clean: list[dict[str, Any]], thumb: _Thumb) -> str:
-    """Which of the two clean shapes this head has, or ``""`` for neither.
-
-    ⛔ **``""`` is what blocks**, and it is the only thing that does: the shapes
-    are alternatives, exactly as §5 states them, and the comment is sufficient
-    rather than necessary.
-
-    ⚠️ Shape B is read from BOTH of ``_Thumb``'s fields. One of them alone would
-    be a single branch standing between a long function and a false READY.
-    """
-    if accepted_clean:
-        return SHAPE_COMMENT
-    if thumb.accepted is not None and not thumb.reason:
-        return SHAPE_THUMB
-    return ""
 
 
 def _request_arrived_mid_sweep(before: str, after: str) -> str:
@@ -706,11 +435,15 @@ def _metadata(pull: int) -> dict[str, Any]:
     along: the live base tip and the base the head was verified against come back
     **in the same answer**, which is what makes the comparison meaningful.
     """
-    # ⛔ ``createdAt``, ``headRefName`` and the ready-for-review events ride here
-    # rather than in reads of their own, for the reason the docstring gives: the
-    # facts a verdict rests on must come back in ONE answer or they can disagree
-    # about when they were true. They are deliberately NOT in ``METADATA_FIELDS``
-    # -- ``_judge`` does not judge them; shape B refuses without them.
+    # ⛔ ``createdAt`` and the ready-for-review events ride here rather than in
+    # reads of their own, for the reason the docstring gives: the facts a verdict
+    # rests on must come back in ONE answer or they can disagree about when they
+    # were true. They are deliberately NOT in ``METADATA_FIELDS`` -- ``_judge``
+    # does not judge them; the clean comment is refused without them.
+    #
+    # ⚠️ ``headRefName`` rode here too, for the branch-activity read that tied a
+    # bare 👍 to a head. #233 withdrew that grant, so nothing asks a branch about
+    # its own quiet any more and the field is gone with its only consumer.
     #
     # ⚠️ ``last:100``, never ``first``. ``first`` anchors at the OLDEST end, so on
     # a long timeline it would return the earliest events and miss the newest --
@@ -720,7 +453,7 @@ def _metadata(pull: int) -> dict[str, Any]:
         '{repository(owner:"randyjreid",name:"gramps-live-api")'
         f"{{pullRequest(number:{pull})"
         "{state isDraft headRefOid baseRefOid mergeable mergeStateStatus "
-        "createdAt headRefName baseRef{name target{oid}} "
+        "createdAt baseRef{name target{oid}} "
         "timelineItems(itemTypes:[READY_FOR_REVIEW_EVENT], last:100)"
         "{nodes{... on ReadyForReviewEvent{createdAt}}}}}}"
     )
@@ -729,42 +462,6 @@ def _metadata(pull: int) -> dict[str, Any]:
     if not pull_request:
         raise RuntimeError(f"no pull request #{pull} in the graph response")
     return pull_request
-
-
-def _branch_activity(head_ref: str) -> list[dict[str, Any]]:
-    """The branch's own ref history. ⛔ **``[]`` REFUSES; it is not an absence.**
-
-    ⭐ This is the one fact a push cannot backdate. Committer dates can predate a
-    verdict on a commit pushed after it -- this file records that a few hundred
-    lines up -- and a reaction carries no commit at all. The ref's arrival and
-    departure rows are stamped by the server at the moment they happen.
-
-    ⚠️ **The repository is hard-coded, so a pull request from a FORK finds
-    nothing here and shape B refuses.** That is #235, filed rather than fixed:
-    the branch lives in the fork, the read has no matching row, and the answer is
-    a stalled merge rather than an unreviewed one. Three cross-repository pull
-    requests have been opened here, so the case is real. **The failing direction
-    must not be relaxed to make forks work** -- the fix is to read the fork's own
-    activity log, once it is established that ``gh`` can.
-
-    ⚠️ Any failure returns ``[]`` rather than raising, so a report still prints
-    the rest of its evidence -- and ``[]`` is a refusal, so nothing is waved
-    through by the softer failure.
-    """
-    if not head_ref:
-        return []
-    try:
-        rows = _json(
-            "api",
-            f"repos/{REPOSITORY}/activity?ref=refs/heads/{head_ref}&per_page=100",
-            "--paginate",
-        )
-    except RuntimeError as failure:
-        print(f"       activity log       : UNREADABLE -- {failure}")
-        return []
-    if not isinstance(rows, list):
-        return []
-    return [row for row in rows if isinstance(row, dict)]
 
 
 def _base_tip(meta: dict[str, Any]) -> str:
@@ -882,15 +579,6 @@ def _report(pull: int) -> bool:
         return False
 
     head = str(provisional["headRefOid"])
-    # ⛔ **PROVISIONAL, kept only to be compared against the final read.**
-    #
-    # ⚠️ This read *"it decides nothing on its own: if it changed mid-sweep the
-    # head changed with it, and step 7 blocks on that."* **Both halves were
-    # wrong.** It did decide something -- it chose the ref whose history shape B
-    # calls quiet -- and a RENAME moves the name while the head SHA stays put, so
-    # step 7's comparison never sees it. ``_settled_branch`` at step 8 answers
-    # both.
-    head_ref = str(provisional.get("headRefName") or "")
     # ⛔ Kept so the FINAL read can be compared against it, exactly as the head is.
     base_tip_when_gathering = _base_tip(provisional)
     commit = _json("api", f"repos/{REPOSITORY}/commits/{head}")
@@ -906,11 +594,11 @@ def _report(pull: int) -> bool:
     reviews = _json("api", f"repos/{REPOSITORY}/pulls/{pull}/reviews", "--paginate")
     inline = _json("api", f"repos/{REPOSITORY}/pulls/{pull}/comments", "--paginate")
     conversation = _json("api", f"repos/{REPOSITORY}/issues/{pull}/comments", "--paginate")
-    # ⛔ ``--paginate``, and it became load-bearing with this change. The reads
-    # above have always had it; this one did not, which was latent while no
-    # reaction was judged. A body with more than one page of reactions would now
-    # hide the qualifying +1 on a later page and report NOT READY over a clean
-    # signal -- the same shape as the ``first:100`` on the thread query below.
+    # ⛔ ``--paginate``, and it stays load-bearing even though a reaction now
+    # grants nothing. The report must still know a bare 👍 EXISTS in order to say
+    # so: a 👍 stranded on a later page would silently degrade the actionable
+    # refusal -- *the bot passed and left no comment naming this head, re-trigger
+    # it* -- into the generic one, which tells the reader nothing they can act on.
     reactions = _json("api", f"repos/{REPOSITORY}/issues/{pull}/reactions", "--paginate")
     assert isinstance(reviews, list) and isinstance(inline, list)
     assert isinstance(conversation, list) and isinstance(reactions, list)
@@ -931,15 +619,18 @@ def _report(pull: int) -> bool:
     # ⭐ The bot's clean comment names its subject: "**Reviewed commit:**
     # `7905da6ddd`". That is evidence explicitly associated with a SHA, so the
     # comparison is against the head's own hex rather than against a clock.
-    # A reaction carries no commit_id, so it can never be tied to a head by
-    # itself. What ties it is the BRANCH'S OWN HISTORY -- shape B, at step 8.
+    #
+    # ⛔ **A reaction carries no commit_id, so it is EVIDENCE and never a
+    # verdict.** #233 built a grant on one anyway, tying it to a head through the
+    # branch's arrival log; that path produced eleven false READYs across three
+    # review rounds and was withdrawn. What is counted here is counted so the
+    # refusal at step 8 can NAME it -- *the bot passed and left no comment naming
+    # this head* is actionable where *no clean verdict was found* is not.
     #
     # ⛔ **Counted, not classified.** An earlier version split these into fresh
     # and stale on the head's COMMITTER DATE -- the comparison the paragraph
-    # above calls unsound. Now that a +1 can carry a verdict, a second definition
-    # of *fresh* printed beside the one the verdict uses would be two answers to
-    # one question, which is this project's most-recorded defect class. Whether a
-    # reaction counts is said once, at step 8, by the rule that decides it.
+    # above calls unsound. Nothing here decides freshness, because nothing here
+    # decides anything.
     bot_thumbs = [r for r in by_bot(reactions) if r.get("content") == "+1"]
     fresh_conversation = [
         c for c in by_bot(conversation) if head_when and c.get("created_at", "") > head_when
@@ -978,8 +669,7 @@ def _report(pull: int) -> bool:
     # previous round's verdict still accepted.
     #
     # ⚠️ **The comparison itself happens at step 8**, because T is not known
-    # until the final reads. What is computed here is evidence; what decides is
-    # decided once, beside shape B, against the same instant.
+    # until the final reads. What is computed here is evidence.
     latest_trigger = _latest_request(conversation)
 
     print("  2. bot verdict on head  :")
@@ -999,15 +689,14 @@ def _report(pull: int) -> bool:
     print(
         f"       bot +1 on body     : {len(bot_thumbs)}"
         + (f"  ({bot_thumbs[-1].get('created_at')})" if bot_thumbs else "")
-        + "  (judged at step 8)"
+        + "  (evidence, never a verdict)"
     )
 
     print(f"       last round requested: {latest_trigger or '(never -- automatic review only)'}")
 
     # ⛔ **The verdict on the clean signal is pronounced at step 8, not here.**
-    # Shape B rests on what the bot has published SINCE the round began, and the
-    # reads above are several calls old by the time this returns. What is printed
-    # here is evidence; what decides is read again at the end.
+    # The reads above are several calls old by the time this returns, so what is
+    # printed here is evidence; what decides is read again at the end.
 
     # -- 3. how many rounds has this had? ------------------------------------
     #
@@ -1150,40 +839,21 @@ def _report(pull: int) -> bool:
 
     # -- 8. the clean verdict, on what the bot has published BY NOW -----------
     #
-    # ⛔ **All THREE bot endpoints are re-read here, not conversation alone.**
+    # ⛔ **ONE endpoint is re-read here, and it is the one the grant rests on.**
     #
-    # ⚠️ The reads at step 2 are a dozen calls old by now. The bot can submit a
-    # review carrying a finding at any point in that window, with the head, the
-    # checks and the conversation all unchanged -- and shape B, whose whole
-    # premise is that the bot has said nothing, would then report READY over a
-    # review nobody has read. **The window is most of the sweep, not the final
-    # call**, which is why all three are refetched rather than the one that
-    # happened to be here already for the trigger.
+    # ⚠️ The reads at step 2 are a dozen calls old by now, and the clean comment
+    # was built from that first read alone: a comment deleted -- or edited out of
+    # a clean verdict -- inside that window still granted. So the conversation is
+    # asked again and the two answers are intersected.
     #
-    # ⛔ **Reactions are re-read HERE TOO, and the reason is DELETION.**
-    #
-    # ⚠️ This read used to be skipped on the argument that a reaction only ever
-    # grants, so a stale read could only lose one. **A reaction can be removed**,
-    # and then the stale read is a grant the body no longer carries. The
-    # asymmetry survives in the RULE rather than in the number of reads: the
-    # denying endpoints take the union of both reads, the granting one takes the
-    # intersection, so neither reread can widen what is accepted.
-    final_reviews = _json("api", f"repos/{REPOSITORY}/pulls/{pull}/reviews", "--paginate")
-    final_inline = _json("api", f"repos/{REPOSITORY}/pulls/{pull}/comments", "--paginate")
+    # ⚠️ **The reviews and inline endpoints were re-read here too, and they are
+    # not any more.** Their second answer fed one consumer, ``_both_reads`` into
+    # the bare-👍 judgement, whose premise was that the bot had said nothing since
+    # T. #233 withdrew that judgement; nothing else ever read those answers, so
+    # two ``gh`` calls a report were being spent on a value no branch consulted.
+    # Removed with their consumer rather than left behind to read as load-bearing.
     final_conversation = _json("api", f"repos/{REPOSITORY}/issues/{pull}/comments", "--paginate")
-    final_reactions = _json("api", f"repos/{REPOSITORY}/issues/{pull}/reactions", "--paginate")
-    assert isinstance(final_reviews, list) and isinstance(final_inline, list)
-    assert isinstance(final_conversation, list) and isinstance(final_reactions, list)
-
-    # ⛔ **BOTH reads of every denying endpoint, because a reread may FORGET.**
-    #
-    # ⚠️ The final answer was trusted alone, so a bot review observed while
-    # gathering and missing from the final request -- an empty answer, a short
-    # page, a replica behind -- was discarded, and a fresh thumb with otherwise
-    # clean gates printed READY over a finding this sweep had already read.
-    seen_reviews = _both_reads(reviews, final_reviews)
-    seen_inline = _both_reads(inline, final_inline)
-    seen_conversation = _both_reads(conversation, final_conversation)
+    assert isinstance(final_conversation, list)
 
     # ⛔ The request is evidence too, and it was read several calls ago.
     trigger_now = _latest_request(final_conversation)
@@ -1196,41 +866,31 @@ def _report(pull: int) -> bool:
     # terms could take it there. A trigger that vanishes from the final
     # conversation leaves ``_request_arrived_mid_sweep`` silent -- that rule
     # fires on a request moving FORWARD -- and a ready-for-review event missing
-    # from the final timeline drops T to the open time. Either regression makes a
-    # reaction from the round before read as fresh.
+    # from the final timeline drops T to the open time. Either regression makes
+    # the PREVIOUS round's clean comment read as this round's verdict.
     began_trigger = max(latest_trigger, trigger_now)
     seen_ready = _both_timelines(_ready_for_review(provisional), _ready_for_review(final))
 
-    # ⛔ The FINAL read names the branch, exactly as it names the head.
-    head_ref_now, unsettled = _settled_branch(head_ref, str(final.get("headRefName") or ""))
-    if unsettled:
-        print(f"       branch identity    : {unsettled}")
-
-    # ⛔ **T, once, for BOTH shapes**, and the clean comment is judged against it
-    # rather than against the trigger alone. ``""`` is a refusal here: shape A
-    # must not fall back to the old comparison when the timeline cannot be read,
-    # because an unreadable timeline is exactly the input that produced the
-    # defect -- a fallback would be it returning under a different name.
+    # ⛔ **T, once**, and the clean comment is judged against it rather than
+    # against the trigger alone. ``""`` is a refusal here: the comment must not
+    # fall back to the old comparison when the timeline cannot be read, because
+    # an unreadable timeline is exactly the input that produced the defect -- a
+    # fallback would be it returning under a different name.
     began = _round_start(str(final.get("createdAt") or ""), began_trigger, seen_ready)
     print(f"       round began at     : {began or '(UNREADABLE -- nothing can be placed in it)'}")
 
-    # ⛔ **Shape A's evidence is confirmed against the FINAL read, exactly as the
-    # +1 is.** ``clean_comments`` came from the first conversation read alone.
+    # ⛔ **The clean comment is confirmed against the FINAL read.**
+    # ``clean_comments`` came from the first conversation read alone.
     #
     # ⚠️ Named input: the bot posts a clean comment naming this head at 09:07,
     # this sweep reads it, the comment is DELETED before the verdict, the final
     # read lacks it, every other gate is clean -- and READY printed over a body
     # that no longer carries a clean signal.
     #
-    # ⛔ **The two clean shapes disagreed about whether granting evidence must
-    # survive to the verdict, and only one of them was right.** That asymmetry is
-    # worse than either answer applied consistently, because a reader cannot tell
-    # which path a verdict rests on.
-    #
-    # ⭐ Intersection, not replacement -- ``_still_granted``, the same rule and
-    # the same identity test shape B uses. Taking the final read alone would let a
-    # clean comment ARRIVING mid-sweep grant a verdict on evidence gathered before
-    # it: the checks, the threads and the head were all read before it existed.
+    # ⭐ Intersection, not replacement -- ``_still_granted``. Taking the final
+    # read alone would let a clean comment ARRIVING mid-sweep grant a verdict on
+    # evidence gathered before it: the checks, the threads and the head were all
+    # read before it existed.
     standing_clean = _still_granted(clean_comments, by_bot(final_conversation))
     withdrawn_clean = [c for c in clean_comments if c not in standing_clean]
     if withdrawn_clean:
@@ -1247,66 +907,51 @@ def _report(pull: int) -> bool:
             f"  ({superseded_clean[-1].get('created_at')} <= the round start above)"
         )
 
-    # ⚠️ Read LAST, so the branch's history is as close to the verdict as every
-    # other fact here -- and only when a +1 exists, because with none shape B
-    # refuses without ever consulting it. That also keeps a repository where this
-    # endpoint cannot be read from turning every report into an error.
-    activity = _branch_activity(head_ref_now) if bot_thumbs else []
-    if bot_thumbs:
-        named = head_ref_now or "(unknown)"
-        print(f"       branch activity    : {len(activity)} rows for {named}")
-
-    thumb = _bare_thumb_clean(
-        bot_thumbs,
-        [r for r in by_bot(final_reactions) if r.get("content") == "+1"],
-        by_bot(seen_reviews),
-        by_bot(seen_inline),
-        by_bot(seen_conversation),
-        _unsigned_stamps(
-            (seen_reviews, "submitted_at"),
-            (seen_inline, "created_at"),
-            (seen_conversation, "created_at"),
-        ),
-        activity,
-        head,
-        head_ref_now,
-        str(final.get("createdAt") or ""),
-        began_trigger,
-        seen_ready,
-    )
-    shape = _clean_shape(accepted_clean, thumb)
-    print(f"       clean shape        : {shape or '(neither)'}")
-    if bot_thumbs and thumb.reason:
-        print(f"       +1 not counted     : {thumb.reason}")
-
-    if not shape:
+    # ⛔ **The four branches are EXHAUSTIVE over an empty ``accepted_clean``**, and
+    # that is what makes the one ``return True`` below checkable: no clean comment
+    # at all, none surviving the final read, T uncomputable, all of them
+    # superseded by T. Whichever holds, ``failures`` gains an entry.
+    #
+    # ⚠️ **Each names the input it is true of.** A reason true of a different
+    # input is evidence nobody can act on -- a withdrawn verdict does not predate
+    # anything, and a T that cannot be computed is not fixed by re-triggering,
+    # which is why the last sentence is not appended to that one.
+    if not accepted_clean:
         if not clean_comments:
-            failures.append(
-                "no CLEAN verdict naming this head -- the bot's clean comment quotes "
-                "the commit it reviewed, and none quoting this one was found"
-            )
+            # ⛔ **The bare-👍 case, said in ONE sentence rather than two.** The
+            # generic reason plus a separate *the +1 is not a clean verdict* line
+            # left the reader with two half-answers; this branch is the whole one.
+            if bot_thumbs:
+                failures.append(
+                    f"the bot left a +1 on the pull request body at "
+                    f"{bot_thumbs[-1].get('created_at')} and no comment naming this head: "
+                    f"a reaction carries no commit id, so nothing ties it to {head[:12]}. "
+                    "Re-trigger the bot on this head so it publishes a comment naming the "
+                    "commit it reviewed."
+                )
+            else:
+                failures.append(
+                    "no CLEAN verdict naming this head -- the bot's clean comment quotes "
+                    "the commit it reviewed, and none quoting this one was found. "
+                    "Re-trigger the bot on this head."
+                )
         elif not standing_clean:
-            # ⛔ Said in its own words rather than folded into the branch below.
-            # A withdrawn verdict does not predate anything, and a reason that is
-            # true of a different input is evidence nobody can act on.
             failures.append(
                 "the CLEAN verdict naming this head is no longer on the pull request -- "
                 "it was there when this sweep began and the final read does not show it, "
-                "so no clean signal stands"
+                "so no clean signal stands. Re-trigger the bot on this head."
             )
         elif not began:
             failures.append(
                 "a CLEAN verdict names this head, but the start of the current round "
                 "could not be computed, so nothing can show the verdict belongs to it"
             )
-        elif not accepted_clean:
+        else:
             failures.append(
                 f"the CLEAN verdict predates the start of the current round ({began}) -- "
                 "the round was opened, re-triggered or marked ready after that verdict, "
-                "so it is about an earlier one"
+                "so it is about an earlier one. Re-trigger the bot on this head."
             )
-        if bot_thumbs:
-            failures.append(f"the bot's +1 is not a clean verdict on this head: {thumb.reason}")
 
     if failures:
         print("  RESULT: NOT the owner's click")
