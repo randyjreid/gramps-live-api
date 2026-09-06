@@ -12,6 +12,9 @@ stale -- the same move as ``test_the_compiled_scorer_agrees_with_the_vocabulary_
 collected items and not the criterion's evidence. B7 records that distinction
 on purpose: one definition is parametrized, so collection is a different number
 that moves for reasons the criterion has nothing to do with.
+
+⭐ #218: every ``**N tests**`` statement must pair with a path. A non-empty
+parse is not enough -- a statement the pattern cannot see is silently unwatched.
 """
 
 from __future__ import annotations
@@ -39,6 +42,16 @@ def test_acceptance_file_counts_match_the_named_files() -> None:
         f"{ACCEPTANCE.relative_to(REPOSITORY_ROOT)} states no file-level test "
         "counts of the form `tests/….py` -- **N tests**, so this test has "
         "stopped watching anything"
+    )
+    # ⛔ Pairing, not merely non-empty. A count written in a shape FILE_COUNT
+    # does not recognise is silently unwatched if we only assert claims.
+    # Measured: a first pattern found 8 of 9 -- the one whose count sits on the
+    # line after its path. Issue #218.
+    present = len(re.findall(r"\*\*(\d+) tests?\*\*", text))
+    assert len(claims) == present, (
+        f"{ACCEPTANCE.name} has {present} '**N tests**' statements but only "
+        f"{len(claims)} were paired with a file path -- a count in an "
+        "unrecognised shape is not being watched"
     )
 
     documented: dict[str, int] = {}
