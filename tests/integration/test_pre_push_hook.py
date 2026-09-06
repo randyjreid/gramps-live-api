@@ -104,6 +104,81 @@ def _a_repository(tmp_path: Path) -> Path:
 
 _THIS_RUNS_PYTHON = object()
 
+# ⛔ **The precondition that makes the shadow LOAD-BEARING, run in the hook's own
+# shell, with the hook's own environment and working directory.**
+#
+# ⚠️ Without it the ``interpreter=None`` cases are green for a reason the fixture
+# did not build. On the machine this was written on the ambient ``python`` and
+# ``python3`` are the Microsoft Store shim, which exists, is executable and fails
+# on every invocation -- so the hook refuses **whether or not the shadow
+# directory is on PATH**, and an empty shadow would leave every assertion here
+# passing. The green proved the hook refuses when nothing runs; it did not prove
+# the test built that condition.
+#
+# ⚠️ It is also what would have reported the WSL run as a broken fixture rather
+# than as a broken hook: inside WSL the ``;``-separated Windows PATH this fixture
+# constructs does not apply, so ``python3`` resolves to WSL's own interpreter,
+# which runs. That is the fixture failing to build its case, and it read as the
+# hook accepting a push it should have refused.
+#
+# ⭐ Both halves are asserted, because either alone is satisfiable by the wrong
+# thing: that the candidates RESOLVE inside the shadow, and that each of them
+# FAILS the same ``-c ''`` probe the hook itself uses.
+_THE_SHADOW_MUST_DECIDE = """\
+set -u
+directory=$(cd "${GLAPI_SHADOW:-}" 2>/dev/null && pwd) || directory=''
+if [ -z "$directory" ]; then
+    echo "the shell cannot reach the shadow directory at all"
+    exit 3
+fi
+for name in python python3; do
+    resolved=$(command -v "$name" 2>/dev/null) || resolved=''
+    if [ -z "$resolved" ]; then
+        echo "$name resolves to nothing, so the hook will not try it"
+        exit 4
+    fi
+    case "$resolved" in
+        "$directory"/*) ;;
+        *)
+            echo "$name resolves outside the shadow, to $resolved"
+            exit 5
+            ;;
+    esac
+    if "$name" -c '' >/dev/null 2>&1; then
+        echo "$name at $resolved runs successfully, so nothing here is unrunnable"
+        exit 6
+    fi
+done
+"""
+
+
+def _the_shadow_must_decide(
+    shell: str, repo: Path, environment: dict[str, str], shadow: Path
+) -> None:
+    """⛔ Fail the test if the hook's interpreter candidates are not the planted ones.
+
+    A defect in the fixture, not a skip: this file's other three
+    ``the fixture did not build the case`` assertions all fail, and a fixture
+    that cannot build its case has nothing to report but that.
+    """
+    probe = subprocess.run(
+        [shell, "-c", _THE_SHADOW_MUST_DECIDE],
+        cwd=repo,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        # Forward slashes: the shell reads this out of its own environment, and a
+        # backslash inside double quotes is not a separator there.
+        env={**environment, "GLAPI_SHADOW": str(shadow).replace("\\", "/")},
+    )
+    assert probe.returncode == 0, (
+        "the fixture did not build the case: the hook is about to look for an "
+        "interpreter and the candidates it will try are not the failing stubs "
+        "planted here, so a refusal would prove nothing about an unrunnable "
+        f"gate -- {(probe.stdout + probe.stderr).strip()}"
+    )
+
 
 def _push(
     repo: Path,
@@ -129,6 +204,7 @@ def _push(
     the guard at all, which looks exactly like the guard finding something. Pass
     ``None`` to exercise that path deliberately.
     """
+    shell = _sh()
     environment = dict(os.environ)
     if interpreter is _THIS_RUNS_PYTHON:
         environment["GRAMPS_LIVE_API_PYTHON"] = sys.executable
@@ -148,6 +224,7 @@ def _push(
                 path.write_text("#!/bin/sh" + chr(10) + "exit 1" + chr(10), encoding="utf-8")
                 path.chmod(0o755)
         environment["PATH"] = str(shadow) + os.pathsep + environment.get("PATH", "")
+        _the_shadow_must_decide(shell, repo, environment, shadow)
     else:
         environment["GRAMPS_LIVE_API_PYTHON"] = str(interpreter)
 
@@ -167,7 +244,7 @@ def _push(
     # ``len``: 41 versus 40, NOMATCH versus MATCH.
     line = lines or f"refs/heads/main {local_sha} refs/heads/main {remote_sha}\n"
     finished = subprocess.run(
-        [_sh(), "scripts/hooks/pre-push", "origin", "https://example.invalid/r.git"],
+        [shell, "scripts/hooks/pre-push", "origin", "https://example.invalid/r.git"],
         cwd=repo,
         input=line.encode("utf-8"),
         capture_output=True,
