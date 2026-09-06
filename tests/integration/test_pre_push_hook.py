@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.fixtures.shell import posix_shell
+from tests.fixtures.shell import posix_shell, shells_installed_beside_git, utility_directory
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 HOOK = REPOSITORY_ROOT / "scripts" / "hooks" / "pre-push"
@@ -63,11 +63,35 @@ def _hook_shell() -> str:
         # suite that skips there fails open (#31).
         if os.name != "nt":
             raise
+
+        # ⛔ **Two states, and only one of them is a skip.** The brief for this
+        # conversion was: acceptable when no suitable shell EXISTS, not
+        # acceptable when it hides one. Measured, it was hiding one -- with
+        # ``GIT_EXEC_PATH`` set, a documented variable ``git --exec-path``
+        # honours, the derivation three directories up points nowhere, and the
+        # run reported **thirteen skips** while ``usr/bin/sh.exe`` sat on disk
+        # and worked.
+        #
+        # ⚠️ A skip is the loudest thing this file can say when a shell is
+        # genuinely absent and the quietest possible failure when the locating
+        # logic is wrong -- and the wrong locating logic is the *interesting*
+        # defect, because it is ours.
+        installed = shells_installed_beside_git("sh")
+        if installed:
+            pytest.fail(
+                "a POSIX sh IS installed on this machine and this suite failed to "
+                "locate it, so this is the locating logic being wrong rather than a "
+                "machine that cannot run the hook. Skipping here would retire every "
+                "test in this file and report that there was nothing to cover. Found "
+                f"beside the git binary: {[str(path) for path in installed]}. {absent}"
+            )
         pytest.skip(
             "there is nothing to cover: git runs hooks through a POSIX shell, so a "
             "machine without one cannot run this hook at all and the behaviour under "
-            f"test does not exist there. Windows gets sh from Git for Windows, which "
-            f"is required to use git at all, and every CI runner is Linux. {absent}"
+            "test does not exist there. Windows gets sh from Git for Windows, which "
+            "is required to use git at all, and every CI runner is Linux. Nothing was "
+            "found beside the git binary either, which is the cross-check that "
+            f"separates an absent shell from an unfound one. {absent}"
         )
 
 
@@ -197,9 +221,15 @@ def _the_hooks_own_path(shell: str, ahead: Path | None = None) -> str:
     while the shell was ambient: the utility a shell can reach was supplied by
     whoever launched pytest, not by the fixture.
 
+    ⚠️ The directory comes from ``utility_directory`` and **not** from
+    ``Path(shell).parent``, which was right only for the first candidate: the
+    fallback shell lives in a directory holding three executables and no ``tr``
+    at all, so a run that fell through to it would have prepended a directory
+    that supplies nothing while looking exactly like a run that worked.
+
     ``ahead`` goes in front of everything, so a planted shadow still wins.
     """
-    parts = [str(Path(shell).parent), os.environ.get("PATH", "")]
+    parts = [str(utility_directory(Path(shell))), os.environ.get("PATH", "")]
     if ahead is not None:
         parts.insert(0, str(ahead))
     return os.pathsep.join(part for part in parts if part)
@@ -476,7 +506,7 @@ def test_the_shell_this_file_runs_the_hook_with_COMES_FROM_GIT() -> None:
     root = Path(exec_path).parents[2]
 
     for flavour in ("bash", "sh"):
-        resolved = posix_shell(flavour=flavour)  # type: ignore[arg-type]
+        resolved = posix_shell(flavour=flavour)
 
         assert root in resolved.parents, (
             f"the {flavour} this suite drives is {resolved}, which is not under the "
@@ -505,11 +535,42 @@ def test_the_hook_gets_the_UTILITIES_a_real_git_push_would_give_it() -> None:
     assertion in this file stays green either way, because the fallback is
     correct for a SHA-1 repository.
 
+    ⛔ **What is asserted is what the FIXTURE contributes, alone.** Asking
+    whether the built PATH can reach ``tr`` is not this property: the ambient
+    PATH answers that by itself from Git Bash, and on every Linux runner, where
+    the system utility directory is always on it. Measured with the prepend
+    reverted --
+    ``1 failed, 14 passed`` from PowerShell, and ``15 passed, 2 skipped`` with
+    Git's utility directory on the ambient PATH. **A guard that can only fail on
+    one developer's shell is measuring that shell**, which is this issue's own
+    defect reappearing in the test written to remove it.
+
+    ⭐ So the prepended portion is separated from the ambient one and probed on
+    its own. It is empty, or it does not supply ``tr``, exactly when the fixture
+    has stopped handing the hook anything -- on any platform, whatever launched
+    pytest.
+
     ``tr`` by name because it is the utility the committed hook actually calls;
     if the hook stops calling it, this test is measuring the wrong thing and
     should be pointed at whatever replaced it.
     """
     shell = _hook_shell()
+    ambient = os.environ.get("PATH", "")
+    built = _the_hooks_own_path(shell)
+
+    assert built.endswith(ambient), (
+        "this test can no longer separate what the fixture contributes from what it "
+        f"inherited: the PATH it builds does not end in the ambient one. built={built!r}"
+    )
+    contributed = built[: len(built) - len(ambient)].strip(os.pathsep)
+
+    assert contributed, (
+        "the fixture prepends nothing, so what the hook's shell can reach is whatever "
+        "launched pytest -- and git's own hook environment supplies the utility "
+        "directory itself. The hook's first command is tr, on the line deriving the "
+        "all-zero object id, and it takes its || echo fallback in silence when tr is "
+        "not found"
+    )
 
     resolved = subprocess.run(
         [shell, "-c", "command -v tr"],
@@ -517,13 +578,16 @@ def test_the_hook_gets_the_UTILITIES_a_real_git_push_would_give_it() -> None:
         encoding="utf-8",
         errors="replace",
         check=False,
-        env={**os.environ, "PATH": _the_hooks_own_path(shell)},
+        # ⛔ The contributed portion ONLY. With the ambient PATH behind it this
+        # assertion passes wherever tr happens to be reachable, which is every
+        # CI runner this project has.
+        env={**os.environ, "PATH": contributed},
     )
 
     assert resolved.returncode == 0 and resolved.stdout.strip(), (
-        "the fixture did not build the case: the hook is run through a shell that "
-        "cannot find tr, which git's own hook environment supplies -- so the hook's "
-        "all-zero derivation takes a fallback here that it never takes under git"
+        "what this fixture prepends does not supply tr, so the hook is being run "
+        "through a shell that finds tr only if the launching environment happened to "
+        f"offer it -- git's hook environment always does. prepended={contributed!r}"
     )
 
 
