@@ -48,6 +48,7 @@ Usage::
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -83,6 +84,26 @@ _WHITESPACE = frozenset({chr(32), chr(9), chr(13), chr(10)})
 """Space, tab, CR, LF -- built from ordinals so no escape layer can mangle them."""
 
 CLEAN_PHRASES = ("didn't find any major issues", "didn't find any issues", "no major issues")
+
+# ⛔ **The bot's own label on the opening line of a clean verdict.** Optional:
+# stripped before the phrase is matched, never required.
+#
+# ⚠️ It exists because the phrase is now the body's OPENING CLAIM rather than a
+# substring of it, and the bot writes the label in front of the sentence.
+CLEAN_LABEL = "codex review:"
+
+# ⛔ The commit a verdict line QUOTES: hex inside backticks, seven characters or
+# more. Written as explicit ASCII classes rather than with ``re.IGNORECASE``,
+# whose fold is the interpreter's and not this file's.
+VERDICT_CLAIM = re.compile(r"`([0-9a-fA-F]{7,40})`")
+
+# ⛔ The four spacings ``_WHITESPACE`` names, as a string ``str.strip`` accepts.
+#
+# ⚠️ NOT bare ``.strip()``. Python's default set is 26 characters wide and comes
+# from the interpreter; this one is four, written here. A guard whose definition
+# arrives from the runtime is the defect class this repository has recorded four
+# times in one week.
+TRIM = "".join(sorted(_WHITESPACE))
 
 # ⛔ **Assembled from parts so this file never CONTAINS the phrase it looks for.**
 #
@@ -140,15 +161,91 @@ def _json(*arguments: str) -> object:
     return merged
 
 
-def _names_the_head(body: str, head: str) -> bool:
-    """Does this comment quote the head SHA?
+def _ascii_lower(text: str) -> str:
+    """Lowercase ``A``-``Z`` and nothing else. ⛔ **Length-preserving by construction.**
 
-    ⛔ The bot writes ``**Reviewed commit:** `<abbreviated sha>`​``, so the
-    association is explicit and does not depend on any clock. Matched against
-    every prefix length the abbreviation might use rather than one guess.
+    ⚠️ ``str.lower()`` is a Unicode operation and it can change a string's
+    LENGTH -- ``U+0130`` lowercases to two code points. An offset found in a
+    lowered copy and then used to index the original is off by that much, which
+    would let a body place its real claim outside the slice this file searches.
+    Every character here maps to exactly one character, so the two strings index
+    identically.
+
+    ⭐ And the fold is written here, in ASCII code points, rather than taken from
+    whatever Unicode table the interpreter shipped. That is this repository's
+    recorded rule: a check whose definition depends on where it runs is not a
+    check on what it names.
     """
-    lowered = body.lower()
-    return any(lowered.count(head[:length].lower()) for length in range(7, len(head) + 1))
+    return "".join(chr(ord(c) + 32) if "A" <= c <= "Z" else c for c in text)
+
+
+def _verdict_names_the_head(body: str, head: str) -> bool:
+    """Does this comment's own ``Reviewed commit:`` LINE claim this head?
+
+    ⛔ **Anchored to the line, and this is the repair.** It read the whole body
+    lowercased and counted the head's hex anywhere in it, and its docstring said
+    *the association is explicit* -- which was exactly what was untrue. Nothing
+    tied the hex it found to the verdict. Named input, run with every other gate
+    perfect: ``Didn't find any major issues. **Reviewed commit:** `abc1234567`.
+    Rebased onto eeeeeeeeee.`` **printed READY on a verdict naming a different
+    commit.**
+
+    ⛔ **Fail closed, three ways.** No marker line is no claim. A marker line
+    this read cannot parse is no claim. And a body making TWO claims cannot show
+    which is true, so every marker line must name this head or none of them
+    grants -- ``all`` over a non-empty list.
+
+    ⭐ **Cut to a MEASURED shape.** Across pull requests #150 to #245 the bot
+    published 40 conversation verdicts: 40 of 40 carry exactly one line reading
+    ``**Reviewed commit:** `<sha>` ``, and every abbreviation is ten characters.
+    The seven-character floor is the older, wider bound and is kept.
+
+    ⚠️ ``splitlines`` rather than ``split(chr(10))`` on purpose. It breaks on
+    strictly more characters, so a marker line it produces is a PREFIX of the one
+    a newline split would give -- and truncating a line's tail can only drop a
+    candidate claim, never promote a later one ahead of an earlier. The wider
+    splitter is the stricter reading here.
+    """
+    claims: list[str] = []
+    for line in body.splitlines():
+        marker = _ascii_lower(line).find(ROUND_MARKER)
+        if marker < 0:
+            continue
+        quoted = VERDICT_CLAIM.search(line, marker + len(ROUND_MARKER))
+        claims.append(quoted.group(1) if quoted else "")
+    if not claims:
+        return False
+    return all(bool(c) and _ascii_lower(head).startswith(_ascii_lower(c)) for c in claims)
+
+
+def _opens_with_a_clean_phrase(body: str) -> bool:
+    """Is a clean verdict what this comment OPENS by saying?
+
+    ⛔ **Anchored to the opening line, and this is the other half of the repair.**
+    The phrase was matched anywhere in the body, so a findings comment carrying
+    one as a substring granted the merge. Named input, run with every other gate
+    perfect: ``P3 - no major issues, but consider X. **Reviewed commit:**
+    `eeeeeeeeee``` **printed READY on a findings comment.**
+
+    ⭐ **Measured, not guessed.** All 40 of the bot's conversation verdicts over
+    pull requests #150 to #245 open ``Codex Review: Didn't find any major
+    issues.`` and then vary only the tail -- sixteen distinct flourishes, from
+    ``Hooray!`` to ``Chef's kiss.`` So the anchor asks for the opening sentence
+    the bot has never once departed from, and the varying part stays free.
+
+    ⚠️ **The label is optional and the phrase list is unchanged.** Widening
+    either would be this file's own recorded mistake -- a fix widening the claim
+    it fixes. A wording the bot has not used yet is refused, which costs a
+    re-trigger and is the direction this instrument fails in.
+    """
+    opening = ""
+    for line in body.splitlines():
+        opening = _ascii_lower(line.strip(TRIM))
+        if opening:
+            break
+    if opening.startswith(CLEAN_LABEL):
+        opening = opening[len(CLEAN_LABEL) :].lstrip(TRIM)
+    return any(opening.startswith(phrase) for phrase in CLEAN_PHRASES)
 
 
 def _clean_verdicts(comments: list[dict[str, Any]], head: str) -> list[dict[str, Any]]:
@@ -169,13 +266,19 @@ def _clean_verdicts(comments: list[dict[str, Any]], head: str) -> list[dict[str,
     ⭐ **Confirmation is on CONTENT; identity only pairs the rows.** Filtering
     both sides is what makes ``_still_granted``'s identity test safe, and it is
     cheaper than teaching that helper what a clean verdict is.
+
+    ⛔ **Both content questions are now ANCHORED, and neither was.** They were
+    two independent substring searches over the whole body, and once the bare-👍
+    grant was deleted they were the only granting evidence in the file. The
+    phrase is the body's opening claim; the head match is the verdict line's own
+    claim. Each helper names the input it was shown failing on.
     """
     return [
         c
         for c in comments
         if _is_bot((c.get("user") or {}).get("login"))
-        and any(phrase in (c.get("body") or "").lower() for phrase in CLEAN_PHRASES)
-        and _names_the_head(c.get("body") or "", head)
+        and _opens_with_a_clean_phrase(c.get("body") or "")
+        and _verdict_names_the_head(c.get("body") or "", head)
     ]
 
 
@@ -779,7 +882,7 @@ def _report(pull: int) -> bool:
         + (f"  ({fresh_conversation[-1].get('created_at')})" if fresh_conversation else "")
     )
     print(
-        f"       clean-phrase comment: {len(clean_comments)}"
+        f"       clean verdict on head: {len(clean_comments)}"
         + (f"  ({clean_comments[-1].get('created_at')})" if clean_comments else "")
     )
     print(

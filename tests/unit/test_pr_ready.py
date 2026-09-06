@@ -1137,6 +1137,161 @@ def test_a_clean_comment_that_ARRIVED_mid_sweep_does_not_grant_either(
     assert verdict is False
 
 
+# ------------------- the verdict LINE, not the body: the round-3 finding on #233
+#
+# ⛔ **The head match and the clean phrase were two INDEPENDENT, UNANCHORED
+# whole-body substring searches**, and once the granting path was deleted they
+# were the only granting evidence left in the file. Both of the reviewer's named
+# inputs printed READY with every other gate perfect.
+#
+# ⭐ **The anchors are cut to a MEASURED shape, not to a guess.** Across pull
+# requests #150 to #245 the bot published 40 conversation verdicts. Every one
+# carries exactly one line of the shape ``**Reviewed commit:** `<10 hex>` `` --
+# 40 of 40, one marker line each, every abbreviation ten characters -- and every
+# one opens ``Codex Review: Didn't find any major issues.`` followed by a varying
+# tail (Hooray! / Keep it up! / :tada: / Chef's kiss. / sixteen distinct tails in
+# all). Neither anchor asks for anything the bot has ever once departed from.
+
+# ⛔ Invented hex, ten characters like the bot's own abbreviation. Not a real
+# commit, and deliberately NOT a prefix of ``HEAD_SHA``.
+ANOTHER_COMMIT = "abc1234567"
+
+# ⚠️ The reviewer's first named input: a clean phrase, a verdict line naming a
+# DIFFERENT commit, and the head's own hex sitting elsewhere in the same body.
+REBASE_NOTE_BODY = (
+    f"Didn't find any major issues. **Reviewed commit:** `{ANOTHER_COMMIT}`. "
+    f"Rebased onto {HEAD_SHA[:10]}."
+)
+
+# ⚠️ The reviewer's second named input: a findings comment whose prose happens to
+# contain a clean phrase as a substring, on a verdict line naming this head.
+FINDINGS_PROSE_BODY = (
+    f"P3 - no major issues, but consider X. **Reviewed commit:** `{HEAD_SHA[:10]}`"
+)
+
+# ⚠️ Fail closed: a body that reads as a clean verdict and claims no commit at all.
+NO_VERDICT_LINE_BODY = "Codex Review: Didn't find any major issues. Hooray!"
+
+# ⚠️ Fail closed the other way: a verdict line whose claim this read cannot parse.
+UNPARSEABLE_VERDICT_BODY = "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:**"
+
+
+def test_the_head_named_AWAY_from_the_verdict_line_does_not_grant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **The reviewer's first named input, run.**
+
+    ⚠️ ``Didn't find any major issues. **Reviewed commit:** `abc1234567`.
+    Rebased onto eeeeeeeeee.`` -- the verdict names one commit and the body
+    mentions another. ``_names_the_head`` lowercased the WHOLE body and counted
+    the head's hex anywhere in it, so the mention won and **READY printed on a
+    verdict that names a different commit.**
+
+    ⭐ Paired with the byte-identical positive, so the refusal is the anchoring's
+    doing and not some unrelated gate's.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+
+    assert _sweep(monkeypatch, conversation=[clean]) is True
+    assert _sweep(monkeypatch, conversation=[{**clean, "body": REBASE_NOTE_BODY}]) is False
+
+
+def test_a_findings_comment_whose_PROSE_carries_a_clean_phrase_does_not_grant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **The reviewer's second named input, run.**
+
+    ⚠️ ``P3 - no major issues, but consider X. **Reviewed commit:**
+    `eeeeeeeeee``` is a FINDINGS comment on this head. The clean phrase was
+    matched anywhere in the body, so ``no major issues`` inside a sentence
+    reporting a finding granted the merge.
+
+    ⭐ The phrase is now the body's OPENING CLAIM rather than a substring of it:
+    the first non-empty line, after the bot's own ``Codex Review:`` label, must
+    begin with a clean phrase.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+
+    assert _sweep(monkeypatch, conversation=[clean]) is True
+    assert _sweep(monkeypatch, conversation=[{**clean, "body": FINDINGS_PROSE_BODY}]) is False
+
+
+def test_a_verdict_that_names_NO_commit_at_all_fails_CLOSED(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **No parseable verdict line does not grant, and neither does a malformed one.**
+
+    ⚠️ The first body is a real clean sentence with the marker line stripped off;
+    the second carries the marker with no claim behind it. Neither can show which
+    commit was reviewed, and *the read did not say* is not *it said this head*.
+
+    ⛔ **This one was GREEN before the anchoring, and it is recorded as such
+    rather than presented as a fixed defect.** The old whole-body search found no
+    hex in either body and refused for that reason. It binds the direction the
+    NEW parser fails in -- which is the thing that could regress, since a parser
+    that finds nothing now has somewhere to fall back to and must not.
+
+    ⭐ The positive is the same sweep with the verdict line restored, which is
+    what shows the two refusals come from the missing claim.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+
+    assert _sweep(monkeypatch, conversation=[clean]) is True
+    assert _sweep(monkeypatch, conversation=[{**clean, "body": NO_VERDICT_LINE_BODY}]) is False
+    assert _sweep(monkeypatch, conversation=[{**clean, "body": UNPARSEABLE_VERDICT_BODY}]) is False
+
+
+def test_the_genuine_verdict_still_grants_when_BOTH_anchors_hold() -> None:
+    """⭐ **The fix is not merely stricter about everything.**
+
+    ⚠️ Every shape the bot has actually published still qualifies: the label, the
+    varying tail, and the marker on its own line two blank lines down. Asserted
+    against ``_clean_verdicts`` directly as well as through the sweeps above, so
+    a future change to either anchor shows up here rather than as a pull request
+    nobody can merge.
+    """
+    for tail in ("Hooray!", "Keep them coming!", ":tada:", "Chef's kiss.", "You're on a roll."):
+        body = (
+            f"Codex Review: Didn't find any major issues. {tail}\n\n"
+            f"**Reviewed commit:** `{HEAD_SHA[:10]}`\n\n"
+            "<details> <summary>About Codex in GitHub</summary>\n"
+            f'Reviews are triggered when you\n- Comment "{pr_ready.TRIGGER}".\n'
+        )
+        published = _bot_comment(CLEAN_AT, body)
+
+        assert pr_ready._clean_verdicts([published], HEAD_SHA) == [published], tail
+
+    # ⛔ And the same body must NOT grant for a different head, which is the one
+    # question the anchoring exists to answer.
+    assert pr_ready._clean_verdicts([_bot_comment(CLEAN_AT, CLEAN_BODY)], OTHER_HEAD) == []
+
+
+def test_the_verdict_line_is_read_as_a_LINE_and_the_claim_is_the_one_it_quotes() -> None:
+    """⛔ The two anchors, asserted on the predicate rather than only end to end.
+
+    ⚠️ Each case removes exactly one thing: the claim moves off the head, the
+    phrase moves out of the opening position, the marker line disappears, the
+    claim behind the marker disappears, or a second marker line disagrees with
+    the first. **A body making two different claims cannot show which is true**,
+    so it grants on neither.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+    two_claims = {
+        **clean,
+        "body": (
+            f"Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** "
+            f"`{HEAD_SHA[:10]}`\n\n**Reviewed commit:** `{ANOTHER_COMMIT}`\n"
+        ),
+    }
+
+    assert pr_ready._clean_verdicts([clean], HEAD_SHA) == [clean]
+    assert pr_ready._clean_verdicts([{**clean, "body": REBASE_NOTE_BODY}], HEAD_SHA) == []
+    assert pr_ready._clean_verdicts([{**clean, "body": FINDINGS_PROSE_BODY}], HEAD_SHA) == []
+    assert pr_ready._clean_verdicts([{**clean, "body": NO_VERDICT_LINE_BODY}], HEAD_SHA) == []
+    assert pr_ready._clean_verdicts([{**clean, "body": UNPARSEABLE_VERDICT_BODY}], HEAD_SHA) == []
+    assert pr_ready._clean_verdicts([two_claims], HEAD_SHA) == []
+
+
 # ------------------------------------ the NEAR-MISS TABLE: what READY requires
 #
 # ⭐ **The claim, run rather than asserted.** After #233's deletion ``_report``
@@ -1200,6 +1355,23 @@ NEAR_MISSES = (
         "a bare +1 and nothing else, every other gate perfect",
         {"conversation": [], "reactions": [_bot_thumb(THUMBED)]},
         {"conversation": [_CLEAN], "reactions": [_bot_thumb(THUMBED)]},
+    ),
+    # ⛔ Three rows added with the anchoring. The table was the claim the round-3
+    # finding measured this file against, so its own named inputs belong in it.
+    (
+        "the head is named only OUTSIDE the verdict line",
+        {"conversation": [{**_CLEAN, "body": REBASE_NOTE_BODY}]},
+        {"conversation": [_CLEAN]},
+    ),
+    (
+        "the clean phrase is PROSE inside a findings comment",
+        {"conversation": [{**_CLEAN, "body": FINDINGS_PROSE_BODY}]},
+        {"conversation": [_CLEAN]},
+    ),
+    (
+        "the comment claims no reviewed commit at all",
+        {"conversation": [{**_CLEAN, "body": NO_VERDICT_LINE_BODY}]},
+        {"conversation": [_CLEAN]},
     ),
 )
 

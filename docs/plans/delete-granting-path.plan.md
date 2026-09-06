@@ -2,14 +2,29 @@
 
 Branch `pr-ready-thumb`, head `48b8e41`.
 
-> ⛔ **This line carried an absolute drive-letter path to the working copy, and
-> `pii_guard` reports it.** It was the only finding the guard raises against this
-> repository's tree, and it arrived with the plan-approval commit. Removed here;
-> **the same string is still reachable in that commit's history**, which the
-> tree scan cannot see and `test_every_commit_this_repository_publishes_is_clean`
-> can. Clearing that needs the plan-approval commit rewritten, which is a
-> decision for the owner and not something a build seat does to a branch's
-> record. See the build report.
+> ⛔ **This line once carried an absolute drive-letter path to a working copy,
+> and `pii_guard` reported it.** It arrived with the plan-approval commit and was
+> the only finding the guard raised against this repository's tree.
+>
+> ⭐ **The branch has since been rebuilt, and no commit it publishes contains
+> such a path.** Measured at this head rather than asserted: `git log -S` over
+> everything reachable from `HEAD` -- 700 commits -- finds none, the same search
+> across all refs finds two as a positive control, and neither of those two is an
+> ancestor of this head. The personal-data suite passes here, 33 tests,
+> `test_every_commit_this_repository_publishes_is_clean` among them.
+>
+> ⚠️ **The two commits still exist**, on a local backup branch with no upstream
+> that is contained in no remote-tracking ref. Nothing pushes them, and nothing
+> in this pull request publishes them. Said plainly because *the string is gone*
+> and *the string is unreachable from what we publish* are different claims, and
+> only the second one is true.
+>
+> ⚠️ Section 7's third bullet -- `_names_the_head` matching an unanchored
+> substring, recorded there as out of scope and left to be filed -- was not
+> filed. It was raised as a blocking review finding on this branch instead and
+> **fixed on this head**: both the head match and the clean phrase are now
+> anchored to the verdict's own opening line and `Reviewed commit:` line.
+
 Every line number below is as of that head and will shift as the deletion lands; the
 symbol names are the durable reference.
 
