@@ -14,8 +14,13 @@ the point of the simplification, not a convenience for testing.
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
+import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -30,6 +35,83 @@ _spec.loader.exec_module(pr_ready)
 
 def _comment(when: str, body: str = "") -> dict[str, object]:
     return {"created_at": when, "body": body}
+
+
+# ------------------------------- the granting path is GONE, asserted as shape
+#
+# ⭐ **#233's claim is that no surviving path returns READY on evidence weaker
+# than a verdict naming the head.** These three bind the SHAPE that makes the
+# claim checkable; the near-miss table at the end of this file walks the
+# conditions one at a time. A paragraph asserting it would be a paragraph.
+
+
+def test_the_bare_THUMB_JUDGEMENT_and_everything_only_it_used_are_GONE() -> None:
+    """⛔ A reintroduction is a RED TEST, not a review question.
+
+    ⚠️ The granting path drew thirteen blocking findings across three review
+    rounds, eleven of them a false READY, and one of those lived inside an
+    earlier round's own repair. What was deleted must stay deleted by
+    construction rather than by anybody remembering why.
+
+    ⭐ A literal list rather than a frozen inventory of the module's callables.
+    The inventory would also catch an eleventh symbol nobody thought of, and it
+    would go red on every legitimate addition -- a gate that fires on ordinary
+    work is a gate people learn to silence. These ten are named because each one
+    was deleted for the same stated reason.
+    """
+    for name in (
+        "_bare_thumb_clean",
+        "_clean_shape",
+        "_branch_activity",
+        "_Thumb",
+        "_settled_branch",
+        "_author",
+        "_unsigned_stamps",
+        "_both_reads",
+        "SHAPE_THUMB",
+        "SHAPE_COMMENT",
+    ):
+        assert not hasattr(pr_ready, name), name
+
+
+def test_the_BRANCH_ACTIVITY_READ_is_gone_from_the_scripts_and_the_tests() -> None:
+    """⛔ #235's whole subject was that read, and this is what closes it.
+
+    ⚠️ The branch-activity query string reached exactly one place in the
+    repository's code, inside ``_branch_activity``, whose one caller fed the
+    thumb. With the thumb gone the script never asks a branch about its own
+    history, here or in a fork, so #235 has no defect left to fix. Asserted
+    rather than grepped, because a grep nobody runs is not a check.
+
+    ⭐ **The needle is assembled from parts**, exactly as ``TRIGGER`` is: the
+    check covers this file too, and a literal written here would fail its own
+    assertion. Spelling it out was the first draft and it went red immediately.
+    """
+    needle = "activity" + "?ref="
+
+    for path in (ROOT / "scripts" / "pr_ready.py", Path(__file__)):
+        assert needle not in path.read_text(encoding="utf-8"), path
+
+
+def test_the_report_has_exactly_ONE_way_to_say_yes() -> None:
+    """⛔ **One ``return True`` in the whole file**, and the four-branch chain
+    above it is exhaustive over an empty ``accepted_clean``.
+
+    ⭐ That is what reduces *no path grants on weaker evidence* to something a
+    test can run: every refusal reaches the same place, so the near-miss table
+    below only has to show ``failures`` is non-empty for each near miss. A second
+    ``return True`` would be a second answer to the one question this file asks.
+
+    ⚠️ Read from the source, exactly as
+    ``test_the_phrase_is_not_written_literally_in_the_source`` reads it -- and
+    counted as STATEMENTS rather than as substrings. A plain ``.count`` was the
+    first draft; it read 2, because the comment above that line names it. A check
+    that a comment can break is a check that gets deleted rather than obeyed.
+    """
+    source = (ROOT / "scripts" / "pr_ready.py").read_text(encoding="utf-8")
+    statements = [line for line in source.splitlines() if line.strip() == "return True"]
+
+    assert len(statements) == 1, statements
 
 
 # ---------------------------------------------------------------- the trigger
@@ -103,10 +185,49 @@ def test_a_HUMAN_request_still_supersedes_a_bot_verdict_that_precedes_it() -> No
 
 
 def test_no_request_at_all_leaves_the_other_evidence_standing() -> None:
-    """⭐ The automatic review on open: there is no request to be stale against."""
+    """⭐ The automatic review on open: there is no request to be stale against.
+
+    ⚠️ The second assertion is arithmetic about ``_still_current``, not a mode
+    the caller uses. ``_report`` now passes T, which is never empty when it
+    compares at all -- it refuses instead. See ``_round_start``.
+    """
     clean = [_comment("2026-08-31T10:00:00Z")]
     assert pr_ready._latest_request([_comment("2026-08-31T09:00:00Z", "hi")]) == ""
     assert pr_ready._still_current(clean, "") == clean
+
+
+def test_an_UNREADABLE_trigger_timestamp_is_a_THIRD_answer__not_never_asked() -> None:
+    """⛔ **Round 2's finding, quoted:** ``_latest_request`` built
+    ``str(c.get("created_at") or "")`` and returned ``max(stamps, default="")``,
+    so a trigger comment whose timestamp is absent or null contributed ``""`` --
+    **the same value the function returns when no round was ever asked for.**
+
+    ⚠️ T then fell back to the open time and the previous round's clean comment
+    was accepted through it. A false READY, on the one endpoint whose emptiness
+    this project has recorded as a defect eleven times.
+
+    ⭐ Three answers, exactly as ``_ready_for_review`` already has them: a
+    timestamp, ``""`` for *nobody asked*, and ``None`` for *the read did not
+    say*. ``""`` is a real answer; ``None`` is an unanswered question.
+    """
+    asked = {"created_at": "2026-04-02T10:00:00Z", "body": pr_ready.TRIGGER}
+
+    assert pr_ready._latest_request([]) == ""
+    assert pr_ready._latest_request([asked]) == "2026-04-02T10:00:00Z"
+    assert pr_ready._latest_request([{"body": pr_ready.TRIGGER}]) is None
+    assert pr_ready._latest_request([{"created_at": None, "body": pr_ready.TRIGGER}]) is None
+    assert pr_ready._latest_request([asked, {"body": pr_ready.TRIGGER}]) is None
+
+
+def test_an_unreadable_trigger_from_the_BOT_is_still_not_a_request() -> None:
+    """⚠️ The third answer may not undo the fix it is bolted onto. Every clean
+    verdict the bot posts documents the trigger phrase in its footer, so a bot
+    comment with no readable timestamp must still be no request at all -- not an
+    unanswered one that stalls every pull request the bot has ever passed.
+    """
+    footer = {"body": f'Comment "{pr_ready.TRIGGER}".', "user": {"login": pr_ready.BOT}}
+
+    assert pr_ready._latest_request([footer]) == ""
 
 
 def test_a_verdict_PREDATING_the_latest_request_is_superseded() -> None:
@@ -435,3 +556,897 @@ def test_a_FIRST_request_arriving_mid_sweep_blocks_too() -> None:
     have missed exactly the case where a round starts during the sweep.
     """
     assert pr_ready._request_arrived_mid_sweep("", "2026-09-01T01:34:49Z")
+
+
+# ------------------------------- two reads of the same thing, merged by rule
+
+
+def test_a_ROUND_START_INSTANT_seen_in_either_read_still_counts() -> None:
+    """⛔ T never goes backwards. A mark-ready that vanishes from the final read
+    would drop T to the open time and make a stale reaction look fresh.
+    """
+    assert pr_ready._both_timelines([MARKED_READY], []) == [MARKED_READY]
+    assert pr_ready._both_timelines([], [MARKED_READY]) == [MARKED_READY]
+    assert pr_ready._both_timelines([MARKED_READY], [MARKED_READY]) == [MARKED_READY]
+    assert pr_ready._both_timelines([], []) == []
+
+
+def test_an_UNREADABLE_timeline_in_EITHER_read_is_unreadable() -> None:
+    """⛔ ``None`` propagates. Half an answer about when the round began is not
+    an answer, and the readable half cannot show the other half held nothing.
+    """
+    assert pr_ready._both_timelines(None, []) is None
+    assert pr_ready._both_timelines([], None) is None
+    assert pr_ready._both_timelines(None, None) is None
+
+
+def test_T_is_EMPTY_rather_than_early_when_it_cannot_be_computed() -> None:
+    """⛔ ``""`` is a refusal, and callers may never compare against it: it sorts
+    before every timestamp, so every artifact ever published would postdate it.
+    """
+    assert pr_ready._round_start(OPENED, "", []) == OPENED
+    assert pr_ready._round_start(OPENED, REQUESTED, [MARKED_READY]) == REQUESTED
+    assert pr_ready._round_start("", "", []) == ""
+    assert pr_ready._round_start(OPENED, "", None) == ""
+
+
+def test_an_UNREADABLE_trigger_makes_T_UNREADABLE_too() -> None:
+    """⛔ The third answer reaches T, or it changes nothing.
+
+    ⚠️ ``None`` is *a round was asked for and this read cannot place it*. Left to
+    collapse into ``""`` it loses to ``created_at`` in the ``max``, and T reads
+    as the open time -- which is exactly the fallback that accepted the previous
+    round's verdict. The refusal has to be at T, because T is what the clean
+    comment is compared against.
+    """
+    assert pr_ready._round_start(OPENED, None, []) == ""
+    assert pr_ready._round_start(OPENED, None, [MARKED_READY]) == ""
+
+
+def test_the_TWO_trigger_reads_never_let_T_go_backwards() -> None:
+    """⛔ The same rule ``_both_timelines`` holds, for the other movable term.
+
+    ⚠️ A request present while gathering and gone from the final read leaves
+    ``_request_arrived_mid_sweep`` silent -- that rule fires on a request moving
+    FORWARD -- so without this the final read alone would drop T back.
+
+    ⭐ And ``None`` in either read propagates, for the same reason it does there:
+    half an answer about when the round began is not an answer.
+    """
+    assert pr_ready._both_triggers(REQUESTED, "") == REQUESTED
+    assert pr_ready._both_triggers("", REQUESTED) == REQUESTED
+    assert pr_ready._both_triggers("", "") == ""
+    assert pr_ready._both_triggers(None, REQUESTED) is None
+    assert pr_ready._both_triggers(REQUESTED, None) is None
+
+
+def test_an_unreadable_request_BLOCKS_as_well_as_refusing_T() -> None:
+    """⭐ Two independent conditions, because one branch standing between an
+    unreadable read and a READY is what this file exists to avoid. T refuses,
+    and the mid-sweep rule names the input in the report's own words.
+    """
+    assert "did not carry" in pr_ready._request_arrived_mid_sweep(None, REQUESTED)
+    assert "did not carry" in pr_ready._request_arrived_mid_sweep(REQUESTED, None)
+
+
+# ------------------------------------------- T, when the current round began
+
+# ⛔ Every value here is INVENTED. No SHA is completed from a real one, no
+# timestamp is copied from a real pull request.
+OPENED = "2026-04-02T09:00:00Z"
+MARKED_READY = "2026-04-02T10:30:00Z"
+REQUESTED = "2026-04-02T11:00:00Z"
+
+
+def test_T_is_the_LATEST_of_the_three_instants_that_start_a_round() -> None:
+    """⛔ Three, not two. The bot documents three triggers and only one is a comment."""
+    assert pr_ready._round_began(OPENED, "", []) == OPENED
+    assert pr_ready._round_began(OPENED, REQUESTED, []) == REQUESTED
+    assert pr_ready._round_began(OPENED, "", [MARKED_READY]) == MARKED_READY
+    assert pr_ready._round_began(OPENED, REQUESTED, [MARKED_READY]) == REQUESTED
+    assert pr_ready._round_began(OPENED, "", [OPENED, MARKED_READY]) == MARKED_READY
+
+
+def test_T_never_falls_back_to_the_EMPTY_trigger() -> None:
+    """⚠️ ``""`` is what ``_latest_request`` returns when no round was ever asked
+    for, and it sorts before every timestamp. If it could win, every reaction
+    ever left would postdate T -- absence of evidence becoming permission.
+    """
+    assert pr_ready._round_began(OPENED, "", []) == OPENED
+
+
+def test_the_ready_for_review_events_are_read_from_the_metadata() -> None:
+    """⭐ #183's trigger: marking a draft ready starts a round and leaves no comment."""
+    meta = {"timelineItems": {"nodes": [{"createdAt": MARKED_READY}]}}
+
+    assert pr_ready._ready_for_review(meta) == [MARKED_READY]
+
+
+def test_a_pull_request_that_was_never_a_draft_has_NO_ready_events() -> None:
+    """⚠️ Empty is a real answer here and must not be confused with unreadable."""
+    assert pr_ready._ready_for_review({"timelineItems": {"nodes": []}}) == []
+
+
+def test_an_UNREADABLE_ready_for_review_timeline_is_not_an_empty_one() -> None:
+    """⛔ ``None`` rather than ``[]``, and the difference is the whole fail-closed rule.
+
+    ⚠️ An absent key, a node that is not an object, a node with no ``createdAt``:
+    each would silently contribute nothing to T, leaving T too EARLY and a stale
+    reaction looking fresh. This project's recorded defect class is an empty read
+    presented as an absence.
+    """
+    assert pr_ready._ready_for_review({}) is None
+    assert pr_ready._ready_for_review({"timelineItems": None}) is None
+    assert pr_ready._ready_for_review({"timelineItems": {}}) is None
+    assert pr_ready._ready_for_review({"timelineItems": {"nodes": [{}]}}) is None
+    assert pr_ready._ready_for_review({"timelineItems": {"nodes": ["not an object"]}}) is None
+
+
+# ------------------------------- the WHOLE sweep, with every ``gh`` call faked
+#
+# ⛔ **Every value below is INVENTED.** No SHA is a real one extended, no
+# timestamp is copied from a real pull request, and no Gramps datum appears.
+#
+# ⭐ The pure functions above bind the judgement. **This binds the WIRING**, and
+# the wiring is where five of this round's six findings actually lived: the right
+# rule fed the wrong argument. A named input that only ever reaches a helper
+# directly cannot show that.
+
+# ⚠️ ``HEAD_SHA`` and ``EARLIER`` were ``THUMB_HEAD`` and ``ARRIVED`` while a
+# bare 👍 could grant and an activity row recorded a head ARRIVING on a branch.
+# Both readings are gone with #233's granting path, and a constant named for a
+# rule this file now exists to deny is a trap for the next reader. The rename
+# changes no assertion.
+HEAD_SHA = "e" * 40
+OTHER_HEAD = "f" * 40
+EARLIER = "2026-04-02T08:59:58Z"
+THUMBED = "2026-04-02T09:06:00Z"
+LATER = "2026-04-02T09:30:00Z"
+
+BASE_TIP = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"
+CLEAN_AT = "2026-04-02T09:07:00Z"
+CLEAN_BODY = f"Codex Review: Didn't find any major issues. **Reviewed commit:** `{HEAD_SHA[:10]}`"
+
+
+def _bot_comment(when: str, body: str) -> dict[str, object]:
+    return {"created_at": when, "body": body, "user": {"login": "chatgpt-codex-connector[bot]"}}
+
+
+def _bot_thumb(when: str) -> dict[str, object]:
+    """A +1 on the pull request BODY, as the reactions endpoint renders one."""
+    return {"content": "+1", "created_at": when, "user": {"login": "chatgpt-codex-connector"}}
+
+
+def _meta(**overrides: object) -> dict[str, object]:
+    """One metadata answer GitHub would call mergeable, before any override."""
+    snapshot: dict[str, object] = {
+        "state": "OPEN",
+        "isDraft": False,
+        "headRefOid": HEAD_SHA,
+        "baseRefOid": BASE_TIP,
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN",
+        "createdAt": OPENED,
+        "baseRef": {"name": "main", "target": {"oid": BASE_TIP}},
+        "timelineItems": {"nodes": []},
+    }
+    snapshot.update(overrides)
+    return snapshot
+
+
+PULL = 900
+
+
+def _sweep(patch: pytest.MonkeyPatch, **overrides: object) -> bool:
+    """Run ``_report`` end to end against canned answers. ⛔ No network, no ``gh``.
+
+    ⚠️ Each endpoint the sweep reads TWICE has a ``final_`` twin. ``None`` there
+    means *the second read agrees with the first*, which is the ordinary case;
+    a test that is about a reread says what the second read returned.
+
+    ⛔ **Only ``meta`` and ``conversation`` are read twice now.** The reviews,
+    inline and reactions endpoints lost their second read with #233's granting
+    path, and the branch-activity read went with it -- its query string is not
+    stubbed here because ``_report`` no longer asks for it, so a reintroduction
+    raises *the sweep made a gh call nothing stubs* rather than passing quietly.
+    """
+    facts: dict[str, object] = {
+        "meta": _meta(),
+        "final_meta": None,
+        "commit_date": EARLIER,
+        "reviews": [],
+        "inline": [],
+        "conversation": [],
+        "final_conversation": None,
+        "reactions": [],
+        "threads": [],
+        "checks": [{"name": "invented-check", "state": "SUCCESS", "bucket": "pass"}],
+    }
+    facts.update(overrides)
+    seen: dict[str, int] = {}
+
+    def read(key: str) -> object:
+        seen[key] = seen.get(key, 0) + 1
+        if seen[key] == 1:
+            return facts[key]
+        later = facts.get(f"final_{key}")
+        return facts[key] if later is None else later
+
+    def fake_gh(*arguments: str) -> str:
+        joined = " ".join(arguments)
+        if "reviewThreads" in joined:
+            threads = {"pageInfo": {"hasNextPage": False}, "nodes": facts["threads"]}
+            return json.dumps({"data": {"repository": {"pullRequest": {"reviewThreads": threads}}}})
+        if "pullRequest" in joined:
+            return json.dumps({"data": {"repository": {"pullRequest": read("meta")}}})
+        if "/commits/" in joined:
+            return json.dumps({"commit": {"committer": {"date": facts["commit_date"]}}})
+        if f"pulls/{PULL}/reviews" in joined:
+            return json.dumps(read("reviews"))
+        if f"pulls/{PULL}/comments" in joined:
+            return json.dumps(read("inline"))
+        if f"issues/{PULL}/comments" in joined:
+            return json.dumps(read("conversation"))
+        if f"issues/{PULL}/reactions" in joined:
+            return json.dumps(read("reactions"))
+        if arguments[:2] == ("pr", "checks"):
+            return json.dumps(facts["checks"])
+        raise AssertionError(f"the sweep made a gh call nothing stubs: {joined}")
+
+    patch.setattr(pr_ready, "_gh", fake_gh)
+    verdict = pr_ready._report(PULL)
+    assert isinstance(verdict, bool)
+    return verdict
+
+
+def test_the_harness_itself_reports_READY_on_a_clean_sweep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **The known positive.** A NOT-READY from an uncalibrated instrument is
+    not evidence: every test below asserts a refusal, and without this one they
+    would all pass against a harness that refuses for a reason nobody intended.
+    """
+    assert _sweep(monkeypatch, conversation=[_bot_comment(CLEAN_AT, CLEAN_BODY)]) is True
+
+
+def test_a_ready_event_that_DISAPPEARS_from_the_final_read_still_moves_T(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ T never goes backwards between two reads of the same timeline.
+
+    ⚠️ Named input: a pull request opened at 09:00, the bot's clean comment
+    naming this head at 09:07, the provisional metadata seeing a ready-for-review
+    event at 10:30, and the final timeline returning ``[]``. Only the final read
+    fed T, so T fell back to the open time, the 09:07 comment postdated it, and
+    READY printed for the round before the one the mark-ready started.
+
+    ⛔ **RE-FIXTURED, and the reason is that the old fixture would have passed
+    for the wrong reason.** It drove its refusal through a bare 👍 with an empty
+    conversation. With #233's granting path deleted that sweep has no clean
+    signal at all, so it returns False whatever T does -- green, and testing
+    nothing. The pair below is what makes the mark-ready the cause: the two
+    sweeps differ only in that event.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+    marked_ready = {"nodes": [{"createdAt": MARKED_READY}]}
+
+    assert (
+        _sweep(
+            monkeypatch,
+            conversation=[clean],
+            meta=_meta(timelineItems=marked_ready),
+            final_meta=_meta(timelineItems={"nodes": []}),
+        )
+        is False
+    )
+    assert _sweep(monkeypatch, conversation=[clean]) is True
+
+
+def test_a_TRIGGER_that_disappears_from_the_final_read_still_moves_T(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⚠️ The same regression through the other term, and
+    ``_request_arrived_mid_sweep`` does not catch it: that rule fires when the
+    request moves FORWARD, and a request going from one to none leaves ``after``
+    empty, so it says nothing at all.
+
+    ⛔ **RE-FIXTURED for the reason above.** Its old shape refused through a bare
+    👍 that can no longer grant, so it would have gone green without exercising T.
+    Here the request at 10:30 supersedes the 09:07 clean comment; drop the request
+    from BOTH reads and the same sweep is READY.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+    asked = {
+        "created_at": "2026-04-02T10:30:00Z",
+        "body": pr_ready.TRIGGER,
+        "user": {"login": "randyjreid"},
+    }
+
+    assert _sweep(monkeypatch, conversation=[clean, asked], final_conversation=[clean]) is False
+    assert _sweep(monkeypatch, conversation=[clean], final_conversation=[clean]) is True
+
+
+def test_a_TRIGGER_the_read_could_not_TIMESTAMP_refuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **Round 2's finding, end to end, on its own named input.**
+
+    ⚠️ A pull request opened at 09:00; the bot posts a clean comment naming this
+    head at 09:07; a human asks for a new round at 10:00 in a comment the read
+    returns with **no ``created_at``**; no push; the sweep runs before the new
+    round publishes anything. ``_latest_request`` returned ``""`` -- the value
+    that means *nobody ever asked* -- T fell back to 09:00, the 09:07 comment
+    postdated it, and **READY printed on the previous round's verdict.**
+
+    ⭐ Three sweeps, and the middle one is the control. Byte-identical apart from
+    that one comment: absent, the verdict is READY; readable, it supersedes and
+    refuses; unreadable, it refuses too -- which is the whole claim, that an
+    unanswered question is not an answer of *no*.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+    unstamped = {"body": pr_ready.TRIGGER, "user": {"login": "randyjreid"}}
+    stamped = {**unstamped, "created_at": "2026-04-02T10:00:00Z"}
+
+    assert _sweep(monkeypatch, conversation=[clean]) is True
+    assert _sweep(monkeypatch, conversation=[clean, stamped]) is False
+    assert _sweep(monkeypatch, conversation=[clean, unstamped]) is False
+
+
+def test_a_TRIGGER_that_loses_its_timestamp_MID_SWEEP_refuses_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⚠️ The unreadable answer has to survive the second read, or the rule is
+    only about the first one. Here the request is readable while gathering and
+    comes back unstamped at the verdict; T is unreadable either way.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+    unstamped = {"body": pr_ready.TRIGGER, "user": {"login": "randyjreid"}}
+    stamped = {**unstamped, "created_at": "2026-04-02T09:01:00Z"}
+
+    assert _sweep(monkeypatch, conversation=[clean, stamped]) is True
+    assert (
+        _sweep(monkeypatch, conversation=[clean, stamped], final_conversation=[clean, unstamped])
+        is False
+    )
+
+
+# ------------------------------------------------- #183, closed by measurement
+
+
+def test_183s_own_named_input_is_NOT_READY(monkeypatch: pytest.MonkeyPatch) -> None:
+    """⛔ **#183, demonstrated rather than asserted.** Its own named input, run.
+
+    A clean comment naming head ``H``, a conversion back to draft, a mark-ready
+    on the same head, and no push. Marking a draft ready is one of the three
+    things that starts a bot round -- the bot says so in the footer of every
+    verdict it publishes -- and it moves neither the open time nor the latest
+    request. The clean-comment path compared its comment against the trigger
+    alone, so the PREVIOUS round's verdict was still accepted and READY printed
+    while the new round had published nothing.
+
+    ⭐ The pair below is the whole proof. The only difference between the two
+    sweeps is the mark-ready event; everything else -- head, comment, branch,
+    checks, threads, base -- is identical. So the refusal is that event's doing
+    and not some unrelated gate's, which a single negative could never show.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+    marked_ready_after_the_clean_comment = {"nodes": [{"createdAt": MARKED_READY}]}
+
+    assert _sweep(monkeypatch, conversation=[clean]) is True
+    assert (
+        _sweep(
+            monkeypatch,
+            conversation=[clean],
+            meta=_meta(timelineItems=marked_ready_after_the_clean_comment),
+        )
+        is False
+    )
+
+
+def test_a_clean_comment_at_EXACTLY_T_is_refused__the_same_second_measured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **Round 2's third finding, decided by running rather than on paper.**
+
+    ⚠️ Its subject is the same-second comparison at T. The permissive ones were
+    all inside the bare-👍 judgement -- a push at exactly T reading as an unmoved
+    branch, a bot artifact at exactly T reading as silence, an unsigned artifact
+    at exactly T -- and all three went with #233's deletion.
+
+    ⭐ Measured on this head, not assumed: ``began`` reaches exactly ONE
+    comparison, ``_still_current``'s ``> began``, and it is strict. The only
+    other ``>`` in the file orders ``fresh_conversation``, which is printed at
+    step 2 and appended to no failure. **So equality DROPS the grant.** A clean
+    comment stamped at the same second as the mark-ready that started the round
+    is refused; move it one second later and it stands.
+
+    ⚠️ That is a false NOT READY at worst, which is friction and not danger, and
+    it is the direction this instrument is built to fail in.
+    """
+    at_T = {"nodes": [{"createdAt": CLEAN_AT}]}
+    one_second_earlier = {"nodes": [{"createdAt": "2026-04-02T09:06:59Z"}]}
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+
+    assert _sweep(monkeypatch, conversation=[clean], meta=_meta(timelineItems=at_T)) is False
+    assert (
+        _sweep(monkeypatch, conversation=[clean], meta=_meta(timelineItems=one_second_earlier))
+        is True
+    )
+
+
+def test_a_clean_comment_still_stands_when_the_mark_ready_PRECEDES_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⭐ Both directions, because a rule that only ever refuses is not a rule.
+
+    The mark-ready starts the round; a clean comment published after it is that
+    round's verdict and still accepts.
+    """
+    earlier = {"nodes": [{"createdAt": "2026-04-02T09:01:00Z"}]}
+
+    verdict = _sweep(
+        monkeypatch,
+        conversation=[_bot_comment(CLEAN_AT, CLEAN_BODY)],
+        meta=_meta(timelineItems=earlier),
+    )
+
+    assert verdict is True
+
+
+def test_an_unreadable_timeline_REFUSES_shape_A_rather_than_falling_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **No fallback.** Restoring the old comparison when the timeline cannot
+    be read would be this defect returning under a different name: the input
+    that produces it is exactly an unreadable timeline.
+
+    ⚠️ The owner ruled the trade explicitly. Coupling the clean comment to T
+    makes it depend on a read it did not need before, so an unreadable timeline
+    stalls a pull request the comment path could have passed. **That is an
+    availability cost, not a correctness one, and it fails toward NOT READY.**
+    """
+    verdict = _sweep(
+        monkeypatch,
+        conversation=[_bot_comment(CLEAN_AT, CLEAN_BODY)],
+        meta=_meta(timelineItems=None),
+    )
+
+    assert verdict is False
+
+
+# -------------------- the clean comment, confirmed against the FINAL read
+
+
+def test_confirmation_is_by_ID_where_the_rows_carry_one() -> None:
+    """⭐ One identity rule, and the only granting evidence left uses it.
+
+    ⚠️ Whole-row equality alone would be defeated by any field the two reads
+    render differently; an ``id`` comparison alone would be defeated by a
+    fixture that has none. So it is ``id`` when either row carries one, and
+    equality otherwise.
+
+    ⛔ **Identity PAIRS the rows; it does not judge them.** ``_still_granted``
+    sees only what its caller passes, and identity survives an edit that
+    destroys content -- so both of its arguments are filtered for the clean
+    verdict first. That is asserted by
+    ``test_a_clean_comment_EDITED_into_a_findings_report_stops_granting``.
+    """
+    first = [{"id": 4815162342, "created_at": CLEAN_AT, "body": CLEAN_BODY}]
+    rendered_differently = [
+        {"id": 4815162342, "created_at": CLEAN_AT, "body": CLEAN_BODY, "extra": "field"}
+    ]
+    a_different_comment = [{"id": 4815162343, "created_at": CLEAN_AT, "body": CLEAN_BODY}]
+
+    assert pr_ready._still_granted(first, rendered_differently) == first
+    assert pr_ready._still_granted(first, a_different_comment) == []
+    assert pr_ready._still_granted([_comment(CLEAN_AT)], [_comment(CLEAN_AT)]) == [
+        _comment(CLEAN_AT)
+    ]
+    assert pr_ready._still_granted([_comment(CLEAN_AT)], [_comment(LATER)]) == []
+
+
+def test_the_clean_verdict_filter_asks_ALL_THREE_questions_of_a_comment() -> None:
+    """⛔ Bot-authored, a clean phrase, and naming this head. All three, or none.
+
+    ⭐ Extracted so the SAME predicate runs over both reads. It was inline over
+    the first read only, and the second read was confirmed by identity alone.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+
+    assert pr_ready._clean_verdicts([clean], HEAD_SHA) == [clean]
+    assert pr_ready._clean_verdicts([{**clean, "user": {"login": "randyjreid"}}], HEAD_SHA) == []
+    assert pr_ready._clean_verdicts([{**clean, "body": "1 finding"}], HEAD_SHA) == []
+    assert pr_ready._clean_verdicts([clean], OTHER_HEAD) == []
+
+
+def test_a_clean_comment_EDITED_into_a_findings_report_stops_granting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **Round 2's finding, quoted by subject:** the confirmation matched on
+    ``id``, and **identity survives an edit that destroys content**.
+
+    ⚠️ Named input: the bot posts a comment at 09:07 carrying id 4815162342 and a
+    clean verdict naming this head; the sweep reads it; before the verdict the
+    bot edits that same comment into a findings report -- or edits the quoted
+    commit to a different one; the final read returns id 4815162342 with the new
+    body; every other gate is clean. ``clean_comments`` was filtered by the clean
+    phrase and the head, ``by_bot(final_conversation)`` was **not filtered at
+    all**, so ``_same_row`` matched on id and the FIRST read's row stood.
+    **READY over a body that no longer carries a clean verdict.**
+
+    ⭐ Three sweeps, one row edited between them and nothing else. The first is
+    the control: the same comment surviving unedited is still READY, so each
+    refusal is that edit's doing.
+    """
+    clean = {**_bot_comment(CLEAN_AT, CLEAN_BODY), "id": 4815162342}
+    into_findings = {
+        **clean,
+        "body": f"Codex Review: 1 finding. **Reviewed commit:** `{HEAD_SHA[:10]}`",
+    }
+    onto_another_commit = {
+        **clean,
+        "body": (
+            f"Codex Review: Didn't find any major issues. **Reviewed commit:** `{OTHER_HEAD[:10]}`"
+        ),
+    }
+
+    assert _sweep(monkeypatch, conversation=[clean], final_conversation=[clean]) is True
+    assert _sweep(monkeypatch, conversation=[clean], final_conversation=[into_findings]) is False
+    assert (
+        _sweep(monkeypatch, conversation=[clean], final_conversation=[onto_another_commit]) is False
+    )
+
+
+def test_a_clean_comment_DELETED_before_the_verdict_stops_granting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **The clean comment granted on evidence it never re-confirmed.**
+
+    ⚠️ Named input: the bot posts a clean comment naming head ``H`` at 09:07, the
+    sweep reads it, the comment is deleted before the verdict is pronounced, the
+    final conversation read lacks it, and every other gate is clean. The comment
+    was built from the FIRST read alone and reached the verdict through
+    ``_still_current`` only, so READY printed over a body that no longer carries
+    a clean signal.
+
+    ⭐ The pair is the proof, exactly as ``test_183s_own_named_input_is_NOT_READY``
+    pairs. The two sweeps are byte-identical apart from the second read: with the
+    comment surviving it is still READY, so the refusal is the deletion's doing
+    and not some unrelated gate's.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+
+    assert _sweep(monkeypatch, conversation=[clean]) is True
+    assert _sweep(monkeypatch, conversation=[clean], final_conversation=[]) is False
+
+
+def test_a_clean_comment_that_ARRIVED_mid_sweep_does_not_grant_either(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **Confirmation may not become admission.**
+
+    ⚠️ Taking the final read alone would let a clean comment published mid-sweep
+    grant a verdict on evidence gathered before it -- the checks, the threads and
+    the head were all read before that comment existed. Intersection, not
+    replacement: only what BOTH reads show.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+
+    verdict = _sweep(monkeypatch, conversation=[], final_conversation=[clean])
+
+    assert verdict is False
+
+
+# ------------------- the verdict LINE, not the body: the round-3 finding on #233
+#
+# ⛔ **The head match and the clean phrase were two INDEPENDENT, UNANCHORED
+# whole-body substring searches**, and once the granting path was deleted they
+# were the only granting evidence left in the file. Both of the reviewer's named
+# inputs printed READY with every other gate perfect.
+#
+# ⭐ **The anchors are cut to a MEASURED shape, not to a guess.** Across pull
+# requests #150 to #245 the bot published 40 conversation verdicts. Every one
+# carries exactly one line of the shape ``**Reviewed commit:** `<10 hex>` `` --
+# 40 of 40, one marker line each, every abbreviation ten characters -- and every
+# one opens ``Codex Review: Didn't find any major issues.`` followed by a varying
+# tail (Hooray! / Keep it up! / :tada: / Chef's kiss. / sixteen distinct tails in
+# all). Neither anchor asks for anything the bot has ever once departed from.
+
+# ⛔ Invented hex, ten characters like the bot's own abbreviation. Not a real
+# commit, and deliberately NOT a prefix of ``HEAD_SHA``.
+ANOTHER_COMMIT = "abc1234567"
+
+# ⚠️ The reviewer's first named input: a clean phrase, a verdict line naming a
+# DIFFERENT commit, and the head's own hex sitting elsewhere in the same body.
+REBASE_NOTE_BODY = (
+    f"Didn't find any major issues. **Reviewed commit:** `{ANOTHER_COMMIT}`. "
+    f"Rebased onto {HEAD_SHA[:10]}."
+)
+
+# ⚠️ The reviewer's second named input: a findings comment whose prose happens to
+# contain a clean phrase as a substring, on a verdict line naming this head.
+FINDINGS_PROSE_BODY = (
+    f"P3 - no major issues, but consider X. **Reviewed commit:** `{HEAD_SHA[:10]}`"
+)
+
+# ⚠️ Fail closed: a body that reads as a clean verdict and claims no commit at all.
+NO_VERDICT_LINE_BODY = "Codex Review: Didn't find any major issues. Hooray!"
+
+# ⚠️ Fail closed the other way: a verdict line whose claim this read cannot parse.
+UNPARSEABLE_VERDICT_BODY = "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:**"
+
+
+def test_the_head_named_AWAY_from_the_verdict_line_does_not_grant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **The reviewer's first named input, run.**
+
+    ⚠️ ``Didn't find any major issues. **Reviewed commit:** `abc1234567`.
+    Rebased onto eeeeeeeeee.`` -- the verdict names one commit and the body
+    mentions another. ``_names_the_head`` lowercased the WHOLE body and counted
+    the head's hex anywhere in it, so the mention won and **READY printed on a
+    verdict that names a different commit.**
+
+    ⭐ Paired with the byte-identical positive, so the refusal is the anchoring's
+    doing and not some unrelated gate's.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+
+    assert _sweep(monkeypatch, conversation=[clean]) is True
+    assert _sweep(monkeypatch, conversation=[{**clean, "body": REBASE_NOTE_BODY}]) is False
+
+
+def test_a_findings_comment_whose_PROSE_carries_a_clean_phrase_does_not_grant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **The reviewer's second named input, run.**
+
+    ⚠️ ``P3 - no major issues, but consider X. **Reviewed commit:**
+    `eeeeeeeeee``` is a FINDINGS comment on this head. The clean phrase was
+    matched anywhere in the body, so ``no major issues`` inside a sentence
+    reporting a finding granted the merge.
+
+    ⭐ The phrase is now the body's OPENING CLAIM rather than a substring of it:
+    the first non-empty line, after the bot's own ``Codex Review:`` label, must
+    begin with a clean phrase.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+
+    assert _sweep(monkeypatch, conversation=[clean]) is True
+    assert _sweep(monkeypatch, conversation=[{**clean, "body": FINDINGS_PROSE_BODY}]) is False
+
+
+def test_a_verdict_that_names_NO_commit_at_all_fails_CLOSED(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⛔ **No parseable verdict line does not grant, and neither does a malformed one.**
+
+    ⚠️ The first body is a real clean sentence with the marker line stripped off;
+    the second carries the marker with no claim behind it. Neither can show which
+    commit was reviewed, and *the read did not say* is not *it said this head*.
+
+    ⛔ **This one was GREEN before the anchoring, and it is recorded as such
+    rather than presented as a fixed defect.** The old whole-body search found no
+    hex in either body and refused for that reason. It binds the direction the
+    NEW parser fails in -- which is the thing that could regress, since a parser
+    that finds nothing now has somewhere to fall back to and must not.
+
+    ⭐ The positive is the same sweep with the verdict line restored, which is
+    what shows the two refusals come from the missing claim.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+
+    assert _sweep(monkeypatch, conversation=[clean]) is True
+    assert _sweep(monkeypatch, conversation=[{**clean, "body": NO_VERDICT_LINE_BODY}]) is False
+    assert _sweep(monkeypatch, conversation=[{**clean, "body": UNPARSEABLE_VERDICT_BODY}]) is False
+
+
+def test_the_genuine_verdict_still_grants_when_BOTH_anchors_hold() -> None:
+    """⭐ **The fix is not merely stricter about everything.**
+
+    ⚠️ Every shape the bot has actually published still qualifies: the label, the
+    varying tail, and the marker on its own line two blank lines down. Asserted
+    against ``_clean_verdicts`` directly as well as through the sweeps above, so
+    a future change to either anchor shows up here rather than as a pull request
+    nobody can merge.
+    """
+    for tail in ("Hooray!", "Keep them coming!", ":tada:", "Chef's kiss.", "You're on a roll."):
+        body = (
+            f"Codex Review: Didn't find any major issues. {tail}\n\n"
+            f"**Reviewed commit:** `{HEAD_SHA[:10]}`\n\n"
+            "<details> <summary>About Codex in GitHub</summary>\n"
+            f'Reviews are triggered when you\n- Comment "{pr_ready.TRIGGER}".\n'
+        )
+        published = _bot_comment(CLEAN_AT, body)
+
+        assert pr_ready._clean_verdicts([published], HEAD_SHA) == [published], tail
+
+    # ⛔ And the same body must NOT grant for a different head, which is the one
+    # question the anchoring exists to answer.
+    assert pr_ready._clean_verdicts([_bot_comment(CLEAN_AT, CLEAN_BODY)], OTHER_HEAD) == []
+
+
+def test_the_verdict_line_is_read_as_a_LINE_and_the_claim_is_the_one_it_quotes() -> None:
+    """⛔ The two anchors, asserted on the predicate rather than only end to end.
+
+    ⚠️ Each case removes exactly one thing: the claim moves off the head, the
+    phrase moves out of the opening position, the marker line disappears, the
+    claim behind the marker disappears, or a second marker line disagrees with
+    the first. **A body making two different claims cannot show which is true**,
+    so it grants on neither.
+    """
+    clean = _bot_comment(CLEAN_AT, CLEAN_BODY)
+    two_claims = {
+        **clean,
+        "body": (
+            f"Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** "
+            f"`{HEAD_SHA[:10]}`\n\n**Reviewed commit:** `{ANOTHER_COMMIT}`\n"
+        ),
+    }
+
+    assert pr_ready._clean_verdicts([clean], HEAD_SHA) == [clean]
+    assert pr_ready._clean_verdicts([{**clean, "body": REBASE_NOTE_BODY}], HEAD_SHA) == []
+    assert pr_ready._clean_verdicts([{**clean, "body": FINDINGS_PROSE_BODY}], HEAD_SHA) == []
+    assert pr_ready._clean_verdicts([{**clean, "body": NO_VERDICT_LINE_BODY}], HEAD_SHA) == []
+    assert pr_ready._clean_verdicts([{**clean, "body": UNPARSEABLE_VERDICT_BODY}], HEAD_SHA) == []
+    assert pr_ready._clean_verdicts([two_claims], HEAD_SHA) == []
+
+
+# ------------------------------------ the NEAR-MISS TABLE: what READY requires
+#
+# ⭐ **The claim, run rather than asserted.** After #233's deletion ``_report``
+# returns True only when a BOT-authored conversation comment matching a clean
+# phrase and NAMING THE HEAD is present in BOTH reads and postdates a computable
+# T. Each row below removes exactly one of those conditions and asserts False.
+#
+# ⛔ **Every row is PAIRED with a positive that restores only that condition.**
+# Without the pair a harness refusing for an unintended reason would pass the
+# whole table -- which is this project's recorded rule that a NOT READY from an
+# uncalibrated instrument is not evidence.
+
+_CLEAN = _bot_comment(CLEAN_AT, CLEAN_BODY)
+_FINDINGS_BODY = f"Codex Review: 1 finding. **Reviewed commit:** `{HEAD_SHA[:10]}`"
+_OTHER_HEAD_BODY = f"Didn't find any major issues. **Reviewed commit:** `{OTHER_HEAD[:10]}`"
+_MARKED_READY_AFTER = {"nodes": [{"createdAt": MARKED_READY}]}
+_UNSTAMPED_REQUEST = {"body": pr_ready.TRIGGER, "user": {"login": "randyjreid"}}
+
+NEAR_MISSES = (
+    (
+        "the comment is not the bot's",
+        {"conversation": [{**_CLEAN, "user": {"login": "randyjreid"}}]},
+        {"conversation": [_CLEAN]},
+    ),
+    (
+        "the body carries no clean phrase",
+        {"conversation": [{**_CLEAN, "body": _FINDINGS_BODY}]},
+        {"conversation": [_CLEAN]},
+    ),
+    (
+        "the body does not name this head",
+        {"conversation": [{**_CLEAN, "body": _OTHER_HEAD_BODY}]},
+        {"conversation": [_CLEAN]},
+    ),
+    (
+        "the verdict predates T",
+        {"conversation": [_CLEAN], "meta": _meta(timelineItems=_MARKED_READY_AFTER)},
+        {"conversation": [_CLEAN], "meta": _meta()},
+    ),
+    (
+        "the verdict is gone from the final read",
+        {"conversation": [_CLEAN], "final_conversation": []},
+        {"conversation": [_CLEAN], "final_conversation": [_CLEAN]},
+    ),
+    (
+        "the verdict arrives only in the final read",
+        {"conversation": [], "final_conversation": [_CLEAN]},
+        {"conversation": [_CLEAN], "final_conversation": [_CLEAN]},
+    ),
+    (
+        "T cannot be computed -- the timeline did not answer",
+        {"conversation": [_CLEAN], "meta": _meta(timelineItems=None)},
+        {"conversation": [_CLEAN], "meta": _meta()},
+    ),
+    (
+        "T cannot be computed -- a request carries no timestamp",
+        {"conversation": [_CLEAN, _UNSTAMPED_REQUEST]},
+        {"conversation": [_CLEAN]},
+    ),
+    (
+        "a bare +1 and nothing else, every other gate perfect",
+        {"conversation": [], "reactions": [_bot_thumb(THUMBED)]},
+        {"conversation": [_CLEAN], "reactions": [_bot_thumb(THUMBED)]},
+    ),
+    # ⛔ Three rows added with the anchoring. The table was the claim the round-3
+    # finding measured this file against, so its own named inputs belong in it.
+    (
+        "the head is named only OUTSIDE the verdict line",
+        {"conversation": [{**_CLEAN, "body": REBASE_NOTE_BODY}]},
+        {"conversation": [_CLEAN]},
+    ),
+    (
+        "the clean phrase is PROSE inside a findings comment",
+        {"conversation": [{**_CLEAN, "body": FINDINGS_PROSE_BODY}]},
+        {"conversation": [_CLEAN]},
+    ),
+    (
+        "the comment claims no reviewed commit at all",
+        {"conversation": [{**_CLEAN, "body": NO_VERDICT_LINE_BODY}]},
+        {"conversation": [_CLEAN]},
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("removed", "near_miss", "restored"), NEAR_MISSES, ids=[c[0] for c in NEAR_MISSES]
+)
+def test_removing_ANY_ONE_condition_takes_READY_away(
+    monkeypatch: pytest.MonkeyPatch,
+    removed: str,
+    near_miss: dict[str, object],
+    restored: dict[str, object],
+) -> None:
+    """⛔ One condition removed at a time, each paired with its own positive."""
+    assert _sweep(monkeypatch, **restored) is True, f"the paired positive for: {removed}"
+    assert _sweep(monkeypatch, **near_miss) is False, removed
+
+
+def test_the_bare_THUMB_refusal_names_the_reaction_the_head_and_the_action(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """⛔ **#233's friction is accepted, so the refusal has to be actionable.**
+
+    ⚠️ A false NOT READY costs a round trip, and *an instrument nobody trusts
+    gets overridden by argument* -- which happened twice. The message therefore
+    says what the bot did (a +1, at this instant), what is missing (a comment
+    naming this head), and what to do about it.
+
+    ⛔ **It must not spell the trigger phrase.** This file and the script both
+    appear in their own pull request's diff, and the bot matches a substring, so
+    an operator pasting the refusal into a comment would start a round -- and
+    ``_latest_request`` would then count it. "re-trigger the bot on this head"
+    names the action without arming the output.
+    """
+    assert _sweep(monkeypatch, conversation=[], reactions=[_bot_thumb(THUMBED)]) is False
+
+    printed = capsys.readouterr().out
+
+    assert THUMBED in printed
+    assert HEAD_SHA[:12] in printed
+    assert "re-trigger" in printed.lower()
+    assert pr_ready.TRIGGER not in printed
+    assert "(evidence, never a verdict)" in printed
+
+
+# --------------------------------------------- #219: printing its own verdict
+
+
+def test_the_verdict_prints_on_a_console_that_cannot_ENCODE_it() -> None:
+    """⛔ #219: the tool died rendering the answer it had already computed.
+
+    ⚠️ The failure was indistinguishable at a glance from a real NOT-READY --
+    ``the check could not complete``, exit non-zero -- while the finding that
+    mattered sat in the part that never printed.
+
+    ⭐ **The parent is pinned to cp1252 so inheritance cannot supply the answer**,
+    exactly as ``test_gate_child_encoding`` does: under a UTF-8 parent this test
+    would pass with the fix deleted. The no-argument path makes no API call, and
+    the cp1252 codec exists on every platform, so this binds on CI's Linux
+    runners too.
+    """
+    hostile = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    hostile.pop("PYTHONUTF8", None)
+
+    finished = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "pr_ready.py")],
+        capture_output=True,
+        env=hostile,
+        check=False,
+    )
+
+    # ⛔ 2 is the usage exit. Without the fix this is 1, from an unhandled
+    # UnicodeEncodeError -- which is why the code is asserted and not just the text.
+    assert finished.returncode == 2, finished.stderr.decode("utf-8", "replace")
+    printed = finished.stdout.decode("utf-8")
+    assert "⛔" in printed
+    assert "⭐" in printed

@@ -3,6 +3,14 @@
 > ⭐ **STATUS: the DECISION holds**, and the code matches it: nothing reaches the
 > tree without a human approving a rendering of it. It is why live reads are
 > permitted at all.
+>
+> ⚠️ **Partly superseded by [R9](R9-retire-the-note-flow.md), ruled 2026-09-04.**
+> The mechanisms this page cites for the export path, the reader in
+> `core/people.py` and the console the server holds no handle on, are retired by
+> R9 once its build merges. The three egress bounds themselves survive: the live
+> path carries the `priv` exclusion, the required search term and the result cap
+> in `src/gramps_live_api/host/reads.py`, which was written to meet this page's
+> precondition P2. The body below is left as ruled.
 > Index: [`README.md`](README.md).
 
 

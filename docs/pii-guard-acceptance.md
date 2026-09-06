@@ -278,7 +278,7 @@ in a test. Behaviour-preserving, and the whole suite was run across the extracti
 than to assume it.
 
 ⚠️ **A separate file arrived with the same change and is counted nowhere above.**
-`tests/unit/test_derive_specified_containers.py` -- **9 tests** -- asserts the derivation script's
+`tests/unit/test_derive_specified_containers.py` -- **10 tests** -- asserts the derivation script's
 own properties. It carries no criterion here: it is about a build step's fail-closed guarantee, not
 about what a scan returns. ⚠️ **That is that FILE's count too, and it moved for the same kind of
 reason:** the marker-deletion round added
@@ -329,6 +329,21 @@ a reason to expect nine; four rounds in a row have read it instead.
 ⚠️ **The ninth also says why the cheap half is not the whole repair, and #36 still owes the rest.**
 Looking the number up first works only for somebody who knows a documented count exists. It is the
 `grep` that has to happen, not the intention -- and nothing in the repository fails if it does not.
+
+⚠️ **#36 was then built and closed, so the sentence above stops being true from `97e84d2`.**
+`tests/unit/test_pii_guard_acceptance_counts.py` reads every `tests/….py` -- **N tests** claim on
+this page and compares it against that file's count of `def test_` definitions, so a stale one now
+fails a gate instead of reading as considered. Both sides are derived and neither is a second list.
+
+⚠️ **The TWELFTH moved the derivation file's 9, which is the first change to move it.** The round
+trip's fix round added `test_a_fixed_default_is_emitted_as_a_tuple_however_many_pieces_it_has` to
+`tests/unit/test_derive_specified_containers.py`, taking it from 9 to **10**: a one-piece `#FIXED`
+default was emitted as a parenthesised string rather than a tuple, which contradicts the emitted
+module's own annotation and which the offline round trip would have reported as a hand edit. That
+is a build step's property like every other test in that file, so it moves nothing this document
+claims. ⛔ **And this is the first of the twelve where the number was NOT looked up first** -- the
+check above is what reported it, on a full-suite run, which is exactly the half of #36 the
+paragraphs before this one record as missing.
 
 ⚠️ **And a documented MEASUREMENT went stale the same way, which is the same defect wearing different
 clothes.** CONTRIBUTING's control table -- the retained side of the marker gate -- recorded

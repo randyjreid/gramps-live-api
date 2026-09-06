@@ -32,7 +32,6 @@ CONFIG_FILE = "config.json"
 
 ENV_COPY = "GRAMPS_LIVE_API_COPY"
 ENV_RUNTIME = "GRAMPS_LIVE_API_RUNTIME"
-ENV_EXPORT = "GRAMPS_LIVE_API_EXPORT"
 
 RUNTIME_NAME = "grampsd.exe"
 """The daemon launcher, and never ``gramps.exe``.
@@ -45,7 +44,17 @@ runs the same application with no single-instance lock.
 _INSTALL_GLOB = "GrampsAIO64-*"
 """How the Windows all-in-one installer names its directory under Program Files."""
 
-_KEYS = frozenset({"copy_path", "gramps_runtime", "export_path"})
+_KEYS = frozenset({"copy_path", "gramps_runtime"})
+"""Every setting there is.
+
+⛔ **``export_path`` is gone with the note flow.** It named a Gramps XML export
+that ``list_people`` and ``propose_note`` read, and it was the only stale data
+path in the product; every surviving read goes through the accessor against the
+tree Gramps has open. A configuration file still carrying it is refused BY NAME
+rather than ignored, which is this loader's rule for every key it does not know:
+a setting silently dropped means the configuration in force is not the one that
+was written.
+"""
 
 
 class ConfigError(Exception):
@@ -58,16 +67,6 @@ class Settings:
 
     copy_path: str | None
     runtime: str | None
-    export_path: str | None
-    """The Gramps XML export ``list_people`` reads, and slice 2's third setting.
-
-    ⚠️ **Not a convenience index.** Ruling 1 makes this file the place a
-    person's ``priv`` flag is read from, so an export that is absent stops the
-    proposal path outright and an export older than the copy is a **privacy**
-    question rather than an ergonomic one -- a person marked private after it
-    was taken would still be listed. The doctor compares their timestamps and
-    says so; see ``cli.inspect``.
-    """
 
 
 def user_config_path(environ: Mapping[str, str], *, platform: str = sys.platform) -> Path:
@@ -91,7 +90,6 @@ def load(environ: Mapping[str, str], *, platform: str = sys.platform) -> Setting
     return Settings(
         copy_path=environ.get(ENV_COPY) or filed.get("copy_path"),
         runtime=environ.get(ENV_RUNTIME) or filed.get("gramps_runtime"),
-        export_path=environ.get(ENV_EXPORT) or filed.get("export_path"),
     )
 
 

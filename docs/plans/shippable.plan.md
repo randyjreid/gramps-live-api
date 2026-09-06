@@ -7,8 +7,11 @@
 **A stranger with Gramps and an MCP-capable agent installs this in one action —
 two at most — and makes a working `tree_name` call in under ten minutes.**
 
-⚠️ **Written on the recommendation that the note flow is retired.** What changes
-if it is kept is flagged at each point with **[if kept]**.
+⛔ **Written on the recommendation that the note flow is retired, and it now HAS
+been.** [R9](../rulings/R9-retire-the-note-flow.md) ruled it and the retirement
+has shipped, so every **[if kept]** below is resolved: **not kept.** The two
+marks are struck through where they stood rather than deleted, because what this
+page measures is a cost, and a reader has to be able to see which costs went.
 
 ---
 
@@ -30,7 +33,7 @@ Walked on a fresh clone and a fresh virtual environment, timed. ⛔ Not Gramps.
 1. obtain the checkout · 2. create a virtual environment · 3. install the extra ·
 4. register the server with the agent host · 5. make a junction from Gramps'
 plugin folder to the checkout · 6. make a copy of the tree and bless it by hand ·
-7. write `copy_path` — **[if kept]** and `export_path` — into
+7. write `copy_path` — ~~**[if kept]** and `export_path`~~, **not kept** — into
 `%APPDATA%\gramps-live-api\config.json` · 8. restart Gramps so the plugin loads.
 
 **Guesses a stranger meets, each verified against the source:**
@@ -45,7 +48,8 @@ plugin folder to the checkout · 6. make a copy of the tree and bless it by hand
 - which Python — the Microsoft Store alias trap is documented, but they must
   notice they hit it.
 - where `config.json` lives and which keys it takes (`copy_path`,
-  `gramps_runtime`, **[if kept]** `export_path`).
+  `gramps_runtime`; ~~**[if kept]** `export_path`~~, **not kept** — a file still
+  carrying that key is refused by name).
 - whether a restart is needed. It is; nothing says so at the point of the junction.
 - ⛔ **which agent.** Every install line in the repository says `claude mcp add`
   and nothing states whether anything else works.

@@ -152,6 +152,13 @@ committed table against the *weighting* table instead --
 `test_the_compiled_scorer_agrees_with_the_vocabulary_for_every_row`. Between them, every row of the
 frozen table has a weight and a test, which is issue #4's exit condition stated mechanically.
 
+⚠️ **And the re-run half of the check above now runs offline too**, in
+`tests/unit/test_derived_tables_reproduce.py`: `emit` is driven with the arguments the committed
+module records, and the result is compared against the committed file read with universal newlines.
+⛔ **It is vacuous for the rows**, which are its own input, so what it binds is the generator's
+header, the docstrings it emits and its formatting rules. **The re-fetch and the digest comparison
+stay human**, and for this table they are the only thing standing behind the rows.
+
 ⚠️ **The HTML index is a LIVING STANDARD, so its digest will eventually stop matching, and that is
 not a gate failing.** It means the published index moved. The correct response is a deliberate
 re-derivation whose diff is read -- not a suppression, and not a silent pass. There is no frozen

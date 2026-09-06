@@ -1,30 +1,34 @@
 # Slice 2: an agent puts a note on a person, and you approve it at a console
 
-> ⛔ **A RECORD OF SLICE 2, NOT THE CURRENT DESIGN.** It is accurate about what
-> slice 2 built and is kept for the reasoning it holds. Four things it says have
-> since changed, and they are the ones a reader will trip on:
+> ⛔ **A RECORD OF SLICE 2, AND THE FLOW IT DESCRIBES IS NOW RETIRED.** It is
+> accurate about what slice 2 built and is kept for the reasoning it holds. **Its
+> subject no longer exists**, and the paragraphs below say what replaced each part
+> so a reader does not act on any of it:
 >
-> * **"three MCP tools"** — there are now **nineteen**, and the authoritative list
->   is `TOOL_NAMES` in `src/gramps_live_api_mcp/server.py`: **fourteen live reads**
->   (`tree_totals` and `changed_since` among them), **four proposal and approval
->   verbs** (`propose_note`, `approve`, `propose_document`, `approve_document`),
->   and **`list_people`**, which is the odd one out below.
+> * **`propose_note`, `approve` and `list_people` are gone**, with the proposal
+>   store they used, the approval console, the `AddNote` operation, and the
+>   `preview`/`apply` CLI commands.
+>   [R9](rulings/R9-retire-the-note-flow.md) ruled it and the retirement has
+>   shipped. The authoritative tool list is `TOOL_NAMES` in
+>   `src/gramps_live_api_mcp/server.py`: **sixteen** — fourteen live reads and
+>   `propose_document`/`approve_document`.
+> * **"three MCP tools"** — see above. It was three, then nineteen, and it is now
+>   sixteen; the count was never the invariant.
 > * **"the copy"** — a write no longer targets a copy only. `R4` permits the live
 >   tree, blessed by hand; see
 >   [`rulings/R4-graduation-to-the-live-tree.md`](rulings/R4-graduation-to-the-live-tree.md).
->   ⛔ **R4's backup requirement does NOT cover the flow on this page.**
->   `propose_note`/`approve` writes **without taking one**, so a write through the
->   flow described below has **no recovery point**. The root `README.md` records
->   that in its limitations.
-> * **"a console"** — a document write is approved in a **dialog inside Gramps**,
->   rendered from the stored graph. The console flow described here is slice 2's.
-> * **an XML export** — the live reads run against the **open tree**, in-process.
->   ⚠️ **`list_people` is the exception and still reads a Gramps XML export**, so
->   it carries the staleness and privacy caveat the root `README.md` documents.
->   *"the reads moved in-process"* is true of fourteen of them, not of all
->   fifteen. ⚠️ The two numbers count different things: **fourteen LIVE reads**
->   moved in-process, out of **fifteen reads in total** -- the fifteenth being
->   `list_people`, which did not.
+>   ⭐ **R4's backup requirement now covers every write there is.** It did not
+>   cover the flow on this page, which wrote without taking one; that flow is what
+>   R9 retired.
+> * **"a console"** — the approval is a **dialog inside Gramps**, rendered from the
+>   stored graph. ⚠️ **The console was the stronger trust argument and it is the
+>   one that went**: it ran in a separate process the server held no handle on and
+>   could not type into. R9 accepted that as a stated cost.
+> * **an XML export** — every read runs against the **open tree**, in-process.
+>   `list_people` was the one exception and it carried the staleness and privacy
+>   caveat this page spends several sections on; the tool, the export reader and
+>   the `export_path` setting all went together, so **the fail-open described
+>   below no longer has anything to fail open on.**
 >
 > ⭐ The trust model below — binding separated from approval, the operation never
 > travelling through the agent — is unchanged and is still the argument.

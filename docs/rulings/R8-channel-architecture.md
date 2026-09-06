@@ -8,6 +8,10 @@
 > spawns a **separate console CLI** rather than approving in a Gramps dialog, and
 > `list_people` reads an **XML export** rather than the open tree in-process.
 > ⛔ **They are exceptions to the scope, not a retraction of the ruling.**
+>
+> ⭐ **Both exceptions are retired by [R9](R9-retire-the-note-flow.md), ruled
+> 2026-09-04.** Once its build merges this ruling has no exceptions and the
+> paragraph above describes history. Until then it describes the code.
 > Index: [`README.md`](README.md).
 
 

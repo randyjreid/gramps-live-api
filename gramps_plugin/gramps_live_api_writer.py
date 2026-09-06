@@ -170,6 +170,148 @@ def _event_role(name):
     return EventRoleType((EventRoleType.CUSTOM, wanted))
 
 
+ACCEPTED_NOTE_TYPES = (
+    "analysis",
+    "citation",
+    "general",
+    "html_code",
+    "link",
+    "report_text",
+    "research",
+    "source_text",
+    "todo",
+    "transcript",
+)
+"""⛔ The note types this writer will write. **A MEMBERSHIP TUPLE, not a filter.**
+
+⚠️ **This is a copy of the package's accepted set, and it is a deliberate one.**
+This file must not import the package -- doing so would make it host code and
+forbid it the database access it exists for -- so the list cannot be shared at
+runtime. ⭐ A copy a test binds to its source is not the thing *"no duplicate that
+nothing checks"* forbids; an unchecked copy is, and
+``tests/unit/test_note_type_on_the_document_route.py`` is the check.
+
+⛔ **A name is accepted only by MEMBERSHIP here**, never by a list of refusals.
+The package's validation is the real gate and this is the second line, because
+the writer is reachable with a graph the package did not validate.
+
+⚠️ **The refusal-list approach was tried and it does not close.** Three
+consecutive review rounds each found a genuine, different hole in it:
+``isinstance(value, int)`` for ``_DATAMAP``, which is a list; ``isinstance(name,
+str)`` for a type that arrived as a list or a number; ``hasattr`` for a word that
+resolves to nothing at all. That is a universally quantified negative over an
+unbounded space -- *no attribute reachable by getattr produces an uncontrolled
+result* -- and membership in a ten-element set is bounded and closes.
+
+⭐ **The sharpest of the three is the argument against ever going back.**
+``NoteType._DEFAULT`` **is an int**, equal to ``GENERAL``, so ``type: "_default"``
+passed ``hasattr``, passed ``isinstance(value, int)``, was neither ``CUSTOM`` nor
+``UNKNOWN``, and silently wrote a General note: not a crash, a working
+undocumented alias. It is refused here by the same check as any other word,
+because it is not in the set.
+"""
+
+DEFAULT_NOTE_TYPE = "transcript"
+"""⛔ What a note with no ``type`` is written as. **What this file always wrote.**
+
+Every note this writer has ever created was a ``TRANSCRIPT``, hardcoded, so the
+default is the existing behaviour named rather than a new decision. Every graph
+that exists today omits the key and is written exactly as it is written today.
+"""
+
+
+def _note_type_name(spec):
+    """The type one note asks for, or a refusal. ⛔ **Absence is the default.**
+
+    ⚠️ **Never falsiness.** ``spec.get("type") or DEFAULT`` reads ``type: []`` and
+    ``type: 0`` as *omitted* and silently writes a transcript, which is a chosen
+    value becoming a default without anybody being told. Only an absent key
+    defaults; a present one that is not an accepted name is refused.
+
+    ⚠️ ``in`` over a TUPLE rather than a set, deliberately: a set membership test
+    hashes, and a ``type`` that arrived as a list or a dict would raise
+    ``TypeError`` instead of being refused with a message.
+    """
+    if "type" not in spec:
+        return DEFAULT_NOTE_TYPE
+    wanted = spec.get("type")
+    if wanted not in ACCEPTED_NOTE_TYPES:
+        raise ValueError(
+            f"a note asks for the note type {wanted!r}, which is not one this tool "
+            f"writes. Nothing has been written. The note types it writes are: "
+            + ", ".join(ACCEPTED_NOTE_TYPES)
+        )
+    return wanted
+
+
+def _resolved_note_type(spec, note_type_class):
+    """⚠️ ``getattr`` on the attribute NAME, never a pinned integer.
+
+    Gramps' numbering is an implementation detail this repository has no business
+    pinning, and a renumbering would silently file every note under the wrong
+    type. Same discipline as ``_event_type`` and the apply shim.
+
+    ⛔ Unlike ``_event_type``, an unrecognised name does NOT become a CUSTOM type
+    carrying the document's own word. The recorded cost of that choice is the
+    owner's own -- *"An unrecognised type silently creates a new custom type in
+    the tree and nothing tells me it's new"* -- and a note's type is a filing
+    decision drawn from a list Gramps itself publishes, not an open vocabulary
+    read off a document.
+    """
+    return note_type_class(getattr(note_type_class, _note_type_name(spec).upper()))
+
+
+def _note_types_or_refuse(graph, note_type_class):
+    """⛔ Refuse the WHOLE document before anything is written, or say nothing.
+
+    ⚠️ **The plugin registers against whichever Gramps is running**, deliberately:
+    ``gramps_live_api_host.gpr.py`` derives its ``MODULE_VERSION`` rather than
+    pinning one, because a pinned literal stops matching the day Gramps updates
+    and the plugin silently stops being registered. So there is no version wall,
+    and the frozen table this writer's list copies was derived from one Gramps.
+
+    ⛔ **The failure that follows, named exactly.** A later Gramps that renames or
+    removes a built-in note type leaves a name the package validates, that the
+    membership check above passes, and that ``getattr`` then finds nothing for --
+    **after the owner approved the document**, which is the one moment this route
+    exists to make safe. The test that watches for that drift is a test: it can be
+    skipped, and it does not run on this machine at the moment it writes.
+
+    ⭐ So the vocabulary is checked against the RUNNING class here, before the
+    transaction opens, and the whole document is refused with a message naming the
+    drift. Costs one pass over ten names per write. The two alternatives were a
+    supported-version wall, which contradicts the registration decision above, and
+    accepting it, which is a claim about Gramps' future this project cannot check.
+
+    ⚠️ **Scoped to documents that carry notes**, and that is a judgement worth
+    stating: a document with no notes needs no note type, so refusing it because a
+    type it will never use has gone would refuse a write that would have worked.
+    """
+    specs = graph.get("notes") or []
+    if not specs:
+        return
+    drifted = [
+        name
+        for name in ACCEPTED_NOTE_TYPES
+        if not isinstance(getattr(note_type_class, name.upper(), None), int)
+        or isinstance(getattr(note_type_class, name.upper(), None), bool)
+    ]
+    if drifted:
+        raise ValueError(
+            "this Gramps no longer declares the note types this tool was built "
+            "against: "
+            + ", ".join(drifted)
+            + ". Nothing has been written, and the whole document was refused rather "
+            "than half of it, because the rest would have gone in before the missing "
+            "one was reached."
+        )
+    # ⛔ Every note, before the first one. The transaction would roll back, but
+    # *refuse before any object is created* must not depend on Gramps' abort
+    # behaviour being what this project remembers.
+    for spec in specs:
+        _note_type_name(spec)
+
+
 _BY_GRAMPS_ID = {
     "person": "get_person_from_gramps_id",
     "place": "get_place_from_gramps_id",
@@ -266,6 +408,11 @@ def write(dbstate, graph):
     genders = {"male": Person.MALE, "female": Person.FEMALE}
     source_spec = graph.get("source") or None
     title = (source_spec or {}).get("title") or "Document"
+
+    # ⛔ **BEFORE the transaction opens, so a refusal creates nothing.** Both
+    # halves are here: the vocabulary against the Gramps actually running, and
+    # every note's own requested type. See ``_note_types_or_refuse``.
+    _note_types_or_refuse(graph, NoteType)
 
     with DbTxn(("Document: " + str(title))[:80], database) as trans:
         # --- the source ------------------------------------------------------
@@ -524,7 +671,9 @@ def write(dbstate, graph):
         for spec in graph.get("notes") or []:
             note = Note()
             note.set(str(spec.get("text") or ""))
-            note.set_type(NoteType(NoteType.TRANSCRIPT))
+            # ⛔ Was ``NoteType(NoteType.TRANSCRIPT)``, hardcoded for every note.
+            # An omitted ``type`` still resolves to exactly that.
+            note.set_type(_resolved_note_type(spec, NoteType))
             note_handle = database.add_note(note, trans)
             note_created("notes", note_handle, "get_note_from_handle")
             for target, kind in _attachment_targets(handles, kinds, spec.get("attach_to")):

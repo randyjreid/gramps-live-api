@@ -24,6 +24,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.fixtures.shell import posix_shell, shells_installed_beside_git, utility_directory
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 HOOK = REPOSITORY_ROOT / "scripts" / "hooks" / "pre-push"
 ZERO = "0" * 40
@@ -35,18 +37,62 @@ ZERO = "0" * 40
 PLANTED = "C:" + chr(92) + "Users" + chr(92) + "someone" + chr(92) + "thing.txt"
 
 
-def _sh() -> str:
-    """The shell git uses for hooks. Windows gets it from Git for Windows."""
-    for candidate in ("sh", "bash"):
-        found = shutil.which(candidate)
-        if found:
-            return found
-    pytest.skip(
-        "there is nothing to cover: git runs hooks through a POSIX shell, so a "
-        "machine without one cannot run this hook at all and the behaviour under "
-        "test does not exist there. Windows gets sh from Git for Windows, which is "
-        "required to use git at all, and every CI runner is Linux."
-    )
+def _hook_shell() -> str:
+    """⛔ The shell git runs hooks through, PINNED rather than looked up on PATH.
+
+    ⚠️ **This used to ask PATH for ``sh`` and then for ``bash``, so the answer was
+    supplied by whoever launched pytest.** From a shell where ``sh`` does not
+    resolve, that fell through to the Windows Subsystem launcher -- a different
+    operating system, where the ``;``-separated Windows PATH this file constructs
+    does not apply at all. The hook then found the Subsystem's own ``python3``,
+    ran the guard for real, and allowed the clean push it was handed, so the test
+    written to prove that an unrunnable gate is refused went red on a hook that
+    was behaving correctly. Issue #225.
+
+    ⭐ ``posix_shell`` derives it from ``git --exec-path`` on Windows and probes
+    it, so the launcher is unreachable by construction rather than by an
+    exclusion list. ``flavour="sh"`` and not bash: git runs hooks through ``sh``,
+    the hook declares ``#!/bin/sh``, and on Linux that is dash -- the portability
+    ``test_the_committed_hook_has_no_CARRIAGE_RETURNS`` exists to protect.
+    """
+    try:
+        return str(posix_shell(flavour="sh"))
+    except RuntimeError as absent:
+        # ⛔ Converted to a skip HERE, and only on Windows. The fixture keeps
+        # raising, because on Linux a missing sh means a broken container and a
+        # suite that skips there fails open (#31).
+        if os.name != "nt":
+            raise
+
+        # ⛔ **Two states, and only one of them is a skip.** The brief for this
+        # conversion was: acceptable when no suitable shell EXISTS, not
+        # acceptable when it hides one. Measured, it was hiding one -- with
+        # ``GIT_EXEC_PATH`` set, a documented variable ``git --exec-path``
+        # honours, the derivation three directories up points nowhere, and the
+        # run reported **thirteen skips** while ``usr/bin/sh.exe`` sat on disk
+        # and worked.
+        #
+        # ⚠️ A skip is the loudest thing this file can say when a shell is
+        # genuinely absent and the quietest possible failure when the locating
+        # logic is wrong -- and the wrong locating logic is the *interesting*
+        # defect, because it is ours.
+        installed = shells_installed_beside_git("sh")
+        if installed:
+            pytest.fail(
+                "a POSIX sh IS installed on this machine and this suite failed to "
+                "locate it, so this is the locating logic being wrong rather than a "
+                "machine that cannot run the hook. Skipping here would retire every "
+                "test in this file and report that there was nothing to cover. Found "
+                f"beside the git binary: {[str(path) for path in installed]}. {absent}"
+            )
+        pytest.skip(
+            "there is nothing to cover: git runs hooks through a POSIX shell, so a "
+            "machine without one cannot run this hook at all and the behaviour under "
+            "test does not exist there. Windows gets sh from Git for Windows, which "
+            "is required to use git at all, and every CI runner is Linux. Nothing was "
+            "found beside the git binary either, which is the cross-check that "
+            f"separates an absent shell from an unfound one. {absent}"
+        )
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -104,6 +150,132 @@ def _a_repository(tmp_path: Path) -> Path:
 
 _THIS_RUNS_PYTHON = object()
 
+# ⭐ The negative control's interpreter setting: the same pointer at nothing that
+# ``interpreter=None`` uses, and **no shadow planted behind it**. Everything else
+# about the run -- the shell, the working directory, the ref line, the rest of the
+# environment -- is the same, so the shadow is the only variable between them.
+_NOTHING_IS_PLANTED = object()
+
+# ⛔ **The precondition that makes the shadow LOAD-BEARING, run in the hook's own
+# shell, with the hook's own environment and working directory.**
+#
+# ⚠️ Without it the ``interpreter=None`` cases are green for a reason the fixture
+# did not build. On the machine this was written on the ambient ``python`` and
+# ``python3`` are the Microsoft Store shim, which exists, is executable and fails
+# on every invocation -- so the hook refuses **whether or not the shadow
+# directory is on PATH**, and an empty shadow would leave every assertion here
+# passing. The green proved the hook refuses when nothing runs; it did not prove
+# the test built that condition.
+#
+# ⚠️ It is also what would have reported the WSL run as a broken fixture rather
+# than as a broken hook: inside WSL the ``;``-separated Windows PATH this fixture
+# constructs does not apply, so ``python3`` resolves to WSL's own interpreter,
+# which runs. That is the fixture failing to build its case, and it read as the
+# hook accepting a push it should have refused.
+#
+# ⭐ Both halves are asserted, because either alone is satisfiable by the wrong
+# thing: that the candidates RESOLVE inside the shadow, and that each of them
+# FAILS the same ``-c ''`` probe the hook itself uses.
+_THE_SHADOW_MUST_DECIDE = """\
+set -u
+directory=$(cd "${GLAPI_SHADOW:-}" 2>/dev/null && pwd) || directory=''
+if [ -z "$directory" ]; then
+    echo "the shell cannot reach the shadow directory at all"
+    exit 3
+fi
+for name in python python3; do
+    resolved=$(command -v "$name" 2>/dev/null) || resolved=''
+    if [ -z "$resolved" ]; then
+        echo "$name resolves to nothing, so the hook will not try it"
+        exit 4
+    fi
+    case "$resolved" in
+        "$directory"/*) ;;
+        *)
+            echo "$name resolves outside the shadow, to $resolved"
+            exit 5
+            ;;
+    esac
+    if "$name" -c '' >/dev/null 2>&1; then
+        echo "$name at $resolved runs successfully, so nothing here is unrunnable"
+        exit 6
+    fi
+done
+"""
+
+
+def _the_hooks_own_path(shell: str, ahead: Path | None = None) -> str:
+    """⛔ The PATH git gives a hook: the shell's own utility directory, then the rest.
+
+    ⚠️ **Measured, and it is the reason this function exists.** A real
+    ``git push`` on this machine, launched from a shell where Git's utility
+    directory is not on PATH, hands its pre-push hook a ``tr`` and a ``sed`` out
+    of that directory: git puts it there itself. This fixture did not, and
+    once the shell stopped being ambient the committed hook's first command --
+    ``tr``, on the line that derives the all-zero object id -- was **not found**,
+    so that derivation silently took its ``|| echo`` fallback. Launched from Git
+    Bash the same fixture found ``tr``, because that launcher had already put the
+    directory on PATH.
+
+    ⭐ **That is this issue's own shape one layer down**, and it was invisible
+    while the shell was ambient: the utility a shell can reach was supplied by
+    whoever launched pytest, not by the fixture.
+
+    ⚠️ The directory comes from ``utility_directory`` and **not** from
+    ``Path(shell).parent``, which was right for the first candidate and only an
+    accident for the second -- see that function for what was measured, including
+    the reason no test here can tell the two derivations apart.
+
+    ``ahead`` goes in front of everything, so a planted shadow still wins.
+    """
+    parts = [str(utility_directory(Path(shell))), os.environ.get("PATH", "")]
+    if ahead is not None:
+        parts.insert(0, str(ahead))
+    return os.pathsep.join(part for part in parts if part)
+
+
+# ⭐ Asked in the hook's own shell, because that is where the answer differs: the
+# question is not whether THIS interpreter runs, it is whether the shell the hook
+# is executed by can find one on the PATH it inherits.
+_A_PATH_CANDIDATE_THAT_RUNS = """\
+set -u
+for name in python3 python; do
+    if "$name" -c '' >/dev/null 2>&1; then
+        echo "$name"
+        exit 0
+    fi
+done
+exit 1
+"""
+
+
+def _the_shadow_must_decide(
+    shell: str, repo: Path, environment: dict[str, str], shadow: Path
+) -> None:
+    """⛔ Fail the test if the hook's interpreter candidates are not the planted ones.
+
+    A defect in the fixture, not a skip: this file's other three
+    ``the fixture did not build the case`` assertions all fail, and a fixture
+    that cannot build its case has nothing to report but that.
+    """
+    probe = subprocess.run(
+        [shell, "-c", _THE_SHADOW_MUST_DECIDE],
+        cwd=repo,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        # Forward slashes: the shell reads this out of its own environment, and a
+        # backslash inside double quotes is not a separator there.
+        env={**environment, "GLAPI_SHADOW": str(shadow).replace("\\", "/")},
+    )
+    assert probe.returncode == 0, (
+        "the fixture did not build the case: the hook is about to look for an "
+        "interpreter and the candidates it will try are not the failing stubs "
+        "planted here, so a refusal would prove nothing about an unrunnable "
+        f"gate -- {(probe.stdout + probe.stderr).strip()}"
+    )
+
 
 def _push(
     repo: Path,
@@ -128,10 +300,17 @@ def _push(
     the wrong reason: the hook was refusing every push because it could not run
     the guard at all, which looks exactly like the guard finding something. Pass
     ``None`` to exercise that path deliberately.
+
+    ⭐ ``_NOTHING_IS_PLANTED`` is that same pointer at nothing with **no shadow
+    behind it**, which is the negative control below: one variable between them.
     """
+    shell = _hook_shell()
     environment = dict(os.environ)
+    environment["PATH"] = _the_hooks_own_path(shell)
     if interpreter is _THIS_RUNS_PYTHON:
         environment["GRAMPS_LIVE_API_PYTHON"] = sys.executable
+    elif interpreter is _NOTHING_IS_PLANTED:
+        environment["GRAMPS_LIVE_API_PYTHON"] = str(repo / "no-such-python")
     elif interpreter is None:
         environment["GRAMPS_LIVE_API_PYTHON"] = str(repo / "no-such-python")
         # ⛔ Hide PYTHON, not everything. Emptying PATH also hid **git**, so the
@@ -147,7 +326,8 @@ def _push(
             for path in (shadow / name, shadow / f"{name}.bat"):
                 path.write_text("#!/bin/sh" + chr(10) + "exit 1" + chr(10), encoding="utf-8")
                 path.chmod(0o755)
-        environment["PATH"] = str(shadow) + os.pathsep + environment.get("PATH", "")
+        environment["PATH"] = _the_hooks_own_path(shell, ahead=shadow)
+        _the_shadow_must_decide(shell, repo, environment, shadow)
     else:
         environment["GRAMPS_LIVE_API_PYTHON"] = str(interpreter)
 
@@ -167,7 +347,7 @@ def _push(
     # ``len``: 41 versus 40, NOMATCH versus MATCH.
     line = lines or f"refs/heads/main {local_sha} refs/heads/main {remote_sha}\n"
     finished = subprocess.run(
-        [_sh(), "scripts/hooks/pre-push", "origin", "https://example.invalid/r.git"],
+        [shell, "scripts/hooks/pre-push", "origin", "https://example.invalid/r.git"],
         cwd=repo,
         input=line.encode("utf-8"),
         capture_output=True,
@@ -299,6 +479,117 @@ def test_the_hook_is_not_claimed_to_be_unbypassable(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="PATH cannot hand back a shell from another operating system here, so the "
+    "failure this asserts against is not reachable off Windows",
+)
+def test_the_shell_this_file_runs_the_hook_with_COMES_FROM_GIT() -> None:
+    """⛔ The launcher in the system directory must be unreachable, not merely unpreferred.
+
+    ⚠️ An exclusion list naming it would be an enumeration, and the next shell
+    from another operating system would not be on it. Deriving the shell from
+    ``git --exec-path`` and requiring the answer to live under that distribution
+    root refuses the whole class: nothing outside Git for Windows can be
+    returned, whatever PATH says today.
+
+    ⭐ Both flavours, because ``pushes.py`` takes the default one and inherits
+    exactly the same hazard.
+    """
+    exec_path = subprocess.run(
+        ["git", "--exec-path"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    root = Path(exec_path).parents[2]
+
+    for flavour in ("bash", "sh"):
+        resolved = posix_shell(flavour=flavour)
+
+        assert root in resolved.parents, (
+            f"the {flavour} this suite drives is {resolved}, which is not under the "
+            f"Git distribution at {root} -- a shell from anywhere else has its own "
+            "filesystem and its own PATH, and its failures are indistinguishable "
+            "from the thing under test failing"
+        )
+
+
+def test_the_hook_gets_the_UTILITIES_a_real_git_push_would_give_it() -> None:
+    """⛔ A pinned shell with an unpinned PATH runs the hook in a way git never does.
+
+    ⚠️ **Measured on this machine, from a shell where Git's utility directory is
+    not on PATH:** a real ``git push`` hands its pre-push hook the ``tr`` that
+    lives in that directory.
+    The moment this file stopped taking whatever shell PATH offered, it stopped
+    handing it anything -- and the committed hook's very first command is ``tr``,
+    on the line deriving the all-zero object id. It was not found, the derivation
+    fell through to its ``|| echo`` literal, and nothing said so. Launched from
+    Git Bash the same code found ``tr``, because that launcher had already put
+    the directory on PATH.
+
+    ⭐ So this asserts the second half of the pin. Pinning the shell binary while
+    leaving what the shell can REACH to the launching environment is the same
+    defect with a smaller blast radius, and it would have been invisible: every
+    assertion in this file stays green either way, because the fallback is
+    correct for a SHA-1 repository.
+
+    ⛔ **What is asserted is what the FIXTURE contributes, alone.** Asking
+    whether the built PATH can reach ``tr`` is not this property: the ambient
+    PATH answers that by itself from Git Bash, and on every Linux runner, where
+    the system utility directory is always on it. Measured with the prepend
+    reverted --
+    ``1 failed, 14 passed`` from PowerShell, and ``15 passed, 2 skipped`` with
+    Git's utility directory on the ambient PATH. **A guard that can only fail on
+    one developer's shell is measuring that shell**, which is this issue's own
+    defect reappearing in the test written to remove it.
+
+    ⭐ So the prepended portion is separated from the ambient one and probed on
+    its own. It is empty, or it does not supply ``tr``, exactly when the fixture
+    has stopped handing the hook anything -- on any platform, whatever launched
+    pytest.
+
+    ``tr`` by name because it is the utility the committed hook actually calls;
+    if the hook stops calling it, this test is measuring the wrong thing and
+    should be pointed at whatever replaced it.
+    """
+    shell = _hook_shell()
+    ambient = os.environ.get("PATH", "")
+    built = _the_hooks_own_path(shell)
+
+    assert built.endswith(ambient), (
+        "this test can no longer separate what the fixture contributes from what it "
+        f"inherited: the PATH it builds does not end in the ambient one. built={built!r}"
+    )
+    contributed = built[: len(built) - len(ambient)].strip(os.pathsep)
+
+    assert contributed, (
+        "the fixture prepends nothing, so what the hook's shell can reach is whatever "
+        "launched pytest -- and git's own hook environment supplies the utility "
+        "directory itself. The hook's first command is tr, on the line deriving the "
+        "all-zero object id, and it takes its || echo fallback in silence when tr is "
+        "not found"
+    )
+
+    resolved = subprocess.run(
+        [shell, "-c", "command -v tr"],
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        # ⛔ The contributed portion ONLY. With the ambient PATH behind it this
+        # assertion passes wherever tr happens to be reachable, which is every
+        # CI runner this project has.
+        env={**os.environ, "PATH": contributed},
+    )
+
+    assert resolved.returncode == 0 and resolved.stdout.strip(), (
+        "what this fixture prepends does not supply tr, so the hook is being run "
+        "through a shell that finds tr only if the launching environment happened to "
+        f"offer it -- git's hook environment always does. prepended={contributed!r}"
+    )
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="the mode bit is not meaningful on Windows")
 def test_the_hook_is_executable() -> None:
     """⚠️ Git silently ignores a hook it cannot execute. Nothing reports it."""
@@ -338,6 +629,71 @@ def test_a_MISSING_interpreter_refuses_the_push_and_says_it_is_NOT_a_finding(
         "the refusal reads as though personal data was found, when the gate "
         f"simply could not run: {combined}"
     )
+
+
+def test_the_SHADOW_is_what_refuses_that_push_and_not_the_machine(tmp_path: Path) -> None:
+    """⛔ The negative control for the test above: take the shadow away and it passes.
+
+    ⚠️ **This control is CARRIED BY CI, and its local skip is not coverage.** On
+    the machine this was written on the ambient ``python`` and ``python3`` are the
+    Microsoft Store shim, which exists, is executable and fails on every
+    invocation -- so the hook refuses with or without the shadow and the control
+    cannot tell the two apart. It probes for that first and skips saying so. On a
+    runner where a real interpreter is on PATH it runs, and it bites.
+
+    ⭐ The layer that fires everywhere is the precondition inside ``_push``, which
+    asserts that the candidates the hook is about to try are the planted stubs.
+    This is the second layer, not the only one, and it is the weaker of the two.
+    """
+    repo = _a_repository(tmp_path)
+    base = _head(repo)
+    (repo / "notes.md").write_text("an ordinary line of prose\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "clean")
+
+    # ⚠️ Only the two PATH candidates are probed. The two before them in the
+    # hook's list cannot resolve here -- GRAMPS_LIVE_API_PYTHON is about to point
+    # at a file that does not exist, and the throwaway repository has no .venv,
+    # asserted rather than assumed -- and an over-narrow probe here costs a skip
+    # that could have run, never a pass that measured nothing.
+    assert not (repo / ".venv").exists(), (
+        "the fixture did not build the case: a .venv in the throwaway repository "
+        "would be tried before anything on PATH, so this probe would not be asking "
+        "about the interpreter the hook will actually use"
+    )
+    shell = _hook_shell()
+    runnable = subprocess.run(
+        [shell, "-c", _A_PATH_CANDIDATE_THAT_RUNS],
+        cwd=repo,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        # The same PATH the push below will get, so the probe answers about the
+        # run it is deciding, not about this process.
+        env={**os.environ, "PATH": _the_hooks_own_path(shell)},
+    )
+    if runnable.returncode != 0:
+        pytest.skip(
+            "no interpreter the hook would try can execute here, so the push is "
+            "refused with and without the shadow directory and this control cannot "
+            "tell them apart -- on this development machine the ambient python and "
+            "python3 are the Microsoft Store shim. It is carried by CI, where a real "
+            "interpreter is on PATH. What still holds locally is the precondition "
+            "inside _push, seam twin "
+            "test_a_MISSING_interpreter_refuses_the_push_and_says_it_is_NOT_a_finding, "
+            "which asserts that the candidates the hook resolves are the planted stubs "
+            "and that each of them fails"
+        )
+
+    result = _push(repo, _head(repo), base, interpreter=_NOTHING_IS_PLANTED)
+
+    combined = result.stdout + result.stderr
+    assert result.returncode == 0, (
+        "the same clean push was refused with no shadow planted, so the refusal in "
+        f"the test above is not evidence that the shadow caused it: {combined}"
+    )
+    assert "no working Python" not in combined, combined
 
 
 def test_a_TAG_pointing_at_a_BLOB_is_refused_rather_than_skipped(tmp_path: Path) -> None:

@@ -7,8 +7,8 @@ on:
 # Two legs over the same tree, and the split is the point.
 #
 #   core  installs the dev tools and NOTHING ELSE, and proves it. `mcp` is not
-#         importable there, so the core -- schema, write path, CLI console,
-#         pii_guard -- is measured on the standard library alone.
+#         importable there, so the core -- graph parser, preview renderer, host,
+#         install doctor, pii_guard -- is measured on the standard library alone.
 #   mcp   installs the optional extra, and proves the MCP tests actually RAN.
 #
 # ⚠️ Each leg exists to close the other's fail-open. A core leg that quietly

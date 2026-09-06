@@ -8,6 +8,12 @@
 > blessed tree **without taking one**, so a write through those has **no recovery
 > point** and this ruling's *recoverable-after* guarantee does not reach them.
 > The root `README.md` records that in its limitations.
+>
+> ⭐ **That caveat is retired with those paths by [R9](R9-retire-the-note-flow.md),
+> ruled 2026-09-04.** Once its build merges, every remaining write path takes the
+> backup, and the guarantee above reaches all of them. Until then the caveat
+> still describes the code. The `core/apply.py` lines cited below are re-verified
+> at removal, since that module is partly retired.
 > Index: [`README.md`](README.md).
 
 

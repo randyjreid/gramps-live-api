@@ -132,14 +132,19 @@ def test_the_rules_come_BEFORE_the_schema_in_propose_document() -> None:
 def test_every_lookup_the_description_names_reads_the_LIVE_TREE() -> None:
     """⛔ A lookup rule pointing at a stale source manufactures the duplicate.
 
-    ⚠️ ``list_people`` reads the owner's XML **export** -- ``people.read_export`` --
-    which can predate a person added to the open tree. ``find_people`` queries the
-    live ``/find/people`` route. The compressed rule named the stale one **and**
-    had dropped the caveat that made it safe, so a model told to *look it up
-    first* could look, miss, and create the duplicate anyway.
+    ⚠️ ``list_people`` read the owner's XML **export** -- ``people.read_export`` --
+    which can predate a person added to the open tree, where ``find_people``
+    queries the live ``/find/people`` route. The compressed rule named the stale
+    one **and** had dropped the caveat that made it safe, so a model told to
+    *look it up first* could look, miss, and create the duplicate anyway.
+
+    ⛔ **R9 retired that tool and its reader, so this is now a FENCE rather than a
+    live check**, and saying so is the point: it is green today because nothing
+    reads an export at all, and it goes red on the day something does again. A
+    fence that reads as a live finding is how a stale test gets believed.
 
     ⭐ Asserted against the implementations rather than by reading the sentence:
-    every tool the rule names must reach the host, not the export.
+    every tool the rule names must reach the host, not an export.
     """
     import inspect
     import re
@@ -184,6 +189,39 @@ def test_the_lookup_rule_covers_every_kind_that_can_carry_a_gramps_id() -> None:
             f"{kind!r} can carry a gramps_id and the lookup rule never says how to "
             f"find one, so a model creates a second copy instead: {rule}"
         )
+
+
+def test_the_note_type_KEY_is_advertised_and_its_VOCABULARY_is_not() -> None:
+    """⛔ The key must be advertised; the ten names must not be, and cannot be.
+
+    ⚠️ **This is a real constraint on the design rather than a formatting note.**
+    ``propose_document`` had sixteen characters of headroom before ``"type"`` was
+    added to ``notes``, and the vocabulary written out is 98 characters. There is
+    nowhere to put it, so **the refusal carries the values** -- which is where a
+    caller meets them anyway, and which costs no budget at all.
+
+    ⭐ That the key IS advertised is asserted elsewhere and in both directions, by
+    ``test_the_ADVERTISED_shape_is_exactly_what_the_parser_accepts``: adding a key
+    to ``NODE_KEYS`` without advertising it fails there. What is asserted here is
+    the half that test cannot see, which is what must NOT be in the description.
+    """
+    from gramps_live_api.host import document
+
+    text = server.PROPOSE_DOCUMENT_DESCRIPTION
+    notes_line = [line for line in text.splitlines() if line.strip().startswith("notes:")]
+
+    assert notes_line and '"type"' in notes_line[0], (
+        f"the notes line does not advertise a type: {notes_line}"
+    )
+
+    listed = ", ".join(sorted(document.NOTE_TYPES))
+    assert listed not in text, (
+        f"the vocabulary is written out in the description. It is {len(listed)} "
+        f"characters and there are {server.DESCRIPTION_BUDGET - len(text) + len(listed)} "
+        "spare without it, so something already in the description has to come out "
+        "first -- and what to remove is a judgement about what a caller most needs, "
+        "not a trim"
+    )
 
 
 def test_the_description_does_not_claim_family_children_are_DROPPED() -> None:
