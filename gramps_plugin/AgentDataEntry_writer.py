@@ -59,7 +59,9 @@ def confirm(uistate, text):
     from gi.repository import Gtk
 
     parent = getattr(uistate, "window", None)
-    dialog = Gtk.Dialog(title="gramps-agent-data-entry -- confirm before writing", transient_for=parent)
+    dialog = Gtk.Dialog(
+        title="gramps-agent-data-entry -- confirm before writing", transient_for=parent
+    )
     dialog.set_modal(True)
     dialog.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Write it", Gtk.ResponseType.OK)
     dialog.set_default_size(780, 640)

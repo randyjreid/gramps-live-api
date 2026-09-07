@@ -286,7 +286,8 @@ def test_a_COPIED_installation_passes_plugin_and_FAILS_source(tmp_path: Path) ->
 
     assert checks["plugin"].ok, "the .gpr.py is there -- a copy does install it"
     assert not checks["source"].ok, (
-        "a copied installation cannot reach gramps_agent_data_entry, and the report said nothing about it"
+        "a copied installation cannot reach gramps_agent_data_entry, "
+        "and the report said nothing about it"
     )
     assert "junction" in checks["source"].detail, (
         f"the refusal must name the remedy, not just the condition: {checks['source'].detail}"
@@ -401,7 +402,9 @@ def test_a_PARTIAL_package_does_not_satisfy_it_either(tmp_path: Path) -> None:
         # Building the complete package and deleting one is the only version that
         # can tell "this module is missing" from "none of them are there".
         _lay_out_the_host_package(partial)
-        (partial / "gramps_agent_data_entry").joinpath(*missing.split(".")).with_suffix(".py").unlink()
+        (partial / "gramps_agent_data_entry").joinpath(*missing.split(".")).with_suffix(
+            ".py"
+        ).unlink()
         environ["GRAMPS_AGENT_DATA_ENTRY_SRC"] = str(partial)
 
         checks = {check.label: check for check in cli.inspect(None, environ)}
@@ -451,7 +454,9 @@ def test_HOST_MODULES_is_the_TRANSITIVE_closure_of_what_the_host_imports() -> No
         for node in ast.walk(ast.parse(source)):
             if isinstance(node, ast.Import):
                 found.update(
-                    alias.name for alias in node.names if alias.name.startswith("gramps_agent_data_entry")
+                    alias.name
+                    for alias in node.names
+                    if alias.name.startswith("gramps_agent_data_entry")
                 )
             if not isinstance(node, ast.ImportFrom) or not node.module:
                 continue

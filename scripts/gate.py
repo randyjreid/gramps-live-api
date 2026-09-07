@@ -311,7 +311,9 @@ def main() -> int:
     configured = "GRAMPS_AGENT_DATA_ENTRY_GATE_BASE" in os.environ
     base = os.environ.get("GRAMPS_AGENT_DATA_ENTRY_GATE_BASE", "origin/main")
     if not git("rev-parse", "--verify", base):
-        source = "the ref named by GRAMPS_AGENT_DATA_ENTRY_GATE_BASE" if configured else "origin/main"
+        source = (
+            "the ref named by GRAMPS_AGENT_DATA_ENTRY_GATE_BASE" if configured else "origin/main"
+        )
         print(f"  {'pii_guard':<28}FAILED -- cannot resolve the baseline")
         print(f"    The history scan needs a baseline, and {source} does not resolve here.")
         print("    Scanning only the index would miss a branch that adds personal data")

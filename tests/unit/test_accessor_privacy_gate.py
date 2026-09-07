@@ -28,7 +28,11 @@ import pathlib
 import re
 
 ACCESSOR = (
-    pathlib.Path(__file__).resolve().parents[2] / "src" / "gramps_agent_data_entry" / "host" / "accessor.py"
+    pathlib.Path(__file__).resolve().parents[2]
+    / "src"
+    / "gramps_agent_data_entry"
+    / "host"
+    / "accessor.py"
 )
 
 FETCH = re.compile(r"^get_\w+_from_(handle|gramps_id)$")
