@@ -7,10 +7,96 @@ the harness plan file, so this document is the plan; copy it to that path at bui
 tree was not modified, the suite was not run, Gramps was not started, and nothing under
 `%APPDATA%` or `.claude.json` was touched. Every command run for this plan was read only.
 
-**Revision 3, 2026-09-07.** Round 2 of the Codex plan gate raised three findings, two blocking, and
-one thing larger than all three: **section 6 rested on a property with no fixed point.** Section 6
-is rebuilt around a bounded criterion; sections 9, 10, 11, 12 and 18 follow it. Everything else is
-unchanged. What changed and why is in section 18, round 2 beside round 1.
+**Revision 4, 2026-09-07.** Round 3 of the Codex plan gate raised **one** finding, blocking: a fix
+regression on round 2's own repair, because the disposition key was not injective. The conductor
+raised a second, and it is structural: **this plan sat inside its own measurement scope**, so every
+revision falsified its own arithmetic. **Section 0 is new and answers both at the top**, as one
+block rather than as edits scattered through six sites. Sections 6, 10, 11, 12 and 18 follow it.
+**Round 2's bound is unchanged and is not re-litigated here.** What changed and why is in section
+18, round 3 beside rounds 2 and 1.
+
+---
+
+## 0. How this plan states a number
+
+⭐ **Two rules. Every figure in this document is read under them, and no figure is a criterion.**
+
+### Rule 0a. The census scope excludes this page
+
+**The scope of every count in this plan is the repository minus
+`docs/plans/rename-to-agentdataentry.plan.md`.** On every command that scope is spelled
+
+```
+':(exclude)docs/plans/rename-to-agentdataentry.plan.md'
+```
+
+**Why, measured rather than argued.** The census has now moved three times, 572, then 636, then
+652, then 655, and each time it was read as new information. It was not:
+
+```
+occurrences of the old name, whole repository, at M ....... 655
+occurrences in this page alone, at M ....................... 83
+occurrences, whole repository minus this page, at M ....... 572
+occurrences, whole repository, on main .................... 572
+files differing between main and M ......... 1, this page
+```
+
+**The entire drift was this page's own growth, and nothing else moved at all.** With this page out
+of scope the baseline is `572` on `main` and `572` at `M`, unchanged across three plan revisions,
+and it does not move when a fourth revision is written.
+
+**The exclusion costs the build nothing, because the page was already outside the sweep twice
+over.** It sits in `docs/plans`, which is class D, not swept. And section 6 rule 1 already excludes
+it **by path** from the banner set, with a reason stated there: on this page the old spelling is the
+subject of the mapping in section 3, not stale guidance. The exclusion removes a term from the
+arithmetic; it removes no judgement from the build. The 321 individual dispositions are untouched,
+because they are classes P1, P2 and P3, and this page is in none of them.
+
+⚠️ **An exclusion is a hole, so the build proves the hole, four ways, all on `B`.**
+
+1. **It excludes exactly one path.** `git ls-files -- .` and
+   `git ls-files -- . ':(exclude)<page>'` differ by exactly one entry, and `comm -23` over the two
+   sorted listings prints exactly that one path and nothing else. Measured at `M`: 148 and 147.
+2. **It excludes exactly that path's occurrences.** `census_all(B)` minus `census(B)` equals the
+   census of the page alone, measured directly. At `M`: `655 - 572 = 83`, and the page alone
+   measures 83.
+3. **Every command carrying the exclusion is run once with it removed, and the two must differ.**
+   At `M`: 655 against 572, 183 against 100, and 18 files against 19.
+4. ⭐ **The hole is proved empty for the build's own diff.** `git diff --name-only $B HEAD -- <page>`
+   must return nothing: this page is not among the six commits' files (section 11). So the excluded
+   path contributes `0` to `removed` and `0` to `added`, and section 10(b)'s identity holds over the
+   excluded scope for exactly the reason it holds over the whole repository. **A hole whose contents
+   are proved unchanged between the two heads the accounting compares cannot hide a sweep.**
+
+⚠️ **On the spelling.** Round 2 recorded that `:!<path>` was accepted and silently excluded nothing
+on this box while `:(exclude)<path>` worked. Re-measured at `M`, in the command shape this plan
+uses, on git `2.53.0.windows.1`, **both spellings returned 100 against a control of 183**. The plan
+keeps `:(exclude)`, which is the spelling that has never failed here, and keeps the control, which
+is what actually proves the exclusion. **The spelling is a preference; check 3 is the proof.**
+
+**What the exclusion leaves true, recorded once.** After the rename lands, this page still spells
+the old name throughout and carries no banner. That is section 6 rule 1's decision, not a new one,
+and its reason is the same one: the old spelling here is the subject of the mapping, not guidance.
+
+### Rule 0b. Every figure is a measurement at a named head, never an assertion
+
+**The measurement head is `c759ac22964c7541d348780e017a9543207a82eb`, called `M` below.** It is the
+commit this revision was written against, copied from the output of `git rev-parse HEAD` and not
+typed.
+
+**A number in this plan documents `M`. It says nothing about the head the build starts from.**
+Where this document writes a count, read *"at `M`"*. Where the build needs a count, **it measures
+one**, on `B`, its own start commit, recorded before commit 1 (section 10a).
+
+⛔ **No section states a total as a criterion.** Section 6's partition and section 10's tables are
+measurements at `M`, labelled at their head. The criteria are section 10(b)'s identity and section
+10(c)'s set equality, both of which are computed by the builder from its own two heads and are true
+or false regardless of what any number here says.
+
+**Why this is stated as a rule instead of being fixed one sentence at a time.** Six sites in
+revision 3 asserted `652`. Correcting six sentences writes six new claims to review, and a claim
+written while fixing a claim is where the worst findings have come from in every round of this gate.
+One block at the top is one claim.
 
 ---
 
@@ -192,10 +278,10 @@ moment the user is expecting change. File it there; do not do it here.
 frozen, everything else swept) and Arm A plus B (nothing frozen). Both were fully green. This plan
 freezes **more** than Arm A, and that state was not executed.
 
-The departure is low risk and the reason is measurable rather than argued. **Measured on the
-current branch head, with `docs/plans`, `docs/reviews` and `docs/rulings` excluded** (they are not
-swept, and this plan document alone sits inside `docs/plans` carrying 80 occurrences of its own,
-which is exactly how a docs-wide count goes wrong):
+The departure is low risk and the reason is measurable rather than argued. **Measured at `M`, with
+`docs/plans`, `docs/reviews` and `docs/rulings` excluded** (they are not swept; and this page's own
+occurrences are out of scope entirely under rule 0a, which is exactly how a docs-wide count goes
+wrong):
 
 ```
                                 tests  src  gramps_plugin  scripts  docs  elsewhere
@@ -208,9 +294,10 @@ gramps-live-api/document/1          0    1              0        0     1        
 control: gramps_live_api          200    -              -        -     -          -
 ```
 
-⚠️ **The exclusion must be spelled `:(exclude)<path>`.** Measured on this box, `:!<path>` was
-accepted and **silently excluded nothing**. Any command in this plan that excludes a path is
-checked against the same command with the exclusion removed, and the two must differ.
+⚠️ **The exclusion must be spelled `:(exclude)<path>`, and it must be checked against the same
+command with the exclusion removed.** Round 2 measured `:!<path>` accepted and excluding nothing;
+section 0 records that at `M`, in this plan's command shape, both spellings agreed. **The control,
+not the spelling, is the proof**, and it is required either way.
 
 **Two tests, not one, pin a frozen name by writing it as a literal**, and the freeze leaves both
 passing untouched:
@@ -325,33 +412,95 @@ statements. It reaches occurrences of the old name, and those are countable.** T
 move, and it is what gives this a fixed point: the set of inputs the sweep can possibly falsify is
 exactly the set of occurrences it can possibly rewrite.
 
-**Measured on the current branch head, one command, no second `grep`:** the repository holds **652**
-occurrences of the old name. They partition, with no occurrence in two classes and none in none:
+**Measured at `M`, in the census scope of rule 0a, one command, no second `grep`:** the repository
+holds **572** occurrences of the old name. They partition, with no occurrence in two classes and
+none in none:
 
-| class | count today | entry granularity in the build's report |
+| class | count at `M` | reason granularity in the build's report |
 | --- | --- | --- |
-| **P1** prose in the four code trees: every `COMMENT` or `STRING` token in a `.py` file under `src`, `scripts`, `gramps_plugin`, `tests` | **210** in 44 files | **one entry per occurrence** |
-| **P2** `scripts/hooks/pre-push`, the only non-Python file in those four trees | **6** | **one entry per occurrence** |
-| **P3** markdown outside the three dated directories | **105** in 11 files | **one entry per occurrence** |
-| **C1** code tokens in `.py` files: imports, dotted module paths, identifiers | **141** | grouped entries |
-| **C2** machine-read files: `.github/workflows/ci.yml` 6, `.gitignore` 2, `pyproject.toml` 1, `uv.lock` 1 | **10** | grouped entries |
-| **D** `docs/plans`, `docs/reviews`, `docs/rulings` | **180** | covered by rule 1's set check below, not swept at all |
+| **P1** prose in the four code trees: every `COMMENT` or `STRING` token in a `.py` file under `src`, `scripts`, `gramps_plugin`, `tests` | **210** in 44 files | **one reason per occurrence** |
+| **P2** `scripts/hooks/pre-push`, the only non-Python file in those four trees | **6** | **one reason per occurrence** |
+| **P3** markdown outside the three dated directories | **105** in 11 files | **one reason per occurrence** |
+| **C1** code tokens in `.py` files: imports, dotted module paths, identifiers | **141** | grouped reasons |
+| **C2** machine-read files: `.github/workflows/ci.yml` 6, `.gitignore` 2, `pyproject.toml` 1, `uv.lock` 1 | **10** | grouped reasons |
+| **D** `docs/plans`, `docs/reviews`, `docs/rulings`, this page excluded by rule 0a | **100** | grouped reasons; not swept at all |
 
-`210 + 6 + 105 + 141 + 10 + 180 = 652`. **The arithmetic is the completeness proof.**
+`210 + 6 + 105 + 141 + 10 + 100 = 572` at `M`. **The partition is exhaustive and disjoint**, and
+that is what the build re-establishes on `B`; the numbers above document `M` under rule 0b.
+
+**What was measured at `M` and what is inherited.** `P1 + C1 = 351` and `P2`, `P3`, `C2` and `D`
+were each measured directly at `M` for this revision. The `210 / 141` split inside the 351 is round
+2's tokenizer measurement, and it still stands because **the only file differing between `main` and
+`M` is this page**, so no `.py` file has changed on this branch at all.
 
 **The criterion.** Commit 2's report accounts for **every** occurrence on the build's start commit
-`B`, exactly once, as `swept` or `frozen`, with a reason. Classes P1, P2 and P3 get one entry per
-occurrence, which is **321 individual dispositions across 56 files**. Classes C1 and C2 may be
-grouped, because a code token asserts nothing about time and a wrong disposition there changes a
-value the interpreter reads, which the gates and the suite observe loudly. Class D is not swept.
+`B`, exactly once, as `swept` or `frozen`, with a reason. Classes P1, P2 and P3 get one reason per
+occurrence, which is **321 individual dispositions across 56 files**. Classes C1, C2 and D may
+group their reasons, because a code token asserts nothing about time and a wrong disposition there
+changes a value the interpreter reads, which the gates and the suite observe loudly, and because
+class D is not swept at all.
 
-**The exit condition, and it is arithmetic rather than a reviewer's silence.**
+### ⭐ The exit condition: a join against the census command's own output, not a sum
 
-> The report's entry counts sum to `census(B)`; every P entry names a path and a line; every entry
-> carries `swept` or `frozen` and a reason. A reviewer's finding then reads *"entry 137 is wrong"*.
+⛔ **Round 3 killed the sum and it deserved it.** An accounting whose exit condition is a total is
+**not injective**: two entries can collide on one occurrence while a third goes unrecorded, and the
+total still balances. Round 3's named input is real, and it is on the current head:
+`docs/using.md:185` reads *"`GRAMPS_LIVE_API_COPY` and `GRAMPS_LIVE_API_RUNTIME` override both, for
+a one-off run"*. Two occurrences, one line. A report keyed on path and line can count the first
+twice and omit the second and still sum correctly; the sweep then misses `_RUNTIME`, the renamed
+code reads `GRAMPS_AGENT_DATA_ENTRY_RUNTIME`, the live documentation instructs the obsolete
+variable, and **the override is ignored silently.** Measured at `M`: **19 lines carry more than one
+occurrence**, 572 occurrences over 553 lines in the census scope.
 
-**That has a fixed point.** *"No reviewer can construct a falsification"* does not, and three rounds
-have now demonstrated it.
+**The key is `path:line:column`, and the same command that produces the census produces it:**
+
+```
+git grep -I -o -n --column -i -E -e 'gramps[-_. ]?live[-_. ]?api' $B -- . \
+  ':(exclude)docs/plans/rename-to-agentdataentry.plan.md'
+```
+
+Each row reads `<rev>:<path>:<line>:<column>:<matched text>`.
+
+⭐ **The key is injective by construction, not by measurement**: two matches cannot begin at the
+same column of the same line of the same file. Measured at `M` as a check on that reasoning: 572
+rows, 572 distinct rows, **572 distinct `path:line:column` keys**. And it separates round 3's case,
+where the two matched texts are **identical** under this pattern (`GRAMPS_LIVE_API` twice) and only
+the column tells them apart:
+
+```
+M:docs/using.md:185:2:GRAMPS_LIVE_API
+M:docs/using.md:185:18:GRAMPS_LIVE_API
+```
+
+**Path safety, checked rather than assumed:** no tracked path contains a colon (measured at `M`: 0;
+positive control, paths containing a slash: 141), so splitting a row on colons recovers the key. If
+that ever stops being true the build uses `git grep -z` and says in its report which form it used.
+
+**The report is a join, not a tally. Two parts:**
+
+- **Part 1, the key ledger.** The census command's **own output rows**, with two columns appended
+  to each: `swept` or `frozen`, and the id of the entry that judges it. ⭐ **The ledger is made by
+  appending columns to the command's rows, never by re-deriving them**, so a row cannot be
+  duplicated or dropped in the making of it.
+- **Part 2, the entry table.** One entry per id, carrying the reason. P1, P2 and P3 ids are **1:1
+  with keys**, which is the 321 individual dispositions. C1, C2 and D ids may each cover many keys.
+
+**The exit condition:**
+
+> Cut the key fields from the ledger, sort them, and `comm -3` them against the same three fields
+> cut and sorted from the census command's own output on `B`. **Both sides of the `comm` must be
+> empty.** Every ledger row carries `swept` or `frozen` and an entry id; every id appears in the
+> entry table with a reason. A reviewer's finding then reads *"the entry for
+> `docs/using.md:185:18` is wrong"*.
+
+**Set equality on an injective key cannot balance the way a sum can.** The counts still appear in
+the report because they are readable, but they are **not the criterion**: a report whose totals sum
+correctly and whose `comm` is non-empty **fails**.
+
+⚠️ **The cost is unchanged by this repair.** Still 321 hand judgements, exactly as round 2 accepted.
+The ledger's other 251 rows at `M` are **copied and grouped, not judged one at a time**, and the
+key column of all 572 is machine output. This was the constraint round 3 set, and it is met: the key
+is produced by the same command that produces the census.
 
 ### The cost, stated, and the cheaper boundary that was measured and rejected
 
@@ -374,13 +523,14 @@ boundary is `COMMENT` or `STRING`, with no sub-classification.
 ⚠️ **The criterion proves every occurrence was judged and recorded. It does not prove every
 judgement is right.** That is bounded by review rather than by the criterion, and it is a real
 residual, not a rhetorical one. What it buys is that the reviewer's task is now finite: audit 321
-recorded judgements, rather than search an unbounded space for a 4th, 5th and 6th bypass.
+recorded judgements, each addressed by a key that names one occurrence, rather than search an
+unbounded space for a 4th, 5th and 6th bypass.
 
 Two smaller residuals, both measured:
 
 - The instrument sees only files it can tokenize. **The run reports the number of `.py` files it
   tokenized and that number must equal `git ls-files '*.py'` over the four trees**, measured at 106
-  today. A silent parse failure would otherwise drop a file with no signal.
+  at `M`. A silent parse failure would otherwise drop a file with no signal.
 - Every count above is calibrated: the tokenizer is re-run with a pattern present in every file and
   with a pattern present in none, and must return a large number and zero respectively.
 
@@ -423,11 +573,12 @@ git grep -l -I -i -E -e 'gramps[-_. ]?live[-_. ]?api' \
      ':(exclude)docs/plans/rename-to-agentdataentry.plan.md'
 ```
 
-**Measured today: 18 files.** Control, the same command with the exclusion removed: 19. The three
+**Measured at `M`: 18 files.** Control, the same command with the exclusion removed: 19. The three
 directories hold 22 files, so three carry no occurrence and get nothing
 (`154-prior-events-in-the-dialog`, `176-full-name-search`, `preview-write-agreement`). This plan's
 own page is excluded by path, mechanically and for a stated reason: on that page the old spelling is
-the subject of the mapping in section 3, not stale guidance.
+the subject of the mapping in section 3, not stale guidance. **That is the same exclusion rule 0a
+now applies to the census, spelled the same way and proved the same way.**
 
 **The line each of the 18 gets, and nothing else:**
 
@@ -496,10 +647,15 @@ Classes P1, P2, P3, C1 and C2 above. The instrument for P1 is run from a heredoc
 
 > Tokenize every `.py` file under `src`, `scripts`, `gramps_plugin` and `tests` with the standard
 > library's `tokenize`. Take every `COMMENT` or `STRING` token whose text carries the old name, and
-> emit one row per **occurrence** inside it, with its path and line. Report the number of files
-> tokenized.
+> emit one row per **occurrence** inside it, keyed `path:line:column` so it joins to the census
+> command's rows. Report the number of files tokenized.
 
-**P3 is new in this revision and it closes a gap no round has reached yet.** The 105 markdown
+⚠️ **The tokenizer's job is classification, not enumeration.** The set of occurrences comes from the
+census command; the tokenizer only says which class each key falls in. If the two disagree on any
+key, the **census wins and the disagreement is reported**, because the census is the set the exit
+condition is checked against.
+
+**P3 is new since revision 2 and it closes a gap no round had reached.** The 105 markdown
 occurrences outside the three dated directories are a genuine mix, verified by reading them:
 `docs/phase1-core-schema.spec.md:5` says *"What shipped is in `src/gramps_live_api/core/`"*, a live
 path citation that must be swept, while `docs/roadmap.md:69`, `:117`, `:216`, `:218` and `:355` name
@@ -624,6 +780,14 @@ so nobody diagnoses it twice.
 `[Environment]::GetEnvironmentVariables('User')` and `('Machine')` both return no key matching
 `*GRAMPS*`. So the rename cannot silently drop an override that exists, because none exists.
 
+⚠️ **What that measurement does not cover, and round 3 named it.** It covers the machine. It does
+not cover the **documentation**, where `docs/using.md:185` instructs the reader to use
+`GRAMPS_LIVE_API_COPY` and `GRAMPS_LIVE_API_RUNTIME` for a one-off run. If the sweep rewrites the
+code and misses that line, the code reads `GRAMPS_AGENT_DATA_ENTRY_RUNTIME` while the live page
+instructs the obsolete name and the override is ignored with no message. **That is the failure
+section 6's key now makes unrepresentable**, and both occurrences on that line are class P3 with one
+reason each.
+
 ---
 
 ## 9. #220, the external contributor (decision G)
@@ -717,30 +881,35 @@ already happened would be wrong in the other direction.
 ⛔ **Round 1 killed the round-0 equation and it deserved it.** It read `rewritten + residual == 572`
 against a baseline taken on `main`, while this plan document itself adds occurrences the section 6
 rules then keep. **A correct build could not have satisfied it.** What replaces it uses a
-branch-head baseline **and** carries an explicit term for what the build adds.
+branch-head baseline, carries an explicit term for what the build adds, and, since rule 0a, takes
+this page out of scope so the baseline stops moving for reasons that have nothing to do with the
+build.
 
 **The instrument.** One `git grep`, no second `grep`, so no path can be mistaken for content:
 
 ```
-git grep -I -o -i -E -e 'gramps[-_. ]?live[-_. ]?api' <rev> -- .   |  wc -l
+git grep -I -o -n --column -i -E -e 'gramps[-_. ]?live[-_. ]?api' <rev> -- . \
+  ':(exclude)docs/plans/rename-to-agentdataentry.plan.md'   |  wc -l
 ```
 
 `-o` prints one line per match **in the line content**; the `<rev>:<path>:` prefix contributes
 nothing. Verified with a control: over `docs/plans/note-types.plan.md`, whose **path** contains
 `note-types`, the pattern `note-types` returns 0, while the pattern `note` returns 151, exactly the
-count from the file body alone.
+count from the file body alone. `-n --column` adds the two fields that make each row's key
+injective (section 6) and changes no count: measured at `M`, 655 rows with and without them.
 
 **(a) The baseline is the head the build starts from, recorded before commit 1.**
 
 ```
 git rev-parse HEAD        -> record B, copied from the command output, never typed
 <the census command>      -> record census(B)
+<the same, exclusion removed> -> record census_all(B), the control
 ```
 
-⚠️ **Measured on the current branch head, `census(B)` is 652, and it was 636 one revision ago.**
-The difference is this page: it carried 64 occurrences at revision 1 and carries 80 at revision 2.
-**It moves again when this revision is committed, which is exactly why the builder measures it and
-this plan asserts no value for it.**
+⚠️ **This plan states no value for `census(B)`, and under rule 0b it states no value for anything as
+a criterion.** At `M` the census scope holds **572** occurrences, which is also what `main` holds,
+because the only file differing between `main` and `M` is this page. **That is the point of rule 0a:
+the figure stopped moving.** The builder still measures its own, because `B` is not `M`.
 
 **(b) The equation, which is arithmetic over the build's own diff and cannot fail for the reason the
 old one did:**
@@ -750,51 +919,67 @@ census(HEAD)  ==  census(B)  -  removed  +  added
 ```
 
 ```
-removed = git diff -U0 --find-renames $B HEAD -- . | grep -E '^-'  | grep -v -E '^---'   \
+removed = git diff -U0 --find-renames $B HEAD -- . ':(exclude)<this page>' | grep -E '^-'  | grep -v -E '^---'  \
             | grep -o -i -E -e 'gramps[-_. ]?live[-_. ]?api' | wc -l
-added   = git diff -U0 --find-renames $B HEAD -- . | grep -E '^\+' | grep -v -E '^\+\+\+' \
+added   = git diff -U0 --find-renames $B HEAD -- . ':(exclude)<this page>' | grep -E '^\+' | grep -v -E '^\+\+\+' \
             | grep -o -i -E -e 'gramps[-_. ]?live[-_. ]?api' | wc -l
 ```
 
 `removed` is what the old equation called *rewritten*. `added` is the term it had no place for.
+**The exclusion is applied to all four terms and to the ledger, one scope throughout**, and rule
+0a's check 4 proves the excluded path contributes zero to `removed` and zero to `added`.
 
 ⚠️ **The two `grep -v` filters are load bearing:** a unified diff's `--- a/src/gramps_live_api/...`
 and `+++ b/...` headers are path text on lines beginning with `-` and `+`, and without the filters
 they are counted as content.
 
-**Verified on this repository before it was written down.** Over `main..HEAD` the identity gives
-`572 - 0 + 80 = 652`, matching the direct census. Over `main~80..main` it holds for the same pattern
-(`45 - 9 + 536 = 572`) and for two unrelated controls, `def ` (`571 - 123 + 1550 = 1998`) and
-`import` (`186 - 47 + 1050 = 1189`). It is path independent and holds whether git reports a move as
-a rename or as a delete plus an add.
+**Verified on this repository before it was written down**, at named heads, so these verifications do
+not go stale:
 
-**(c) ⭐ Every occurrence on `B` is accounted for exactly once. This is section 6's exit condition
-and it is the criterion this plan turns on.**
+- Over `main..M`, whole repository, no exclusion: `572 - 0 + 83 = 655`, matching the direct census
+  of 655.
+- Over `main..M`, in the census scope: `572 - 0 + 0 = 572`, matching the direct census of 572,
+  because the only file that differs is the excluded one.
+- Over `main~80..main` it holds for the same pattern (`45 - 9 + 536 = 572`) and for two unrelated
+  controls, `def ` (`571 - 123 + 1550 = 1998`) and `import` (`186 - 47 + 1050 = 1189`).
 
-The builder lists every line of
+It is path independent and holds whether git reports a move as a rename or as a delete plus an add.
+
+**(c) ⭐ Every occurrence on `B` is accounted for exactly once, and the check is a set comparison,
+not a total. This is section 6's exit condition and it is the criterion this plan turns on.**
+
+The builder runs the census command on `B`, appends two columns to **its own rows** (`swept` or
+`frozen`, and an entry id), and produces the entry table. Then:
 
 ```
-git grep -I -n -i -E -e 'gramps[-_. ]?live[-_. ]?api' $B -- .
+cut the ledger's path:line:column key from every row, sort
+cut the same three fields from the census command's own rows on B, sort
+comm -3 <ledger keys> <census keys>          -> BOTH sides must be empty
 ```
 
-and produces a report in which **every occurrence appears exactly once**, marked `swept` or
-`frozen`, with a reason. Granularity by class, per section 6:
+Granularity of the **reasons**, per section 6, unchanged from round 2:
 
-| class | granularity | today |
+| class | reason granularity | at `M` |
 | --- | --- | --- |
-| P1 prose tokens in `.py` under the four trees | **one entry per occurrence**, path and line | 210 |
-| P2 `scripts/hooks/pre-push` | **one entry per occurrence** | 6 |
-| P3 markdown outside the three dated directories | **one entry per occurrence** | 105 |
+| P1 prose tokens in `.py` under the four trees | **one reason per occurrence** | 210 |
+| P2 `scripts/hooks/pre-push` | **one reason per occurrence** | 6 |
+| P3 markdown outside the three dated directories | **one reason per occurrence** | 105 |
 | C1 `.py` code tokens | grouped | 141 |
 | C2 `ci.yml`, `.gitignore`, `pyproject.toml`, `uv.lock` | grouped | 10 |
-| D `docs/plans`, `docs/reviews`, `docs/rulings` | not swept; the set check below is its criterion | 180 |
+| D `docs/plans`, `docs/reviews`, `docs/rulings`, this page excluded | grouped; not swept, and the set check below is its own criterion | 100 |
 
-**The entry counts must sum to `census(B)`.** ⚠️ **No occurrence may be dispositioned as
-"reasonable"; every one carries a reason.** The tokenizer run reports how many `.py` files it
-tokenized and that must equal `git ls-files '*.py'` over the four trees, 106 today, so a parse
+⛔ **The entry counts are reported for readability and are NOT the exit condition.** A sum is not
+injective, and round 3 demonstrated the failure it permits on a live line: `docs/using.md:185`
+carries two occurrences, a report keyed on path and line can count one twice and drop the other, and
+the total still balances while `GRAMPS_LIVE_API_RUNTIME` goes unswept. **A report whose totals sum
+to `census(B)` and whose `comm` is non-empty fails.**
+
+⚠️ **No occurrence may be dispositioned as "reasonable"; every one carries a reason**, and every
+ledger row carries an entry id that resolves to one. The tokenizer run reports how many `.py` files
+it tokenized and that must equal `git ls-files '*.py'` over the four trees, 106 at `M`, so a parse
 failure cannot silently drop a file.
 
-**(d) The residual on `HEAD` still falls into named classes.** Every line of the same command run on
+**(d) The residual on `HEAD` still falls into named classes.** Every row of the same command run on
 `HEAD` is in exactly one of:
 
 1. anything in `docs/plans/`, `docs/reviews/` or `docs/rulings/` (section 6 rule 1);
@@ -802,17 +987,19 @@ failure cannot silently drop a file.
    describing one (section 4);
 3. the state directory name, its two `DIRECTORY_NAME` constants, and documentation naming that path
    (section 4);
-4. an occurrence frozen by section 6 rule 2, each one already carrying its entry from (c);
-5. **an occurrence the build itself added**, listed line by line. Predicted, and the whole predicted
-   list: the `README.md` rename note, which now also names the frozen on-disk names, and the
+4. an occurrence frozen by section 6 rule 2, each one already carrying its key and reason from (c);
+5. **an occurrence the build itself added**, listed by key. Predicted, and the whole predicted list:
+   the `README.md` rename note, which now also names the frozen on-disk names, and the
    `docs/using.md` old-junction line. The 18 banner lines add none, by construction. **If `added`
    exceeds this list, the excess is reported before it is accepted.**
 
 **What the residual is predicted to be, and it is a prediction.** Outside the three dated
-directories, the four frozen tree-local names account for **29** occurrences today (copy 14, undo 11,
-proposals 2, `JOURNAL_FORMAT` 2), and the state directory path, its two constants and the section 6
-exclusions account for the rest. Inside those three directories the census is **180** today and the
-build does not change it. **The total is measured and reported by the builder, never asserted here.**
+directories, the four frozen tree-local names account for **29** occurrences at `M` (copy 14,
+undo 11, proposals 2, `JOURNAL_FORMAT` 2, measured with a positive control of 86 for the bare name
+and a negative control of 0 for an absent pattern), and the state directory path, its two constants
+and the section 6 exclusions account for the rest. Inside those three directories the census in
+scope is **100** at `M` and the build does not change it. **The total is measured and reported by
+the builder, never asserted here.**
 
 ### The records stay records, and this is checkable as a set
 
@@ -820,7 +1007,8 @@ build does not change it. **The total is measured and reported by the builder, n
 git diff --name-only $B HEAD -- docs/plans docs/reviews docs/rulings
 ```
 
-must return **exactly** the set section 6 rule 1's command returns on `B`, measured today at 18, and
+must return **exactly** the set section 6 rule 1's command returns on `B`, measured at `M` at 18
+against a control of 19, and
 
 ```
 git diff --numstat  $B HEAD -- docs/plans docs/reviews docs/rulings
@@ -828,13 +1016,24 @@ git diff --numstat  $B HEAD -- docs/plans docs/reviews docs/rulings
 
 must show **1 insertion and 0 deletions on every row**. A banner is one inserted line. Any deletion
 in those three directories is sentence surgery leaking in, and it fails the criterion. Any row with
-more than one insertion is a second claim, and it fails too.
+more than one insertion is a second claim, and it fails too. **This page appears in neither result**,
+which is rule 0a's check 4 and is checked as such.
+
+### The exclusion is proved, not assumed (rule 0a)
+
+The build reports all four checks from section 0 on its own `B`:
+
+1. `git ls-files` with and without the exclusion differ by exactly one path, and `comm -23` names
+   that path and nothing else.
+2. `census_all(B) - census(B)` equals the census of the page alone.
+3. Every command carrying the exclusion is also run without it, and the two results differ.
+4. `git diff --name-only $B HEAD -- <this page>` is empty.
 
 ### The freeze, measured rather than inherited (section 17)
 
 - Re-run section 4's component table on the branch head, with the three dated directories excluded
   **using `:(exclude)`**, and check the excluded count against the same command with the exclusion
-  removed. `:!` silently excludes nothing on this box.
+  removed.
 - Report the actual full-gate result for the frozen state, both legs, as a measurement of a
   configuration no probe arm executed.
 - Confirm that **both** literal pins still reach their constant and still pass untouched:
@@ -879,12 +1078,16 @@ defeats git's rename detection, which is what makes both the review and #220's r
 | 3 | `ruff format .` plus the one hand edit | the 5 files of F2 and the string literal of F1 |
 | 4 | `glapi` to `gade` | 2 files, 6 occurrences (F12) |
 | 5 | the F4 sentinel pin, plus docstrings on the frozen constants saying they are frozen and why | new test, comment only edits to the constants |
-| 6 | the `README.md` dated note, the `docs/using.md` old junction line, and one banner line at the top of each page section 6 rule 1's command returns | 2 files plus the derived set, measured today at 18 |
+| 6 | the `README.md` dated note, the `docs/using.md` old junction line, and one banner line at the top of each page section 6 rule 1's command returns | 2 files plus the derived set, measured at `M` at 18 |
 
-**Commit 2's report is section 10(c)'s report, and it is the criterion.** It accounts for every
-occurrence on `B` exactly once, one entry per occurrence for classes P1, P2 and P3, grouped entries
-for C1 and C2, entry counts summing to `census(B)`. **The sweep is not reviewable without it**, and
-this is the largest single piece of work in the build.
+⛔ **This plan's own page is in none of the six commits.** That is rule 0a's check 4 and it is what
+makes excluding it from the census safe rather than a hole.
+
+**Commit 2's report is section 10(c)'s ledger and entry table, and it is the criterion.** It
+accounts for every occurrence on `B` exactly once, keyed `path:line:column` copied from the census
+command's own rows, one reason per occurrence for classes P1, P2 and P3, grouped reasons for C1, C2
+and D, and it closes on `comm -3` being empty in both directions rather than on a total. **The sweep
+is not reviewable without it**, and this is the largest single piece of work in the build.
 
 Commit 5's docstrings are load bearing, not decoration. A narrowing can be misread as licence to
 revert what preceded it: a frozen constant with no recorded reason reads to the next reader as an
@@ -899,9 +1102,10 @@ section 10 sharp.
 
 ## 12. The one question, applied to this plan
 
-**Would following this plan produce something you could show breaking?** Fifteen candidates were
-tried: ten from round 0, three added by revision 2, and two more created by this revision. Fourteen
-are dismissible with a named reason. One is not, and it is stated as the plan's live risk.
+**Would following this plan produce something you could show breaking?** Eighteen candidates have
+been tried: ten from round 0, three added by revision 2, two by revision 3, and three by this
+revision. Seventeen are dismissible with a named reason. One is not, and it is stated as the plan's
+live risk.
 
 Dismissed, with the reason:
 
@@ -930,24 +1134,36 @@ Dismissed, with the reason:
 - *A page in those directories carries live guidance and gets no banner, so the guidance breaks.*
   **Round 2 showed this happening at `docs/rulings/R3`, and revision 2's fix was a derivation
   regex.** The derivation is gone. Every page in the three directories that carries the old name
-  gets the banner, so there is nothing left to classify and nothing left to miss. Revision 2's
-  companion argument here, that every unbuilt-but-undeclared page is already built, is withdrawn as
-  no longer load bearing; it also contained an error, since `176-full-name-search.plan.md` carries
-  no occurrence of the old name at all and was never in the set.
-- **New.** *A statement about the past is swept, and a source file then asserts a false record.*
-  This is what three rounds have been about. The instrument is retired and replaced by an accounting
-  over the sweep's reach: every one of the 652 occurrences on `B` is dispositioned exactly once, 321
-  of them individually. **The named input would now have to be an occurrence that has a written
-  disposition and the disposition is wrong**, which is a claim about a member of a finite list and is
-  what the reviewer's next round should audit.
-- **New.** *A record hides in markdown outside the three dated directories, where no round has
-  looked.* Checked rather than reasoned: 105 occurrences in 11 files, and they are genuinely mixed,
-  with `docs/phase1-core-schema.spec.md:5` a live path citation and five lines of `docs/roadmap.md`
-  naming frozen on-disk names. They are class P3 and get one entry each.
-- **New.** *The bounded criterion is too expensive to execute, so the build silently does a cheaper
-  thing.* The cost is stated in section 6 as 321 dispositions and the entry-count arithmetic makes a
-  short report fail rather than pass quietly. The cheaper boundary was measured and rejected because
-  it drops `cli.py:37`.
+  gets the banner, so there is nothing left to classify and nothing left to miss.
+- *A statement about the past is swept, and a source file then asserts a false record.* This is what
+  three rounds were about. The instrument is retired and replaced by an accounting over the sweep's
+  reach: every occurrence on `B` is dispositioned exactly once, 321 of them individually. **The named
+  input would now have to be an occurrence that has a written disposition and the disposition is
+  wrong**, which is a claim about a member of a finite list.
+- *A record hides in markdown outside the three dated directories, where no round has looked.*
+  Checked rather than reasoned: 105 occurrences in 11 files at `M`, genuinely mixed, with
+  `docs/phase1-core-schema.spec.md:5` a live path citation and five lines of `docs/roadmap.md` naming
+  frozen on-disk names. They are class P3 and get one reason each.
+- *The bounded criterion is too expensive to execute, so the build silently does a cheaper thing.*
+  The cost is stated in section 6 as 321 dispositions, unchanged by this revision, and the `comm`
+  check makes a short report fail rather than pass quietly. The cheaper boundary was measured and
+  rejected because it drops `cli.py:37`.
+- **New.** *Two dispositions collide on one occurrence, a third occurrence goes unrecorded, the
+  totals balance, and `GRAMPS_LIVE_API_RUNTIME` ships unswept while `docs/using.md:185` instructs it.*
+  **This is round 3's finding and it was live against revision 3.** The key is now
+  `path:line:column`, injective by construction, emitted by the census command itself, and the exit
+  condition is `comm -3` empty in both directions rather than a sum. A collision now shows up as a
+  duplicate ledger key and a missing census key at once.
+- **New.** *The exclusion of this page hides a swept occurrence, so the accounting misses one.*
+  The exclusion is proved to cover exactly one path (`ls-files` differ by one, `comm -23` names it),
+  to remove exactly that path's occurrences (`655 - 572 = 83`, and the page alone is 83), and, the
+  one that matters, **the excluded path is proved unchanged between `B` and `HEAD`**, so it
+  contributes zero to both diff terms. A hole that cannot change cannot hide a sweep.
+- **New.** *A reader acts on a number in this plan that has since gone stale.* Rule 0b: every figure
+  is labelled a measurement at `M`, no figure is a criterion, and the two criteria are computed by
+  the builder from its own two heads. The specific instance that motivated it, six sites asserting
+  `652`, is gone: in the census scope the figure is `572` and it has not moved across `main`, three
+  plan revisions, and this one.
 
 ⚠️ **The one that survives: Gramps' own acceptance of the new plugin filenames and id.** The probe
 could not start Gramps, and lists as unverified that Gramps accepts `id="AgentDataEntry"`, that it
@@ -1001,6 +1217,8 @@ What this plan does about it:
   since the identifier does not change.
 - **Correcting the five instruction lines inside `docs/plans/shippable.plan.md`.** Section 6 records
   why the banner is taken instead, and #227 owns that page.
+- **Editing this plan page itself during the build.** Rule 0a excludes it from the census scope and
+  check 4 proves it unchanged; a build that edits it invalidates its own accounting.
 
 ---
 
@@ -1134,7 +1352,7 @@ Nothing in section 17 was decided differently; only its two factual errors were 
 
 | finding | disposition |
 | --- | --- |
-| **P1** the census equation cannot pass honestly, because this page adds occurrences the section 6 rule keeps | **Fixed**, section 10. Baseline moves to the build's start commit, measured not asserted; the equation gains an explicit `added` term computed from the build's own diff; a residual class covers what the build adds, listed line by line. Verified against three patterns on two ranges of this repository's history. |
+| **P1** the census equation cannot pass honestly, because this page adds occurrences the section 6 rule keeps | **Fixed**, section 10, and **the underlying cause was removed in round 3** by taking this page out of the census scope entirely (rule 0a). Baseline moves to the build's start commit, measured not asserted; the equation gains an explicit `added` term computed from the build's own diff; a residual class covers what the build adds, listed line by line. |
 | **P1** the directory-as-unit rule freezes live guidance: `shippable.plan.md:126` prescribes `python -m gramps_live_api_mcp` | **Fixed**, section 6, and **re-fixed in round 2** by a different mechanism. Round 1's fix was a carve-out derived by `git grep --all-match` over the project's self-declaration convention, returning five documents. Round 2 broke it; see below. |
 | **P2** the single historical exception is not single, and its deriving command matches paths | **Fixed**, section 6, and **replaced in round 2**. The command was returning 101 lines as written and 3 with content-only matching, against a claim of one. The token-scoped instrument that replaced it was itself broken by round 2; see below. |
 | **P3** the freeze check misses `tests/unit/test_config.py:209-220` | **Fixed**, sections 4, 10, 12 and 17. Two tests pin a frozen literal, not one, and both are named. Section 4's table is re-measured on the branch head with `:(exclude)`, and the two quoted literals that are **not** pins are named too. |
@@ -1144,30 +1362,40 @@ Nothing in section 17 was decided differently; only its two factual errors were 
 
 | finding | disposition |
 | --- | --- |
-| ⭐ **the property, raised above the findings** *"No statement about the past is falsified by the sweep"* is a universally quantified negative over an unbounded input space and is not closing | **Bounded**, section 6, and this is the revision's main change. The property is replaced by an accounting over **the sweep's reach**: the sweep can only rewrite occurrences of the old name, there are 652 on the current head, and every one is dispositioned exactly once, 321 of them individually. The exit condition is arithmetic (entry counts sum to `census(B)`) rather than a reviewer's silence. The cheaper boundary was measured and rejected: comments-and-docstrings gives 68 instead of 210 and **excludes `cli.py:37`**, an attribute docstring and one of the three confirmed cases. The residual is recorded: the criterion proves every judgement was made and recorded, not that each is right. |
-| **P1 BLOCKER** R3 is both a record and current guidance, and the carve-out sees neither | **Fixed**, section 6 rule 1, structurally. The self-declaration derivation is **retired**, not widened. Every page in the three dated directories carrying the old name gets one identical banner line: 18 files today, control 19 without the exclusion. R3 is in the set by construction. The path-reference alternative the reviewer suggested was measured at 12 of 18 and rejected: it saves six lines and costs a fourth classifier, and it is blind to live guidance carrying no path. The banner wording was also corrected so it does not instruct a blanket substitution, which would be false on `docs/rulings/README.md:26`, whose only occurrence is frozen. |
-| **P2 BLOCKER** the marker instrument misses `tests/unit/test_gate_diagnostics.py:91-97` | **Fixed by the bound above, not by a third marker list.** That span is now shown in section 6 as the reason marker-guessing cannot work: it needs four dispositions inside one function, three of them inside one docstring token, including three assertion strings that pin the literal text of `scripts/gate.py` and go red if they are **not** swept. It is one of the 321 individual entries. |
-| **P3 FIX REGRESSION** the #220 draft still opens "I am about to rename" after the posting step moved | **Fixed**, section 9, and the tense is checked against section 17's amended step 4 rather than flipped wholesale. At that step the **repository** rename has happened but the **code** rename has not merged, so the draft carries both tenses. The exact `git remote set-url` command, the plain wording and the offer to do the rebase are kept. |
+| ⭐ **the property, raised above the findings** *"No statement about the past is falsified by the sweep"* is a universally quantified negative over an unbounded input space and is not closing | **Bounded**, section 6, and this was that revision's main change. The property is replaced by an accounting over **the sweep's reach**: the sweep can only rewrite occurrences of the old name, and every one is dispositioned exactly once, 321 of them individually. The cheaper boundary was measured and rejected: comments-and-docstrings gives 68 instead of 210 and **excludes `cli.py:37`**, an attribute docstring and one of the three confirmed cases. ⚠️ **Round 3 kept the bound and replaced its exit condition**, which was a sum; see below. |
+| **P1 BLOCKER** R3 is both a record and current guidance, and the carve-out sees neither | **Fixed**, section 6 rule 1, structurally. The self-declaration derivation is **retired**, not widened. Every page in the three dated directories carrying the old name gets one identical banner line: 18 files, control 19 without the exclusion. R3 is in the set by construction. The path-reference alternative was measured at 12 of 18 and rejected: it saves six lines and costs a fourth classifier, and it is blind to live guidance carrying no path. |
+| **P2 BLOCKER** the marker instrument misses `tests/unit/test_gate_diagnostics.py:91-97` | **Fixed by the bound above, not by a third marker list.** That span is shown in section 6 as the reason marker-guessing cannot work: it needs four dispositions inside one function, three of them inside one docstring token, including three assertion strings that pin the literal text of `scripts/gate.py` and go red if they are **not** swept. |
+| **P3 FIX REGRESSION** the #220 draft still opens "I am about to rename" after the posting step moved | **Fixed**, section 9, and the tense is checked against section 17's amended step 4 rather than flipped wholesale. At that step the **repository** rename has happened but the **code** rename has not merged, so the draft carries both tenses. |
 
-**Also corrected in this revision, not raised by either round:**
+### Round 3, 2026-09-07: one finding from the gate, one from the conductor, both blocking, both fixed
 
-- **A gap in class coverage nobody had reached.** 105 occurrences in 11 markdown files outside the
-  three dated directories were only covered by residual classes, never dispositioned one by one, and
-  they are genuinely mixed: `docs/phase1-core-schema.spec.md:5` is a live path citation and five
-  lines of `docs/roadmap.md` name frozen on-disk names. They are now class P3.
-- **Stale census figures.** `census(HEAD)` is **652**, not 636, and this page carries **80**
-  occurrences, not 64; both moved when revision 2 was committed and both move again with this one.
-  The identity re-verifies: `572 - 0 + 80 = 652`.
-- **Section 12's withdrawn bullet.** Revision 2 argued that every plan document not declaring itself
-  unbuilt is already built, and listed `176-full-name-search.plan.md` among them. That file carries
-  no occurrence of the old name at all and was never in the set. The bullet is withdrawn rather than
-  corrected, because rule 1 no longer depends on the claim.
+| finding | disposition |
+| --- | --- |
+| **P1 FIX REGRESSION on round 2's own repair.** *Key each disposition to one occurrence.* A P entry keyed only by path and line is not injective while section 10(c) inventories matching **lines** and the exit condition is a **sum**: two entries can collide on one occurrence while a third goes unrecorded and the total still balances. Named input, live at the time: `docs/using.md:185` carries both `GRAMPS_LIVE_API_COPY` and `GRAMPS_LIVE_API_RUNTIME`; miss `_RUNTIME` and the renamed code reads `GRAMPS_AGENT_DATA_ENTRY_RUNTIME` while the live page instructs the obsolete variable, so the override is ignored | **Fixed**, sections 6 and 10(c). **The key is `path:line:column` and the exit condition is set equality, not a total.** The census command becomes `git grep -I -o -n --column ...`, which emits `<rev>:<path>:<line>:<column>:<match>`, so the key is produced by the same command that produces the census, which was round 3's executability constraint. The key is injective by construction; measured at `M`, 572 rows give 572 distinct keys, and round 3's example separates as `docs/using.md:185:2` and `:185:18` even though the matched text is identical. The report becomes a **ledger** made by appending two columns to the command's own rows, plus an entry table of reasons; closure is `comm -3` empty in both directions. Counts stay in the report as readable, explicitly not as the criterion. **The 321 hand judgements are unchanged**; the other rows are copied and grouped. Section 8 gained one paragraph naming the `docs/using.md:185` consequence, because the environment-variable measurement there covered the machine and not the documentation. |
+| **BLOCKER, raised by the conductor, structural.** *The plan is inside its own measurement scope, so every revision invalidates its own arithmetic.* The partition proof read `... = 652` while the head measured 655, and six sites asserted 652. The number had moved three times: 572, 636, 652, 655 | **Fixed structurally, in one new block rather than six corrected sentences.** New **section 0**, two rules. **Rule 0a: the census scope excludes this page**, spelled `:(exclude)docs/plans/rename-to-agentdataentry.plan.md`, which is the exclusion section 6 rule 1 already applied to the banner set for the same stated reason. Measured: the whole drift was this page's own growth, and **the only file differing between `main` and `M` is this page**, so the excluded-scope census is `572` on `main` and `572` at `M`, unchanged across three revisions. The hole is proved four ways, and the fourth is the one that matters: **the excluded path is proved unchanged between `B` and `HEAD`**, so it contributes zero to both diff terms, and a hole that cannot change cannot hide a sweep. **Rule 0b: every figure is a measurement at the named head `M`, and no figure is a criterion**; the criteria are computed by the builder from its own two heads. Section 6's partition becomes `210 + 6 + 105 + 141 + 10 + 100 = 572` at `M`. |
+
+**Also recorded in this revision, not raised by either finding:**
+
+- **What was re-measured at `M` and what is inherited.** `P1 + C1 = 351`, `P2 = 6`, `P3 = 105`,
+  `C2 = 10`, `D = 100`, the banner set at 18 against a control of 19, `106` `.py` files over the
+  four trees, and the 29 frozen-name residual (copy 14, undo 11, proposals 2, `JOURNAL_FORMAT` 2)
+  were each measured directly at `M` for this revision, with a positive control of 86 and a negative
+  control of 0. The `210 / 141` split inside the 351 is round 2's tokenizer measurement and still
+  stands, because no `.py` file has changed on this branch at all.
+- **A measurement that revises a method note, narrowly.** Round 2 recorded `:!<path>` accepted and
+  silently excluding nothing on this box. Re-measured at `M`, in this plan's command shape, on git
+  `2.53.0.windows.1`, **both spellings returned 100 against a control of 183**. The plan keeps
+  `:(exclude)` and keeps the control. **The control, not the spelling, is what proves an exclusion**,
+  and that rule is unchanged in either direction.
+- **A path-safety check the key depends on.** No tracked path contains a colon at `M` (0, against a
+  positive control of 141 paths containing a slash), so splitting a census row on colons recovers
+  `path:line:column`. If that changes, the build uses `git grep -z` and says so.
 
 **Two method notes, recorded because each cost a wrong measurement here and will cost another later:**
 
-- **`:!<path>` was accepted and silently excluded nothing** on this box, where `:(exclude)<path>`
-  worked. Every exclusion in this plan is checked against the same command with the exclusion
-  removed, and the two must differ.
+- **Every exclusion is checked against the same command with the exclusion removed, and the two must
+  differ.** This is now used four times: the banner set (18 against 19), class D (100 against 183),
+  the census scope (572 against 655), and the path listing (147 against 148).
 - **A `git grep` piped into a second `grep` matches the file path as well as the line content**,
   which is how a count of 1 was really a count of 101. No command in this plan pipes one grep into
   another.
