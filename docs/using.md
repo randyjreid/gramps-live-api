@@ -33,8 +33,11 @@ document as one graph, you read it in a dialog inside Gramps, and it is written 
 ## Once: three pieces of setup
 
 > **Every command in this document is PowerShell**, and every one of them is run **from the root of
-> this checkout** — that is what `$PWD` refers to below. Nothing here needs `cmd.exe`, and nothing
-> here needs a placeholder filled in by hand.
+> this checkout** — that is what `$PWD` refers to below. Nothing here needs `cmd.exe`.
+>
+> ⚠️ **One step needs a path you fill in by hand**: removing an installation folder left by an
+> earlier version, near the end of this page. It is the only one, and it works out nothing for
+> itself on purpose.
 
 ### 1. A copy of your tree, blessed by hand
 
@@ -101,9 +104,14 @@ Run the install check. Its `plugin:` line names the folder the addon is installe
 folder called `gramps-live-api` that sits beside it**, in that same plugins directory.
 
 It is a link rather than a copy, so removing it removes the link and leaves the checkout it points
-at untouched. On Windows the command that does exactly that, with the path you just read, is:
+at untouched. The command that does exactly that, with the path you just read written in, is:
 
-    cmd /c rmdir "<the plugins directory>\gramps-live-api"
+    [System.IO.Directory]::Delete("<the plugins directory>\gramps-live-api", $false)
+
+⚠️ **This is the one step on this page where you type a path in yourself**, and that is
+deliberate. The `$false` means non-recursive: it removes the link and **cannot** follow it into
+the checkout on the other side. Given a real folder with anything in it, it refuses with `The
+directory is not empty` rather than emptying it.
 
 ⛔ **Do not use `Remove-Item`.** Measured on PowerShell 5.1 it fails on a junction with `Object
 reference not set to an instance of an object` and leaves it in place, so you still have two
