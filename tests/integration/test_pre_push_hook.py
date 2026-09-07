@@ -178,7 +178,7 @@ _NOTHING_IS_PLANTED = object()
 # FAILS the same ``-c ''`` probe the hook itself uses.
 _THE_SHADOW_MUST_DECIDE = """\
 set -u
-directory=$(cd "${GLAPI_SHADOW:-}" 2>/dev/null && pwd) || directory=''
+directory=$(cd "${GADE_SHADOW:-}" 2>/dev/null && pwd) || directory=''
 if [ -z "$directory" ]; then
     echo "the shell cannot reach the shadow directory at all"
     exit 3
@@ -267,7 +267,7 @@ def _the_shadow_must_decide(
         check=False,
         # Forward slashes: the shell reads this out of its own environment, and a
         # backslash inside double quotes is not a separator there.
-        env={**environment, "GLAPI_SHADOW": str(shadow).replace("\\", "/")},
+        env={**environment, "GADE_SHADOW": str(shadow).replace("\\", "/")},
     )
     assert probe.returncode == 0, (
         "the fixture did not build the case: the hook is about to look for an "

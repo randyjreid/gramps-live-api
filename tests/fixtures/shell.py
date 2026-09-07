@@ -41,7 +41,7 @@ from typing import Literal
 
 Flavour = Literal["bash", "sh"]
 
-_MARKER = "glapi-shell-probe"
+_MARKER = "gade-shell-probe"
 
 # ⛔ **Two questions, and the second one is the whole point of this module.**
 #
@@ -73,12 +73,12 @@ _MARKER = "glapi-shell-probe"
 _PROBE = """\
 set -u
 command -v git >/dev/null 2>&1 || { echo 'this shell cannot see git'; exit 3; }
-directory=$(cd "${GLAPI_PROBE_DIRECTORY:-}" 2>/dev/null && pwd) || directory=''
+directory=$(cd "${GADE_PROBE_DIRECTORY:-}" 2>/dev/null && pwd) || directory=''
 if [ -z "$directory" ]; then
     echo 'this shell cannot reach the directory the probe prepended to PATH'
     exit 4
 fi
-where=$(command -v "$GLAPI_PROBE_MARKER" 2>/dev/null) || where=''
+where=$(command -v "$GADE_PROBE_MARKER" 2>/dev/null) || where=''
 if [ -z "$where" ]; then
     echo 'this shell did not find the marker the probe put first on PATH'
     exit 5
@@ -215,8 +215,8 @@ def _answers_for_the_path_its_caller_builds(candidate: Path) -> bool:
                 # Forward slashes: the shell reads this out of its own
                 # environment, and a backslash inside double quotes is not a
                 # separator there.
-                "GLAPI_PROBE_DIRECTORY": str(directory).replace("\\", "/"),
-                "GLAPI_PROBE_MARKER": _MARKER,
+                "GADE_PROBE_DIRECTORY": str(directory).replace("\\", "/"),
+                "GADE_PROBE_MARKER": _MARKER,
             },
         )
         return probe.returncode == 0

@@ -74,8 +74,8 @@ launcher refuses a second instance by exiting zero. A single line on stdout whos
 ABSENCE is failure is the one reading correct in every case.
 """
 
-MODE = "GLAPI_ROUND_TRIP_MODE"
-PAYLOAD = "GLAPI_ROUND_TRIP_PAYLOAD"
+MODE = "GADE_ROUND_TRIP_MODE"
+PAYLOAD = "GADE_ROUND_TRIP_PAYLOAD"
 
 A_PERSON = "p1"
 A_SOURCE = "s1"
@@ -171,13 +171,13 @@ from gramps.version import VERSION_TUPLE
 
 register(
     TOOL,
-    id="glapi_round_trip",
+    id="gade_round_trip",
     name="gramps-agent-data-entry: round trip fixture",
     description="Calls the document writer against an open throwaway tree.",
     version="0.0.0",
     gramps_target_version=f"{VERSION_TUPLE[0]}.{VERSION_TUPLE[1]}",
     status=STABLE,
-    fname="glapi_round_trip.py",
+    fname="gade_round_trip.py",
     authors=["randyjreid"],
     authors_email=[],
     category=TOOL_UTILS,
@@ -237,7 +237,7 @@ class RoundTripTool(tool.Tool):
     def _decide(self, dbstate):
         writer = _writer()
         database = dbstate.db
-        mode = os.environ.get("GLAPI_ROUND_TRIP_MODE")
+        mode = os.environ.get("GADE_ROUND_TRIP_MODE")
         tree_dir = database.get_save_path()
 
         if mode == "blessing":
@@ -245,7 +245,7 @@ class RoundTripTool(tool.Tool):
             return {"ok": True, "blessed": blessed, "message": message}
 
         if mode == "read":
-            wanted = json.loads(os.environ["GLAPI_ROUND_TRIP_PAYLOAD"])
+            wanted = json.loads(os.environ["GADE_ROUND_TRIP_PAYLOAD"])
             people = database.get_number_of_people()
             person = database.get_person_from_gramps_id(wanted["person"])
             if person is None:
@@ -273,7 +273,7 @@ class RoundTripTool(tool.Tool):
         blessed, message = writer.blessing(tree_dir)
         if not blessed:
             return {"ok": False, "error": message}
-        graph = json.loads(os.environ["GLAPI_ROUND_TRIP_PAYLOAD"])
+        graph = json.loads(os.environ["GADE_ROUND_TRIP_PAYLOAD"])
         return {"ok": True, "written": writer.write(dbstate, graph)}
 
 
@@ -324,8 +324,8 @@ def a_throwaway_tree(tmp_path: Path, runtime: str) -> tuple[Path, dict[str, str]
         REPOSITORY_ROOT / "gramps_plugin" / "AgentDataEntry_writer.py",
         plugins / "AgentDataEntry_writer.py",
     )
-    (plugins / "glapi_round_trip.gpr.py").write_text(TOOL_REGISTRATION, encoding="utf-8")
-    (plugins / "glapi_round_trip.py").write_text(TOOL_MODULE, encoding="utf-8")
+    (plugins / "gade_round_trip.gpr.py").write_text(TOOL_REGISTRATION, encoding="utf-8")
+    (plugins / "gade_round_trip.py").write_text(TOOL_MODULE, encoding="utf-8")
 
     environ[config.ENV_COPY] = str(tree)
     environ[config.ENV_RUNTIME] = runtime
@@ -340,7 +340,7 @@ def in_gramps(
     child[MODE] = mode
     if payload is not None:
         child[PAYLOAD] = json.dumps(payload)
-    completed = gramps(runtime, child, "-O", str(tree), "-a", "tool", "-p", "name=glapi_round_trip")
+    completed = gramps(runtime, child, "-O", str(tree), "-a", "tool", "-p", "name=gade_round_trip")
     lines = [line for line in completed.stdout.splitlines() if line.startswith(MARKER)]
     assert len(lines) == 1, (
         f"the run printed {len(lines)} {MARKER} lines, so it did not complete -- the "
