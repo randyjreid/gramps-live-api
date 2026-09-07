@@ -76,7 +76,7 @@ The agent can only name a stored proposal — and name it wrongly.
 opened, is a copy configured and blessed, is there a Gramps runtime to launch — and **only then**
 claims the proposal, an atomic rename, so two concurrent approves cannot both proceed. The claim reads
 the stored file first and renames it last, so a host that cannot read it burns nothing. Then it opens
-a **new console window** running `python -m gramps_agent_data_entry approve <id>`. That process:
+a **new console window** running `python -m gramps_live_api approve <id>`. That process:
 
 - reads the operation from the claimed file, not from anything the agent sent;
 - prints the note **in full**, nothing elided, through the existing render guard;
@@ -467,7 +467,7 @@ which is the only version binding that stays true.
 ## What is NOT in this slice
 
 - ⛔ **#66** (the 32,767-character Windows environment block). The operation still rides in
-  `GRAMPS_AGENT_DATA_ENTRY_OP`, so **the MCP path inherits the cap**. It fails closed — Gramps does not
+  `GRAMPS_LIVE_API_OP`, so **the MCP path inherits the cap**. It fails closed — Gramps does not
   launch, nothing is written — and the underlying error reaches **you, at the console**, verbatim
   rather than paraphrased. Asserted by test. ⚠️ The cap is crossed after the window has opened, so
   the tool call has already returned and the agent is not told; that is the trade above.

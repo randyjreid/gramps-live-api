@@ -356,7 +356,7 @@ def test_an_EMPTY_gramps_agent_data_entry_directory_does_not_satisfy_the_source_
 ) -> None:
     """⛔ A directory with the right name is not the package.
 
-    ⚠️ The first version of this check asked ``isdir(candidate/"gramps_agent_data_entry")``
+    ⚠️ The first version of this check asked ``isdir(candidate/"gramps_live_api")``
     and stopped. An empty or partial directory satisfied it, ``check`` printed
     **ready**, and host startup would then have died on ``from
     gramps_agent_data_entry.host import accessor, service`` — reporting the setup sound
@@ -503,7 +503,7 @@ def test_PLUGIN_FILES_is_what_the_plugin_directory_actually_holds() -> None:
 def test_a_plugin_directory_without_the_WRITER_is_refused(tmp_path: Path) -> None:
     """⛔ Finding the registration proves Gramps will load the host, not that it can write.
 
-    ⚠️ **This test used to remove ``AgentDataEntry.gpr.py`` and assert
+    ⚠️ **This test used to remove ``gramps_live_api_host.gpr.py`` and assert
     ``plugin`` stayed ok.** That was true while ``_PLUGIN_GLOB`` matched the
     apply registration: a directory holding that and no host registration
     registered no host, Gramps never started the document route, and every line
@@ -599,7 +599,7 @@ def test_the_candidate_the_HOST_would_bind_is_the_one_checked(tmp_path: Path) ->
     bound there, so a complete copy further down the path does not rescue it.
 
     ⛔ **The qualifier is load-bearing and this test used to omit it.** It said
-    *"once a directory named gramps_agent_data_entry is found"*, full stop, and built its
+    *"once a directory named gramps_live_api is found"*, full stop, and built its
     partial package with no ``__init__.py`` -- which makes it a **namespace
     portion**, and Python then CONTINUES the search and binds the complete copy
     further down. The assertion passed only because the check being tested held

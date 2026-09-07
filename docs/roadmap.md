@@ -734,7 +734,7 @@ what died, and this document should not be read as saying it was.
 own database handle — and nothing shipped does that job.** What ships is out-of-process at every
 step: the agent host launches `gramps_agent_data_entry_mcp` as a **standalone stdio process**;
 `Tools.list_people` reads the **configured export** rather than a database; and `approve` spawns
-**another process again** — a console running `python -m gramps_agent_data_entry approve` — for the write.
+**another process again** — a console running `python -m gramps_live_api approve` — for the write.
 A snapshot read taken in a separate process is not the job the bridge was hosted inside Gramps to do.
 
 ⭐ **So the reason recorded for the kill — *"the MCP server does that job in-process"* — covers the
