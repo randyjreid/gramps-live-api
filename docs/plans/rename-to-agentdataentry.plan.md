@@ -7,9 +7,10 @@ the harness plan file, so this document is the plan; copy it to that path at bui
 tree was not modified, the suite was not run, Gramps was not started, and nothing under
 `%APPDATA%` or `.claude.json` was touched. Every command run for this plan was read only.
 
-**Revision 2, 2026-09-07.** Round 1 of the Codex plan gate raised five findings, three blocking.
-Sections 4, 6, 10, 11, 12, 15 and 17 change; everything else is unchanged. What changed and why is
-recorded in section 18 so the next reader does not have to diff two revisions to find it.
+**Revision 3, 2026-09-07.** Round 2 of the Codex plan gate raised three findings, two blocking, and
+one thing larger than all three: **section 6 rested on a property with no fixed point.** Section 6
+is rebuilt around a bounded criterion; sections 9, 10, 11, 12 and 18 follow it. Everything else is
+unchanged. What changed and why is in section 18, round 2 beside round 1.
 
 ---
 
@@ -193,7 +194,7 @@ freezes **more** than Arm A, and that state was not executed.
 
 The departure is low risk and the reason is measurable rather than argued. **Measured on the
 current branch head, with `docs/plans`, `docs/reviews` and `docs/rulings` excluded** (they are not
-swept, and this plan document alone sits inside `docs/plans` carrying 64 occurrences of its own,
+swept, and this plan document alone sits inside `docs/plans` carrying 80 occurrences of its own,
 which is exactly how a docs-wide count goes wrong):
 
 ```
@@ -208,9 +209,8 @@ control: gramps_live_api          200    -              -        -     -        
 ```
 
 ⚠️ **The exclusion must be spelled `:(exclude)<path>`.** Measured on this box, `:!<path>` was
-accepted and **silently excluded nothing**: the census returned 636, the same as with no exclusion
-at all, where `:(exclude)` returned 472. Any command in this plan that excludes a path is checked
-against the same command with the exclusion removed.
+accepted and **silently excluded nothing**. Any command in this plan that excludes a path is
+checked against the same command with the exclusion removed, and the two must differ.
 
 **Two tests, not one, pin a frozen name by writing it as a literal**, and the freeze leaves both
 passing untouched:
@@ -284,131 +284,115 @@ leg red. The builder demonstrates it with a negative control and restores in a `
 
 ---
 
-## 6. F11, the dated records (decision D): the directory is the unit, with one derived carve-out
+## 6. F11, the records and the historical statements (decision D)
 
-**Policy, stated once and applied as a rule rather than per file:**
+### ⭐ Read this first: the property that was not closing, and what replaced it
 
-> **`docs/plans/`, `docs/reviews/` and `docs/rulings/` are not modified by this change**, except
-> that each document the carve-out below **derives** gains **one line** at its top and nothing else.
-> They are dated records of work done under the old name. A statement about the past that names the
-> old name is true, and rewriting it makes it false.
->
-> **One dated paragraph is added to `README.md`**, recording that the project was called
-> `gramps-live-api` until the rename, and that every document in those three directories describes
-> work done under that name and is left as written.
+Rounds 0, 1 and 2 all rested this section on one property:
 
-### Why one note rather than eighteen banners
+> *No statement about the past is falsified by the sweep.*
 
-The standing rule is that a document recording something that happened takes a dated banner while
-one describing how the thing works now takes its sentences corrected, and the rows decide which.
-The rows here decide **almost all are records**: 13 plans, 3 review ledgers, 6 rulings including the
-rulings index, and only the derived carve-out below is not.
+**That is a universally quantified negative over an unbounded input space.** Two instruments have
+been built against it and the review gate has broken both, each time with a genuine instance:
 
-Eighteen banners is eighteen new claims. **One note is one claim.** Every new sentence is a new
-claim, and a claim written while fixing a claim is where the worst findings come from. Applying the
-directory as the unit rather than the file also removes the classification step entirely, which is
-the step that would have to be reviewed.
-
-**It also makes both of the probe's measured falsifications impossible rather than repaired:**
-
-- `docs/rulings/R8-channel-architecture.md:203` records a raw log under the old state directory
-  name, a file the probe verified exists under that name. Untouched, so still true. (It is also
-  covered twice over, since the state directory name is frozen.)
-- `docs/rulings/README.md:26`, the single line the probe rewrote in that file, names
-  `.gramps-live-api-copy`, which is frozen. That file needs **zero** edits.
-
-### The carve-out: a page that says it is not built is guidance, not a record
-
-⚠️ **Round 1 found the hole and it is real.** `docs/plans/shippable.plan.md:126` reads *"So the plan
-owes an entry point. `python -m gramps_live_api_mcp` runs `serve()` from `gramps_live_api_mcp.server`"*.
-That is a prescription for work not yet done. Under a rule that classifies everything in
-`docs/plans/` as a record, a reader follows it after the rename and gets
-`No module named gramps_live_api_mcp` instead of a server.
-
-**The unit does not change.** The carve-out is **derived by a command**, not by classifying eighteen
-documents, because classification is the step that has to be reviewed and eighteen judgements is
-eighteen new claims.
-
-**The derivation.** These documents already carry, by this project's own convention, an explicit
-self-declaration written by their author at the time. One command, content matched, with no second
-`grep`:
-
-```
-git grep -l --all-match -i -E \
-  -e '(not built|nothing here is built|nothing was built|unbuilt|plan only|unapproved plan)' \
-  -e 'gramps[-_. ]?live[-_. ]?api' \
-  -- docs/plans docs/reviews docs/rulings ':(exclude)docs/plans/rename-to-agentdataentry.plan.md'
-```
-
-`--all-match` makes the two patterns an **and over the file** rather than over one line. This
-plan's own page is excluded by path, mechanically and for a stated reason: on that page the old
-spelling is the subject of the mapping in section 3, not stale guidance, and a line telling the
-reader to substitute the new name would be wrong there.
-
-**Measured today on the branch head, it returns five documents:**
-
-```
-docs/plans/156-mark-a-new-event-type.plan.md
-docs/plans/57-anchored-history-walk.plan.md
-docs/plans/note-types.plan.md
-docs/plans/shippable.plan.md
-docs/rulings/R7-backup-with-gramps-open.md
-```
-
-**The builder re-runs this command and uses what it returns**, with the positive control below.
-The number above is what it returned on 2026-09-07; it is not a number this plan asserts.
-
-**Controls, in the same command shape.** `--all-match` with a term in every file and a term in none
-returns 0; with two terms in every file it returns 18 of 18. A count of five from an instrument
-never shown to fire is not evidence.
-
-**What each of the five gets: one banner line, and nothing else.**
-
-> ⚠️ **Written before the rename to `AgentDataEntry`.** Every project name on this page is the old
-> spelling; the rename note in `README.md` gives the current ones, and any command on this page is
-> to be read with the new spelling.
-
-That is one claim per page, it names no old spelling of its own (so it adds nothing to the census),
-and it is true on every page the derivation returns.
-
-**Why a banner and not sentence surgery, decided on the rows rather than by preference.**
-`docs/plans/shippable.plan.md` carries the old name on **13 lines, 15 occurrences**, and they split:
-
-| class | lines | rewriting them would |
+| plan revision | instrument | what the next round found it missed |
 | --- | --- | --- |
-| instruction or source citation | 73, 78, 126, 127, 131 | fix live guidance |
-| record of something observed | 44, 94, 118, 122, 218, 295, 297 | **falsify a captured traceback, a recorded `uvx` failure, a recorded distribution name, a recorded MCP registration, and a dated PyPI probe result** |
-| frozen and already correct | 37 (`%APPDATA%\gramps-live-api\config.json`) | break a correct path |
+| 0 and 1 | keyword `grep` piped into a second `grep` | it matched file **paths**, returning 101 lines while the plan claimed 1; it missed `gramps_plugin/gramps_live_api_host.py:827` and `tests/unit/test_host_arming_check.py:3-5` |
+| 2 | token scoped: `COMMENT` and `STRING` tokens carrying a past-tense marker | it missed `tests/unit/test_gate_diagnostics.py:91-97`, whose only markers are the plain words `was` and `replaced` |
 
-Correcting the five would mean deciding, line by line, which of thirteen is which. That is the
-classification step this section exists to remove, in the one document where it is hardest, and it
-writes five new claims into a page that #227 is going to rewrite wholesale. **One banner is one
-claim and falsifies nothing.**
+⛔ **The repair is not a third instrument with two more markers.** The next round finds the third
+miss. A reviewer asked to construct a bypass of an unbounded property will construct one every
+round, indefinitely, and every one will be genuine.
 
-**The trade, recorded in both directions.** A banner is weaker than a rewrite: a reader who skips it
-still types `python -m gramps_live_api_mcp`. A rewrite is stronger on those five lines and wrong on
-seven others. The banner is chosen on that measured split, and it is reversible: if #227 rewrites
-`shippable.plan.md` it corrects those five lines as part of its own work, with the banner as its
-notice.
+**And round 2's example shows the marker approach cannot work in principle, not merely in practice.**
+`tests/unit/test_gate_diagnostics.py:91-109` needs **four different dispositions inside one
+function**, three of them inside one docstring token:
 
-### The exceptions inside the sweep: statements about the past
+| where | text | disposition |
+| --- | --- | --- |
+| the docstring's opening sentence | `$env:NAME` is PowerShell-only, and the hint **was** PowerShell-only | present-tense behaviour, swept |
+| the same docstring, next sentence | run in bash it expands to `:GRAMPS_LIVE_API_GATE_BASE..HEAD` | present tense about the current hint, swept |
+| the same docstring, the quoted git error | `"path 'GRAMPS_LIVE_API_GATE_BASE..HEAD' does not exist"` | a captured observation, arguably frozen |
+| lines 104, 107 and 109 | assertion strings that pin the **literal text of `scripts/gate.py`** | swept, or the suite goes red |
 
-⛔ **Round 1 found the round-0 command broken, and worse than the reviewer knew.** It was
+No file-level, document-level or marker-level classifier separates those. **The distinction is
+semantic and it is per occurrence.**
 
-```
-git grep -I -n -E -- '(used to|formerly|...)' -- src scripts gramps_plugin tests \
-  | grep -i 'live.api\|live_api'
-```
+### ⭐ What replaces it: bound by the sweep's REACH, not by the meaning of the text
 
-and **the second `grep` matches the file path, not the line content**, so every file under
-`src/gramps_live_api/` satisfied the filter by its own path. Measured: **101 lines as written, 3
-with content-only matching.** The plan asserted it returned one. It never did.
+The property quantifies over *statements*, which is unbounded. **The sweep does not reach
+statements. It reaches occurrences of the old name, and those are countable.** That is the whole
+move, and it is what gives this a fixed point: the set of inputs the sweep can possibly falsify is
+exactly the set of occurrences it can possibly rewrite.
 
-**The rule, stated once:** a comment or docstring in `src`, `scripts`, `gramps_plugin` or `tests`
-that states something about the **past** is excluded from the sweep, because rewriting it makes it
-false. The sweep rewrites names; it does not rewrite records.
+**Measured on the current branch head, one command, no second `grep`:** the repository holds **652**
+occurrences of the old name. They partition, with no occurrence in two classes and none in none:
 
-**Three confirmed cases**, all verified in the tree:
+| class | count today | entry granularity in the build's report |
+| --- | --- | --- |
+| **P1** prose in the four code trees: every `COMMENT` or `STRING` token in a `.py` file under `src`, `scripts`, `gramps_plugin`, `tests` | **210** in 44 files | **one entry per occurrence** |
+| **P2** `scripts/hooks/pre-push`, the only non-Python file in those four trees | **6** | **one entry per occurrence** |
+| **P3** markdown outside the three dated directories | **105** in 11 files | **one entry per occurrence** |
+| **C1** code tokens in `.py` files: imports, dotted module paths, identifiers | **141** | grouped entries |
+| **C2** machine-read files: `.github/workflows/ci.yml` 6, `.gitignore` 2, `pyproject.toml` 1, `uv.lock` 1 | **10** | grouped entries |
+| **D** `docs/plans`, `docs/reviews`, `docs/rulings` | **180** | covered by rule 1's set check below, not swept at all |
+
+`210 + 6 + 105 + 141 + 10 + 180 = 652`. **The arithmetic is the completeness proof.**
+
+**The criterion.** Commit 2's report accounts for **every** occurrence on the build's start commit
+`B`, exactly once, as `swept` or `frozen`, with a reason. Classes P1, P2 and P3 get one entry per
+occurrence, which is **321 individual dispositions across 56 files**. Classes C1 and C2 may be
+grouped, because a code token asserts nothing about time and a wrong disposition there changes a
+value the interpreter reads, which the gates and the suite observe loudly. Class D is not swept.
+
+**The exit condition, and it is arithmetic rather than a reviewer's silence.**
+
+> The report's entry counts sum to `census(B)`; every P entry names a path and a line; every entry
+> carries `swept` or `frozen` and a reason. A reviewer's finding then reads *"entry 137 is wrong"*.
+
+**That has a fixed point.** *"No reviewer can construct a falsification"* does not, and three rounds
+have now demonstrated it.
+
+### The cost, stated, and the cheaper boundary that was measured and rejected
+
+**321 hand dispositions is the largest single cost in this plan.** It is recommended anyway:
+
+- A fourth round on this property costs a full plan gate cycle, which is more than 321 report lines.
+- Depth is FULL (section 17), so a reviewer reads commit 2's prose diff regardless. The report is
+  what makes that reading an audit of a finite list instead of an open-ended re-derivation.
+- Most entries are repeats. `tests/unit/test_cli.py` alone holds 55 of the 210.
+
+⛔ **The cheaper boundary was tried and it fails, measured, not reasoned.** Narrowing P1 to comments
+and docstrings gives **68** occurrences instead of 210, and it **excludes one of the three confirmed
+historical cases**: `src/gramps_live_api/cli.py:37` sits in an **attribute docstring**, a bare string
+after the `_PLUGIN_GLOB` assignment, which `ast.get_docstring` does not return and which the narrow
+boundary therefore never sees. **A boundary that drops a known defect is not a saving.** The
+boundary is `COMMENT` or `STRING`, with no sub-classification.
+
+### The residual, recorded in both directions
+
+⚠️ **The criterion proves every occurrence was judged and recorded. It does not prove every
+judgement is right.** That is bounded by review rather than by the criterion, and it is a real
+residual, not a rhetorical one. What it buys is that the reviewer's task is now finite: audit 321
+recorded judgements, rather than search an unbounded space for a 4th, 5th and 6th bypass.
+
+Two smaller residuals, both measured:
+
+- The instrument sees only files it can tokenize. **The run reports the number of `.py` files it
+  tokenized and that number must equal `git ls-files '*.py'` over the four trees**, measured at 106
+  today. A silent parse failure would otherwise drop a file with no signal.
+- Every count above is calibrated: the tokenizer is re-run with a pattern present in every file and
+  with a pattern present in none, and must return a large number and zero respectively.
+
+### The marker list survives, demoted
+
+The past-tense markers (`used to | formerly | was called | no longer | renamed | previously | until |
+observed | did not exist | never existed | the first version`) are **a reading order, never a
+filter**. They tell the builder which of the 321 to read first. **An occurrence carrying no marker
+still gets an entry**, which is precisely what the round 2 miss did not.
+
+**Three confirmed historical cases**, all verified in the tree, all inside class P1, all requiring
+`frozen`:
 
 - `src/gramps_live_api/cli.py:37` says `_PLUGIN_GLOB` **used to** name `gramps_live_api_apply.gpr.py`,
   the registration the R9 retirement deleted. Sweeping it asserts the prior existence of a file that
@@ -420,56 +404,112 @@ false. The sweep rewrites names; it does not rewrite records.
 - `tests/unit/test_host_arming_check.py:3-5` quotes ruling **R4 verbatim**, including the path
   `src/gramps_live_api/host/`. Sweeping it rewrites a quotation.
 
-**The derivation, corrected in the two ways round 1 required.** Matching content rather than paths
-is the first; the second is that **the property is not line local** and a line-based instrument
-cannot see it. `host.py:828` carries the name while the words *"Observed as"* sit on line 827, so a
-line matcher misses it no matter how the keyword list is written. So the instrument works on
-**tokens**, not lines:
+### Rule 1: the three dated directories, and no classifier at all
+
+> **`docs/plans/`, `docs/reviews/` and `docs/rulings/` are not modified by this change**, except
+> that every page in them that carries the old name gains **one identical line** at its top and
+> nothing else. They are dated records of work done under the old name. A statement about the past
+> that names the old name is true, and rewriting it makes it false.
+>
+> **One dated paragraph is added to `README.md`**, recording that the project was called
+> `gramps-live-api` until the rename, **which names changed and which did not**, and that every
+> document in those three directories describes work done under that name and is left as written.
+
+**The set is derived by the sweep's own pattern, not by a classifier:**
+
+```
+git grep -l -I -i -E -e 'gramps[-_. ]?live[-_. ]?api' \
+  -- docs/plans docs/reviews docs/rulings \
+     ':(exclude)docs/plans/rename-to-agentdataentry.plan.md'
+```
+
+**Measured today: 18 files.** Control, the same command with the exclusion removed: 19. The three
+directories hold 22 files, so three carry no occurrence and get nothing
+(`154-prior-events-in-the-dialog`, `176-full-name-search`, `preview-write-agreement`). This plan's
+own page is excluded by path, mechanically and for a stated reason: on that page the old spelling is
+the subject of the mapping in section 3, not stale guidance.
+
+**The line each of the 18 gets, and nothing else:**
+
+> ⚠️ **Written before the project was renamed to `AgentDataEntry`.** Apart from this line the page
+> is left as it was written; `README.md` records which names the rename changed and which it did not.
+
+It is **one claim, written eighteen times**, not eighteen claims. It names no old spelling, so it
+adds nothing to the census. It is true on every page in those directories. And it does **not** tell
+the reader to substitute the new name everywhere, which would be false on
+`docs/rulings/README.md:26`, whose single occurrence is the frozen `.gramps-live-api-copy`.
+
+### ⛔ Why the derivation was retired, which is round 2's blocker 1 made impossible
+
+Revision 2 selected the bannered pages with a `git grep --all-match` over the project's
+self-declaration convention (`not built`, `plan only`, and four more), returning five documents.
+**`docs/rulings/R3-injection-under-live-reads.md` matches none of those phrases**, yet its header is
+a live STATUS block that says *"the code matches it"* and cites
+`src/gramps_live_api/host/reads.py`, a path commit 1 moves. Its body, from 2026-08-21, is a record.
+**One document, both kinds**, and the STATUS block was added after the ruling.
+
+That is the same failure as round 1's blocker in a different directory, and the shape is the point:
+**a per-document classifier keeps meeting documents that are not one kind.** So the classifier is
+removed rather than widened. Under rule 1, R3 gets a banner because it is in the directory and
+carries the name. **There is nothing left to misclassify.**
+
+**A path-reference derivation was considered and rejected, measured.** Deriving the set from
+citations of a path commit 1 moves returns **12 of the 18** (control without the exclusion: 13). It
+saves six one-line insertions at the price of a fourth classifier on the same property, and it is
+blind to live guidance carrying no path: `docs/plans/shippable.plan.md` prescribes
+`python -m gramps_live_api_mcp` and `uvx --from "gramps-live-api[mcp]"`, neither of which is a path.
+**When total coverage costs six extra lines that falsify nothing, deriving a subset buys nothing and
+costs another instrument.**
+
+### Why a banner and not sentence surgery, decided on rows rather than preference
+
+`docs/plans/shippable.plan.md` carries the old name on **13 lines, 15 occurrences**, and they split:
+
+| class | lines | rewriting them would |
+| --- | --- | --- |
+| instruction or source citation | 73, 78, 126, 127, 131 | fix live guidance |
+| record of something observed | 44, 94, 118, 122, 218, 295, 297 | **falsify a captured traceback, a recorded `uvx` failure, a recorded distribution name, a recorded MCP registration, and a dated PyPI probe result** |
+| frozen and already correct | 37 (`%APPDATA%\gramps-live-api\config.json`) | break a correct path |
+
+Correcting the five would mean deciding, line by line, which of thirteen is which, in the one
+document where it is hardest, and it writes five new claims into a page #227 will rewrite wholesale.
+**One banner is one claim and falsifies nothing.**
+
+**The trade, recorded in both directions.** A banner is weaker than a rewrite: a reader who skips it
+still types `python -m gramps_live_api_mcp`. A rewrite is stronger on those five lines and wrong on
+seven others. The banner is chosen on that measured split, and it is reversible: if #227 rewrites
+`shippable.plan.md` it corrects those five lines as part of its own work, with the banner as its
+notice.
+
+**Rule 1 also makes both of the probe's measured falsifications impossible rather than repaired:**
+
+- `docs/rulings/R8-channel-architecture.md:203` records a raw log under the old state directory
+  name, a file the probe verified exists under that name. Untouched, so still true. (It is also
+  covered twice over, since the state directory name is frozen.)
+- `docs/rulings/README.md:26`, the single line revision 0 rewrote in that file, names
+  `.gramps-live-api-copy`, which is frozen. That file gets the banner line and **zero other edits**.
+
+### Rule 2: everywhere else, every occurrence gets an entry
+
+Classes P1, P2, P3, C1 and C2 above. The instrument for P1 is run from a heredoc as a measurement;
+**nothing is committed**, this is not a shipped script:
 
 > Tokenize every `.py` file under `src`, `scripts`, `gramps_plugin` and `tests` with the standard
-> library's `tokenize`. Take every `COMMENT` or `STRING` token whose text carries the old name.
-> Report those whose text also carries one of the past-tense markers
-> `used to | formerly | was called | no longer | renamed | previously | until | observed |
-> did not exist | never existed | the first version`.
+> library's `tokenize`. Take every `COMMENT` or `STRING` token whose text carries the old name, and
+> emit one row per **occurrence** inside it, with its path and line. Report the number of files
+> tokenized.
 
-Run it from a heredoc as a measurement. **Nothing is committed**; this is not a shipped script.
+**P3 is new in this revision and it closes a gap no round has reached yet.** The 105 markdown
+occurrences outside the three dated directories are a genuine mix, verified by reading them:
+`docs/phase1-core-schema.spec.md:5` says *"What shipped is in `src/gramps_live_api/core/`"*, a live
+path citation that must be swept, while `docs/roadmap.md:69`, `:117`, `:216`, `:218` and `:355` name
+`.gramps-live-api-copy` and `.gramps-live-api-undo`, which are frozen. Section 10's residual classes
+covered the frozen ones; nothing covered the **swept** ones one by one, and prose is exactly where a
+record hides.
 
-**Measured on the branch head: 193 comment or docstring tokens carry the old name, of which 14 also
-carry a past-tense marker**, and all three confirmed cases are among the 14, including the two the
-round-0 keyword command missed:
-
-```
-gramps_plugin/gramps_live_api_host.py:810-830     [Observed]
-src/gramps_live_api/cli.py:34-45                  [used to]
-src/gramps_live_api/cli.py:412-427                [used to]
-src/gramps_live_api/core/apply.py:1-33            [used to]
-tests/unit/test_attachable_bound.py:459-475       [previously]
-tests/unit/test_cli.py:43-69                      [used to]
-tests/unit/test_cli.py:133-143                    [used to]
-tests/unit/test_cli.py:340                        [no longer]
-tests/unit/test_cli.py:356-367                    [the first version]
-tests/unit/test_cli.py:426-443                    [the first version]
-tests/unit/test_cli.py:499-513                    [used to]
-tests/unit/test_cli.py:584-603                    [used to]
-tests/unit/test_derived_tables_reproduce.py:1-62  [until]
-tests/unit/test_host_arming_check.py:1-20         [did not exist]
-```
-
-**This is a candidate set, not an answer.** It over-reports on purpose: `test_cli.py:340` is an
-assertion message about what the host does **now**, and the sweep rewrites it. **The builder
-re-derives the set, and for every old-name occurrence inside each returned token says swept or
-excluded, with the reason, in its report.** The count is what the builder measures. This plan
-asserts no count; the round-0 revision did, and it was wrong by a factor of a hundred.
-
-⚠️ **The instrument is a floor, not a ceiling, and this is stated rather than glossed.** A statement
-about the past written without any of those markers is missed. Recall is measured against the three
-known cases, not proven. Two things bound it: the candidate set is small enough to read, and depth
-on this change is FULL (section 17), so a reviewer reads commit 2's prose diff. Section 12 carries
-the residual.
-
-**One file in those four trees is not Python** and the tokenizer does not see it:
-`scripts/hooks/pre-push`, 6 occurrences, checked by eye and all six current instructions, none
-historical.
+**The 6 occurrences in `scripts/hooks/pre-push` (class P2)** were checked by eye for this plan and
+are all six current instructions, none historical. They still get six entries; a check by eye that
+leaves no row is not a disposition.
 
 ---
 
@@ -566,7 +606,7 @@ or mentioned. Two directories then register the same `.gpr.py`.
 **In scope, minimally:** `docs/using.md` is already being rewritten by the sweep, so it also gains a
 line instructing the reader to remove a junction named `gramps-live-api` if one exists, before
 creating the new one. That is one added sentence in a file already changing, and it is one of the
-two occurrences the build itself adds to the census (section 10, class 5).
+occurrences the build itself adds to the census (section 10, class 5).
 
 **Filed, not fixed:** probe H2, that `cli._plugin_check` returns `found[0]` and reports one path
 while never mentioning the others, so the install doctor cannot surface a duplicate. It is
@@ -622,24 +662,30 @@ built, for the same conflict reason and with none of the external cost.
 ### The comment to post, drafted
 
 ⛔ **This plan does not post it, does not touch #220's branch, and runs nothing from it.** Section 17
-rules that the wording goes to the owner for approval and the comment is posted **after** the rename
-lands.
+rules that the wording goes to the owner for approval and the comment is posted **after** the
+repository rename lands.
 
-> I am about to rename this repository from `gramps-live-api` to `gramps-agent-data-entry`. GitHub
+⚠️ **The draft carries two tenses on purpose, and that is what round 2's finding 3 actually
+requires.** At section 17's amended step 4 the **repository** rename has happened, but the branch
+has not been pushed and the **code** rename has not merged. A draft written as though everything
+already happened would be wrong in the other direction.
+
+> I have renamed this repository from `gramps-live-api` to `gramps-agent-data-entry`. GitHub
 > forwards the old address, so this pull request and its link keep working, and your fork keeps its
-> current name, so the `origin` remote you push to needs no change.
+> own name, so the `origin` remote you push to needs no change.
 >
-> Two things do change, and I am sorry for the disruption:
+> One more change is still coming, and I am sorry for the disruption it causes here. The code
+> itself is being renamed to match, on a branch that has not merged yet:
 >
-> 1. The code moves. `src/gramps_live_api/` becomes `src/gramps_agent_data_entry/`,
->    `src/gramps_live_api_mcp/` becomes `src/gramps_agent_data_entry_mcp/`, and
->    `gramps_plugin/gramps_live_api_writer.py` gets a new filename. Three of the five files in this
->    pull request are among them, so it will need a rebase once the rename lands. The first commit
->    of the rename is file moves only, with no content changes, which is the case git handles best.
->    If you would rather not do the rebase, say so and I will do it for you.
+> 1. `src/gramps_live_api/` becomes `src/gramps_agent_data_entry/`, `src/gramps_live_api_mcp/`
+>    becomes `src/gramps_agent_data_entry_mcp/`, and `gramps_plugin/gramps_live_api_writer.py` gets
+>    a new filename. Three of the five files in this pull request are among them, so it will need a
+>    rebase once that branch merges. The first commit on it is file moves only, with no content
+>    changes, which is the case git handles best. If you would rather not do the rebase, say so and
+>    I will do it for you.
 >
 > 2. If you have a second remote pointing at this repository, often called `upstream`, you can point
->    it at the new address with:
+>    it at the new address now with:
 >
 >    ```
 >    git remote set-url upstream https://github.com/<owner>/gramps-agent-data-entry.git
@@ -666,13 +712,12 @@ lands.
 | `python -m gramps_agent_data_entry.core.pii_guard --range HEAD .` | `0 finding(s)` |
 | `scripts/gate.py` and `scripts/hooks/pre-push` | pass |
 
-### The census, in three parts
+### The census, in four parts
 
 ⛔ **Round 1 killed the round-0 equation and it deserved it.** It read `rewritten + residual == 572`
-against a baseline taken on `main`, and this plan document alone adds **64** occurrences that the
-section 6 rule then keeps. Measured: `main` is **572**, the current branch head is **636**, and the
-difference is exactly this page. **A correct build could not have satisfied it.** What replaces it
-uses a branch-head baseline **and** carries an explicit term for what the build adds.
+against a baseline taken on `main`, while this plan document itself adds occurrences the section 6
+rules then keep. **A correct build could not have satisfied it.** What replaces it uses a
+branch-head baseline **and** carries an explicit term for what the build adds.
 
 **The instrument.** One `git grep`, no second `grep`, so no path can be mistaken for content:
 
@@ -692,9 +737,10 @@ git rev-parse HEAD        -> record B, copied from the command output, never typ
 <the census command>      -> record census(B)
 ```
 
-Measured on the current branch head, `census(B)` is **636**. **The builder re-measures it.** It moves
-if this page is edited again before the build starts, which is exactly why it is measured and not
-asserted.
+⚠️ **Measured on the current branch head, `census(B)` is 652, and it was 636 one revision ago.**
+The difference is this page: it carried 64 occurrences at revision 1 and carries 80 at revision 2.
+**It moves again when this revision is committed, which is exactly why the builder measures it and
+this plan asserts no value for it.**
 
 **(b) The equation, which is arithmetic over the build's own diff and cannot fail for the reason the
 old one did:**
@@ -712,41 +758,60 @@ added   = git diff -U0 --find-renames $B HEAD -- . | grep -E '^\+' | grep -v -E 
 
 `removed` is what the old equation called *rewritten*. `added` is the term it had no place for.
 
-⚠️ **The two `grep -v` filters are load bearing and are the same defect as blocker 3 in another
-costume:** a unified diff's `--- a/src/gramps_live_api/...` and `+++ b/...` headers are path text on
-lines beginning with `-` and `+`, and without the filters they are counted as content.
+⚠️ **The two `grep -v` filters are load bearing:** a unified diff's `--- a/src/gramps_live_api/...`
+and `+++ b/...` headers are path text on lines beginning with `-` and `+`, and without the filters
+they are counted as content.
 
 **Verified on this repository before it was written down.** Over `main..HEAD` the identity gives
-`572 - 0 + 64 = 636`, matching the direct census. Over `main~80..main` it holds for the same pattern
+`572 - 0 + 80 = 652`, matching the direct census. Over `main~80..main` it holds for the same pattern
 (`45 - 9 + 536 = 572`) and for two unrelated controls, `def ` (`571 - 123 + 1550 = 1998`) and
 `import` (`186 - 47 + 1050 = 1189`). It is path independent and holds whether git reports a move as
 a rename or as a delete plus an add.
 
-**(c) The residual is enumerated, not judged.** The builder lists **every** line of
+**(c) ⭐ Every occurrence on `B` is accounted for exactly once. This is section 6's exit condition
+and it is the criterion this plan turns on.**
+
+The builder lists every line of
 
 ```
-git grep -I -n -i -E -e 'gramps[-_. ]?live[-_. ]?api' HEAD -- .
+git grep -I -n -i -E -e 'gramps[-_. ]?live[-_. ]?api' $B -- .
 ```
 
-and every one falls into exactly one of five classes:
+and produces a report in which **every occurrence appears exactly once**, marked `swept` or
+`frozen`, with a reason. Granularity by class, per section 6:
 
-1. anything in `docs/plans/`, `docs/reviews/` or `docs/rulings/` (section 6);
+| class | granularity | today |
+| --- | --- | --- |
+| P1 prose tokens in `.py` under the four trees | **one entry per occurrence**, path and line | 210 |
+| P2 `scripts/hooks/pre-push` | **one entry per occurrence** | 6 |
+| P3 markdown outside the three dated directories | **one entry per occurrence** | 105 |
+| C1 `.py` code tokens | grouped | 141 |
+| C2 `ci.yml`, `.gitignore`, `pyproject.toml`, `uv.lock` | grouped | 10 |
+| D `docs/plans`, `docs/reviews`, `docs/rulings` | not swept; the set check below is its criterion | 180 |
+
+**The entry counts must sum to `census(B)`.** ⚠️ **No occurrence may be dispositioned as
+"reasonable"; every one carries a reason.** The tokenizer run reports how many `.py` files it
+tokenized and that must equal `git ls-files '*.py'` over the four trees, 106 today, so a parse
+failure cannot silently drop a file.
+
+**(d) The residual on `HEAD` still falls into named classes.** Every line of the same command run on
+`HEAD` is in exactly one of:
+
+1. anything in `docs/plans/`, `docs/reviews/` or `docs/rulings/` (section 6 rule 1);
 2. a frozen tree-local name (`-copy`, `-undo`, `-proposals`, `JOURNAL_FORMAT`) or documentation
    describing one (section 4);
 3. the state directory name, its two `DIRECTORY_NAME` constants, and documentation naming that path
    (section 4);
-4. a statement about the past excluded by section 6's derivation, each one named with its token;
+4. an occurrence frozen by section 6 rule 2, each one already carrying its entry from (c);
 5. **an occurrence the build itself added**, listed line by line. Predicted, and the whole predicted
-   list: the `README.md` rename note, and the `docs/using.md` old-junction line. The five banner
-   lines of section 6 add none, by construction. **If `added` exceeds this list, the excess is
-   reported before it is accepted.**
-
-⚠️ **No line may be dispositioned as "reasonable". Every one carries a class number.**
+   list: the `README.md` rename note, which now also names the frozen on-disk names, and the
+   `docs/using.md` old-junction line. The 18 banner lines add none, by construction. **If `added`
+   exceeds this list, the excess is reported before it is accepted.**
 
 **What the residual is predicted to be, and it is a prediction.** Outside the three dated
 directories, the four frozen tree-local names account for **29** occurrences today (copy 14, undo 11,
-proposals 2, `JOURNAL_FORMAT` 2), and the state directory path, its two constants and the historical
-exceptions account for the rest. Inside those three directories the census is **164** today and the
+proposals 2, `JOURNAL_FORMAT` 2), and the state directory path, its two constants and the section 6
+exclusions account for the rest. Inside those three directories the census is **180** today and the
 build does not change it. **The total is measured and reported by the builder, never asserted here.**
 
 ### The records stay records, and this is checkable as a set
@@ -755,14 +820,15 @@ build does not change it. **The total is measured and reported by the builder, n
 git diff --name-only $B HEAD -- docs/plans docs/reviews docs/rulings
 ```
 
-must return **exactly** the set section 6's derivation command returns, and
+must return **exactly** the set section 6 rule 1's command returns on `B`, measured today at 18, and
 
 ```
 git diff --numstat  $B HEAD -- docs/plans docs/reviews docs/rulings
 ```
 
-must show **0 deletions on every row**. A banner is an insertion. Any deletion in those three
-directories is sentence surgery leaking in, and it fails the criterion.
+must show **1 insertion and 0 deletions on every row**. A banner is one inserted line. Any deletion
+in those three directories is sentence surgery leaking in, and it fails the criterion. Any row with
+more than one insertion is a second claim, and it fails too.
 
 ### The freeze, measured rather than inherited (section 17)
 
@@ -809,15 +875,16 @@ defeats git's rename detection, which is what makes both the review and #220's r
 | # | commit | shape |
 | --- | --- | --- |
 | 1 | `git mv` only | 33 files, **0 insertions, 0 deletions** |
-| 2 | the content sweep | packages, distribution, slug, env prefix, plugin id, `fname`, display name, `SERVER_NAME`, `HOOK_MARKER`, `_PLUGIN_GLOB`, `PLUGIN_FILES`, `HOST_IMPORT`, `REPOSITORY`. **Excludes** every frozen name, all of `docs/plans|reviews|rulings`, and every occurrence excluded by section 6's past-statement rule |
+| 2 | the content sweep | packages, distribution, slug, env prefix, plugin id, `fname`, display name, `SERVER_NAME`, `HOOK_MARKER`, `_PLUGIN_GLOB`, `PLUGIN_FILES`, `HOST_IMPORT`, `REPOSITORY`. **Excludes** every frozen name, all of `docs/plans|reviews|rulings`, and every occurrence section 6 rule 2 marks `frozen` |
 | 3 | `ruff format .` plus the one hand edit | the 5 files of F2 and the string literal of F1 |
 | 4 | `glapi` to `gade` | 2 files, 6 occurrences (F12) |
 | 5 | the F4 sentinel pin, plus docstrings on the frozen constants saying they are frozen and why | new test, comment only edits to the constants |
-| 6 | the `README.md` dated note, the `docs/using.md` old junction line, and one banner line at the top of each document section 6's derivation returns | 2 files plus the derived set, measured today at 5 |
+| 6 | the `README.md` dated note, the `docs/using.md` old junction line, and one banner line at the top of each page section 6 rule 1's command returns | 2 files plus the derived set, measured today at 18 |
 
-Commit 2's report names every occurrence it excluded under section 6's past-statement rule, and
-every candidate token it swept anyway, with the reason. That report is the criterion; the sweep is
-not reviewable without it.
+**Commit 2's report is section 10(c)'s report, and it is the criterion.** It accounts for every
+occurrence on `B` exactly once, one entry per occurrence for classes P1, P2 and P3, grouped entries
+for C1 and C2, entry counts summing to `census(B)`. **The sweep is not reviewable without it**, and
+this is the largest single piece of work in the build.
 
 Commit 5's docstrings are load bearing, not decoration. A narrowing can be misread as licence to
 revert what preceded it: a frozen constant with no recorded reason reads to the next reader as an
@@ -832,9 +899,9 @@ section 10 sharp.
 
 ## 12. The one question, applied to this plan
 
-**Would following this plan produce something you could show breaking?** Thirteen candidates were
-tried, ten from round 0 and three created by this revision. Twelve are dismissible with a named
-reason. One is not, and it is stated as the plan's live risk.
+**Would following this plan produce something you could show breaking?** Fifteen candidates were
+tried: ten from round 0, three added by revision 2, and two more created by this revision. Fourteen
+are dismissible with a named reason. One is not, and it is stated as the plan's live risk.
 
 Dismissed, with the reason:
 
@@ -854,27 +921,33 @@ Dismissed, with the reason:
   unreachable within the branch, and names the branches that are paused.
 - *#220's contributor loses their remote.* Measured: their `origin` is their own fork, which is not
   renamed.
-- *A dated record is falsified.* Section 6's rule means no dated record has a sentence edited at
-  all, and section 10's `--numstat` check makes 0 deletions in those three directories a criterion
-  rather than an intention.
-- **New.** *The census criterion cannot be satisfied by a correct build.* This was true of round 0
-  and is the reason the equation changed. The replacement is arithmetic over the build's own diff,
-  verified on two ranges of this repository's history with three patterns, and it carries an
-  explicit term for what the build adds.
-- **New.** *An unbuilt document does not declare itself unbuilt, so it gets no banner and keeps
-  guidance the rename breaks.* Checked against the tree rather than reasoned: the plan documents in
-  those directories that carry the old name and do **not** declare themselves unbuilt are
-  `176-full-name-search`, `hook-test-shell` (#225), `render-guard-extraction` (#228),
-  `delete-granting-path` (#233) and `derivation-roundtrip` (#238), and **all five are built** in the
-  tree today (`_name_spellings` carries the fix and its test; `_sh(` is gone from
-  `test_pre_push_hook.py`; `core/schema.py` is deleted and `test_document_render_guard.py` exists;
-  the granting path is gone from `pr_ready.py`; #238 is merged). There is no document to name.
-- **New.** *A statement about the past that the derivation misses is swept, and a source file then
-  asserts a false record.* The token-scoped derivation catches all three known cases, including the
-  two the round-0 command missed, and returns 14 candidate tokens for the builder to disposition one
-  by one in its report. Depth is FULL, so a reviewer reads commit 2's prose diff. ⚠️ **Recall is
-  measured against three known cases, not proven**, and no specific missed line can be named today;
-  section 6 records the instrument as a floor rather than a ceiling.
+- *A dated record is falsified.* Section 6 rule 1 means no page in those three directories has a
+  sentence edited at all, and section 10's `--numstat` check makes 1 insertion and 0 deletions per
+  row a criterion rather than an intention.
+- *The census criterion cannot be satisfied by a correct build.* True of round 0 and the reason the
+  equation changed. The replacement is arithmetic over the build's own diff, verified on two ranges
+  of this repository's history with three patterns, and it carries an explicit `added` term.
+- *A page in those directories carries live guidance and gets no banner, so the guidance breaks.*
+  **Round 2 showed this happening at `docs/rulings/R3`, and revision 2's fix was a derivation
+  regex.** The derivation is gone. Every page in the three directories that carries the old name
+  gets the banner, so there is nothing left to classify and nothing left to miss. Revision 2's
+  companion argument here, that every unbuilt-but-undeclared page is already built, is withdrawn as
+  no longer load bearing; it also contained an error, since `176-full-name-search.plan.md` carries
+  no occurrence of the old name at all and was never in the set.
+- **New.** *A statement about the past is swept, and a source file then asserts a false record.*
+  This is what three rounds have been about. The instrument is retired and replaced by an accounting
+  over the sweep's reach: every one of the 652 occurrences on `B` is dispositioned exactly once, 321
+  of them individually. **The named input would now have to be an occurrence that has a written
+  disposition and the disposition is wrong**, which is a claim about a member of a finite list and is
+  what the reviewer's next round should audit.
+- **New.** *A record hides in markdown outside the three dated directories, where no round has
+  looked.* Checked rather than reasoned: 105 occurrences in 11 files, and they are genuinely mixed,
+  with `docs/phase1-core-schema.spec.md:5` a live path citation and five lines of `docs/roadmap.md`
+  naming frozen on-disk names. They are class P3 and get one entry each.
+- **New.** *The bounded criterion is too expensive to execute, so the build silently does a cheaper
+  thing.* The cost is stated in section 6 as 321 dispositions and the entry-count arithmetic makes a
+  short report fail rather than pass quietly. The cheaper boundary was measured and rejected because
+  it drops `cli.py:37`.
 
 ⚠️ **The one that survives: Gramps' own acceptance of the new plugin filenames and id.** The probe
 could not start Gramps, and lists as unverified that Gramps accepts `id="AgentDataEntry"`, that it
@@ -1053,21 +1126,48 @@ was the conductor's arithmetic error, not a decision; following it would have le
 
 ---
 
-## 18. What round 1 changed
+## 18. What each review round changed
 
-Codex reviewed revision 1 on 2026-09-06 and raised five findings, three blocking. All five are
-dispositioned **fixed**. Nothing in section 17 was decided differently; only its two factual errors
-were corrected.
+### Round 1, 2026-09-06: five findings, three blocking, all dispositioned fixed
+
+Nothing in section 17 was decided differently; only its two factual errors were corrected.
 
 | finding | disposition |
 | --- | --- |
-| **P1** the census equation cannot pass honestly, because this page adds 64 occurrences the section 6 rule keeps | **Fixed**, section 10. Baseline moves to the build's start commit, measured not asserted; the equation gains an explicit `added` term computed from the build's own diff; a fifth residual class covers what the build adds, listed line by line. Verified against three patterns on two ranges of this repository's history. |
-| **P1** the directory-as-unit rule freezes live guidance: `shippable.plan.md:126` prescribes `python -m gramps_live_api_mcp` | **Fixed**, section 6. The unit does not change. One carve-out, derived by a single `git grep --all-match` over the project's own self-declaration convention, returning five documents today; each gets one banner line and nothing else. The banner rather than sentence surgery is decided on the measured split of that page's 13 lines: 5 instructions against 7 records. |
-| **P2** the single historical exception is not single, and its deriving command matches paths | **Fixed**, section 6. The command was returning **101** lines as written and **3** with content-only matching, against a claim of one. The property is not line local, so the instrument is now token scoped: 193 comment or docstring tokens carry the old name, 14 also carry a past-tense marker, and all three confirmed cases are among them. No count is asserted; the builder re-derives and dispositions each. The instrument is recorded as a floor, and the residual is in section 12. |
-| **P3** the freeze check misses `tests/unit/test_config.py:209-220` | **Fixed**, sections 4, 10, 12 and 17. Two tests pin a frozen literal, not one, and both are named. Section 4's table is re-measured on the branch head with `:(exclude)`, and the two quoted literals that are **not** pins are named too, so the count is not wrong in the other direction. |
-| **P3** section 17's closing paragraph says F4 was filed from section 15 and three remain | **Fixed**, section 17. F4 is #248 and was never one of section 15's four items, because this plan fixes it. All four remain to file. |
+| **P1** the census equation cannot pass honestly, because this page adds occurrences the section 6 rule keeps | **Fixed**, section 10. Baseline moves to the build's start commit, measured not asserted; the equation gains an explicit `added` term computed from the build's own diff; a residual class covers what the build adds, listed line by line. Verified against three patterns on two ranges of this repository's history. |
+| **P1** the directory-as-unit rule freezes live guidance: `shippable.plan.md:126` prescribes `python -m gramps_live_api_mcp` | **Fixed**, section 6, and **re-fixed in round 2** by a different mechanism. Round 1's fix was a carve-out derived by `git grep --all-match` over the project's self-declaration convention, returning five documents. Round 2 broke it; see below. |
+| **P2** the single historical exception is not single, and its deriving command matches paths | **Fixed**, section 6, and **replaced in round 2**. The command was returning 101 lines as written and 3 with content-only matching, against a claim of one. The token-scoped instrument that replaced it was itself broken by round 2; see below. |
+| **P3** the freeze check misses `tests/unit/test_config.py:209-220` | **Fixed**, sections 4, 10, 12 and 17. Two tests pin a frozen literal, not one, and both are named. Section 4's table is re-measured on the branch head with `:(exclude)`, and the two quoted literals that are **not** pins are named too. |
+| **P3** section 17's closing paragraph says F4 was filed from section 15 and three remain | **Fixed**, section 17. F4 is #248 and was never one of section 15's four items. All four remain to file. |
 
-One method note, recorded because it cost a wrong measurement here and will cost another later:
-**`:!<path>` was accepted and silently excluded nothing** on this box, returning the full 636 where
-`:(exclude)<path>` returned 472. Every exclusion in this plan is checked against the same command
-with the exclusion removed.
+### Round 2, 2026-09-07: three findings, two blocking, and one structural change larger than all three
+
+| finding | disposition |
+| --- | --- |
+| ⭐ **the property, raised above the findings** *"No statement about the past is falsified by the sweep"* is a universally quantified negative over an unbounded input space and is not closing | **Bounded**, section 6, and this is the revision's main change. The property is replaced by an accounting over **the sweep's reach**: the sweep can only rewrite occurrences of the old name, there are 652 on the current head, and every one is dispositioned exactly once, 321 of them individually. The exit condition is arithmetic (entry counts sum to `census(B)`) rather than a reviewer's silence. The cheaper boundary was measured and rejected: comments-and-docstrings gives 68 instead of 210 and **excludes `cli.py:37`**, an attribute docstring and one of the three confirmed cases. The residual is recorded: the criterion proves every judgement was made and recorded, not that each is right. |
+| **P1 BLOCKER** R3 is both a record and current guidance, and the carve-out sees neither | **Fixed**, section 6 rule 1, structurally. The self-declaration derivation is **retired**, not widened. Every page in the three dated directories carrying the old name gets one identical banner line: 18 files today, control 19 without the exclusion. R3 is in the set by construction. The path-reference alternative the reviewer suggested was measured at 12 of 18 and rejected: it saves six lines and costs a fourth classifier, and it is blind to live guidance carrying no path. The banner wording was also corrected so it does not instruct a blanket substitution, which would be false on `docs/rulings/README.md:26`, whose only occurrence is frozen. |
+| **P2 BLOCKER** the marker instrument misses `tests/unit/test_gate_diagnostics.py:91-97` | **Fixed by the bound above, not by a third marker list.** That span is now shown in section 6 as the reason marker-guessing cannot work: it needs four dispositions inside one function, three of them inside one docstring token, including three assertion strings that pin the literal text of `scripts/gate.py` and go red if they are **not** swept. It is one of the 321 individual entries. |
+| **P3 FIX REGRESSION** the #220 draft still opens "I am about to rename" after the posting step moved | **Fixed**, section 9, and the tense is checked against section 17's amended step 4 rather than flipped wholesale. At that step the **repository** rename has happened but the **code** rename has not merged, so the draft carries both tenses. The exact `git remote set-url` command, the plain wording and the offer to do the rebase are kept. |
+
+**Also corrected in this revision, not raised by either round:**
+
+- **A gap in class coverage nobody had reached.** 105 occurrences in 11 markdown files outside the
+  three dated directories were only covered by residual classes, never dispositioned one by one, and
+  they are genuinely mixed: `docs/phase1-core-schema.spec.md:5` is a live path citation and five
+  lines of `docs/roadmap.md` name frozen on-disk names. They are now class P3.
+- **Stale census figures.** `census(HEAD)` is **652**, not 636, and this page carries **80**
+  occurrences, not 64; both moved when revision 2 was committed and both move again with this one.
+  The identity re-verifies: `572 - 0 + 80 = 652`.
+- **Section 12's withdrawn bullet.** Revision 2 argued that every plan document not declaring itself
+  unbuilt is already built, and listed `176-full-name-search.plan.md` among them. That file carries
+  no occurrence of the old name at all and was never in the set. The bullet is withdrawn rather than
+  corrected, because rule 1 no longer depends on the claim.
+
+**Two method notes, recorded because each cost a wrong measurement here and will cost another later:**
+
+- **`:!<path>` was accepted and silently excluded nothing** on this box, where `:(exclude)<path>`
+  worked. Every exclusion in this plan is checked against the same command with the exclusion
+  removed, and the two must differ.
+- **A `git grep` piped into a second `grep` matches the file path as well as the line content**,
+  which is how a count of 1 was really a count of 101. No command in this plan pipes one grep into
+  another.
