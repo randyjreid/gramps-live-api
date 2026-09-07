@@ -108,10 +108,11 @@ and never the directory of files on the other side of it.** Given a real directo
 it, it refuses with `The directory is not empty` instead of emptying it. It fails closed in both
 directions.
 
-⛔ **`Remove-Item` will not do this, and it does not fail quietly enough to notice.** Measured on
-PowerShell 5.1 it leaves the junction in place, so `Test-Path` stays true and you still have two
-registrations. ⛔ **And do not reach for `-Recurse -Force`:** `-Recurse` can follow a junction
-through the reparse point into its target, and this junction's target is your own checkout.
+⛔ **`Remove-Item` will not do this.** Measured on PowerShell 5.1 it fails on a junction with
+`Object reference not set to an instance of an object` and leaves it in place, so `Test-Path` stays
+true and you still have two registrations. If you ran the old instruction and saw that error,
+this is what it meant. ⛔ **And do not reach for `-Recurse -Force`:** `-Recurse` can follow a
+junction through the reparse point into its target, and this junction's target is your own checkout.
 
 ⭐ **One version folder is not a choice; two are, and it refuses to make it.**
 This used to hardcode `gramps60`, then it ranked the `gramps<digits>` folders and
