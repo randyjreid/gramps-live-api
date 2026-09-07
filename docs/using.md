@@ -99,14 +99,49 @@ reports only the first one it finds.
 
 ```powershell
 $old = "$plugins\gramps-live-api"
-if (Test-Path $old) { [System.IO.Directory]::Delete($old, $false); "old junction removed" }
-else                { "no old junction, nothing to do" }
+if (-not $plugins) {
+  "stop: `$plugins is not set, so this does not know where to look. Run the block above, or the two lines below, and then run this one."
+} elseif (-not (Test-Path $old)) {
+  "no old junction, nothing to do"
+} elseif (-not (Get-Item $old -Force).LinkType) {
+  "$old exists and is NOT a junction, so nothing was removed. See below."
+} else {
+  [System.IO.Directory]::Delete($old, $false)
+  if (Test-Path $old) { "FAILED, still present: $old" } else { "old junction removed" }
+}
 ```
 
 ⭐ **The `$false` means non-recursive, and that is what makes this safe: the call removes the LINK
 and never the directory of files on the other side of it.** Given a real directory with anything in
 it, it refuses with `The directory is not empty` instead of emptying it. It fails closed in both
 directions.
+
+⛔ **But that refusal is a NON-TERMINATING error, so it does not stop the line it is on.** The
+first version of this block was `... ::Delete($old, $false); "old junction removed"` on one line,
+and against a real non-empty directory it printed the error *and then printed `old junction
+removed`* over a directory that was still there. That is why the deletion is now confirmed by
+re-testing the path rather than assumed from the call returning. **A reported success you cannot
+distinguish from a reported failure is worse than no report**, because the reader stops looking.
+
+⚠️ **`$plugins` is set by the block above, which THROWS when you have two version folders**, and a
+throw in a pasted block does not stop the lines pasted after it. With `$plugins` unset, `$old` is
+just `\gramps-live-api`, `Test-Path` is false, and the old wording said `no old junction, nothing
+to do` while the junction sat untouched in the folder it never looked at. So this block now refuses
+to run at all until `$plugins` has a value, and it is one `if` statement so that the refusal cannot
+be pasted past.
+
+⛔ **Every `}` here shares a line with the `elseif` or `else` that follows it, and that is not
+cosmetic.** Pasted into a console, PowerShell submits each line as soon as what it has parses, so an
+`else` starting its own line is a new statement and fails with *"The term 'else' is not recognized"*.
+Measured on 5.1: the previous version of this block was written that way, and pasted, its `else`
+branch never ran in any state. Saved to a `.ps1` file the same text works, which is why this is easy
+to miss.
+
+⚠️ **If it says the path exists and is not a junction**, you have a real directory named
+`gramps-live-api` sitting in your plugins folder, not a leftover link. That is a different
+situation with a different remedy: it is most likely a copied installation holding real files, and
+this page does not delete files. Open it, see what is in it, and move it out yourself. Gramps will
+keep loading the addon from it until you do.
 
 ⛔ **`Remove-Item` will not do this.** Measured on PowerShell 5.1 it fails on a junction with
 `Object reference not set to an instance of an object` and leaves it in place, so `Test-Path` stays
