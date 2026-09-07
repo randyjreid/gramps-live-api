@@ -93,9 +93,25 @@ if (Test-Path $link) {
 }
 ```
 
-⚠️ **If you installed this addon before it was renamed, remove the old junction:**
-`Remove-Item "$plugins\gramps-live-api"`. It points at this same checkout, so leaving it registers
-the addon twice from two directories, and `check` reports only the first one it finds.
+⚠️ **If you installed this addon before it was renamed, remove the old junction.** It points at
+this same checkout, so leaving it registers the addon twice from two directories, and `check`
+reports only the first one it finds.
+
+```powershell
+$old = "$plugins\gramps-live-api"
+if (Test-Path $old) { [System.IO.Directory]::Delete($old, $false); "old junction removed" }
+else                { "no old junction, nothing to do" }
+```
+
+⭐ **The `$false` means non-recursive, and that is what makes this safe: the call removes the LINK
+and never the directory of files on the other side of it.** Given a real directory with anything in
+it, it refuses with `The directory is not empty` instead of emptying it. It fails closed in both
+directions.
+
+⛔ **`Remove-Item` will not do this, and it does not fail quietly enough to notice.** Measured on
+PowerShell 5.1 it leaves the junction in place, so `Test-Path` stays true and you still have two
+registrations. ⛔ **And do not reach for `-Recurse -Force`:** `-Recurse` can follow a junction
+through the reparse point into its target, and this junction's target is your own checkout.
 
 ⭐ **One version folder is not a choice; two are, and it refuses to make it.**
 This used to hardcode `gramps60`, then it ranked the `gramps<digits>` folders and
