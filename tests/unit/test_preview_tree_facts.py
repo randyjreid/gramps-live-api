@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from gramps_live_api.host import document
+from gramps_agent_data_entry.host import document
 
 
 def node(local_id: str, **fields: Any) -> dict[str, Any]:
@@ -348,7 +348,7 @@ def test_the_accessor_reads_a_familys_current_children_into_the_resolution() -> 
     imports neither ``gramps`` nor ``gi`` -- it duck-types on the injected
     ``dbstate``. That is why this can be exercised with a plain fake.
     """
-    from gramps_live_api.host import accessor
+    from gramps_agent_data_entry.host import accessor
 
     database = _Database(_Family(["h1", "h2"]), {"h1": _Child("I0001"), "h2": _Child("I0002")})
 
@@ -362,7 +362,7 @@ def test_a_PRIVATE_child_never_reaches_the_renderer() -> None:
     direction: the dialog then claims an addition that may not happen, rather
     than naming a person the owner is not permitted to see.
     """
-    from gramps_live_api.host import accessor
+    from gramps_agent_data_entry.host import accessor
 
     database = _Database(
         _Family(["h1", "h2"]),
@@ -373,7 +373,7 @@ def test_a_PRIVATE_child_never_reaches_the_renderer() -> None:
 
 
 def test_nothing_but_a_family_carries_children() -> None:
-    from gramps_live_api.host import accessor
+    from gramps_agent_data_entry.host import accessor
 
     database = _Database(_Family([]), {})
 
@@ -395,7 +395,7 @@ def _plugin() -> Any:
 
     from tests.fixtures.host_sources import PLUGIN_DIRECTORY
 
-    path = PLUGIN_DIRECTORY / "gramps_live_api_host.py"
+    path = PLUGIN_DIRECTORY / "AgentDataEntry.py"
     specification = importlib.util.spec_from_file_location("a_host_for_dates", path)
     assert specification is not None and specification.loader is not None
     module = importlib.util.module_from_spec(specification)
@@ -521,7 +521,7 @@ def test_resolve_nodes_actually_PUTS_the_children_in_the_resolution() -> None:
     ``_children_of`` directly, so they prove the helper works and say nothing
     about anyone calling it. **A test of a helper is not a test of the path.**
     """
-    from gramps_live_api.host import accessor
+    from gramps_agent_data_entry.host import accessor
     from tests.fixtures.host import FakeDbState
 
     database = _Database(_Family(["h1", "h2"]), {"h1": _Child("I0001"), "h2": _Child("I0002")})
@@ -544,7 +544,7 @@ def test_a_private_child_REFERENCE_is_dropped_even_when_the_person_is_public() -
     ⭐ The dropped reference makes the child read as *being added*, which
     over-reports rather than discloses.
     """
-    from gramps_live_api.host import accessor
+    from gramps_agent_data_entry.host import accessor
 
     family = _Family([])
     family._refs = [_Ref("h1"), _Ref("h2", private=True)]

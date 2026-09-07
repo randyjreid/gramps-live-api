@@ -51,7 +51,7 @@ KEY = (
         True,
         [],
         False,
-        "GRAMPS_LIVE_API_GATE_BASE resolved to HEAD, so the range covers nothing "
+        "GRAMPS_AGENT_DATA_ENTRY_GATE_BASE resolved to HEAD, so the range covers nothing "
         "and was dropped -- the command carries no operator value at all",
     ),
     (
@@ -90,8 +90,8 @@ def test_the_case_that_had_NO_WAY_OUT_is_the_one_that_now_shows_them() -> None:
 def test_the_rerun_hint_is_offered_for_BOTH_SHELLS() -> None:
     """⛔ ``$env:NAME`` is PowerShell-only, and the hint was PowerShell-only.
 
-    ⚠️ Run in bash it expands to ``:GRAMPS_LIVE_API_GATE_BASE..HEAD``, which git
-    reads as a **path** -- *"path 'GRAMPS_LIVE_API_GATE_BASE..HEAD' does not
+    ⚠️ Run in bash it expands to ``:GRAMPS_AGENT_DATA_ENTRY_GATE_BASE..HEAD``, which git
+    reads as a **path** -- *"path 'GRAMPS_AGENT_DATA_ENTRY_GATE_BASE..HEAD' does not
     exist"*. The project's docs are PowerShell throughout; CI and contributors
     are not. **An advertised recovery command that cannot be followed is exactly
     what the finding this replaced was about.**
@@ -101,12 +101,12 @@ def test_the_rerun_hint_is_offered_for_BOTH_SHELLS() -> None:
     the thing that must not regress is that both spellings are there at all.
     """
     source = (ROOT / "scripts" / "gate.py").read_text(encoding="utf-8")
-    assert '"$env:GRAMPS_LIVE_API_GATE_BASE..HEAD"' in source, (
+    assert '"$env:GRAMPS_AGENT_DATA_ENTRY_GATE_BASE..HEAD"' in source, (
         "the PowerShell spelling of the rerun hint is gone"
     )
-    assert "${GRAMPS_LIVE_API_GATE_BASE:?" in source, (
+    assert "${GRAMPS_AGENT_DATA_ENTRY_GATE_BASE:?" in source, (
         "the POSIX spelling of the rerun hint is gone -- in bash the PowerShell "
-        "one expands to ':GRAMPS_LIVE_API_GATE_BASE..HEAD' and git reads it as a path"
+        "one expands to ':GRAMPS_AGENT_DATA_ENTRY_GATE_BASE..HEAD' and git reads it as a path"
     )
     # ⛔ **``:?``, not a bare expansion, and this is the fourth defect in one
     # hint.** A POSIX user who follows this project's own setup line runs it as

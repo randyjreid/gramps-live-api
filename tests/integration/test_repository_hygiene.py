@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from gramps_live_api.core.pii_guard import main
+from gramps_agent_data_entry.core.pii_guard import main
 from tests.fixtures.repositories import commit_all, git, init_repository
 from tests.fixtures.synthetic import gedcom_document
 from tests.fixtures.workflow import (
@@ -156,7 +156,7 @@ def test_no_source_tree_is_hidden_by_a_deny_pattern() -> None:
     swallowed rather than against the one file that happens to be there today.
     """
     for tree in SOURCE_TREES:
-        assert not is_ignored(f"{tree}/gramps_live_api_token.py"), (
+        assert not is_ignored(f"{tree}/gramps_agent_data_entry_token.py"), (
             f"a Python file under {tree}/ is hidden by a deny-list pattern, so it "
             "would be missing from the clone CI builds and the suite there would "
             "be quietly smaller -- add a negation for this tree to .gitignore"

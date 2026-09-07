@@ -49,7 +49,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # staged content*. A second hand-written list in this file would be a second
 # thing to keep in step, and it would fall behind silently.
 sys.path.insert(0, str(ROOT / "src"))
-from gramps_live_api.core.pii_guard import (  # noqa: E402
+from gramps_agent_data_entry.core.pii_guard import (  # noqa: E402
     _git_environment_anchored_on_the_target as _anchored_env,
 )
 
@@ -60,7 +60,7 @@ def carries_operator_input(configured: bool, scope: Sequence[str]) -> bool:
     ⛔ **Third iteration of one boolean, and each earlier one was NEARLY right.**
     ``bool(scope)`` alone discarded pii_guard's own already-redacted findings on
     the ordinary failure path, where the baseline is this file's constant.
-    ``configured`` alone withholds them when ``GRAMPS_LIVE_API_GATE_BASE``
+    ``configured`` alone withholds them when ``GRAMPS_AGENT_DATA_ENTRY_GATE_BASE``
     resolves to ``HEAD``: ``scope`` is then empty, the command carries no
     operator value at all, and the findings are suppressed anyway.
 
@@ -292,13 +292,13 @@ def main() -> int:
     # regression that reads as an improvement is the worst shape this class
     # takes.**
     #
-    # ⭐ ``GRAMPS_LIVE_API_GATE_BASE`` exists so that a refusal is not a dead end:
+    # ⭐ ``GRAMPS_AGENT_DATA_ENTRY_GATE_BASE`` exists so that a refusal is not a dead end:
     # a clone whose canonical remote is ``upstream`` names it and carries on. A
     # gate nobody can satisfy gets worked around, and a gate worked around is not
     # a gate.
     # ⛔ **The baseline is operator-supplied and is NEVER echoed.**
     #
-    # ⚠️ ``GRAMPS_LIVE_API_GATE_BASE`` is whatever someone typed, and the mistake
+    # ⚠️ ``GRAMPS_AGENT_DATA_ENTRY_GATE_BASE`` is whatever someone typed, and the mistake
     # that puts it on this path is typing a PATH where a ref belongs -- so the
     # failure message is exactly where an absolute path would land, verbatim, in
     # captured output and CI logs. **The guard's own rule is that revision
@@ -308,16 +308,16 @@ def main() -> int:
     # ⭐ The remediation does not need the value: the person who set it can read
     # it back, and the person who did not set it wants the default named, which is
     # a constant in this file rather than an input.
-    configured = "GRAMPS_LIVE_API_GATE_BASE" in os.environ
-    base = os.environ.get("GRAMPS_LIVE_API_GATE_BASE", "origin/main")
+    configured = "GRAMPS_AGENT_DATA_ENTRY_GATE_BASE" in os.environ
+    base = os.environ.get("GRAMPS_AGENT_DATA_ENTRY_GATE_BASE", "origin/main")
     if not git("rev-parse", "--verify", base):
-        source = "the ref named by GRAMPS_LIVE_API_GATE_BASE" if configured else "origin/main"
+        source = "the ref named by GRAMPS_AGENT_DATA_ENTRY_GATE_BASE" if configured else "origin/main"
         print(f"  {'pii_guard':<28}FAILED -- cannot resolve the baseline")
         print(f"    The history scan needs a baseline, and {source} does not resolve here.")
         print("    Scanning only the index would miss a branch that adds personal data")
         print("    and deletes it again, which still publishes the blob.")
         print("    Fetch it (git fetch origin main), or name the right one:")
-        print("        GRAMPS_LIVE_API_GATE_BASE=<remote>/main python scripts/gate.py")
+        print("        GRAMPS_AGENT_DATA_ENTRY_GATE_BASE=<remote>/main python scripts/gate.py")
         raise SystemExit(2)
 
     scope: list[str] = []
@@ -330,12 +330,12 @@ def main() -> int:
         print(f"  {'pii_guard':<28}(nothing committed on top of the baseline -- index only)")
     else:
         scope = ["--range", f"{base}..HEAD"]
-    # ⛔ ``operator_input``: ``scope`` can carry GRAMPS_LIVE_API_GATE_BASE.
+    # ⛔ ``operator_input``: ``scope`` can carry GRAMPS_AGENT_DATA_ENTRY_GATE_BASE.
     run(
         "pii_guard",
         python,
         "-m",
-        "gramps_live_api.core.pii_guard",
+        "gramps_agent_data_entry.core.pii_guard",
         *scope,
         ".",
         # ⛔ Neither ``configured`` nor ``bool(scope)`` alone -- see the helper.
@@ -343,8 +343,8 @@ def main() -> int:
         # ⛔ **Both shells, because the contributor setup and CI use both.**
         #
         # ⚠️ ``$env:NAME`` is PowerShell-only. Run in bash it expands to
-        # ``:GRAMPS_LIVE_API_GATE_BASE..HEAD``, which git then reads as a PATH --
-        # *"path 'GRAMPS_LIVE_API_GATE_BASE..HEAD' does not exist"* -- so the
+        # ``:GRAMPS_AGENT_DATA_ENTRY_GATE_BASE..HEAD``, which git then reads as a PATH --
+        # *"path 'GRAMPS_AGENT_DATA_ENTRY_GATE_BASE..HEAD' does not exist"* -- so the
         # advertised recovery command produced an error instead of the withheld
         # diagnostics. **An instruction that cannot be followed is what the
         # finding this replaced was about.**
@@ -355,7 +355,7 @@ def main() -> int:
         # ⛔ ``:?`` on the POSIX line, and it is the fourth defect in this hint.
         #
         # ⚠️ A POSIX user who follows this project's own setup line runs it as an
-        # INLINE assignment -- ``GRAMPS_LIVE_API_GATE_BASE=<ref> python
+        # INLINE assignment -- ``GRAMPS_AGENT_DATA_ENTRY_GATE_BASE=<ref> python
         # scripts/gate.py`` -- which sets the variable for the gate process only.
         # It is unset in their shell afterwards, so the advertised rerun expanded
         # to ``..HEAD``. Measured: ``git rev-list --count "..HEAD"`` returns 0,
@@ -368,10 +368,10 @@ def main() -> int:
         # set, and self-diagnosing when it is not -- which the value cannot be
         # printed to solve, because this text goes to stdout and CI captures it.
         rerun=(
-            "PowerShell:  python -m gramps_live_api.core.pii_guard --range "
-            '"$env:GRAMPS_LIVE_API_GATE_BASE..HEAD" .',
-            "bash/zsh:    python -m gramps_live_api.core.pii_guard --range "
-            '"${GRAMPS_LIVE_API_GATE_BASE:?set it again -- an inline assignment '
+            "PowerShell:  python -m gramps_agent_data_entry.core.pii_guard --range "
+            '"$env:GRAMPS_AGENT_DATA_ENTRY_GATE_BASE..HEAD" .',
+            "bash/zsh:    python -m gramps_agent_data_entry.core.pii_guard --range "
+            '"${GRAMPS_AGENT_DATA_ENTRY_GATE_BASE:?set it again -- an inline assignment '
             'did not outlive the gate}..HEAD" .',
         ),
     )

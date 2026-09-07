@@ -3,7 +3,7 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "gramps-live-api"
+name = "gramps-agent-data-entry"
 version = "0.0.0"
 description = "Loopback HTTP API over a live, already-open Gramps family tree, plus a thin MCP client."
 readme = "README.md"

@@ -15,14 +15,14 @@ import subprocess
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from gramps_live_api.core import pii_guard
-from gramps_live_api.core._specified_containers import (
+from gramps_agent_data_entry.core import pii_guard
+from gramps_agent_data_entry.core._specified_containers import (
     FIXED_ATTRIBUTE_DEFAULTS,
     MARKUP_ELEMENT_NAMES,
     SPECIFIED_ATTRIBUTES,
     SPECIFIED_ELEMENTS,
 )
-from gramps_live_api.core.pii_guard import (
+from gramps_agent_data_entry.core.pii_guard import (
     _CATEGORY_WEIGHT,
     _DRAWING,
     _GENEALOGY_TEXT_SIGNATURES,

@@ -5,7 +5,7 @@ Run this by hand, never in CI. It reads two artifacts that were fetched
 
     python scripts/derive_unrenderable.py \
         <extracted/DerivedGeneralCategory.txt> <DerivedCoreProperties.txt> \
-        > src/gramps_live_api/core/_unrenderable.py
+        > src/gramps_agent_data_entry/core/_unrenderable.py
 
 ⚠️ **On Windows, redirect through ``cmd /c``.** PowerShell's ``>`` rewrites the
 stream with a BOM and CRLF line endings, so a *correct* re-derivation fails the

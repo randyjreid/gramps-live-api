@@ -42,7 +42,7 @@ from http import HTTPStatus
 from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
-from gramps_live_api.host import auth, document, log, mainthread, reads, status
+from gramps_agent_data_entry.host import auth, document, log, mainthread, reads, status
 
 LOOPBACK = "127.0.0.1"
 """⛔ The only address this ever binds. The wildcard would put the owner's tree
@@ -214,7 +214,7 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
     threading that would fix it.
     """
 
-    server_version = "gramps-live-api"
+    server_version = "gramps-agent-data-entry"
     sys_version = ""
     """The interpreter version is Gramps' business, not a caller's."""
 

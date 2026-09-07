@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from gramps_live_api.host import auth, httpd, tokens
+from gramps_agent_data_entry.host import auth, httpd, tokens
 
 AUTH_SOURCE = Path(auth.__file__)
 

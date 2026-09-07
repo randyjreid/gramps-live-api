@@ -20,9 +20,9 @@ import ast
 import pathlib
 import re
 
-from gramps_live_api.host import document
+from gramps_agent_data_entry.host import document
 
-WRITER = pathlib.Path(__file__).resolve().parents[2] / "gramps_plugin" / "gramps_live_api_writer.py"
+WRITER = pathlib.Path(__file__).resolve().parents[2] / "gramps_plugin" / "AgentDataEntry_writer.py"
 
 
 def test_a_write_of_one_of_each_reports_one_of_each() -> None:

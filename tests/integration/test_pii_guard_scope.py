@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from gramps_live_api.core import pii_guard
-from gramps_live_api.core.pii_guard import main
+from gramps_agent_data_entry.core import pii_guard
+from gramps_agent_data_entry.core.pii_guard import main
 from tests.fixtures.repositories import commit_all, commit_index, git, init_repository
 from tests.fixtures.synthetic import gedcom_document, posix_path
 

@@ -32,13 +32,13 @@ import pytest
 if importlib.util.find_spec("mcp") is None:  # pragma: no cover - installed in dev
     pytest.skip(
         "the MCP server is an optional extra and it is not installed, so there is "
-        "nothing to cover here -- gramps_live_api_mcp.server cannot be imported at "
+        "nothing to cover here -- gramps_agent_data_entry_mcp.server cannot be imported at "
         "all. CI's mcp leg installs '.[mcp]' and asserts these tests actually ran.",
         allow_module_level=True,
     )
 
-from gramps_live_api.host import paths  # noqa: E402
-from gramps_live_api_mcp import server as mcp_server  # noqa: E402
+from gramps_agent_data_entry.host import paths  # noqa: E402
+from gramps_agent_data_entry_mcp import server as mcp_server  # noqa: E402
 from tests.unit.test_cli import equipped  # noqa: E402
 
 PORT = "55555"

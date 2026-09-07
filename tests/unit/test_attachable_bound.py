@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from gramps_live_api.host import accessor, document
+from gramps_agent_data_entry.host import accessor, document
 from tests.fixtures.host_sources import REPOSITORY_ROOT
 
 
@@ -297,7 +297,7 @@ def test_the_MCP_INSTRUCTION_and_the_PARSER_agree_about_attached_events() -> Non
     ⭐ This asserts the agreement rather than the sentence, so the next person to
     move a field between REFUSED and DROPPED cannot leave the instruction behind.
     """
-    instruction = (REPOSITORY_ROOT / "src" / "gramps_live_api_mcp" / "server.py").read_text(
+    instruction = (REPOSITORY_ROOT / "src" / "gramps_agent_data_entry_mcp" / "server.py").read_text(
         encoding="utf-8"
     )
 
@@ -402,7 +402,7 @@ def test_the_INSTRUCTION_names_the_right_lookup_for_FAMILY_owned_events() -> Non
     whether an index bridges the two stores, and it is worth checking rather than
     reasoning about.**
     """
-    instruction = (REPOSITORY_ROOT / "src" / "gramps_live_api_mcp" / "server.py").read_text(
+    instruction = (REPOSITORY_ROOT / "src" / "gramps_agent_data_entry_mcp" / "server.py").read_text(
         encoding="utf-8"
     )
     # ⚠️ Anchor updated when the description was reordered for #151: the rules
@@ -465,7 +465,7 @@ def test_every_ATTACHABLE_kind_reaches_BOTH_dispatches_that_must_know_it() -> No
     * ``accessor._by_gramps_id`` -- an ``if kind == ...`` chain that falls
       through to ``return False, None``. A kind missing there makes ``/resolve``
       report a **valid Gramps ID as missing**.
-    * ``gramps_live_api_writer._BY_GRAMPS_ID`` -- a dict. A kind missing there
+    * ``AgentDataEntry_writer._BY_GRAMPS_ID`` -- a dict. A kind missing there
       makes ``_existing()`` unable to fetch the record it was told to attach to.
 
     ⭐ So adding a kind to ``ATTACHABLE`` could break the resolver or the writer
@@ -474,7 +474,7 @@ def test_every_ATTACHABLE_kind_reaches_BOTH_dispatches_that_must_know_it() -> No
     written to bound that property. Raised by a review round; it was right.
     """
     specification = importlib.util.spec_from_file_location(
-        "a_writer_under_test", REPOSITORY_ROOT / "gramps_plugin" / "gramps_live_api_writer.py"
+        "a_writer_under_test", REPOSITORY_ROOT / "gramps_plugin" / "AgentDataEntry_writer.py"
     )
     assert specification is not None and specification.loader is not None
     writer = importlib.util.module_from_spec(specification)
@@ -562,7 +562,7 @@ def test_two_local_ids_for_ONE_record_attach_ONCE_for_every_attachable_kind(what
     citations because both loops reach the same code.
     """
     specification = importlib.util.spec_from_file_location(
-        "a_writer_for_dedup", REPOSITORY_ROOT / "gramps_plugin" / "gramps_live_api_writer.py"
+        "a_writer_for_dedup", REPOSITORY_ROOT / "gramps_plugin" / "AgentDataEntry_writer.py"
     )
     assert specification is not None and specification.loader is not None
     writer = importlib.util.module_from_spec(specification)
@@ -607,7 +607,7 @@ def test_the_dedup_does_not_swallow_two_GENUINELY_different_records() -> None:
     citation the owner approved.
     """
     specification = importlib.util.spec_from_file_location(
-        "a_writer_for_distinct", REPOSITORY_ROOT / "gramps_plugin" / "gramps_live_api_writer.py"
+        "a_writer_for_distinct", REPOSITORY_ROOT / "gramps_plugin" / "AgentDataEntry_writer.py"
     )
     assert specification is not None and specification.loader is not None
     writer = importlib.util.module_from_spec(specification)
@@ -639,7 +639,7 @@ def test_the_PARSE_refusal_and_the_WRITER_dedup_agree_for_every_attachable_kind(
     asserted is a guard the next reader deletes.
     """
     specification = importlib.util.spec_from_file_location(
-        "a_writer_for_agreement", REPOSITORY_ROOT / "gramps_plugin" / "gramps_live_api_writer.py"
+        "a_writer_for_agreement", REPOSITORY_ROOT / "gramps_plugin" / "AgentDataEntry_writer.py"
     )
     assert specification is not None and specification.loader is not None
     writer = importlib.util.module_from_spec(specification)

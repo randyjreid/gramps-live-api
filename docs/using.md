@@ -83,7 +83,7 @@ $folders = @(Get-ChildItem "$env:APPDATA\gramps" -Directory -ErrorAction Silentl
 if ($folders.Count -eq 0) { throw "No gramps<version> folder under $env:APPDATA\gramps -- start Gramps once, then run this again." }
 if ($folders.Count -gt 1) { throw "More than one version folder under $env:APPDATA\gramps ($($folders.Name -join ', ')) and this will not choose between them -- see the two lines below." }
 $plugins = Join-Path $folders[0].FullName "plugins"
-$link    = "$plugins\gramps-live-api"
+$link    = "$plugins\gramps-agent-data-entry"
 New-Item -ItemType Directory -Force $plugins | Out-Null
 if (Test-Path $link) {
   "already there: $((Get-Item $link).Target)"
@@ -125,7 +125,7 @@ lines with the one your Gramps actually uses — its version is in Gramps under
 
 ```powershell
 $plugins = "$env:APPDATA\gramps\gramps60\plugins"    # <- your version, not necessarily this one
-$link    = "$plugins\gramps-live-api"
+$link    = "$plugins\gramps-agent-data-entry"
 New-Item -ItemType Directory -Force $plugins | Out-Null
 if (Test-Path $link) {
   "already there: $((Get-Item $link).Target)"
@@ -182,7 +182,7 @@ full. Add `"gramps_runtime"` beside it if you have more than one Gramps installe
 under `$env:ProgramFiles\GrampsAIO64-<version>\`; with exactly one installed it is found for you, and
 with two you are asked to name one rather than have this guess.
 
-`GRAMPS_LIVE_API_COPY` and `GRAMPS_LIVE_API_RUNTIME` override both, for a one-off run.
+`GRAMPS_AGENT_DATA_ENTRY_COPY` and `GRAMPS_AGENT_DATA_ENTRY_RUNTIME` override both, for a one-off run.
 
 ---
 
@@ -217,7 +217,7 @@ $env:PYTHONPATH = "src"
 ### `check` — is everything in place?
 
 ```powershell
-.\.venv\Scripts\python.exe -m gramps_live_api check
+.\.venv\Scripts\python.exe -m gramps_agent_data_entry check
 ```
 
 You should see the runtime, the plugin, the source it resolves to, your copy, and each of
@@ -225,8 +225,8 @@ the two files the check looks at:
 
 ```
   ok   runtime: ...\GrampsAIO64-<version>\grampsd.exe
-  ok   plugin: ...\gramps\gramps60\plugins\gramps-live-api
-  ok   source: ...\gramps-live-api\src
+  ok   plugin: ...\gramps\gramps60\plugins\gramps-agent-data-entry
+  ok   source: ...\gramps-agent-data-entry\src
   ok   copy: ...\grampsdb\1a2b3c4d
   ok   name.txt: is a Gramps family tree directory
   ok   .gramps-live-api-copy: is blessed for writing by hand
@@ -245,7 +245,7 @@ ready
 table, the one whose `name.txt` holds your live tree's name:
 
 ```powershell
-.\.venv\Scripts\python.exe -m gramps_live_api check "<the Path for your LIVE tree>"
+.\.venv\Scripts\python.exe -m gramps_agent_data_entry check "<the Path for your LIVE tree>"
 ```
 
 The same report, with one line changed and a non-zero exit:
@@ -279,7 +279,7 @@ citation, written as one transaction.
 > directory and stepping up one level — which works because that directory is a **junction into the checkout**. Copy the files
 > instead and it lands in Gramps' plugin folder, where there is no `src`, and every document route
 > fails on import. `check` reports that as its own `source` line, so a passing check does now mean
-> this route has what it needs; if it says `NO`, re-make the junction or set `GRAMPS_LIVE_API_SRC`.
+> this route has what it needs; if it says `NO`, re-make the junction or set `GRAMPS_AGENT_DATA_ENTRY_SRC`.
 
 ### What you do
 

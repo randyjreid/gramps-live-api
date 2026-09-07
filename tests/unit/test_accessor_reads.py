@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from gramps_live_api.host import accessor, reads
+from gramps_agent_data_entry.host import accessor, reads
 
 
 @dataclass

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from gramps_live_api.core import apply
+from gramps_agent_data_entry.core import apply
 
 
 def blessed(directory: Path) -> apply.WritableCopy:

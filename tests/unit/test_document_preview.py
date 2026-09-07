@@ -21,7 +21,7 @@ import pathlib
 
 import pytest
 
-from gramps_live_api.host import document
+from gramps_agent_data_entry.host import document
 
 EVENT_NOTE = "NOTE ON THE EVENT -- must appear."
 PERSON_NOTE = "NOTE ON THE PERSON -- must appear."
@@ -202,7 +202,7 @@ def test_a3_the_journal_names_every_object_created(tmp_path) -> None:
     # ⛔ The directory verdict is a tri-state the CALLER must read, so the test
     # asserts it is one of the three rather than merely truthy -- a boolean here
     # was reported and then ignored for a whole round.
-    from gramps_live_api.host import paths
+    from gramps_agent_data_entry.host import paths
 
     assert verdict in {paths.SYNCED, paths.UNSUPPORTED, paths.FAILED}
     assert verdict != paths.FAILED, "a temp directory must be flushable or unsupported"
@@ -552,7 +552,7 @@ def test_a_failed_completion_leaves_the_INTENT_intact(
     ⭐ ``os.replace`` is atomic on POSIX and Windows alike, so the name holds
     either the intact intent or the intact completion at every instant.
     """
-    from gramps_live_api.host import document
+    from gramps_agent_data_entry.host import document
 
     stem = "20260823T101500Z-abcd1234-document"
     intent, _verdict = document.write_journal(

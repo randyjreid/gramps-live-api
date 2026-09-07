@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from gramps_live_api.core.pii_guard import (
+from gramps_agent_data_entry.core.pii_guard import (
     DENYLIST_FILENAME,
     load_denylist,
     main,

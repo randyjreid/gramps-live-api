@@ -22,7 +22,7 @@ from __future__ import annotations
 import bisect
 from collections.abc import Sequence
 
-from gramps_live_api.core._unrenderable import UNRENDERABLE_RANGES
+from gramps_agent_data_entry.core._unrenderable import UNRENDERABLE_RANGES
 
 # ---------------------------------------------------------------------------
 # What an approval render may put on screen

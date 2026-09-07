@@ -30,9 +30,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from gramps_live_api.core import render_guard
-from gramps_live_api.core._note_types import ACCEPTED_NOTE_TYPES
-from gramps_live_api.host import paths
+from gramps_agent_data_entry.core import render_guard
+from gramps_agent_data_entry.core._note_types import ACCEPTED_NOTE_TYPES
+from gramps_agent_data_entry.host import paths
 
 NOTE_TYPES: frozenset[str] = ACCEPTED_NOTE_TYPES
 """⛔ What a note's ``type`` may be. **The frozen table itself, never a copy.**

@@ -21,12 +21,12 @@ Gramps picks it up on the next launch.
 
 ```powershell
 New-Item -ItemType Directory -Force "$env:APPDATA\gramps\gramps60\plugins" | Out-Null
-New-Item -ItemType Junction -Path "$env:APPDATA\gramps\gramps60\plugins\gramps-live-api" -Target "$PWD\gramps_plugin"
+New-Item -ItemType Junction -Path "$env:APPDATA\gramps\gramps60\plugins\gramps-agent-data-entry" -Target "$PWD\gramps_plugin"
 ```
 
 ⚠️ **A junction, not a copy.** The host finds its own source by resolving this link and stepping up
 one level to the checkout, so a *copied* folder leaves it unable to import the package. If the
-checkout is somewhere that cannot be reached that way, set `GRAMPS_LIVE_API_SRC` to the `src`
+checkout is somewhere that cannot be reached that way, set `GRAMPS_AGENT_DATA_ENTRY_SRC` to the `src`
 directory instead.
 
 Then **start Gramps**. The host starts with it, before any tree is open.
@@ -105,7 +105,7 @@ door in front of the token rather than behind it.
 ## 5. The person probe — the number F3 is actually about
 
 ⭐ **Added by slice A2, and it is a measurement instrument rather than a feature.** Issue
-[#89](https://github.com/randyjreid/gramps-live-api/issues/89) records why: step 1 times the HTTP and
+[#89](https://github.com/randyjreid/gramps-agent-data-entry/issues/89) records why: step 1 times the HTTP and
 `GLib.idle_add` hop, and `/health` reads a cached name and a table count, so **no person is read and
 the quantity F3's ~2 s budget was written about does not appear in those numbers at all.** This route
 fetches one `Person` out of the open tree, which is the work F3 names.

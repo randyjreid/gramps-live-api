@@ -2,7 +2,7 @@ r"""Is each frozen table still what its own generator would emit? Offline, every
 
 Three tables in this repository are frozen derivations: a generator in
 ``scripts/`` reads a published standard or an installed runtime, and prints a
-module into ``src/gramps_live_api/core/``. The discipline's stated verification
+module into ``src/gramps_agent_data_entry/core/``. The discipline's stated verification
 is **re-fetch, compare digest, re-run, and the diff is empty**, and until this
 file existed the last step had no test behind it. What the suite proved was that
 each generator parses its source correctly and emits the same bytes twice.
@@ -74,14 +74,14 @@ from typing import Any
 
 import pytest
 
-from gramps_live_api.core import _note_types, _specified_containers, _unrenderable
+from gramps_agent_data_entry.core import _note_types, _specified_containers, _unrenderable
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 SCRIPT_DIRECTORY = "scripts"
 """Where the generators live, relative to the repository root."""
 
-COMMITTED_DIRECTORY = "src/gramps_live_api/core"
+COMMITTED_DIRECTORY = "src/gramps_agent_data_entry/core"
 """Where the generated modules live, relative to the repository root."""
 
 _BOM = b"\xef\xbb\xbf"
@@ -115,7 +115,7 @@ class Pair:
     """The script's file name under ``scripts/``."""
 
     committed: str
-    """The generated module's file name under ``src/gramps_live_api/core/``."""
+    """The generated module's file name under ``src/gramps_agent_data_entry/core/``."""
 
     arguments: Callable[[], list[Any]]
     """``emit``'s arguments, rebuilt from the committed module's own names."""

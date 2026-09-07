@@ -1,4 +1,4 @@
-"""``python -m gramps_live_api_mcp`` -- the stdio server an agent host launches.
+"""``python -m gramps_agent_data_entry_mcp`` -- the stdio server an agent host launches.
 
 Registered with an **absolute interpreter path**, deliberately -- the venv's
 own ``python.exe`` in this checkout, named in full. ``docs/slice2-mcp.md`` gives
@@ -11,7 +11,7 @@ interpreter avoids the question; the issue stays open, because the next person
 to write ``python`` in a setup instruction meets it again.
 """
 
-from gramps_live_api_mcp.server import serve
+from gramps_agent_data_entry_mcp.server import serve
 
 # ⚠️ **Guarded, and not as a formality.** ``python -m pkg`` runs this file with
 # ``__name__ == "__main__"``, so the guard costs nothing there -- and without it

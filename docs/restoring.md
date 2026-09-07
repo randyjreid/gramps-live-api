@@ -231,8 +231,8 @@ Manage Family Trees* shows the tree's current person count.
 only attached to records that already existed.
 
 **`approved_preview`** — the exact text you were shown, in two sections
-([`document.py:679`](../src/gramps_live_api/host/document.py) and
-[`:757`](../src/gramps_live_api/host/document.py)):
+([`document.py:679`](../src/gramps_agent_data_entry/host/document.py) and
+[`:757`](../src/gramps_agent_data_entry/host/document.py)):
 
 - Records under **ATTACHING TO EXISTING** show the name Gramps holds.
 - Records under **CREATING NEW** show what the agent proposed — there is no tree record to read.

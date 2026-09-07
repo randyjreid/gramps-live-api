@@ -22,8 +22,8 @@ from pathlib import Path
 
 import pytest
 
-from gramps_live_api.core import pii_guard
-from gramps_live_api.core.pii_guard import Secret, main
+from gramps_agent_data_entry.core import pii_guard
+from gramps_agent_data_entry.core.pii_guard import Secret, main
 from tests.fixtures.repositories import commit_all, init_repository
 from tests.fixtures.synthetic import posix_path
 
@@ -230,7 +230,7 @@ def test_reveal_is_called_in_exactly_one_place() -> None:
     on remembering. If a second one is ever genuinely needed, that is a design
     decision to be taken deliberately, not a line to be added.
     """
-    source = Path(__import__("gramps_live_api.core.pii_guard", fromlist=["_"]).__file__)
+    source = Path(__import__("gramps_agent_data_entry.core.pii_guard", fromlist=["_"]).__file__)
     text = source.read_text(encoding="utf-8")
     call_sites = [
         number
@@ -249,7 +249,7 @@ def test_a_source_is_rendered_in_full_from_exactly_one_place() -> None:
     the cleartext. That way must stay single: "true by inspection" is precisely
     what the four fixes that did not hold were.
     """
-    source = Path(__import__("gramps_live_api.core.pii_guard", fromlist=["_"]).__file__)
+    source = Path(__import__("gramps_agent_data_entry.core.pii_guard", fromlist=["_"]).__file__)
     text = source.read_text(encoding="utf-8")
     call_sites = [
         number

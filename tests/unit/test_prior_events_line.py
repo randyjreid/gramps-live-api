@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from gramps_live_api.host import document
+from gramps_agent_data_entry.host import document
 
 
 def node(local_id: str, **fields: Any) -> dict[str, Any]:
@@ -237,7 +237,7 @@ class _Database:
 
 
 def _resolve(database: _Database, graph: dict[str, Any]) -> document.Resolution:
-    from gramps_live_api.host import accessor
+    from gramps_agent_data_entry.host import accessor
     from tests.fixtures.host import FakeDbState
 
     accessor.bind(FakeDbState(db=database))

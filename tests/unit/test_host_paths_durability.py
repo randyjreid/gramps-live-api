@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from gramps_live_api.host import paths
+from gramps_agent_data_entry.host import paths
 
 
 def test_only_the_levels_THIS_RUN_created_are_flushed(tmp_path: Path) -> None:

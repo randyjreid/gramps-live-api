@@ -41,8 +41,8 @@ from typing import Any
 
 import pytest
 
-from gramps_live_api.host import accessor
-from gramps_live_api.host.mainthread import WrongThread
+from gramps_agent_data_entry.host import accessor
+from gramps_agent_data_entry.host.mainthread import WrongThread
 from tests.fixtures.host_sources import ACCESSOR, host_sources, plugin_sources
 
 # The database reaches this process as an attribute of Gramps' dbstate, and the
@@ -224,7 +224,7 @@ def test_the_plugin_half_is_covered_by_the_rule() -> None:
 
 def test_the_marshal_runs_work_on_the_thread_that_drains_the_queue() -> None:
     """A value crosses by being scheduled, never by being read across the boundary."""
-    from gramps_live_api.host.mainthread import Marshal
+    from gramps_agent_data_entry.host.mainthread import Marshal
 
     queue: list[Callable[[], bool]] = []
 
@@ -250,7 +250,7 @@ def test_the_marshal_runs_work_on_the_thread_that_drains_the_queue() -> None:
 
 def test_the_marshal_gives_up_rather_than_hanging() -> None:
     """A blocked GTK loop must not become a hung socket -- R8's accepted risk 4."""
-    from gramps_live_api.host.mainthread import MainThreadTimeout, Marshal
+    from gramps_agent_data_entry.host.mainthread import MainThreadTimeout, Marshal
 
     marshal = Marshal(schedule=lambda work: None, timeout=0.05)
 
@@ -260,7 +260,7 @@ def test_the_marshal_gives_up_rather_than_hanging() -> None:
 
 def test_the_marshal_reports_a_failure_rather_than_swallowing_it() -> None:
     """Work that raises on the main thread must raise in the caller, not time out."""
-    from gramps_live_api.host.mainthread import Marshal
+    from gramps_agent_data_entry.host.mainthread import Marshal
 
     def immediately(work: Callable[[], bool]) -> None:
         work()

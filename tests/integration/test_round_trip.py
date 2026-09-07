@@ -25,7 +25,7 @@ thing the whole design exists to forbid. So this file drives:
 * ``Tools.propose_document`` -- the real one, parsing and storing the graph;
 * ``proposals.claim_document`` -- the same call ``approve_document`` makes, and
   the only irreversible step in it;
-* ``gramps_live_api_writer.write`` -- inside a real Gramps, on the graph read
+* ``AgentDataEntry_writer.write`` -- inside a real Gramps, on the graph read
   back off the disk, in a real ``DbTxn``.
 
 **What is NOT covered here is the loopback hop, the backup, the journal and the
@@ -59,12 +59,12 @@ from typing import Any
 
 import pytest
 
-from gramps_live_api import config
-from gramps_live_api.core import apply, proposals
+from gramps_agent_data_entry import config
+from gramps_agent_data_entry.core import apply, proposals
 from tests.fixtures.synthetic import empty_tree_document
 from tests.fixtures.workflow import REPOSITORY_ROOT
 
-MARKER = "GRAMPS-LIVE-API-ROUND-TRIP"
+MARKER = "GRAMPS-AGENT-DATA-ENTRY-ROUND-TRIP"
 """What the fixture tool prints, and the only thing this file reads from a run.
 
 ⚠️ **The exit code is not a signal, and that is measured rather than assumed.**
@@ -146,7 +146,7 @@ def mcp_or_skip() -> Any:
             "propose_document cannot be reached at all -- there is nothing to cover "
             "here. CI's mcp leg installs '.[mcp]'.",
         )
-    from gramps_live_api_mcp.server import Tools
+    from gramps_agent_data_entry_mcp.server import Tools
 
     return Tools
 
@@ -172,7 +172,7 @@ from gramps.version import VERSION_TUPLE
 register(
     TOOL,
     id="glapi_round_trip",
-    name="gramps-live-api: round trip fixture",
+    name="gramps-agent-data-entry: round trip fixture",
     description="Calls the document writer against an open throwaway tree.",
     version="0.0.0",
     gramps_target_version=f"{VERSION_TUPLE[0]}.{VERSION_TUPLE[1]}",
@@ -190,8 +190,8 @@ register(
 TOOL_MODULE = '''\
 """Call the real writer against the open tree, and print one line about it.
 
-⛔ **Nothing is decided here.** The blessing is ``gramps_live_api_writer``'s, the
-write is ``gramps_live_api_writer.write``, and the graph comes off the disk. This
+⛔ **Nothing is decided here.** The blessing is ``AgentDataEntry_writer``'s, the
+write is ``AgentDataEntry_writer.write``, and the graph comes off the disk. This
 is the door and the reporting, which is what cannot be covered anywhere else.
 
 Everything arrives through the ENVIRONMENT. Gramps parses its ``-p`` options by
@@ -206,7 +206,7 @@ import traceback
 
 from gramps.gui.plug import tool
 
-MARKER = "GRAMPS-LIVE-API-ROUND-TRIP"
+MARKER = "GRAMPS-AGENT-DATA-ENTRY-ROUND-TRIP"
 
 
 def _writer():
@@ -214,9 +214,9 @@ def _writer():
     here = os.path.dirname(os.path.abspath(__file__))
     if here not in sys.path:
         sys.path.insert(0, here)
-    import gramps_live_api_writer
+    import AgentDataEntry_writer
 
-    return gramps_live_api_writer
+    return AgentDataEntry_writer
 
 
 class RoundTripTool(tool.Tool):
@@ -317,12 +317,12 @@ def a_throwaway_tree(tmp_path: Path, runtime: str) -> tuple[Path, dict[str, str]
     # derives gramps_target_version rather than pinning it.
     version_directories = sorted((home / "gramps").glob("gramps*"))
     assert version_directories, f"Gramps made no user directory under {home}"
-    plugins = version_directories[0] / "plugins" / "gramps-live-api"
+    plugins = version_directories[0] / "plugins" / "gramps-agent-data-entry"
     plugins.mkdir(parents=True)
     # ⛔ The REAL writer, copied rather than stubbed. It is the subject.
     shutil.copy(
-        REPOSITORY_ROOT / "gramps_plugin" / "gramps_live_api_writer.py",
-        plugins / "gramps_live_api_writer.py",
+        REPOSITORY_ROOT / "gramps_plugin" / "AgentDataEntry_writer.py",
+        plugins / "AgentDataEntry_writer.py",
     )
     (plugins / "glapi_round_trip.gpr.py").write_text(TOOL_REGISTRATION, encoding="utf-8")
     (plugins / "glapi_round_trip.py").write_text(TOOL_MODULE, encoding="utf-8")

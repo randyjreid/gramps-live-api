@@ -2,7 +2,7 @@
 
 The genealogy property weighs containers by what they mean. **Which containers exist is not a
 judgement, and is no longer treated as one.** The list is derived from published specifications and
-frozen as a committed table, `src/gramps_live_api/core/_specified_containers.py`, which is
+frozen as a committed table, `src/gramps_agent_data_entry/core/_specified_containers.py`, which is
 machine-generated and never hand-edited.
 
 This note is the audit trail for that file: what it was generated from, how to check it, and what
@@ -138,8 +138,8 @@ Fetch each artifact, confirm its digest matches the table above, then:
 
 ```sh
 python scripts/derive_specified_containers.py <dtd> <html index> <svg index> \
-    > src/gramps_live_api/core/_specified_containers.py
-git diff --exit-code src/gramps_live_api/core/_specified_containers.py
+    > src/gramps_agent_data_entry/core/_specified_containers.py
+git diff --exit-code src/gramps_agent_data_entry/core/_specified_containers.py
 ```
 
 **An empty diff is the check.** The script emits no timestamp for exactly this reason: a fetch date

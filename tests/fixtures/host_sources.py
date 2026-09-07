@@ -9,7 +9,7 @@ would be two lists, and the second file somebody adds would go into neither.
 ``gramps_plugin/`` also holds the spawned-CLI write path, which is not host code
 and which R8 retires in a later slice; naming files by a spelling convention
 would either sweep that in or miss the next host file. A plugin module that
-reaches into ``gramps_live_api.host`` is host code by construction, whatever it
+reaches into ``gramps_agent_data_entry.host`` is host code by construction, whatever it
 is named.
 """
 
@@ -20,13 +20,13 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
-HOST_PACKAGE = REPOSITORY_ROOT / "src" / "gramps_live_api" / "host"
+HOST_PACKAGE = REPOSITORY_ROOT / "src" / "gramps_agent_data_entry" / "host"
 PLUGIN_DIRECTORY = REPOSITORY_ROOT / "gramps_plugin"
 
 ACCESSOR = HOST_PACKAGE / "accessor.py"
 """The one module permitted to touch the database. Everything else is bound."""
 
-HOST_IMPORT = "gramps_live_api.host"
+HOST_IMPORT = "gramps_agent_data_entry.host"
 
 
 def package_sources() -> list[Path]:

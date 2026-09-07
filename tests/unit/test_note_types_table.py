@@ -20,8 +20,8 @@ from __future__ import annotations
 
 from collections import Counter
 
-from gramps_live_api.core import _note_types
-from gramps_live_api.host import document
+from gramps_agent_data_entry.core import _note_types
+from gramps_agent_data_entry.host import document
 
 ACCEPTED_COUNT = 10
 """How many types the owner's ruling accepts. ⚠️ **The RULING's count, not a file's.**

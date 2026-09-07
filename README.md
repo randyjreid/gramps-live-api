@@ -1,6 +1,6 @@
-# gramps-live-api
+# gramps-agent-data-entry
 
-[![CI](https://github.com/randyjreid/gramps-live-api/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/randyjreid/gramps-live-api/actions/workflows/ci.yml)
+[![CI](https://github.com/randyjreid/gramps-agent-data-entry/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/randyjreid/gramps-agent-data-entry/actions/workflows/ci.yml)
 
 **An MCP server that lets an agent propose structured changes to a live desktop application's
 database, with a human approving every write.**
@@ -139,7 +139,7 @@ things that go wrong; this is the shape of it.
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[mcp]"
-claude mcp add gramps -- "$PWD\.venv\Scripts\python.exe" -m gramps_live_api_mcp
+claude mcp add gramps -- "$PWD\.venv\Scripts\python.exe" -m gramps_agent_data_entry_mcp
 ```
 
 If the first line prints a Microsoft Store message instead of doing anything, that is the Store
@@ -155,7 +155,7 @@ project can do for you:
 3. **The tree carries a `.gramps-live-api-copy` sentinel**, placed by hand. Without it every write
    is refused, and that is the whole permission model.
 
-⚠️ **`.\.venv\Scripts\python.exe -m gramps_live_api check` does not report on the first of
+⚠️ **`.\.venv\Scripts\python.exe -m gramps_agent_data_entry check` does not report on the first of
 those, and cannot.** It reads the filesystem: the tree directory, the sentinel, the installed
 runtime, the plugin, and the push hook. It never contacts a running host, and it treats the tree's
 `lock` file as a **failure**, because a locked tree is one Gramps is holding, and it will not break
@@ -170,7 +170,7 @@ client is claimed here that nobody has run.**
 | client | status |
 | --- | --- |
 | **Claude Code** | ⭐ **used throughout development.** Every example in these docs is this client. |
-| **Codex CLI 0.146.0** | ⭐ **tested.** `codex mcp add <name> -- <python> -m gramps_live_api_mcp` registers it as a stdio server; the tool is discovered and invoked, and returns the server's own envelope. |
+| **Codex CLI 0.146.0** | ⭐ **tested.** `codex mcp add <name> -- <python> -m gramps_agent_data_entry_mcp` registers it as a stdio server; the tool is discovered and invoked, and returns the server's own envelope. |
 
 ⚠️ **Codex needs its sandbox opened, or the first call fails and reads like a
 broken server.** Under its defaults (`sandbox: read-only`, `approval: never`)
@@ -365,7 +365,7 @@ the package and never imported by it. Gramps loads them; we do not.
 ## Privacy
 
 This repository is public. The family tree it is built for is not, and no part of it will ever be
-committed here. A guard (`src/gramps_live_api/core/pii_guard.py`) fails the build on absolute
+committed here. A guard (`src/gramps_agent_data_entry/core/pii_guard.py`) fails the build on absolute
 filesystem paths that identify a person or a machine, and on genealogy data, refusing outright any
 file type it cannot prove safe. Three things about it are deliberate: it scans **what Git contains**
 rather than the working tree, because a push publishes every commit it holds; it **fails closed**,

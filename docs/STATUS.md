@@ -47,7 +47,7 @@ a push that would publish personal data. CI also runs the guard, but CI runs `on
 time its job starts GitHub already holds the objects, and on a public repository that is
 publication. **CI detects; only the hook prevents.**
 
-**The readiness script.** `python -m gramps_live_api check` reports on what can be checked from
+**The readiness script.** `python -m gramps_agent_data_entry check` reports on what can be checked from
 the filesystem: the tree directory, its `.gramps-live-api-copy` sentinel, the installed runtime, the
 plugin, and whether the push hook is current. ⚠️ **It cannot tell you Gramps is running with the
 tree open, and does not try** — it never contacts a host, and it treats the tree's `lock` file as a
@@ -75,14 +75,14 @@ and only the first can be answered from that directory.
 correctness first, then hygiene.
 
 ⚠️ **This page said eight on 2 September.** Five of those have closed and one new one was filed, which is why the count below is four again. The five: the deletion-only push gate
-([#193](https://github.com/randyjreid/gramps-live-api/issues/193)), the `propose_note` handle
-([#64](https://github.com/randyjreid/gramps-live-api/issues/64) — the tool it was about is now
+([#193](https://github.com/randyjreid/gramps-agent-data-entry/issues/193)), the `propose_note` handle
+([#64](https://github.com/randyjreid/gramps-agent-data-entry/issues/64) — the tool it was about is now
 retired), the history walk
-([#57](https://github.com/randyjreid/gramps-live-api/issues/57)) and the rules-digest defect
-([#204](https://github.com/randyjreid/gramps-live-api/issues/204)) — **two of those as *dropped*,
+([#57](https://github.com/randyjreid/gramps-agent-data-entry/issues/57)) and the rules-digest defect
+([#204](https://github.com/randyjreid/gramps-agent-data-entry/issues/204)) — **two of those as *dropped*,
 not as done** — and the hand-maintained test counts
-([#36](https://github.com/randyjreid/gramps-live-api/issues/36)), closed by an outside
-contribution. The one filed since is [#218](https://github.com/randyjreid/gramps-live-api/issues/218),
+([#36](https://github.com/randyjreid/gramps-agent-data-entry/issues/36)), closed by an outside
+contribution. The one filed since is [#218](https://github.com/randyjreid/gramps-agent-data-entry/issues/218),
 which is what #36's replacement does not yet check. See what was retired, below.
 
 ⚠️ **This is a snapshot.** A row means the issue is open, not that nobody has started it. The tracker
@@ -90,15 +90,15 @@ is what is current; this page says what the ranking was on the date at the top.
 
 | | Issue | Why it ranks here |
 | --- | --- | --- |
-| 1 | [#173](https://github.com/randyjreid/gramps-live-api/issues/173) — the SDK pin that holds refusal reasons open | ⚠️ **Not a live defect — an upgrade blocker.** SDK 2.1.1 discards a refusal's reason, so `private` and `not found` become one answer at the transport, and that distinction is what ruling 1 is about. A `<2.1` pin holds the floor and a test fails if it is relaxed. The pin is a stopgap; the fix is to stop depending on the SDK to carry a reason. |
-| 2 | [#168](https://github.com/randyjreid/gramps-live-api/issues/168) — role and description are flattened onto the event | Gramps models role per participant; the proposal cannot say so, so two people at one event arrive indistinguishable. |
-| 3 | [#76](https://github.com/randyjreid/gramps-live-api/issues/76) — duplicate eventref handles are counted twice | Produces a warning about an ambiguity that does not exist, which teaches the reader to skip warnings. |
-| 4 | [#218](https://github.com/randyjreid/gramps-live-api/issues/218) — the acceptance-count check does not assert every count was paired | The check that replaced the hand-maintained counts asserts that *some* counts parsed, not that every `**N tests**` statement was matched to a path. A statement written in an unrecognised shape is silently unwatched, which is the failure the check exists to prevent. |
+| 1 | [#173](https://github.com/randyjreid/gramps-agent-data-entry/issues/173) — the SDK pin that holds refusal reasons open | ⚠️ **Not a live defect — an upgrade blocker.** SDK 2.1.1 discards a refusal's reason, so `private` and `not found` become one answer at the transport, and that distinction is what ruling 1 is about. A `<2.1` pin holds the floor and a test fails if it is relaxed. The pin is a stopgap; the fix is to stop depending on the SDK to carry a reason. |
+| 2 | [#168](https://github.com/randyjreid/gramps-agent-data-entry/issues/168) — role and description are flattened onto the event | Gramps models role per participant; the proposal cannot say so, so two people at one event arrive indistinguishable. |
+| 3 | [#76](https://github.com/randyjreid/gramps-agent-data-entry/issues/76) — duplicate eventref handles are counted twice | Produces a warning about an ambiguity that does not exist, which teaches the reader to skip warnings. |
+| 4 | [#218](https://github.com/randyjreid/gramps-agent-data-entry/issues/218) — the acceptance-count check does not assert every count was paired | The check that replaced the hand-maintained counts asserts that *some* counts parsed, not that every `**N tests**` statement was matched to a path. A statement written in an unrecognised shape is silently unwatched, which is the failure the check exists to prevent. |
 
 ## What is deliberately not planned
 
 ⭐ **Sixty-eight of the seventy-two open issues are labelled
-[`untriggered`](https://github.com/randyjreid/gramps-live-api/issues?q=is%3Aopen+label%3Auntriggered),
+[`untriggered`](https://github.com/randyjreid/gramps-agent-data-entry/issues?q=is%3Aopen+label%3Auntriggered),
 and leaving them there is a decision, not a backlog that got away.**
 
 They are review findings — real ones, each a genuine gap somebody could construct. **What none of
@@ -120,7 +120,7 @@ converging, every finding real, against a property that had no fixed point.
 | **The addon as unwritten** | `gramps_plugin/` is written and loads at Gramps startup. |
 | **Two handover documents** | Deleted on the owner's approval once the work they described had shipped; the README and this page carry what survived. |
 | **A "still holds" column in the rulings index** | Deleted. It was written from the rulings and never checked against the source, and was wrong four times in five review rounds. |
-| **The anchored history walk** — skip the prefix a clean scan already proved | Nothing. The guard walks the whole history again, as it always did. It was built, reviewed and dropped: the skip needed a digest describing the rules actually running, and four mechanisms were each defeated by a different interpreter caching behaviour — the last by disagreeing between Python 3.10 and 3.12 on the same commit. **The ~145 s saving was real; it was not worth a guard that may trust an anchor written under rules that are not the rules that run.** [#57](https://github.com/randyjreid/gramps-live-api/issues/57), and the cost is refiled as [#207](https://github.com/randyjreid/gramps-live-api/issues/207). |
+| **The anchored history walk** — skip the prefix a clean scan already proved | Nothing. The guard walks the whole history again, as it always did. It was built, reviewed and dropped: the skip needed a digest describing the rules actually running, and four mechanisms were each defeated by a different interpreter caching behaviour — the last by disagreeing between Python 3.10 and 3.12 on the same commit. **The ~145 s saving was real; it was not worth a guard that may trust an anchor written under rules that are not the rules that run.** [#57](https://github.com/randyjreid/gramps-agent-data-entry/issues/57), and the cost is refiled as [#207](https://github.com/randyjreid/gramps-agent-data-entry/issues/207). |
 | **[`roadmap.md`](roadmap.md) as the current plan** | This page. The roadmap still describes three tools, writes that only ever target a copy, and an unwritten addon. It is kept because the open questions it records are still the real ones. |
 
 ⛔ **The note flow is retired, and this paragraph used to say the opposite.** It read *they are not

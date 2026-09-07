@@ -36,8 +36,8 @@ MODULE_VERSION = f"{VERSION_TUPLE[0]}.{VERSION_TUPLE[1]}"
 
 register(
     GENERAL,
-    id="gramps_live_api_host",
-    name="gramps-live-api: loopback host",
+    id="AgentDataEntry",
+    name="Agent Data Entry",
     description=(
         "Answers a loopback HTTP request about the tree that is currently open, "
         "on 127.0.0.1 only, with a bearer token generated at startup. Read only: "
@@ -47,7 +47,7 @@ register(
     version="0.0.0",
     gramps_target_version=MODULE_VERSION,
     status=STABLE,
-    fname="gramps_live_api_host.py",
+    fname="AgentDataEntry.py",
     authors=["randyjreid"],
     authors_email=[],
     # ⭐ The whole reason this is a GENERAL plugin. Gramps loads the module at

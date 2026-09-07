@@ -53,11 +53,11 @@ from __future__ import annotations
 import ast
 import pathlib
 
-from gramps_live_api.core import _specified_containers as checklist
+from gramps_agent_data_entry.core import _specified_containers as checklist
 from tests.fixtures import privacy_containers
 
 ACCESSOR = (
-    pathlib.Path(__file__).resolve().parents[2] / "src" / "gramps_live_api" / "host" / "accessor.py"
+    pathlib.Path(__file__).resolve().parents[2] / "src" / "gramps_agent_data_entry" / "host" / "accessor.py"
 )
 
 GATE = "_public"

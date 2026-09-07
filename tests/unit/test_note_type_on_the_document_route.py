@@ -25,8 +25,8 @@ from typing import Any
 
 import pytest
 
-from gramps_live_api.core import _note_types
-from gramps_live_api.host import document
+from gramps_agent_data_entry.core import _note_types
+from gramps_agent_data_entry.host import document
 from tests.fixtures.host_sources import REPOSITORY_ROOT
 
 TEXT = "A line copied from an invented parish register."
@@ -328,7 +328,7 @@ def writer_module() -> Any:
     the accepted names cannot be shared at runtime.
     """
     specification = importlib.util.spec_from_file_location(
-        "a_writer_for_note_types", REPOSITORY_ROOT / "gramps_plugin" / "gramps_live_api_writer.py"
+        "a_writer_for_note_types", REPOSITORY_ROOT / "gramps_plugin" / "AgentDataEntry_writer.py"
     )
     assert specification is not None and specification.loader is not None
     module = importlib.util.module_from_spec(specification)

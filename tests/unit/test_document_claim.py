@@ -28,7 +28,7 @@ import pathlib
 
 import pytest
 
-from gramps_live_api.core import proposals
+from gramps_agent_data_entry.core import proposals
 
 
 def a_proposal(directory: pathlib.Path, proposal_id: str = "abc123") -> tuple[str, str]:

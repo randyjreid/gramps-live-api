@@ -11,7 +11,7 @@ runner that has never heard of Gramps.
 ``verify_operation``, the ``Tree`` protocol, the approval digest, the undo
 record pair and ``NOTE_TYPE_ATTRIBUTES`` all served the note flow, which is
 retired; the document route writes inside Gramps through
-``gramps_plugin/gramps_live_api_writer.py`` and journals through
+``gramps_plugin/AgentDataEntry_writer.py`` and journals through
 ``host/document.py``. **One thing did not go with it**, and it is load bearing
 somewhere else:
 

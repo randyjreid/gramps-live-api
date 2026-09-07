@@ -3,7 +3,7 @@
 ⚠️ **This is the blocking criterion.** R3 is ruled and its only egress bound is
 the ``priv`` exclusion, the required search term and the result cap. Those live
 in ``core/people.py``, the export reader; **nothing in
-``src/gramps_live_api/host/`` implemented any of them**, so a live read surface
+``src/gramps_agent_data_entry/host/`` implemented any of them**, so a live read surface
 built without this ships R3's bound with nothing behind it.
 
 ⛔ **The three bounds answer different questions**, and the third is the one that
@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from gramps_live_api.host import reads
+from gramps_agent_data_entry.host import reads
 
 
 def row(gramps_id: str, display: str, *, private: bool) -> tuple[bool, reads.Match]:
@@ -145,7 +145,7 @@ def test_a_private_node_appears_in_missing_just_like_an_absent_one() -> None:
     it the one id that is neither found nor missing — and comparing those two
     fields recovers exactly the fact the privacy flag was hiding.
     """
-    from gramps_live_api.host import document
+    from gramps_agent_data_entry.host import document
 
     absent = document.Resolved("p1", "I9999", "person", found=False)
     private = document.Resolved("p2", "I0001", "person", found=False, private=True)
@@ -165,7 +165,7 @@ def test_the_write_path_can_still_tell_them_apart() -> None:
     difference, and the write path checks it first — so a private target is
     still refused BY NAME there rather than reported absent.
     """
-    from gramps_live_api.host import document
+    from gramps_agent_data_entry.host import document
 
     resolution = document.Resolution(
         nodes=(
@@ -187,7 +187,7 @@ def test_the_refusal_puts_private_before_absent_so_no_caller_has_to() -> None:
     ⭐ ``refusal()`` answers both in the right order, so the convention is deleted
     rather than documented.
     """
-    from gramps_live_api.host import document
+    from gramps_agent_data_entry.host import document
 
     both = document.Resolution(
         nodes=(

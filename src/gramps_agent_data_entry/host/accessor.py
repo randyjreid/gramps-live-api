@@ -31,7 +31,7 @@ import re
 import sqlite3
 import typing
 
-from gramps_live_api.host import document, log, mainthread, reads, status
+from gramps_agent_data_entry.host import document, log, mainthread, reads, status
 
 # ⚠️ Every import here is a MODULE, including ``typing``. Rule 2 above is
 # checked with no exemption list, and ``from typing import Any`` would need one

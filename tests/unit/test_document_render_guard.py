@@ -34,9 +34,9 @@ from typing import Any
 
 import pytest
 
-from gramps_live_api.core import render_guard
-from gramps_live_api.core._unrenderable import UNRENDERABLE_RANGES
-from gramps_live_api.host import document
+from gramps_agent_data_entry.core import render_guard
+from gramps_agent_data_entry.core._unrenderable import UNRENDERABLE_RANGES
+from gramps_agent_data_entry.host import document
 
 DEFAULT_IGNORABLE = "Default_Ignorable_Code_Point"
 """The derived core property that holds the class's invisible half.
@@ -1018,8 +1018,8 @@ def test_propose_document_stores_a_graph_the_approval_render_would_refuse(tmp_pa
             "propose_document cannot be reached at all -- there is nothing to cover "
             "here. CI's mcp leg installs '.[mcp]'."
         )
-    from gramps_live_api import config
-    from gramps_live_api_mcp import server as mcp_server
+    from gramps_agent_data_entry import config
+    from gramps_agent_data_entry_mcp import server as mcp_server
     from tests.fixtures import trees
     from tests.unit.test_cli import equipped
 

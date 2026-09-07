@@ -25,7 +25,7 @@ from typing import Any
 
 import pytest
 
-from gramps_live_api.host import document
+from gramps_agent_data_entry.host import document
 from tests.fixtures.host_sources import REPOSITORY_ROOT
 
 PERSON = {"id": "p0"}
@@ -212,7 +212,7 @@ def _advertised_shape() -> dict[str, set[str]]:
     """
     import re
 
-    text = (REPOSITORY_ROOT / "src" / "gramps_live_api_mcp" / "server.py").read_text(
+    text = (REPOSITORY_ROOT / "src" / "gramps_agent_data_entry_mcp" / "server.py").read_text(
         encoding="utf-8"
     )
     # ⚠️ The schema block now sits at the END of the description, after the rules,
@@ -283,7 +283,7 @@ def test_the_description_TELLS_the_model_both_constraints() -> None:
     whole proposal -- so an undocumented rule costs a rebuild of the graph rather
     than a corrected field.
     """
-    text = (REPOSITORY_ROOT / "src" / "gramps_live_api_mcp" / "server.py").read_text(
+    text = (REPOSITORY_ROOT / "src" / "gramps_agent_data_entry_mcp" / "server.py").read_text(
         encoding="utf-8"
     )
 
@@ -325,7 +325,7 @@ def test_the_tools_the_advice_NAMES_actually_exist() -> None:
     ⭐ Same binding as the tool description: the text is a claim about the code,
     and a claim nobody checks is one that goes stale silently.
     """
-    server = (REPOSITORY_ROOT / "src" / "gramps_live_api_mcp" / "server.py").read_text(
+    server = (REPOSITORY_ROOT / "src" / "gramps_agent_data_entry_mcp" / "server.py").read_text(
         encoding="utf-8"
     )
     named = set()
@@ -393,7 +393,7 @@ def test_BOTH_refusal_sites_carry_the_SAME_advice() -> None:
     # reason unrelated to the property it names.
     code = chr(10).join(
         line
-        for line in (REPOSITORY_ROOT / "src" / "gramps_live_api_mcp" / "server.py")
+        for line in (REPOSITORY_ROOT / "src" / "gramps_agent_data_entry_mcp" / "server.py")
         .read_text(encoding="utf-8")
         .splitlines()
         if not line.strip().startswith("#")

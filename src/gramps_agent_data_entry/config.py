@@ -30,8 +30,8 @@ from pathlib import Path
 DIRECTORY_NAME = "gramps-live-api"
 CONFIG_FILE = "config.json"
 
-ENV_COPY = "GRAMPS_LIVE_API_COPY"
-ENV_RUNTIME = "GRAMPS_LIVE_API_RUNTIME"
+ENV_COPY = "GRAMPS_AGENT_DATA_ENTRY_COPY"
+ENV_RUNTIME = "GRAMPS_AGENT_DATA_ENTRY_RUNTIME"
 
 RUNTIME_NAME = "grampsd.exe"
 """The daemon launcher, and never ``gramps.exe``.
