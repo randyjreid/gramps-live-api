@@ -689,3 +689,84 @@ One issue per finding, each quoting the probe verbatim; none folded into another
 4. **#220.** Rename now with the drafted comment is recommended. Waiting is the alternative and
    makes an external contributor's availability the gate on #227.
 5. **Depth.** Whether the second review seat runs on this change, per the standing loop.
+
+---
+
+## 17. The owner's gate decisions, 2026-09-06
+
+**Recorded by the conductor. This section is a record of rulings, not new design.**
+Where it contradicts an earlier section, this section governs and says so.
+
+### ⭐ The finding the build reads first
+
+> **The test suite does not measure this change at all.**
+
+Measured by the probe, not asserted: the suite's pass rate is **identical before and after** the
+rename, core `1072 passed, 17 skipped` and mcp `1125 passed, 10 skipped`. Twelve findings, **three
+caught by a gate, and all three of those are mechanical** (two line-length, one path). **Every
+finding with a user-visible consequence is invisible to CI.**
+
+⚠️ **What this means for the build: a green gate is not evidence that this change is correct.** It
+is evidence that the change did not break something the suite already covered. The acceptance
+criteria in section 10 exist because the gates do not, and the manual Gramps check is not a
+formality appended to them, it is the only check that observes the one risk section 12 could not
+dismiss.
+
+### The five answers
+
+1. **Distribution and repository slug: `gramps-agent-data-entry`.** Exact match with the addon
+   name. The shorter alternative in section 3 is declined; the 7 line-length edits, 6 of them
+   automatic, are accepted.
+2. **The freeze: YES**, all on-disk names, as section 4 recommends. F5 alone carries it.
+3. **The F4 pin is added, not filed**, as section 5 recommends.
+4. **Addon display name: `Agent Data Entry`.**
+5. **#220: rename now.** ⚠️ **With one change to section 7's sequence, see below.**
+
+### ⚠️ The freeze caveat becomes an acceptance criterion
+
+Section 4 records that this plan freezes **more** than either arm the probe executed, so **that
+state was never run**. It is a hypothesis, and the plan's defence is a measurement over tracked
+files that only one test asserts a frozen string as a literal.
+
+**The build MEASURES it rather than inheriting it.** Added to section 10:
+
+- Re-run the component counts in section 4 on the branch head and report them, with a positive
+  control in the same command shape.
+- Report the actual full-gate result for the frozen state, both legs, as a measurement of a
+  configuration no probe arm executed.
+- Confirm `tests/unit/test_host_plugin.py:756` still reaches `UNDO_DIRECTORY` through the constant
+  and still acts as a pin on it.
+
+### ⚠️ Section 7's sequence changes: the #220 comment moves
+
+Section 7 places the #220 comment at step 2, **before** the GitHub rename. **That is superseded.**
+The comment is posted **when the rename lands, not before**, and its wording goes to the owner for
+approval before it is posted. The corrected sequence:
+
+1. Build on the branch. Every local gate. Every local review round to disposition. Nothing pushed.
+2. Rename the GitHub repository.
+3. `git remote set-url origin ...`, once in the primary checkout and once in the counsel clone.
+4. **Post the #220 comment**, wording approved by the owner beforehand.
+5. Push the branch, open the pull request.
+6. Bot rounds, full six-job matrix green, then the owner merges.
+
+Everything section 7 argues about why the GitHub rename precedes the push is unchanged; only the
+comment moves, from before the rename to after it.
+
+### Depth: FULL
+
+**Codex plan round, Codex code rounds to closure, and an Opus `/code-review` pass.**
+
+The owner's reason, recorded because it is the argument for the cost: **the probe proved every gate
+is blind to this change, so review is the only thing that can catch a bad rename.**
+
+### The local checkout directory is not renamed
+
+Confirmed, as section 8 recommends. Nine worktrees share one repository, so the remote update is one
+command, but renaming the directory breaks ten `gitdir:` pointers at once. Nothing requires it, and
+leaving it removes half of probe F7.
+
+### Section 15's first issue is filed
+
+**F4 is issue #248**, filed with the negative control verbatim, so the defect does not depend on
+this plan landing. The remaining three issues in section 15 are still to file.
