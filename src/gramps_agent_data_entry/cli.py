@@ -369,7 +369,7 @@ HOST_MODULES = (
 
 ⚠️ **A directory named ``gramps_agent_data_entry`` is not the package.** An empty or
 partial one satisfied ``isdir`` and this check reported ready, while host
-startup then died on ``from gramps_agent_data_entry.host import accessor, service`` --
+startup then died on ``from gramps_live_api.host import accessor, service`` --
 the same defect this check exists to catch, one level down. **The test fixture
 that exercised the check created exactly such a directory**, which is how it was
 found.

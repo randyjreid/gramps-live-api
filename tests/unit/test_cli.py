@@ -134,7 +134,7 @@ def _lay_out_the_host_package(source: Path) -> Path:
 
     ⛔ **An empty directory named ``gramps_agent_data_entry`` is not the package**, and
     this helper used to make one. ``check`` reported the source ready, and host
-    startup would then have died on ``from gramps_agent_data_entry.host import accessor,
+    startup would then have died on ``from gramps_live_api.host import accessor,
     service`` -- so the fixture was asserting the exit code of a setup that does
     not work, which is the same defect the check exists to catch.
 
@@ -359,7 +359,7 @@ def test_an_EMPTY_gramps_agent_data_entry_directory_does_not_satisfy_the_source_
     ⚠️ The first version of this check asked ``isdir(candidate/"gramps_live_api")``
     and stopped. An empty or partial directory satisfied it, ``check`` printed
     **ready**, and host startup would then have died on ``from
-    gramps_agent_data_entry.host import accessor, service`` — reporting the setup sound
+    gramps_live_api.host import accessor, service`` — reporting the setup sound
     for the one route that could not run.
 
     ⭐ **This test's own fixture is how it was found.** ``equipped`` created
