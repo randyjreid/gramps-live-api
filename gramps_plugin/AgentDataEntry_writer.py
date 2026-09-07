@@ -24,6 +24,13 @@ import os
 import traceback
 
 SENTINEL = ".gramps-live-api-copy"
+"""⛔ **Frozen by the rename to AgentDataEntry, deliberately.** It names a file
+already on the owner's blessed trees, and it is the THIRD spelling of one value:
+this module is ``exec``d by Gramps rather than imported, so it cannot share the
+package's constant. Drift between the three is what
+``tests/unit/test_sentinel_spellings.py`` refuses. It is an on-disk name, not an
+occurrence the rename missed."""
+
 NAME_FILE = "name.txt"
 
 

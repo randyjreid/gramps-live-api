@@ -32,6 +32,11 @@ import traceback
 import uuid
 
 DIRECTORY_NAME = "gramps-live-api"
+"""⛔ **Frozen by the rename to AgentDataEntry, deliberately, and it must stay
+equal to the package's own constant.** It names the state directory already on
+this machine's disk. It is an on-disk name, not an occurrence the rename
+missed."""
+
 LOG_FILE = "host.log"
 """⚠️ Duplicated from ``gramps_agent_data_entry.host.paths`` ON PURPOSE, and pinned by
 test. The one failure this file exists to make visible is the one where that
