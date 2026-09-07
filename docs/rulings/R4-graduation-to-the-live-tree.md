@@ -1,3 +1,4 @@
+⚠️ **Written before the project was renamed to `AgentDataEntry`.** Apart from this line the page is left as it was written; `README.md` records which names the rename changed and which it did not.
 # R4 — Graduation to the live tree: blessed, with a backup taken first
 
 > ⭐ **STATUS: the DECISION holds.** It is why the owner's live tree is writable

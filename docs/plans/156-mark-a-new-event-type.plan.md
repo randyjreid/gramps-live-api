@@ -1,3 +1,4 @@
+⚠️ **Written before the project was renamed to `AgentDataEntry`.** Apart from this line the page is left as it was written; `README.md` records which names the rename changed and which it did not.
 # Plan — #156: an invented event type should not look like a standard one
 
 **FULL tier.** Touches the approval dialog. ⛔ Not built. This page is the

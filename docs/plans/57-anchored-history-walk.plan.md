@@ -1,3 +1,4 @@
+⚠️ **Written before the project was renamed to `AgentDataEntry`.** Apart from this line the page is left as it was written; `README.md` records which names the rename changed and which it did not.
 # Plan — #57: stop re-walking settled history on every run
 
 > ⛔ **HISTORICAL. This was BUILT, REVIEWED AND DROPPED. Do not implement it.**

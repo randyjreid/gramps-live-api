@@ -1,3 +1,4 @@
+⚠️ **Written before the project was renamed to `AgentDataEntry`.** Apart from this line the page is left as it was written; `README.md` records which names the rename changed and which it did not.
 # Rulings
 
 **Decisions the owner made about this project, with what each one cost.** Each

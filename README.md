@@ -391,6 +391,32 @@ accepted as a target — a fail-open the `check` command had to report as a doct
 a warning. R9 retired the tool, the export and the setting together, and every read now goes through
 the accessor against the tree Gramps has open.
 
+## The old name
+
+**This project was called `gramps-live-api` until it was renamed to `AgentDataEntry` on 2026-09-07.**
+The rename changed the addon name and id, the distribution and repository name, the two Python
+packages, the plugin filenames, and the environment variables, which now begin
+`GRAMPS_AGENT_DATA_ENTRY_`.
+
+⛔ **It deliberately changed no name that had already been written to a disk**, so nothing you
+already have needs moving or re-creating. These keep the old spelling on purpose, and each says so
+in a line beside its own constant:
+
+| what | name, unchanged |
+| --- | --- |
+| the sentinel that blesses a tree for writing | `.gramps-live-api-copy` |
+| the undo journals inside a blessed copy | `.gramps-live-api-undo` |
+| pending proposals inside a blessed copy | `.gramps-live-api-proposals` |
+| the identifier written into every journal record | `gramps-live-api/document/1` |
+| the state directory holding config, logs and backups | `%APPDATA%\gramps-live-api` |
+
+An existing blessing, an existing journal, an existing proposal and an existing backup all keep
+working, and the install doctor keeps printing those names because they are what is on the disk.
+The one thing worth doing by hand is removing an old plugin junction; `docs/using.md` says where.
+
+Every document under `docs/plans/`, `docs/reviews/` and `docs/rulings/` describes work done under
+the old name and is left exactly as it was written, with one line added at the top of each saying so.
+
 ## Licence
 
 GPL-2.0. A Gramps addon imports Gramps and is a derivative work of it, so the licence is not a choice

@@ -1,3 +1,4 @@
+⚠️ **Written before the project was renamed to `AgentDataEntry`.** Apart from this line the page is left as it was written; `README.md` records which names the rename changed and which it did not.
 # Slice 2 — review ledger
 
 **Branch:** `slice2-mcp-server`. One entry per finding, quoted, **never summarised into another

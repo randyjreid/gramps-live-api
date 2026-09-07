@@ -1,3 +1,4 @@
+⚠️ **Written before the project was renamed to `AgentDataEntry`.** Apart from this line the page is left as it was written; `README.md` records which names the rename changed and which it did not.
 # R8 — Channel architecture: an in-process HTTP host inside Gramps
 
 > ⭐ **STATUS: the DECISION holds**, and it is the architecture of the document

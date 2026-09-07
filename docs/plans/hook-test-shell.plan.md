@@ -1,3 +1,4 @@
+⚠️ **Written before the project was renamed to `AgentDataEntry`.** Apart from this line the page is left as it was written; `README.md` records which names the rename changed and which it did not.
 # Plan for #225: the hook test whose shell is supplied by whoever launched pytest
 
 ## Context

@@ -93,6 +93,10 @@ if (Test-Path $link) {
 }
 ```
 
+⚠️ **If you installed this addon before it was renamed, remove the old junction:**
+`Remove-Item "$plugins\gramps-live-api"`. It points at this same checkout, so leaving it registers
+the addon twice from two directories, and `check` reports only the first one it finds.
+
 ⭐ **One version folder is not a choice; two are, and it refuses to make it.**
 This used to hardcode `gramps60`, then it ranked the `gramps<digits>` folders and
 took the greatest. Ranking is wrong whenever a machine carries more than one,

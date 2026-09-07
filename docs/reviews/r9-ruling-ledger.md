@@ -1,3 +1,4 @@
+⚠️ **Written before the project was renamed to `AgentDataEntry`.** Apart from this line the page is left as it was written; `README.md` records which names the rename changed and which it did not.
 # R9 review ledger: pull request #222, `r9-ruling`
 
 Generated 2026-09-05 from the pull request's review threads. Every finding below is

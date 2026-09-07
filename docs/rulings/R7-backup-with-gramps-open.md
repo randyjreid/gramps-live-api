@@ -1,3 +1,4 @@
+⚠️ **Written before the project was renamed to `AgentDataEntry`.** Apart from this line the page is left as it was written; `README.md` records which names the rename changed and which it did not.
 # R7 — Backup with Gramps open: SQLite's backup API against the live connection
 
 > ⭐ **STATUS: the decision holds.** It is what makes R4's *recoverable-after*
