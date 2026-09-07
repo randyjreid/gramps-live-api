@@ -184,7 +184,16 @@ HOOK_MARKER = "gramps_agent_data_entry.core.pii_guard"
 """What makes an installed ``pre-push`` OURS rather than merely present.
 
 ⚠️ Someone else's hook at that path is not this gate, and reporting it as one
-would be worse than reporting nothing."""
+would be worse than reporting nothing.
+
+⛔ **That is why the marker is tested BEFORE the staleness comparison, and why
+the fix for a pre-rename hook was to put the remedy in this branch's message
+rather than to swap the order.** A pre-rename copy carries no marker and is
+genuinely stale, so comparing first would tell that reader the right thing --
+and would tell every reader with a foreign hook that theirs is a stale copy of
+ours and to re-copy over it, which is exactly the false report this constant
+exists to prevent. The marker answers *is this ours*; what was wrong was a
+message that went on to answer *what does it do*, and got that wrong."""
 
 
 def _push_gate_check() -> Check:
@@ -233,8 +242,15 @@ def _push_gate_check() -> Check:
         return Check(
             "push gate",
             False,
-            "a pre-push hook is installed but it is not this one -- it does not run "
-            "pii_guard. Whatever it does, the personal-data gate is not wired up",
+            f"a pre-push hook is installed but it does not carry this checkout's "
+            f"marker, so it is not the gate this checkout ships. Two states look the "
+            f"same from here and the remedy is the same for both. A copy taken before "
+            f"the rename to AgentDataEntry DOES still run pii_guard, under a module "
+            f"name this checkout no longer has -- so it exits non-zero, the hook reads "
+            f"a non-zero exit as a finding, and the next push is refused over data that "
+            f"is not there. Someone else's hook is not this gate at all, and the "
+            f"personal-data guard is not wired up. Read what is installed, then copy "
+            f"ours over it: cp scripts/hooks/pre-push {installed}",
         )
 
     # ⛔ **Executable, not merely present.** Git 2.43 reports that it ignored a

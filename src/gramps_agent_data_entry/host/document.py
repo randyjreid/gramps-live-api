@@ -1756,9 +1756,7 @@ which path wrote it.
 
 ⛔ **Frozen by the rename to AgentDataEntry, deliberately.** Journals already
 sit under this name inside blessed trees, and nothing tells a user to move
-them: this directory has no refusal message naming it. Renaming it would put
-those journals outside ``prune``'s retention bound, which is the same failure
-``host/backup.py`` records one level down for a renamed tree."""
+them: this directory has no refusal message naming it."""
 
 JOURNAL_FORMAT = "gramps-live-api/document/1"
 """⛔ **Frozen by the rename to AgentDataEntry, deliberately.** This string is

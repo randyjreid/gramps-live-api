@@ -96,7 +96,9 @@ if (Test-Path $link) {
 this same checkout, so leaving it registers the addon twice from two directories, and `check`
 reports only the first one it finds.
 
-Run the install check. Its `plugin:` line names the folder the addon is installed in. **Delete the
+Run the install check, which is the `check` command under **The one command** further down this
+page: it makes the virtual environment first, and a bare `python` here would meet the Microsoft
+Store shim instead. Its `plugin:` line names the folder the addon is installed in. **Delete the
 folder called `gramps-live-api` that sits beside it**, in that same plugins directory.
 
 It is a link rather than a copy, so removing it removes the link and leaves the checkout it points

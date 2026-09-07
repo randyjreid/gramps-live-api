@@ -398,7 +398,7 @@ The rename changed the addon name and id, the distribution and repository name, 
 packages, the plugin filenames, and the environment variables, which now begin
 `GRAMPS_AGENT_DATA_ENTRY_`.
 
-⛔ **It deliberately changed no name that had already been written to a disk**, so nothing you
+⛔ **It deliberately changed no name that had already been written to a disk**, so no data you
 already have needs moving or re-creating. These keep the old spelling on purpose, and each says so
 in a line beside its own constant:
 
@@ -412,7 +412,19 @@ in a line beside its own constant:
 
 An existing blessing, an existing journal, an existing proposal and an existing backup all keep
 working, and the install doctor keeps printing those names because they are what is on the disk.
-The one thing worth doing by hand is removing an old plugin junction; `docs/using.md` says where.
+
+⚠️ **What the rename does break is anything you installed BY HAND that names a Python module**, and
+those are copies this repository cannot reach. Three of them, and the first is the one that bites:
+
+- **An installed `pre-push` hook.** Installation is a copy and git never refreshes it, so one taken
+  before the rename still runs the guard under the old module name. That module is gone, the command
+  exits non-zero, and the hook reads a non-zero exit as a personal-data finding -- so **your next
+  push is refused over data that is not there.** Re-copy it: `cp scripts/hooks/pre-push` over the
+  installed hook, whose path `check` prints; [`CONTRIBUTING.md`](CONTRIBUTING.md) has the command for
+  both shells. `check` reports this state and names the same remedy.
+- **An MCP registration whose `args` name the old module.** It stops starting. Re-point it at
+  `gramps_agent_data_entry_mcp`, as under *Getting started* above.
+- **An old plugin junction.** [`docs/using.md`](docs/using.md) says where and how.
 
 Every document under `docs/plans/`, `docs/reviews/` and `docs/rulings/` describes work done under
 the old name and is left exactly as it was written, with one line added at the top of each saying so.

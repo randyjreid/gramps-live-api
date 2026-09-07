@@ -719,7 +719,13 @@ def test_SOMEONE_ELSES_pre_push_hook_is_not_reported_as_this_gate(
     check = THE_REAL_PUSH_GATE_CHECK()
 
     assert not check.ok, "a foreign pre-push hook was reported as this project's gate"
-    assert "not this one" in check.detail, check.detail
+    assert "not the gate this checkout ships" in check.detail, check.detail
+    # ⛔ **The message may not assert what the hook DOES.** This branch is also
+    # what a pre-rename copy lands in, and that copy runs the guard -- under a
+    # module name the rename removed. Saying it does not run the guard sent that
+    # reader looking for a hook that was already there, with no remedy offered.
+    assert "it does not run" not in check.detail, check.detail
+    assert "cp scripts/hooks/pre-push" in check.detail, check.detail
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Windows has no executable bit to withhold")
