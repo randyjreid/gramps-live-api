@@ -129,7 +129,7 @@ One block at the top is one claim.
 ## Context
 
 The owner has chosen `AgentDataEntry` as the name of the Gramps addon. The project currently
-spells itself `gramps-live-api` in 572 places across 106 of 147 tracked files on `main`. Issue #227
+spells itself `gramps-live-api` in 572 places across 110 of 147 tracked files on `main`. Issue #227
 is the packaging and install slice, which publishes a name; renaming after publication is expensive
 and public, so **the rename comes before #227**. That ordering is the reason this is happening now
 rather than later, and it is recorded here so it does not have to be remembered.
@@ -1477,4 +1477,4 @@ control of 0 for an absent pattern and cross-checked two ways (110 in total, 92 
 dated directories, 76 of them `.py`). `106` is the count of `.py` files over the four code trees,
 which section 6 and section 10 both use correctly, and it appears to have been copied into a
 sentence about a different quantity. It is one word in the Context section, it is not a criterion
-under rule 0b, and no other figure depends on it.
+under rule 0b, and no other figure depends on it. **The conductor corrected it to 110 in a documentation-only commit, flagged as such, after confirming the measurement independently.**
