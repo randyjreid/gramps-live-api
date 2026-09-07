@@ -7,13 +7,13 @@ the harness plan file, so this document is the plan; copy it to that path at bui
 tree was not modified, the suite was not run, Gramps was not started, and nothing under
 `%APPDATA%` or `.claude.json` was touched. Every command run for this plan was read only.
 
-**Revision 4, 2026-09-07.** Round 3 of the Codex plan gate raised **one** finding, blocking: a fix
-regression on round 2's own repair, because the disposition key was not injective. The conductor
-raised a second, and it is structural: **this plan sat inside its own measurement scope**, so every
-revision falsified its own arithmetic. **Section 0 is new and answers both at the top**, as one
-block rather than as edits scattered through six sites. Sections 6, 10, 11, 12 and 18 follow it.
-**Round 2's bound is unchanged and is not re-litigated here.** What changed and why is in section
-18, round 3 beside rounds 2 and 1.
+**Revision 5, 2026-09-07.** Round 4 of the Codex plan gate raised **two** findings, one blocking: a
+fix regression on round 3's own repair, because rule 0a's exclusion control and rule 0a's own check 4
+contradicted each other, so a correct build failed its own gate. The second is a recorded
+measurement that was wrong. **Only check 3 changes, in section 0 and in its restatement in section
+10, plus the one wrong figure and the head labels that go with it.** Everything else is unchanged,
+including round 2's bound, round 3's key, and section 17's rulings. What changed and why is in
+section 18, round 4 beside rounds 3, 2 and 1.
 
 ---
 
@@ -30,20 +30,24 @@ block rather than as edits scattered through six sites. Sections 6, 10, 11, 12 a
 ':(exclude)docs/plans/rename-to-agentdataentry.plan.md'
 ```
 
-**Why, measured rather than argued.** The census has now moved three times, 572, then 636, then
-652, then 655, and each time it was read as new information. It was not:
+**Why, measured rather than argued.** The census has now moved four times, 572, then 636, then 652,
+then 655, then 666 at `N` while this very revision was being written, and the first four moves were
+each read as new information. They were not:
 
 ```
 occurrences of the old name, whole repository, at M ....... 655
 occurrences in this page alone, at M ....................... 83
 occurrences, whole repository minus this page, at M ....... 572
 occurrences, whole repository, on main .................... 572
+occurrences, whole repository, at N ....................... 666
+occurrences, whole repository minus this page, at N ....... 572
 files differing between main and M ......... 1, this page
+files differing between M and N ............ 1, this page
 ```
 
 **The entire drift was this page's own growth, and nothing else moved at all.** With this page out
-of scope the baseline is `572` on `main` and `572` at `M`, unchanged across three plan revisions,
-and it does not move when a fourth revision is written.
+of scope the baseline is `572` on `main`, `572` at `M` and `572` at `N`, unchanged across four plan
+revisions, and it does not move when a fifth is written.
 
 **The exclusion costs the build nothing, because the page was already outside the sweep twice
 over.** It sits in `docs/plans`, which is class D, not swept. And section 6 rule 1 already excludes
@@ -60,8 +64,27 @@ because they are classes P1, P2 and P3, and this page is in none of them.
 2. **It excludes exactly that path's occurrences.** `census_all(B)` minus `census(B)` equals the
    census of the page alone, measured directly. At `M`: `655 - 572 = 83`, and the page alone
    measures 83.
-3. **Every command carrying the exclusion is run once with it removed, and the two must differ.**
-   At `M`: 655 against 572, 183 against 100, and 18 files against 19.
+3. ⭐ **Every command carrying the exclusion is run once with it removed, and each result is checked
+   against what the exclusion should do to THAT command.** A control that fires on everything is not
+   a control, so the expected result is stated per class rather than as one rule with an exception
+   bolted on:
+
+   - **A command that counts or lists state at one head must DIFFER**, because this page is tracked
+     at that head and carries the old name, so removing the exclusion must put it back. Measured at
+     `M`: 655 against 572 for the census, 183 against 100 for class D, 18 files against 19 for the
+     banner set, and 147 against 148 for the path listing.
+   - **Section 10(b)'s two diff terms, `removed` and `added`, must be EQUAL**, because check 4
+     proves this page does not change between `B` and `HEAD`, and a file that does not change
+     contributes nothing to either side of a diff. **Here equality is what proves the exclusion**,
+     for exactly the reason check 4 gives, and inequality is the failure: it says the build edited
+     this page, which section 14 forbids.
+
+   ⚠️ **The equality half is calibrated against a positive control in the same command shape**, so
+   it is an instrument that can fire rather than a check that passes by construction. Over
+   `main~80..main`, a range in which this page does not change, the terms read `removed 9,
+   added 536` with the exclusion and `removed 9, added 536` without it. Over `M..N`, a range in
+   which it did change, they read `removed 0, added 0` with the exclusion against `removed 0,
+   added 11` without it. **The check separates the two cases, which is what makes it a control.**
 4. ⭐ **The hole is proved empty for the build's own diff.** `git diff --name-only $B HEAD -- <page>`
    must return nothing: this page is not among the six commits' files (section 11). So the excluded
    path contributes `0` to `removed` and `0` to `added`, and section 10(b)'s identity holds over the
@@ -80,13 +103,16 @@ and its reason is the same one: the old spelling here is the subject of the mapp
 
 ### Rule 0b. Every figure is a measurement at a named head, never an assertion
 
-**The measurement head is `c759ac22964c7541d348780e017a9543207a82eb`, called `M` below.** It is the
-commit this revision was written against, copied from the output of `git rev-parse HEAD` and not
-typed.
+**Two heads are named.** `M` is `c759ac22964c7541d348780e017a9543207a82eb`, the commit revision 4 was
+written against and the head almost every figure below documents. `N` is
+`b9268fa9745aedef4d95c8a2f0f2e6fa390b3208`, the commit **this** revision was written against, which
+carries revision 4 of this page and differs from `M` in this page alone. Both were copied from the
+output of `git rev-parse` and neither was typed.
 
-**A number in this plan documents `M`. It says nothing about the head the build starts from.**
-Where this document writes a count, read *"at `M`"*. Where the build needs a count, **it measures
-one**, on `B`, its own start commit, recorded before commit 1 (section 10a).
+**A number in this plan documents `M`, or `N` where it says so. It says nothing about the head the
+build starts from.** Where this document writes a count with no head, read *"at `M`"*. Where the
+build needs a count, **it measures one**, on `B`, its own start commit, recorded before commit 1
+(section 10a).
 
 ⛔ **No section states a total as a criterion.** Section 6's partition and section 10's tables are
 measurements at `M`, labelled at their head. The criteria are section 10(b)'s identity and section
@@ -297,7 +323,8 @@ control: gramps_live_api          200    -              -        -     -        
 ⚠️ **The exclusion must be spelled `:(exclude)<path>`, and it must be checked against the same
 command with the exclusion removed.** Round 2 measured `:!<path>` accepted and excluding nothing;
 section 0 records that at `M`, in this plan's command shape, both spellings agreed. **The control,
-not the spelling, is the proof**, and it is required either way.
+not the spelling, is the proof**, and it is required either way. This is a count at one head, so
+under check 3 the two results must differ.
 
 **Two tests, not one, pin a frozen name by writing it as a literal**, and the freeze leaves both
 passing untouched:
@@ -429,7 +456,7 @@ none in none:
 that is what the build re-establishes on `B`; the numbers above document `M` under rule 0b.
 
 **What was measured at `M` and what is inherited.** `P1 + C1 = 351` and `P2`, `P3`, `C2` and `D`
-were each measured directly at `M` for this revision. The `210 / 141` split inside the 351 is round
+were each measured directly at `M` for revision 4. The `210 / 141` split inside the 351 is round
 2's tokenizer measurement, and it still stands because **the only file differing between `main` and
 `M` is this page**, so no `.py` file has changed on this branch at all.
 
@@ -896,7 +923,9 @@ git grep -I -o -n --column -i -E -e 'gramps[-_. ]?live[-_. ]?api' <rev> -- . \
 nothing. Verified with a control: over `docs/plans/note-types.plan.md`, whose **path** contains
 `note-types`, the pattern `note-types` returns 0, while the pattern `note` returns 151, exactly the
 count from the file body alone. `-n --column` adds the two fields that make each row's key
-injective (section 6) and changes no count: measured at `M`, 655 rows with and without them.
+injective (section 6) and changes no count: **measured at `M` in the scope this command carries,
+572 rows with the two fields and 572 without them.** (655 is the whole-repository figure at `M`
+from rule 0a, which this command does not produce, because this command excludes this page.)
 
 **(a) The baseline is the head the build starts from, recorded before commit 1.**
 
@@ -907,9 +936,10 @@ git rev-parse HEAD        -> record B, copied from the command output, never typ
 ```
 
 ⚠️ **This plan states no value for `census(B)`, and under rule 0b it states no value for anything as
-a criterion.** At `M` the census scope holds **572** occurrences, which is also what `main` holds,
-because the only file differing between `main` and `M` is this page. **That is the point of rule 0a:
-the figure stopped moving.** The builder still measures its own, because `B` is not `M`.
+a criterion.** At `M` the census scope holds **572** occurrences, which is also what `main` holds and
+what `N` holds, because the only file differing between any two of those heads is this page. **That
+is the point of rule 0a: the figure stopped moving.** The builder still measures its own, because
+`B` is not `M`.
 
 **(b) The equation, which is arithmetic over the build's own diff and cannot fail for the reason the
 old one did:**
@@ -927,7 +957,9 @@ added   = git diff -U0 --find-renames $B HEAD -- . ':(exclude)<this page>' | gre
 
 `removed` is what the old equation called *rewritten*. `added` is the term it had no place for.
 **The exclusion is applied to all four terms and to the ledger, one scope throughout**, and rule
-0a's check 4 proves the excluded path contributes zero to `removed` and zero to `added`.
+0a's check 4 proves the excluded path contributes zero to `removed` and zero to `added`. **These two
+commands are the ones whose control is equality, not difference** (check 3), for exactly that
+reason.
 
 ⚠️ **The two `grep -v` filters are load bearing:** a unified diff's `--- a/src/gramps_live_api/...`
 and `+++ b/...` headers are path text on lines beginning with `-` and `+`, and without the filters
@@ -1026,8 +1058,15 @@ The build reports all four checks from section 0 on its own `B`:
 1. `git ls-files` with and without the exclusion differ by exactly one path, and `comm -23` names
    that path and nothing else.
 2. `census_all(B) - census(B)` equals the census of the page alone.
-3. Every command carrying the exclusion is also run without it, and the two results differ.
-4. `git diff --name-only $B HEAD -- <this page>` is empty.
+3. Every command carrying the exclusion is also run without it, and **each result is checked against
+   what the exclusion should do to that command**: the counts and the listings **must differ**,
+   because this page is tracked on `B` and carries the old name; the two diff terms of (b), `removed`
+   and `added`, **must be equal**, because check 4 proves this page does not change between `B` and
+   `HEAD` and an unchanged file contributes nothing to either side of a diff. **Equality there is the
+   proof, and a difference is the failure**, because it says the build edited this page (section 14).
+4. `git diff --name-only $B HEAD -- <this page>` is empty. Checks 3 and 4 are the same fact stated
+   twice, once as a file listing and once as arithmetic, and they now agree instead of contradicting
+   each other.
 
 ### The freeze, measured rather than inherited (section 17)
 
@@ -1043,7 +1082,9 @@ The build reports all four checks from section 0 on its own `B`:
 ### The rest
 
 **Every negative is calibrated against a positive control in the same command shape**, as the probe
-did. A count of zero from an instrument that was never shown to fire is not evidence.
+did. A count of zero from an instrument that was never shown to fire is not evidence, and **a check
+that can only come back equal is the same defect wearing the other sign**, which is why check 3's
+equality half carries the `M..N` control recorded in section 0.
 
 **The F4 pin.** Reverting any one of the three sentinel spellings turns the **core** leg red.
 Demonstrated with a negative control, restored in a `finally`.
@@ -1102,10 +1143,10 @@ section 10 sharp.
 
 ## 12. The one question, applied to this plan
 
-**Would following this plan produce something you could show breaking?** Eighteen candidates have
-been tried: ten from round 0, three added by revision 2, two by revision 3, and three by this
-revision. Seventeen are dismissible with a named reason. One is not, and it is stated as the plan's
-live risk.
+**Would following this plan produce something you could show breaking?** Nineteen candidates have
+been tried: ten from round 0, three added by revision 2, two by revision 3, three by revision 4, and
+one by this revision. Eighteen are dismissible with a named reason. One is not, and it is stated as
+the plan's live risk.
 
 Dismissed, with the reason:
 
@@ -1148,22 +1189,30 @@ Dismissed, with the reason:
   The cost is stated in section 6 as 321 dispositions, unchanged by this revision, and the `comm`
   check makes a short report fail rather than pass quietly. The cheaper boundary was measured and
   rejected because it drops `cli.py:37`.
-- **New.** *Two dispositions collide on one occurrence, a third occurrence goes unrecorded, the
-  totals balance, and `GRAMPS_LIVE_API_RUNTIME` ships unswept while `docs/using.md:185` instructs it.*
+- *Two dispositions collide on one occurrence, a third occurrence goes unrecorded, the totals
+  balance, and `GRAMPS_LIVE_API_RUNTIME` ships unswept while `docs/using.md:185` instructs it.*
   **This is round 3's finding and it was live against revision 3.** The key is now
   `path:line:column`, injective by construction, emitted by the census command itself, and the exit
   condition is `comm -3` empty in both directions rather than a sum. A collision now shows up as a
   duplicate ledger key and a missing census key at once.
-- **New.** *The exclusion of this page hides a swept occurrence, so the accounting misses one.*
+- *The exclusion of this page hides a swept occurrence, so the accounting misses one.*
   The exclusion is proved to cover exactly one path (`ls-files` differ by one, `comm -23` names it),
   to remove exactly that path's occurrences (`655 - 572 = 83`, and the page alone is 83), and, the
   one that matters, **the excluded path is proved unchanged between `B` and `HEAD`**, so it
   contributes zero to both diff terms. A hole that cannot change cannot hide a sweep.
-- **New.** *A reader acts on a number in this plan that has since gone stale.* Rule 0b: every figure
-  is labelled a measurement at `M`, no figure is a criterion, and the two criteria are computed by
-  the builder from its own two heads. The specific instance that motivated it, six sites asserting
-  `652`, is gone: in the census scope the figure is `572` and it has not moved across `main`, three
-  plan revisions, and this one.
+- *A reader acts on a number in this plan that has since gone stale.* Rule 0b: every figure
+  is labelled a measurement at `M`, or at `N` where it says so, no figure is a criterion, and the two
+  criteria are computed by the builder from its own two heads. The specific instance that motivated
+  it, six sites asserting `652`, is gone: in the census scope the figure is `572` and it has not
+  moved across `main`, four plan revisions, and this one.
+- **New.** *A correct build fails its own gate, because the exclusion control demands a difference on
+  the two commands the exclusion is proved not to change.* **This is round 4's finding and it was
+  live against revision 4.** Check 3 asked every command carrying the exclusion to differ with it
+  removed; check 4 proves this page contributes `0` to `removed` and `0` to `added`, so for a correct
+  build the two diff commands cannot differ, and the two checks could not both pass. Check 3 is now
+  split by class: counts and listings must differ, the two diff terms must be equal, and the equality
+  half is calibrated against a range in which this page did change so that it is an instrument rather
+  than a formality.
 
 ⚠️ **The one that survives: Gramps' own acceptance of the new plugin filenames and id.** The probe
 could not start Gramps, and lists as unverified that Gramps accepts `id="AgentDataEntry"`, that it
@@ -1218,7 +1267,8 @@ What this plan does about it:
 - **Correcting the five instruction lines inside `docs/plans/shippable.plan.md`.** Section 6 records
   why the banner is taken instead, and #227 owns that page.
 - **Editing this plan page itself during the build.** Rule 0a excludes it from the census scope and
-  check 4 proves it unchanged; a build that edits it invalidates its own accounting.
+  check 4 proves it unchanged; a build that edits it invalidates its own accounting, and check 3's
+  equality half is what catches it.
 
 ---
 
@@ -1374,12 +1424,12 @@ Nothing in section 17 was decided differently; only its two factual errors were 
 | **P1 FIX REGRESSION on round 2's own repair.** *Key each disposition to one occurrence.* A P entry keyed only by path and line is not injective while section 10(c) inventories matching **lines** and the exit condition is a **sum**: two entries can collide on one occurrence while a third goes unrecorded and the total still balances. Named input, live at the time: `docs/using.md:185` carries both `GRAMPS_LIVE_API_COPY` and `GRAMPS_LIVE_API_RUNTIME`; miss `_RUNTIME` and the renamed code reads `GRAMPS_AGENT_DATA_ENTRY_RUNTIME` while the live page instructs the obsolete variable, so the override is ignored | **Fixed**, sections 6 and 10(c). **The key is `path:line:column` and the exit condition is set equality, not a total.** The census command becomes `git grep -I -o -n --column ...`, which emits `<rev>:<path>:<line>:<column>:<match>`, so the key is produced by the same command that produces the census, which was round 3's executability constraint. The key is injective by construction; measured at `M`, 572 rows give 572 distinct keys, and round 3's example separates as `docs/using.md:185:2` and `:185:18` even though the matched text is identical. The report becomes a **ledger** made by appending two columns to the command's own rows, plus an entry table of reasons; closure is `comm -3` empty in both directions. Counts stay in the report as readable, explicitly not as the criterion. **The 321 hand judgements are unchanged**; the other rows are copied and grouped. Section 8 gained one paragraph naming the `docs/using.md:185` consequence, because the environment-variable measurement there covered the machine and not the documentation. |
 | **BLOCKER, raised by the conductor, structural.** *The plan is inside its own measurement scope, so every revision invalidates its own arithmetic.* The partition proof read `... = 652` while the head measured 655, and six sites asserted 652. The number had moved three times: 572, 636, 652, 655 | **Fixed structurally, in one new block rather than six corrected sentences.** New **section 0**, two rules. **Rule 0a: the census scope excludes this page**, spelled `:(exclude)docs/plans/rename-to-agentdataentry.plan.md`, which is the exclusion section 6 rule 1 already applied to the banner set for the same stated reason. Measured: the whole drift was this page's own growth, and **the only file differing between `main` and `M` is this page**, so the excluded-scope census is `572` on `main` and `572` at `M`, unchanged across three revisions. The hole is proved four ways, and the fourth is the one that matters: **the excluded path is proved unchanged between `B` and `HEAD`**, so it contributes zero to both diff terms, and a hole that cannot change cannot hide a sweep. **Rule 0b: every figure is a measurement at the named head `M`, and no figure is a criterion**; the criteria are computed by the builder from its own two heads. Section 6's partition becomes `210 + 6 + 105 + 141 + 10 + 100 = 572` at `M`. |
 
-**Also recorded in this revision, not raised by either finding:**
+**Also recorded in that revision, not raised by either finding:**
 
 - **What was re-measured at `M` and what is inherited.** `P1 + C1 = 351`, `P2 = 6`, `P3 = 105`,
   `C2 = 10`, `D = 100`, the banner set at 18 against a control of 19, `106` `.py` files over the
   four trees, and the 29 frozen-name residual (copy 14, undo 11, proposals 2, `JOURNAL_FORMAT` 2)
-  were each measured directly at `M` for this revision, with a positive control of 86 and a negative
+  were each measured directly at `M` for that revision, with a positive control of 86 and a negative
   control of 0. The `210 / 141` split inside the 351 is round 2's tokenizer measurement and still
   stands, because no `.py` file has changed on this branch at all.
 - **A measurement that revises a method note, narrowly.** Round 2 recorded `:!<path>` accepted and
@@ -1393,9 +1443,38 @@ Nothing in section 17 was decided differently; only its two factual errors were 
 
 **Two method notes, recorded because each cost a wrong measurement here and will cost another later:**
 
-- **Every exclusion is checked against the same command with the exclusion removed, and the two must
-  differ.** This is now used four times: the banner set (18 against 19), class D (100 against 183),
-  the census scope (572 against 655), and the path listing (147 against 148).
+- **Every exclusion is checked against the same command with the exclusion removed, and the result
+  is read against what the exclusion should do to that command.** For a count or a listing at one
+  head the two must differ, and that is how it is used four times, all at `M`: the banner set (18
+  against 19), class D (100 against 183), the census scope (572 against 655), and the path listing
+  (147 against 148). ⚠️ **For section 10(b)'s two diff terms the two must be equal instead**, which
+  is round 4's finding and is why this note names the direction rather than assuming one.
 - **A `git grep` piped into a second `grep` matches the file path as well as the line content**,
   which is how a count of 1 was really a count of 101. No command in this plan pipes one grep into
   another.
+
+### Round 4, 2026-09-07: two findings, one blocking, both fixed
+
+| finding | disposition |
+| --- | --- |
+| **P1 FIX REGRESSION on round 3's own repair.** *Exempt unchanged-diff commands from exclusion control.* Rule 0a's check 3 required every command carrying the exclusion to produce a different result with the exclusion removed, while check 4 proves this page contributes `0` to `removed` and `0` to `added`. For a correct build, including the page therefore changes neither diff term, so **checks 3 and 4 cannot both pass and a correct build fails its own gate** | **Fixed**, section 0 check 3 and its restatement in section 10, and nothing else. Check 3 is **split by what the exclusion should do to each command, one sentence per class**. A command that counts or lists state at one head must **differ**, because this page is tracked there and carries the old name: at `M`, 655 against 572, 183 against 100, 18 against 19, 147 against 148. Section 10(b)'s `removed` and `added` must be **equal**, because check 4 proves the page does not change between `B` and `HEAD` and an unchanged file contributes nothing to either side of a diff. **A control that fires on everything is not a control**, and for the diff terms the thing that proves the exclusion is equality. ⭐ **The equality half is calibrated in the same command shape so that it can fire**: over `main~80..main`, where this page does not change, the terms read `9 / 536` with the exclusion and `9 / 536` without it; over `M..N`, where it did change, they read `0 / 0` with it against `0 / 11` without it. Checks 3 and 4 are now the same fact stated twice and they agree. |
+| **P3 a recorded measurement is wrong.** Section 10's instrument paragraph read *"measured at `M`, 655 rows with and without them"*, but the displayed command carries the exclusion, so at `M` it produces **572** rows with or without `-n --column`. 655 is the whole-repository figure from rule 0a | **Fixed**, section 10. Re-measured at `M`: **572 with the two fields and 572 without them**, so the claim that `-n --column` changes no count still holds and only the number was wrong; the paragraph now also says which figure 655 is and why this command does not produce it. Rule 0b's head labelling was swept for the same defect while the figure was corrected: the whole-repository count moved again, to **666 at `N`**, purely because this page grew during revision 4, so `N` is now a named head in rule 0b, the drift block records both counts at it, and section 18's method note names the head its four measured pairs were taken at. **No whole-repository count in this plan reads as current**, which is the property rule 0b exists to hold. |
+
+**The round count, recorded because a backstop that is not counted cannot fire:**
+
+> **Four review rounds ran on this plan where the standing loop specifies one.** Each round found a
+> genuine defect in the previous round's repair: round 2 in round 1's classifier, round 3 in round
+> 2's key, round 4 in round 3's exclusion control. **Every round was individually justified, which
+> is the pattern the diminishing-returns test exists to catch.** The loop was stopped after round 4
+> by the conductor, and whether a fifth round runs is the owner's call at the gate.
+
+**One observation for the owner, recorded and deliberately not acted on.** Round 4's brief scoped
+this revision to its two findings, so this is written down rather than fixed. The Context section
+says the project spells itself the old name *"in 572 places across **106** of 147 tracked files on
+`main`"*. Re-measured on `main` while checking finding 2's head labels: **572 places is right and 147
+tracked files is right, but the number of files carrying the name is 110**, against a negative
+control of 0 for an absent pattern and cross-checked two ways (110 in total, 92 outside the three
+dated directories, 76 of them `.py`). `106` is the count of `.py` files over the four code trees,
+which section 6 and section 10 both use correctly, and it appears to have been copied into a
+sentence about a different quantity. It is one word in the Context section, it is not a criterion
+under rule 0b, and no other figure depends on it.
