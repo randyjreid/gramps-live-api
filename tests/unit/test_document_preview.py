@@ -743,6 +743,69 @@ def test_a_role_with_nobody_to_carry_it_is_refused() -> None:
     assert "nothing would carry it" in str(invalid.value)
 
 
+def test_people_objects_carry_their_own_role_and_description() -> None:
+    """#168: one Census, two people, two occupations -- not the head's on everyone."""
+    graph = document.parse(
+        dict(
+            people=[
+                node("p1", given="Theodore", surname="Aubertin"),
+                node("p2", given="Emil", surname="Aubertin"),
+            ],
+            events=[
+                node(
+                    "e1",
+                    type="Census",
+                    date="1900",
+                    people=[
+                        dict(id="p1", role="Primary", description="head, wheelwright"),
+                        dict(id="p2", description="son"),
+                    ],
+                )
+            ],
+        )
+    )
+    shown = document.preview(graph)
+    assert "as Primary" not in shown
+    assert "head, wheelwright" in shown
+    assert "son" in shown
+    assert shown.index("head, wheelwright") != shown.index("son")
+
+
+def test_a_mix_of_ids_and_objects_in_people_is_refused() -> None:
+    """⛔ Silently reading one spelling as the other would hide which role applies."""
+    with pytest.raises(document.GraphInvalid) as invalid:
+        document.parse(
+            dict(
+                people=[node("p1", given="Theodore", surname="Aubertin")],
+                events=[node("e1", type="Census", people=["p1", dict(id="p1", role="Witness")])],
+            )
+        )
+    assert "mixes" in str(invalid.value)
+
+
+def test_a_people_object_with_an_unknown_key_is_refused() -> None:
+    with pytest.raises(document.GraphInvalid) as invalid:
+        document.parse(
+            dict(
+                people=[node("p1", given="Theodore", surname="Aubertin")],
+                events=[node("e1", type="Census", people=[dict(id="p1", events=["x"])])],
+            )
+        )
+    assert "events" in str(invalid.value)
+    assert "do not accept" in str(invalid.value)
+
+
+def test_the_list_of_ids_spelling_still_applies_the_event_role() -> None:
+    """The old spelling is kept, not silently reinterpreted."""
+    graph = document.parse(
+        dict(
+            people=[node("p1", given="Anna", surname="Witness")],
+            events=[node("e1", type="Marriage", date="1868", people=["p1"], role="Witness")],
+        )
+    )
+    assert "as Witness" in document.preview(graph)
+
+
 def test_a_role_WITH_people_is_still_accepted() -> None:
     """⚠️ A refusal that also refuses correct graphs is worse than the defect."""
     with_people = dict(

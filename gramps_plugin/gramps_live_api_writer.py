@@ -523,14 +523,28 @@ def write(dbstate, graph):
             if spec.get("family"):
                 pending_family_events.append((event_handle, spec["family"]))
 
-            role = _event_role(spec.get("role"))
-            for person_local in spec.get("people") or []:
+            for person_entry in spec.get("people") or []:
+                if isinstance(person_entry, dict):
+                    person_local = (person_entry.get("id") or "").strip()
+                    role_name = person_entry.get("role") or spec.get("role")
+                    own_description = person_entry.get("description")
+                else:
+                    person_local = person_entry
+                    role_name = spec.get("role")
+                    own_description = None
                 person_handle = handles.get(person_local)
                 if not person_handle:
                     continue
                 ref = EventRef()
                 ref.ref = event_handle
-                ref.set_role(role)
+                ref.set_role(_event_role(role_name))
+                if own_description:
+                    from gramps.gen.lib import Attribute, AttributeType
+
+                    attribute = Attribute()
+                    attribute.set_type(AttributeType((AttributeType.CUSTOM, "description")))
+                    attribute.set_value(str(own_description).strip())
+                    ref.add_attribute(attribute)
                 person = database.get_person_from_handle(person_handle)
                 kind = event.get_type()
                 # Birth and death are not ordinary event references in Gramps --
