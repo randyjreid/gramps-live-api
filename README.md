@@ -398,7 +398,7 @@ The rename changed the addon name and id, the distribution and repository name, 
 packages, the plugin filenames, and the environment variables, which now begin
 `GRAMPS_AGENT_DATA_ENTRY_`.
 
-⛔ **It deliberately changed no name that had already been written to a disk**, so no data you
+⛔ **It deliberately changed no name inside a family tree or the state directory**, so no data you
 already have needs moving or re-creating. These keep the old spelling on purpose, and each says so
 in a line beside its own constant:
 
@@ -417,11 +417,13 @@ working, and the install doctor keeps printing those names because they are what
 those are copies this repository cannot reach. Three of them, and the first is the one that bites:
 
 - **An installed `pre-push` hook.** Installation is a copy and git never refreshes it, so one taken
-  before the rename still runs the guard under the old module name. That module is gone, the command
-  exits non-zero, and the hook reads a non-zero exit as a personal-data finding -- so **your next
-  push is refused over data that is not there.** Re-copy it: `cp scripts/hooks/pre-push` over the
-  installed hook, whose path `check` prints; [`CONTRIBUTING.md`](CONTRIBUTING.md) has the command for
-  both shells. `check` reports this state and names the same remedy.
+  before the rename still runs the guard under a module name this checkout no longer has -- so
+  **it is no longer doing what it was installed to do.** What it does instead depends on what the
+  interpreter it finds can still import, which this repository cannot see. If what you have there is
+  a copy of ours, re-copy it: `cp scripts/hooks/pre-push` over the installed hook, whose path
+  `check` prints; [`CONTRIBUTING.md`](CONTRIBUTING.md) has the command for both shells. ⛔ **If it is
+  a hook of your own, it never was this gate and copying over it would destroy it** -- `check`
+  cannot tell the two apart, so it reports what it found and names no remedy.
 - **An MCP registration whose `args` name the old module.** It stops starting. Re-point it at
   `gramps_agent_data_entry_mcp`, as under *Getting started* above.
 - **An old plugin junction.** [`docs/using.md`](docs/using.md) says where and how.

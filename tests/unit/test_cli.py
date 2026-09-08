@@ -725,7 +725,11 @@ def test_SOMEONE_ELSES_pre_push_hook_is_not_reported_as_this_gate(
     # module name the rename removed. Saying it does not run the guard sent that
     # reader looking for a hook that was already there, with no remedy offered.
     assert "it does not run" not in check.detail, check.detail
-    assert "cp scripts/hooks/pre-push" in check.detail, check.detail
+    # ⛔ **And it may not PRESCRIBE anything either.** The remedy differs between
+    # the two states this branch cannot tell apart, so a message carrying one
+    # tells whichever reader it is wrong for to destroy their own hook. The
+    # remedy lives in README, where there is room to say which state it is for.
+    assert "cp " not in check.detail, check.detail
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Windows has no executable bit to withhold")
