@@ -418,7 +418,7 @@ those are copies this repository cannot reach. Three of them, and the first is t
 
 - **An installed `pre-push` hook.** Installation is a copy and git never refreshes it, so one taken
   before the rename still runs the guard under a module name this checkout no longer has -- so
-  **it is no longer doing what it was installed to do.** What it does instead depends on what the
+  **it is no longer running the gate this checkout ships.** What it runs instead depends on what the
   interpreter it finds can still import, which this repository cannot see. If what you have there is
   a copy of ours, re-copy it: `cp scripts/hooks/pre-push` over the installed hook, whose path
   `check` prints; [`CONTRIBUTING.md`](CONTRIBUTING.md) has the command for both shells. ⛔ **If it is

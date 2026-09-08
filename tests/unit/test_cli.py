@@ -723,7 +723,7 @@ def test_SOMEONE_ELSES_pre_push_hook_is_not_reported_as_this_gate(
     # ⛔ **The message may not assert what the hook DOES.** This branch is also
     # what a pre-rename copy lands in, and that copy runs the guard -- under a
     # module name the rename removed. Saying it does not run the guard sent that
-    # reader looking for a hook that was already there, with no remedy offered.
+    # reader looking for a hook that was already there.
     assert "it does not run" not in check.detail, check.detail
     # ⛔ **And it may not PRESCRIBE anything either.** The remedy differs between
     # the two states this branch cannot tell apart, so a message carrying one
