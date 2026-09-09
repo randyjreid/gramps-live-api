@@ -54,7 +54,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
-REPOSITORY = "randyjreid/gramps-live-api"
+REPOSITORY = "randyjreid/gramps-agent-data-entry"
 
 # ⛔ **The SAME account, spelled differently by the two APIs.** REST appends the
 # ``[bot]`` suffix; GraphQL does not.
@@ -654,7 +654,7 @@ def _metadata(pull: int) -> dict[str, Any]:
     # which is the only one T needs. Anchored at the newest end, the maximum over
     # what comes back is the true maximum whatever the page size.
     query = (
-        '{repository(owner:"randyjreid",name:"gramps-live-api")'
+        '{repository(owner:"randyjreid",name:"gramps-agent-data-entry")'
         f"{{pullRequest(number:{pull})"
         "{state isDraft headRefOid baseRefOid mergeable mergeStateStatus "
         "createdAt baseRef{name target{oid}} "
@@ -931,7 +931,7 @@ def _report(pull: int) -> bool:
     cursor = "null"
     while True:
         query = (
-            '{repository(owner:"randyjreid",name:"gramps-live-api")'
+            '{repository(owner:"randyjreid",name:"gramps-agent-data-entry")'
             f"{{pullRequest(number:{pull})"
             f"{{reviewThreads(first:100, after:{cursor})"
             "{pageInfo{hasNextPage endCursor} nodes{id isResolved path "

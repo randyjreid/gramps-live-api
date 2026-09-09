@@ -12,7 +12,7 @@ meet such a file.
 
 from __future__ import annotations
 
-from gramps_live_api.core.pii_guard import scan_text
+from gramps_agent_data_entry.core.pii_guard import scan_text
 from tests.fixtures.synthetic import posix_path
 
 
@@ -72,7 +72,7 @@ def test_a_file_given_directly_is_named_by_its_own_name() -> None:
     # file argument reported the same unlocatable source.
     from pathlib import Path
 
-    from gramps_live_api.core.pii_guard import _relative_source
+    from gramps_agent_data_entry.core.pii_guard import _relative_source
 
     base = Path("some") / "where" / "notes.md"
     other = Path("some") / "where" / "other.md"

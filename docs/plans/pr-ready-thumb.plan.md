@@ -1,3 +1,4 @@
+⚠️ **Written before the project was renamed to `AgentDataEntry`.** Apart from this line the page is left as it was written; `README.md` records which names the rename changed and which it did not.
 > ## ⛔ SUPERSEDED 2026-09-05 by `docs/plans/delete-granting-path.plan.md`
 >
 > **This document describes a plan that was built and then withdrawn. Nothing

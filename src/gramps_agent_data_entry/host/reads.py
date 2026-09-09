@@ -3,7 +3,7 @@
 ⚠️ **This module exists because R3's precondition P2 was not met.** R3 is ruled,
 and its only egress bound is what ``core/people.py`` implements -- the ``priv``
 exclusion, the required search term and ``RESULT_CAP``. **Nothing in
-``src/gramps_live_api/host/`` implemented any of them**, so a live read surface
+``src/gramps_agent_data_entry/host/`` implemented any of them**, so a live read surface
 built without this would ship R3's bound with nothing behind it.
 
 ⛔ **Three bounds, and they answer different questions.** Getting that wrong is

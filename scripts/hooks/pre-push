@@ -13,7 +13,7 @@
 #   * `git push --no-verify` skips this file entirely. That is git's design and
 #     nothing here changes it.
 #   * Git never installs a hook from a clone, so this is not self-installing.
-#     `python -m gramps_live_api check` reports whether it is in place, because a
+#     `python -m gramps_agent_data_entry check` reports whether it is in place, because a
 #     gate whose installation nothing verifies is the same convention one level
 #     down.
 #
@@ -30,10 +30,10 @@ set -u
 # and the failure is silent.
 ZERO="$(git hash-object --stdin </dev/null 2>/dev/null | tr '0-9a-f' '0' || echo '0000000000000000000000000000000000000000')"
 
-# A working interpreter, or nothing. GRAMPS_LIVE_API_PYTHON overrides, for a
+# A working interpreter, or nothing. GRAMPS_AGENT_DATA_ENTRY_PYTHON overrides, for a
 # checkout whose environment is somewhere this cannot infer.
 python_bin() {
-    for candidate in "${GRAMPS_LIVE_API_PYTHON:-}"                      .venv/Scripts/python.exe                      .venv/bin/python                      python3 python; do
+    for candidate in "${GRAMPS_AGENT_DATA_ENTRY_PYTHON:-}"                      .venv/Scripts/python.exe                      .venv/bin/python                      python3 python; do
         [ -n "$candidate" ] || continue
         # ⛔ Tested, not merely found. On Windows a bare `python` resolves to the
         # Microsoft Store shim, which exists, is executable, and fails on every
@@ -60,7 +60,7 @@ need_python() {
         echo '' >&2
         echo 'Point at an interpreter and try again:' >&2
         echo '' >&2
-        echo '    GRAMPS_LIVE_API_PYTHON=/path/to/python git push' >&2
+        echo '    GRAMPS_AGENT_DATA_ENTRY_PYTHON=/path/to/python git push' >&2
         return 1
     fi
     return 0
@@ -172,7 +172,7 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
     # personal data sends someone hunting for data that is not there; reporting
     # it as clean is worse.
     need_python || { status=1; aborted=1; continue; }
-    PYTHONPATH=src "$PY" -m gramps_live_api.core.pii_guard --range "$range" .
+    PYTHONPATH=src "$PY" -m gramps_agent_data_entry.core.pii_guard --range "$range" .
     case "$?" in
         0) ;;
         1) status=1; found=1 ;;
@@ -196,7 +196,7 @@ if [ "$found" != "0" ]; then
     echo ''
     echo 'The findings are redacted by default. To see what matched:'
     echo ''
-    echo '    PYTHONPATH=src python -m gramps_live_api.core.pii_guard --show-matches --range <range> .'
+    echo '    PYTHONPATH=src python -m gramps_agent_data_entry.core.pii_guard --show-matches --range <range> .'
     echo ''
     echo 'Once the objects reach GitHub they are public and stay reachable, so'
     echo 'this refusal is the last point at which it is still preventable.'

@@ -1,3 +1,4 @@
+⚠️ **Written before the project was renamed to `AgentDataEntry`.** Apart from this line the page is left as it was written; `README.md` records which names the rename changed and which it did not.
 # Plan: delete the granting path from `scripts/pr_ready.py` (#233)
 
 Branch `pr-ready-thumb`, head `48b8e41`.

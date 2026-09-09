@@ -24,13 +24,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
-from gramps_live_api import config
-from gramps_live_api.core import apply
+from gramps_agent_data_entry import config
+from gramps_agent_data_entry.core import apply
 
 LOCK_FILE = "lock"
 """What Gramps drops in a tree directory it has open, per ``cli/clidbman.py``."""
 
-_PLUGIN_GLOB = "gramps*/plugins/**/gramps_live_api_host.gpr.py"
+_PLUGIN_GLOB = "gramps*/plugins/**/AgentDataEntry.gpr.py"
 """Where a registered plugin would be found under Gramps' user data directory.
 
 ⛔ **Keyed on the HOST registration, and R9's measured checklist is why.** It
@@ -71,7 +71,7 @@ def main(
     injected so a console prompt and a Gramps launch could be driven from a
     test; nothing here reads a person's answer or starts a process any more.
     """
-    settings = argparse.ArgumentParser(prog="gramps_live_api", description=__doc__)
+    settings = argparse.ArgumentParser(prog="gramps_agent_data_entry", description=__doc__)
     commands = settings.add_subparsers(dest="command", required=True)
     doctor = commands.add_parser("check", help="report on the runtime, the copy and the plugin")
     doctor.add_argument("tree", nargs="?", help="a tree to report on; defaults to the copy")
@@ -180,11 +180,15 @@ CHECKOUT_ROOT = Path(__file__).resolve().parents[2]
 ``check`` is run from anywhere and the question *is the push gate installed* is
 about **this checkout**, not about wherever the shell happens to be."""
 
-HOOK_MARKER = "gramps_live_api.core.pii_guard"
+HOOK_MARKER = "gramps_agent_data_entry.core.pii_guard"
 """What makes an installed ``pre-push`` OURS rather than merely present.
 
 ⚠️ Someone else's hook at that path is not this gate, and reporting it as one
-would be worse than reporting nothing."""
+would be worse than reporting nothing.
+
+⛔ A missing marker cannot tell a pre-rename copy of ours from a stranger's
+hook, and the right action differs between them, so that branch reports the
+state and prescribes nothing."""
 
 
 def _push_gate_check() -> Check:
@@ -233,8 +237,9 @@ def _push_gate_check() -> Check:
         return Check(
             "push gate",
             False,
-            "a pre-push hook is installed but it is not this one -- it does not run "
-            "pii_guard. Whatever it does, the personal-data gate is not wired up",
+            f"a pre-push hook is installed at {installed} but it does not carry "
+            f"this checkout's marker, so it is not the gate this checkout ships "
+            f"and this checkout's personal-data guard is not wired up",
         )
 
     # ⛔ **Executable, not merely present.** Git 2.43 reports that it ignored a
@@ -302,16 +307,16 @@ def _plugin_check(environ: Mapping[str, str]) -> Check:
 # ⛔ The candidates the HOST plugin prepends to ``sys.path``, in its order.
 #
 # ⚠️ **Transcribed, not imported, and that is a duplication with a guard.**
-# ``gramps_live_api_host`` imports Gramps at module scope, so this half of the
+# ``AgentDataEntry`` imports Gramps at module scope, so this half of the
 # project cannot import it -- the same reason ``_gramps_user_data`` transcribes
 # Gramps' own rule. ``test_the_source_check_matches_what_the_host_actually_does``
 # reads the plugin's source and fails if the two lists stop agreeing, because two
 # spellings of one rule is this project's most-recorded defect class.
-_HOST_SRC_ENV = "GRAMPS_LIVE_API_SRC"
+_HOST_SRC_ENV = "GRAMPS_AGENT_DATA_ENTRY_SRC"
 
 
 def _host_source_candidates(plugin_dir: str, environ: Mapping[str, str]) -> list[str]:
-    """Where the host plugin will look for ``gramps_live_api``, in its order."""
+    """Where the host plugin will look for ``gramps_agent_data_entry``, in its order."""
     here = os.path.realpath(plugin_dir)
     return [
         environ.get(_HOST_SRC_ENV, ""),
@@ -321,9 +326,9 @@ def _host_source_candidates(plugin_dir: str, environ: Mapping[str, str]) -> list
 
 
 PLUGIN_FILES = (
-    "gramps_live_api_host.gpr.py",
-    "gramps_live_api_host.py",
-    "gramps_live_api_writer.py",
+    "AgentDataEntry.gpr.py",
+    "AgentDataEntry.py",
+    "AgentDataEntry_writer.py",
 )
 """Every file the plugin directory must hold for the document route to start.
 
@@ -365,9 +370,9 @@ HOST_MODULES = (
     "host.status",
     "host.tokens",
 )
-"""⛔ The modules the host plugin imports from ``gramps_live_api.host``.
+"""⛔ The modules the host plugin imports from ``gramps_agent_data_entry.host``.
 
-⚠️ **A directory named ``gramps_live_api`` is not the package.** An empty or
+⚠️ **A directory named ``gramps_agent_data_entry`` is not the package.** An empty or
 partial one satisfied ``isdir`` and this check reported ready, while host
 startup then died on ``from gramps_live_api.host import accessor, service`` --
 the same defect this check exists to catch, one level down. **The test fixture
@@ -389,18 +394,18 @@ answer a hand-written list would have been least likely to reach.
 
 
 def _has_the_package(candidate: str) -> bool:
-    """Does a ``gramps_live_api`` directory live here at all?
+    """Does a ``gramps_agent_data_entry`` directory live here at all?
 
     ⛔ This is where Python BINDS the package, complete or not. Once a directory
     of that name is found on ``sys.path`` there is no falling through to a later
     entry, so the first one found is the one that has to be whole.
     """
-    return bool(candidate) and os.path.isdir(os.path.join(candidate, "gramps_live_api"))
+    return bool(candidate) and os.path.isdir(os.path.join(candidate, "gramps_agent_data_entry"))
 
 
 def _missing_from(candidate: str) -> list[str]:
     """Which startup modules this candidate does not carry."""
-    package = os.path.join(candidate, "gramps_live_api")
+    package = os.path.join(candidate, "gramps_agent_data_entry")
     return [
         module
         for module in HOST_MODULES
@@ -409,7 +414,7 @@ def _missing_from(candidate: str) -> list[str]:
 
 
 def _source_check(plugin: Check, environ: Mapping[str, str]) -> Check:
-    """⛔ Can the host plugin reach ``gramps_live_api`` from where it is installed?
+    """⛔ Can the host plugin reach ``gramps_agent_data_entry`` from where it is installed?
 
     ⚠️ **``plugin: ok`` does not answer this, and used to be read as if it did.**
     The plugin check finds a ``.gpr.py``; the host then has to import the package
@@ -422,7 +427,7 @@ def _source_check(plugin: Check, environ: Mapping[str, str]) -> Check:
 
     ⭐ Stated as the outcome rather than as the mechanism: *is there a directory
     on that list holding the package?* A junction, an explicit
-    ``GRAMPS_LIVE_API_SRC``, and a checkout laid out some third way all pass it
+    ``GRAMPS_AGENT_DATA_ENTRY_SRC``, and a checkout laid out some third way all pass it
     for the same reason the host would.
     """
     if not plugin.ok:
@@ -442,7 +447,7 @@ def _source_check(plugin: Check, environ: Mapping[str, str]) -> Check:
     # ⛔ **RUN the resolution. Do not replay it.**
     #
     # ⚠️ Five defects came out of re-implementing Python's import resolution here,
-    # each a layer deeper than the last: an empty ``gramps_live_api`` directory
+    # each a layer deeper than the last: an empty ``gramps_agent_data_entry`` directory
     # counted as the package, then the transitive closure and ``config``, then the
     # loop order, then the de-duplication that interacts with that order, then the
     # namespace-package portion. **Every one was a place the replay and the real
@@ -481,7 +486,7 @@ def _import_as_the_host_would(plugin_directory: str, environ: Mapping[str, str])
     function.** Not a copy of the loop, not a re-derived candidate list: if the
     host's path rule changes, this changes with it, because it is the same code.
 
-    ⚠️ **The environment is passed through**, so ``GRAMPS_LIVE_API_SRC`` means in
+    ⚠️ **The environment is passed through**, so ``GRAMPS_AGENT_DATA_ENTRY_SRC`` means in
     the child exactly what it means in Gramps.
 
     ⛔ **``-E -S``, and BOTH are needed.** ``check`` runs on the owner's
@@ -496,7 +501,7 @@ def _import_as_the_host_would(plugin_directory: str, environ: Mapping[str, str])
       ``-S`` alone the package imports through ``PYTHONPATH``; with ``-E -S`` it
       does not.**
 
-    ⭐ ``GRAMPS_LIVE_API_SRC`` still reaches the child -- ``-E`` drops only the
+    ⭐ ``GRAMPS_AGENT_DATA_ENTRY_SRC`` still reaches the child -- ``-E`` drops only the
     ``PYTHON*`` variables -- so the host's first candidate works as it does in
     Gramps.
 
@@ -509,7 +514,7 @@ def _import_as_the_host_would(plugin_directory: str, environ: Mapping[str, str])
         # ⛔ **The WORKING DIRECTORY: the third route in, and the one ``-E`` does
         # not close.** ``python -c`` prepends the current directory to
         # ``sys.path``, so running ``check`` from the checkout's ``src`` -- or any
-        # directory holding ``gramps_live_api`` -- let the child import it with no
+        # directory holding ``gramps_agent_data_entry`` -- let the child import it with no
         # usable candidate from the host at all.
         #
         # ⚠️ ``-P`` does exactly this and arrived in 3.11; this repository's floor
@@ -517,7 +522,7 @@ def _import_as_the_host_would(plugin_directory: str, environ: Mapping[str, str])
         "sys.path[:] = [p for p in sys.path if p not in ('', '.', os.getcwd())]\n"
         "plugin = sys.argv[1]\n"
         "wanted = json.loads(sys.argv[2])\n"
-        "host = os.path.join(plugin, 'gramps_live_api_host.py')\n"
+        "host = os.path.join(plugin, 'AgentDataEntry.py')\n"
         "report = {}\n"
         "try:\n"
         "    spec = importlib.util.spec_from_file_location('_check_host', host)\n"
@@ -530,13 +535,13 @@ def _import_as_the_host_would(plugin_directory: str, environ: Mapping[str, str])
         "    raise SystemExit(0)\n"
         "failed = {}\n"
         "try:\n"
-        "    package = importlib.import_module('gramps_live_api')\n"
+        "    package = importlib.import_module('gramps_agent_data_entry')\n"
         "    report['origin'] = getattr(package, '__file__', None) or '(namespace package)'\n"
         "except Exception as failure:\n"
-        "    failed['gramps_live_api'] = f'{type(failure).__name__}: {failure}'\n"
+        "    failed['gramps_agent_data_entry'] = f'{type(failure).__name__}: {failure}'\n"
         "for name in wanted:\n"
         "    try:\n"
-        "        importlib.import_module('gramps_live_api.' + name)\n"
+        "        importlib.import_module('gramps_agent_data_entry.' + name)\n"
         "    except Exception as failure:\n"
         "        failed[name] = f'{type(failure).__name__}: {failure}'\n"
         "report['failed'] = failed\n"
@@ -587,7 +592,7 @@ def _import_as_the_host_would(plugin_directory: str, environ: Mapping[str, str])
         return _Imported(True, directory or origin or plugin_directory)
     named = ", ".join(f"{name} ({why})" for name, why in sorted(failed.items()))
     origin = report.get("origin")
-    where = f" It resolved gramps_live_api from {origin}." if origin else ""
+    where = f" It resolved gramps_agent_data_entry from {origin}." if origin else ""
     return _Imported(
         False,
         f"the host plugin cannot import {named} from {plugin_directory}.{where} "

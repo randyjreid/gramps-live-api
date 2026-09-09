@@ -31,7 +31,7 @@ import time
 import uuid
 from dataclasses import dataclass
 
-from gramps_live_api.host import paths
+from gramps_agent_data_entry.host import paths
 
 PAGES_PER_STEP = 1024
 """How many pages one internal copy step moves.

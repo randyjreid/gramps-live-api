@@ -30,9 +30,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from gramps_live_api.core import render_guard
-from gramps_live_api.core._note_types import ACCEPTED_NOTE_TYPES
-from gramps_live_api.host import paths
+from gramps_agent_data_entry.core import render_guard
+from gramps_agent_data_entry.core._note_types import ACCEPTED_NOTE_TYPES
+from gramps_agent_data_entry.host import paths
 
 NOTE_TYPES: frozenset[str] = ACCEPTED_NOTE_TYPES
 """⛔ What a note's ``type`` may be. **The frozen table itself, never a copy.**
@@ -79,7 +79,11 @@ PERSON_ROLES = ("Primary", "Family", "Witness", "Clergy", "Informant", "Unknown"
 SENTINEL = ".gramps-live-api-copy"
 """⛔ The file the owner creates by hand, INSIDE the tree directory. Same name and
 same reason as ``core/apply``: placed beside a tree it would sit in the shared
-parent and bless every tree there, including the live one."""
+parent and bless every tree there, including the live one.
+
+⛔ **Frozen by the rename to AgentDataEntry, deliberately.** It names a file
+already on disk, so it is an on-disk name rather than a project name; it is not
+an occurrence the rename missed."""
 
 NAME_FILE = "name.txt"
 """What makes a directory a Gramps family tree at all, per ``gramps.cli.clidbman``."""
@@ -1748,9 +1752,17 @@ stack. **That has already cost something** -- a document was written that turned
 out to be already entered, and removing the duplicates became a manual job.
 
 One directory rather than two: somebody undoing a mistake should not have to know
-which path wrote it."""
+which path wrote it.
+
+⛔ **Frozen by the rename to AgentDataEntry, deliberately.** Journals already
+sit under this name inside blessed trees, and nothing tells a user to move
+them: this directory has no refusal message naming it."""
 
 JOURNAL_FORMAT = "gramps-live-api/document/1"
+"""⛔ **Frozen by the rename to AgentDataEntry, deliberately.** This string is
+written into every journal record already on disk, and ``docs/restoring.md``
+reads it back by that literal. It is a stored format identifier, not a project
+name."""
 
 
 def journal_record(

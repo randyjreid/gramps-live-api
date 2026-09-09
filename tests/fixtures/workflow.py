@@ -28,7 +28,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
 
-GUARD_MODULE = "gramps_live_api.core.pii_guard"
+GUARD_MODULE = "gramps_agent_data_entry.core.pii_guard"
 
 # The workflow's steps are indented by six spaces, so this is where one begins.
 STEP_SEPARATOR = "      - name: "

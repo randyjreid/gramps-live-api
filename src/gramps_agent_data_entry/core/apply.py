@@ -11,7 +11,7 @@ runner that has never heard of Gramps.
 ``verify_operation``, the ``Tree`` protocol, the approval digest, the undo
 record pair and ``NOTE_TYPE_ATTRIBUTES`` all served the note flow, which is
 retired; the document route writes inside Gramps through
-``gramps_plugin/gramps_live_api_writer.py`` and journals through
+``gramps_plugin/AgentDataEntry_writer.py`` and journals through
 ``host/document.py``. **One thing did not go with it**, and it is load bearing
 somewhere else:
 
@@ -45,6 +45,13 @@ can open by name live as sibling directories under one parent, so a sentinel
 placed beside a tree directory sits in that parent and blesses every tree in it
 -- including the live one. Inside the tree directory it is per-tree and cannot
 be confused.
+
+⛔ **Frozen by the rename to AgentDataEntry, deliberately, and this line is why.**
+The value names a file that already exists on the owner's blessed trees. A
+constant holding a name that no longer matches the project reads to the next
+reader as an occurrence the rename missed; it is not. Renaming it would unbless
+every tree already blessed, and the three places that spell this value must
+change together or not at all, which the sentinel-spelling pin asserts.
 """
 
 NAME_FILE = "name.txt"

@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from gramps_live_api.host import (
+from gramps_agent_data_entry.host import (
     accessor,
     document,
     httpd,
@@ -35,7 +35,7 @@ from gramps_live_api.host import (
     tokens,
 )
 
-THREAD_NAME = "gramps-live-api-host"
+THREAD_NAME = "gramps-agent-data-entry-host"
 
 
 @dataclass(frozen=True)

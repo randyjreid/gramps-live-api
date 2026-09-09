@@ -42,7 +42,12 @@ from contextlib import suppress
 from typing import Any
 
 PROPOSAL_DIRECTORY = ".gramps-live-api-proposals"
-"""Where proposals live, inside the tree directory. See the module docstring."""
+"""Where proposals live, inside the tree directory. See the module docstring.
+
+⛔ **Frozen by the rename to AgentDataEntry, deliberately.** Pending proposals
+already sit under this name, and no refusal names this directory to the user,
+so a rename would make them unclaimable in silence. It is an on-disk name, not
+an occurrence the rename missed."""
 
 _ID_LENGTH = 8
 _ID = re.compile(r"[0-9a-f]{16}")

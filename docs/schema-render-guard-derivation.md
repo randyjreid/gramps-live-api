@@ -4,7 +4,7 @@
 guard refuses characters that can **reorder or hide** part of that sentence. **Which characters
 those are is not a judgement, and is no longer treated as one.** The class is derived from the
 published Unicode Character Database and frozen as a committed table,
-`src/gramps_live_api/core/_unrenderable.py`, which is machine-generated and never hand-edited.
+`src/gramps_agent_data_entry/core/_unrenderable.py`, which is machine-generated and never hand-edited.
 
 This note is the audit trail for that file: what it was generated from, how to check it, and what
 the check can and cannot prove. It follows the precedent set by the guard vocabulary's own
@@ -124,8 +124,8 @@ Fetch each artifact, confirm its digest matches the table above, then, from the 
 
 ```sh
 python scripts/derive_unrenderable.py <DerivedGeneralCategory.txt> <DerivedCoreProperties.txt> \
-    > src/gramps_live_api/core/_unrenderable.py
-git diff --exit-code src/gramps_live_api/core/_unrenderable.py
+    > src/gramps_agent_data_entry/core/_unrenderable.py
+git diff --exit-code src/gramps_agent_data_entry/core/_unrenderable.py
 ```
 
 **An empty diff is the check.** The script emits no timestamp for exactly this reason: a fetch date
@@ -137,7 +137,7 @@ stream with a BOM and CRLF line endings, so the byte-for-byte check above **fail
 re-derivation** and looks like a defect in the script. `cmd /c` redirects at byte level:
 
 ```
-cmd /c "python scripts\derive_unrenderable.py <general category> <core properties> > src\gramps_live_api\core\_unrenderable.py"
+cmd /c "python scripts\derive_unrenderable.py <general category> <core properties> > src\gramps_agent_data_entry\core\_unrenderable.py"
 ```
 
 That is issue #47, which owns the repair to the guard vocabulary's note. It is stated here because

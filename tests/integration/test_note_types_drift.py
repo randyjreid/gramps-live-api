@@ -33,15 +33,15 @@ from types import ModuleType
 
 import pytest
 
-from gramps_live_api import config
-from gramps_live_api.core import _note_types
+from gramps_agent_data_entry import config
+from gramps_agent_data_entry.core import _note_types
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT = REPOSITORY_ROOT / "scripts" / "derive_note_types.py"
 
 REGENERATE = (
     "python scripts/derive_note_types.py <installation root> "
-    "> src/gramps_live_api/core/_note_types.py"
+    "> src/gramps_agent_data_entry/core/_note_types.py"
 )
 """⛔ What a failure here tells somebody to run.
 
@@ -64,7 +64,7 @@ def installation_or_skip() -> Path:
     package lives under a ``dist-packages`` directory belonging to the system
     interpreter. ``Path(runtime).parent`` is the root of the all-in-one
     Windows build and of nothing else, and this file supports being pointed at
-    any runtime through ``GRAMPS_LIVE_API_RUNTIME``.
+    any runtime through ``GRAMPS_AGENT_DATA_ENTRY_RUNTIME``.
 
     ⭐ **The layout is not widened to admit that install, and deliberately.**
     Adding the Linux one invites conda, flatpak, homebrew, portable builds and

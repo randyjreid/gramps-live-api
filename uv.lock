@@ -306,7 +306,7 @@ wheels = [
 ]
 
 [[package]]
-name = "gramps-live-api"
+name = "gramps-agent-data-entry"
 version = "0.0.0"
 source = { editable = "." }
 

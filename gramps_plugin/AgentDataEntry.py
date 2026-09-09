@@ -32,8 +32,13 @@ import traceback
 import uuid
 
 DIRECTORY_NAME = "gramps-live-api"
+"""⛔ **Frozen by the rename to AgentDataEntry, deliberately, and it must stay
+equal to the package's own constant.** It names the state directory already on
+this machine's disk. It is an on-disk name, not an occurrence the rename
+missed."""
+
 LOG_FILE = "host.log"
-"""⚠️ Duplicated from ``gramps_live_api.host.paths`` ON PURPOSE, and pinned by
+"""⚠️ Duplicated from ``gramps_agent_data_entry.host.paths`` ON PURPOSE, and pinned by
 test. The one failure this file exists to make visible is the one where that
 module cannot be imported, so the last-resort writer cannot ask it where to
 write. ``tests/unit/test_host_plugin.py`` asserts the two answers agree, which is
@@ -89,7 +94,7 @@ def load_on_reg(dbstate, uistate=None, plugin=None, *rest):
 
         started = start_host(dbstate, GLib.idle_add, uistate)
         if started is not None:
-            from gramps_live_api.host import service
+            from gramps_agent_data_entry.host import service
 
             # ⚠️ ``*ignored`` for the reason load_on_reg's signature is open:
             # Gramps' Callback.emit unpacks whatever the emitter passed, and a
@@ -118,7 +123,7 @@ def start_host(dbstate, schedule, uistate=None):
     Gtk classes live here. So the host is handed a callable that takes a graph,
     puts it in front of the owner, and writes it if he says yes.
     """
-    from gramps_live_api.host import accessor, service
+    from gramps_agent_data_entry.host import accessor, service
 
     accessor.bind(dbstate)
     host = service.start_and_report(
@@ -146,7 +151,7 @@ def _present(dbstate, uistate, graph):
     Never raises. It is reached from a hook whose exceptions go nowhere, so
     everything lands in ``host.log`` instead.
     """
-    from gramps_live_api.host import document
+    from gramps_agent_data_entry.host import document
 
     host = _RUNNING.get("host")
 
@@ -184,7 +189,7 @@ def _present(dbstate, uistate, graph):
 
     _IN_FLIGHT["present"] = True
     try:
-        import gramps_live_api_writer as writer
+        import AgentDataEntry_writer as writer
 
         parsed = document.parse(graph)
 
@@ -193,7 +198,7 @@ def _present(dbstate, uistate, graph):
         # person and cancels, and that is the only check there is. Resolving
         # here rather than trusting what the route resolved keeps the lookup
         # adjacent to the rendering it feeds.
-        from gramps_live_api.host import accessor
+        from gramps_agent_data_entry.host import accessor
 
         resolution = accessor.resolve_nodes(graph)
         # ⛔ ``refusal()`` and not ``missing``. This re-resolve happens AFTER the
@@ -231,7 +236,7 @@ def _present(dbstate, uistate, graph):
         # code by the rule in ``tests/fixtures/host_sources.py`` -- it imports the
         # host package -- so reaching the database here is exactly the trespass
         # the boundary test refuses, and it caught this on the first run.
-        from gramps_live_api.host import accessor
+        from gramps_agent_data_entry.host import accessor
 
         outcome = accessor.blessing()
         if not outcome.blessed:
@@ -311,7 +316,7 @@ def _present(dbstate, uistate, graph):
     except Exception:
         note("ERROR", "document: the write failed: " + traceback.format_exc())
         try:
-            import gramps_live_api_writer as writer
+            import AgentDataEntry_writer as writer
 
             writer.tell(uistate, "The document could not be written", traceback.format_exc()[:2000])
         except Exception:
@@ -372,7 +377,7 @@ def _take_backup(tree_dir, note):
     """
     import datetime
 
-    from gramps_live_api.host import backup, paths
+    from gramps_agent_data_entry.host import backup, paths
 
     try:
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -441,7 +446,7 @@ def _record_intent(document, outcome, parsed, approved, taken, totals, note):
     """
     import datetime
 
-    from gramps_live_api.host import paths
+    from gramps_agent_data_entry.host import paths
 
     try:
         stamped = datetime.datetime.now(datetime.timezone.utc)
@@ -489,7 +494,7 @@ def _same_blessed_tree(backed_up_tree, note, writer, uistate):
     *recoverable-after*, and it is only true if the copy on disk is of the tree
     that is about to change.
     """
-    from gramps_live_api.host import accessor
+    from gramps_agent_data_entry.host import accessor
 
     outcome = accessor.blessing()
     if not outcome.blessed:
@@ -517,7 +522,7 @@ def _discard_quietly(taken, note):
     write that did not happen. It is never a tree file and never something the
     owner made.
     """
-    from gramps_live_api.host import backup
+    from gramps_agent_data_entry.host import backup
 
     try:
         if taken.path:
@@ -529,7 +534,7 @@ def _discard_quietly(taken, note):
 
 def _prune_quietly(taken, note):
     """Drop old backups. Never fatal -- the write's outcome does not depend on it."""
-    from gramps_live_api.host import backup
+    from gramps_agent_data_entry.host import backup
 
     try:
         if taken.path:
@@ -589,9 +594,9 @@ def _write_after_backup(
 
     try:
         # ⛔ Inside the try, so even an import failure reaches the ``finally``.
-        import gramps_live_api_writer as writer
+        import AgentDataEntry_writer as writer
 
-        from gramps_live_api.host import document, paths
+        from gramps_agent_data_entry.host import document, paths
 
         if not taken.ok:
             note("ERROR", "document: REFUSED TO ARM -- " + taken.message)
@@ -775,7 +780,7 @@ def _write_after_backup(
     except Exception:
         note("ERROR", "document: the write failed: " + traceback.format_exc())
         try:
-            import gramps_live_api_writer as writer
+            import AgentDataEntry_writer as writer
 
             writer.tell(uistate, "The document could not be written", traceback.format_exc()[:2000])
         except Exception:
@@ -807,12 +812,12 @@ def _write_after_backup(
 
 
 def _put_the_package_on_the_path():
-    """Make ``gramps_live_api`` importable inside Gramps' own frozen interpreter.
+    """Make ``gramps_agent_data_entry`` importable inside Gramps' own frozen interpreter.
 
     Gramps runs on its own Python with its own ``sys.path``, and nothing this
     project installs is on it. Two answers, in order:
 
-    ``GRAMPS_LIVE_API_SRC``
+    ``GRAMPS_AGENT_DATA_ENTRY_SRC``
         an explicit directory, for an owner who put the checkout somewhere this
         cannot infer.
     the checkout beside this file
@@ -828,7 +833,7 @@ def _put_the_package_on_the_path():
     named 'gramps_live_api_writer'`` on the first real request, with the route
     already answered 202 and the failure visible only in ``host.log``.
     """
-    named = os.environ.get("GRAMPS_LIVE_API_SRC")
+    named = os.environ.get("GRAMPS_AGENT_DATA_ENTRY_SRC")
     here = os.path.dirname(os.path.realpath(__file__))
     for candidate in (named, os.path.join(os.path.dirname(here), "src"), here):
         if candidate and os.path.isdir(candidate) and candidate not in sys.path:
@@ -836,7 +841,7 @@ def _put_the_package_on_the_path():
 
 
 def last_resort_log_path(environ, platform):
-    """Where to write when ``gramps_live_api`` itself could not be imported.
+    """Where to write when ``gramps_agent_data_entry`` itself could not be imported.
 
     Public, and only so a test can pin it against the real one. See the note on
     ``DIRECTORY_NAME`` above for why the copy exists at all.

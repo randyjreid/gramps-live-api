@@ -234,10 +234,10 @@ __marimo__/
 .streamlit/secrets.toml
 
 # ---------------------------------------------------------------------------
-# gramps-live-api: keep personal data out of a public repository.
+# gramps-agent-data-entry: keep personal data out of a public repository.
 #
 # This is a *public* repository owned by a private person. Nothing below may
-# ever be committed. The PII guard (src/gramps_live_api/core/pii_guard.py) is
+# ever be committed. The PII guard (src/gramps_agent_data_entry/core/pii_guard.py) is
 # the enforcement; this block is the first line of defence.
 # ---------------------------------------------------------------------------
 

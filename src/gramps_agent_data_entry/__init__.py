@@ -1,4 +1,4 @@
-"""gramps-live-api: a loopback HTTP API over a live, already-open Gramps family tree.
+"""gramps-agent-data-entry: a loopback HTTP API over a live, already-open Gramps family tree.
 
 Phase 0 contains no product functionality. See README.md for the roadmap.
 """

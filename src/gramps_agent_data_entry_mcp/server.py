@@ -53,9 +53,9 @@ from typing import Literal, Protocol
 
 from mcp.server import MCPServer
 
-from gramps_live_api import config
-from gramps_live_api.core import apply, proposals
-from gramps_live_api.host import document, paths
+from gramps_agent_data_entry import config
+from gramps_agent_data_entry.core import apply, proposals
+from gramps_agent_data_entry.host import document, paths
 
 TOOL_NAMES = frozenset(
     {
@@ -86,7 +86,7 @@ rather than against a comment, and
 ⛔ **none of these tools reports what the owner decided.** ``approve_document``
 answers *shown*, not *written* -- the outcome is learned by looking at Gramps."""
 
-SERVER_NAME = "gramps-live-api"
+SERVER_NAME = "gramps-agent-data-entry"
 
 GETTING_STARTED_PROMPT = "getting_started"
 """The name of the prompt below, used by the test that asserts it is listed."""

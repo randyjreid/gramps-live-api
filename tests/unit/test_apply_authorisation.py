@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from gramps_live_api.core import apply
+from gramps_agent_data_entry.core import apply
 
 
 def bless(directory: Path) -> Path:

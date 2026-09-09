@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from gramps_live_api.core.pii_guard import (
+from gramps_agent_data_entry.core.pii_guard import (
     _HOW_TO_ALLOW_A_TYPE,
     HISTORY_SOURCE,
     Finding,

@@ -33,8 +33,7 @@ document as one graph, you read it in a dialog inside Gramps, and it is written 
 ## Once: three pieces of setup
 
 > **Every command in this document is PowerShell**, and every one of them is run **from the root of
-> this checkout** — that is what `$PWD` refers to below. Nothing here needs `cmd.exe`, and nothing
-> here needs a placeholder filled in by hand.
+> this checkout** — that is what `$PWD` refers to below. Nothing here needs `cmd.exe`.
 
 ### 1. A copy of your tree, blessed by hand
 
@@ -83,7 +82,7 @@ $folders = @(Get-ChildItem "$env:APPDATA\gramps" -Directory -ErrorAction Silentl
 if ($folders.Count -eq 0) { throw "No gramps<version> folder under $env:APPDATA\gramps -- start Gramps once, then run this again." }
 if ($folders.Count -gt 1) { throw "More than one version folder under $env:APPDATA\gramps ($($folders.Name -join ', ')) and this will not choose between them -- see the two lines below." }
 $plugins = Join-Path $folders[0].FullName "plugins"
-$link    = "$plugins\gramps-live-api"
+$link    = "$plugins\gramps-agent-data-entry"
 New-Item -ItemType Directory -Force $plugins | Out-Null
 if (Test-Path $link) {
   "already there: $((Get-Item $link).Target)"
@@ -92,6 +91,41 @@ if (Test-Path $link) {
   "created"
 }
 ```
+
+⚠️ **If you installed this addon before it was renamed, delete the old folder.** It points at
+this same checkout, so leaving it registers the addon twice from two directories, and `check`
+reports only the first one it finds.
+
+Run the install check, which is the `check` command under **The one command** further down this
+page: it makes the virtual environment first, and a bare `python` here would meet the Microsoft
+Store shim instead. Its `plugin:` line names the folder the addon is installed in. **Delete the
+folder called `gramps-live-api` that sits beside it**, in that same plugins directory.
+
+It is a link rather than a copy, so removing it removes the link and leaves the checkout it points
+at untouched. The command that does exactly that, with the path you just read written in, is:
+
+    [System.IO.Directory]::Delete("<the plugins directory>\gramps-live-api", $false)
+
+⚠️ **This step works out nothing for itself, on purpose**, so the path is yours to type in.
+The `$false` means non-recursive: it removes the link and **cannot** follow it into
+the checkout on the other side. Given a real folder with anything in it, it refuses with `The
+directory is not empty` rather than emptying it.
+
+⛔ **Do not use `Remove-Item`.** Measured on PowerShell 5.1 it fails on a junction with `Object
+reference not set to an instance of an object` and leaves it in place, so you still have two
+registrations. If you ran an earlier version of this page and saw that error, this is what it meant.
+
+⛔ **And do not reach for `-Recurse -Force`.** `-Recurse` can follow a junction through the
+reparse point into its target, and this junction's target is your own checkout.
+
+⚠️ **If what you find is a real folder holding files** rather than a link, it is a copied
+installation and not a leftover link. This page does not tell you to delete files. Look at what is
+in it and move it out yourself; Gramps keeps loading the addon from it until you do.
+
+⛔ **This used to be a PowerShell block that worked out the path and branched on what it found.**
+It was replaced rather than repaired. Across three consecutive review rounds it was found wrong in
+four different input states, each one nobody had enumerated the round before, because a block pasted
+into a reader's console inherits whatever that console already holds. **A sentence has one state.**
 
 ⭐ **One version folder is not a choice; two are, and it refuses to make it.**
 This used to hardcode `gramps60`, then it ranked the `gramps<digits>` folders and
@@ -125,7 +159,7 @@ lines with the one your Gramps actually uses — its version is in Gramps under
 
 ```powershell
 $plugins = "$env:APPDATA\gramps\gramps60\plugins"    # <- your version, not necessarily this one
-$link    = "$plugins\gramps-live-api"
+$link    = "$plugins\gramps-agent-data-entry"
 New-Item -ItemType Directory -Force $plugins | Out-Null
 if (Test-Path $link) {
   "already there: $((Get-Item $link).Target)"
@@ -182,7 +216,7 @@ full. Add `"gramps_runtime"` beside it if you have more than one Gramps installe
 under `$env:ProgramFiles\GrampsAIO64-<version>\`; with exactly one installed it is found for you, and
 with two you are asked to name one rather than have this guess.
 
-`GRAMPS_LIVE_API_COPY` and `GRAMPS_LIVE_API_RUNTIME` override both, for a one-off run.
+`GRAMPS_AGENT_DATA_ENTRY_COPY` and `GRAMPS_AGENT_DATA_ENTRY_RUNTIME` override both, for a one-off run.
 
 ---
 
@@ -217,7 +251,7 @@ $env:PYTHONPATH = "src"
 ### `check` — is everything in place?
 
 ```powershell
-.\.venv\Scripts\python.exe -m gramps_live_api check
+.\.venv\Scripts\python.exe -m gramps_agent_data_entry check
 ```
 
 You should see the runtime, the plugin, the source it resolves to, your copy, and each of
@@ -225,8 +259,8 @@ the two files the check looks at:
 
 ```
   ok   runtime: ...\GrampsAIO64-<version>\grampsd.exe
-  ok   plugin: ...\gramps\gramps60\plugins\gramps-live-api
-  ok   source: ...\gramps-live-api\src
+  ok   plugin: ...\gramps\gramps60\plugins\gramps-agent-data-entry
+  ok   source: ...\gramps-agent-data-entry\src
   ok   copy: ...\grampsdb\1a2b3c4d
   ok   name.txt: is a Gramps family tree directory
   ok   .gramps-live-api-copy: is blessed for writing by hand
@@ -245,7 +279,7 @@ ready
 table, the one whose `name.txt` holds your live tree's name:
 
 ```powershell
-.\.venv\Scripts\python.exe -m gramps_live_api check "<the Path for your LIVE tree>"
+.\.venv\Scripts\python.exe -m gramps_agent_data_entry check "<the Path for your LIVE tree>"
 ```
 
 The same report, with one line changed and a non-zero exit:
@@ -279,7 +313,7 @@ citation, written as one transaction.
 > directory and stepping up one level — which works because that directory is a **junction into the checkout**. Copy the files
 > instead and it lands in Gramps' plugin folder, where there is no `src`, and every document route
 > fails on import. `check` reports that as its own `source` line, so a passing check does now mean
-> this route has what it needs; if it says `NO`, re-make the junction or set `GRAMPS_LIVE_API_SRC`.
+> this route has what it needs; if it says `NO`, re-make the junction or set `GRAMPS_AGENT_DATA_ENTRY_SRC`.
 
 ### What you do
 

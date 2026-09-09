@@ -46,12 +46,12 @@ if importlib.util.find_spec("mcp") is None:  # pragma: no cover - installed in d
     pytest.skip(
         "the MCP server is an optional extra and it is not installed, so there is "
         "nothing to cover here -- the descriptions live in "
-        "gramps_live_api_mcp.server, which cannot be imported at all. CI's mcp leg "
+        "gramps_agent_data_entry_mcp.server, which cannot be imported at all. CI's mcp leg "
         "installs '.[mcp]' and asserts these tests actually ran.",
         allow_module_level=True,
     )
 
-import gramps_live_api_mcp.server as server  # noqa: E402
+import gramps_agent_data_entry_mcp.server as server  # noqa: E402
 
 
 def _descriptions() -> dict[str, str]:
@@ -176,7 +176,7 @@ def test_the_lookup_rule_covers_every_kind_that_can_carry_a_gramps_id() -> None:
     ⚠️ ``place`` was omitted from the enumeration entirely while ``find_place``
     existed, so an existing place had no advertised way to be found.
     """
-    from gramps_live_api.host import document
+    from gramps_agent_data_entry.host import document
 
     text = server.PROPOSE_DOCUMENT_DESCRIPTION
     rule = text[text.index("*** LOOK IT UP BEFORE YOU CREATE") :]
@@ -205,7 +205,7 @@ def test_the_note_type_KEY_is_advertised_and_its_VOCABULARY_is_not() -> None:
     to ``NODE_KEYS`` without advertising it fails there. What is asserted here is
     the half that test cannot see, which is what must NOT be in the description.
     """
-    from gramps_live_api.host import document
+    from gramps_agent_data_entry.host import document
 
     text = server.PROPOSE_DOCUMENT_DESCRIPTION
     notes_line = [line for line in text.splitlines() if line.strip().startswith("notes:")]

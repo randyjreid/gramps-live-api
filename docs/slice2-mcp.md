@@ -10,7 +10,7 @@
 >   `preview`/`apply` CLI commands.
 >   [R9](rulings/R9-retire-the-note-flow.md) ruled it and the retirement has
 >   shipped. The authoritative tool list is `TOOL_NAMES` in
->   `src/gramps_live_api_mcp/server.py`: **sixteen** — fourteen live reads and
+>   `src/gramps_agent_data_entry_mcp/server.py`: **sixteen** — fourteen live reads and
 >   `propose_document`/`approve_document`.
 > * **"three MCP tools"** — see above. It was three, then nineteen, and it is now
 >   sixteen; the count was never the invariant.
@@ -502,7 +502,7 @@ way would leave a green board saying nothing:
 
 | Leg | Installs | Proves |
 | --- | --- | --- |
-| **core** | `.[dev]` | `mcp` is **not importable**, and this distribution declares **no unconditional requirement**. Then lint, format, `mypy src/gramps_live_api`, `pytest -rs`. |
+| **core** | `.[dev]` | `mcp` is **not importable**, and this distribution declares **no unconditional requirement**. Then lint, format, `mypy src/gramps_agent_data_entry`, `pytest -rs`. |
 | **mcp** | `.[dev,mcp]` | `mypy src` — the whole tree against the real SDK — and then, from the JUnit report, that `tests/unit/test_mcp_server.py` **contributed test cases and none of them skipped**. |
 | **pii-guard** | **nothing at all** | unchanged, and deliberately so: installing would write build artefacts into the checkout it exists to scan. |
 
@@ -608,7 +608,7 @@ python -m pip install -e ".[mcp]"
 ```
 
 ⚠️ **The `mcp` extra is required to run the server**, and it is the only place this project has a
-runtime dependency of any kind. Without it, `python -m gramps_live_api_mcp` raises
+runtime dependency of any kind. Without it, `python -m gramps_agent_data_entry_mcp` raises
 `ModuleNotFoundError: No module named 'mcp'` and `tests/unit/test_mcp_server.py` skips by name. Slice
 1's console — `check`, `apply`, `approve` — needs none of it. Contributors want `".[dev,mcp]"`.
 
@@ -627,7 +627,7 @@ $current | ConvertTo-Json | Set-Content $settings -Encoding utf8
 Then check it:
 
 ```powershell
-python -m gramps_live_api check
+python -m gramps_agent_data_entry check
 ```
 
 The report now carries an `export` line. **If it says the export is older than the copy, do not
@@ -638,7 +638,7 @@ export cannot clear it, and for the one thing the stamp does not claim.
 ### 2. Register the server
 
 ```powershell
-claude mcp add gramps -- "$PWD\.venv\Scripts\python.exe" -m gramps_live_api_mcp
+claude mcp add gramps -- "$PWD\.venv\Scripts\python.exe" -m gramps_agent_data_entry_mcp
 ```
 
 ⚠️ **The interpreter is named in full, deliberately.** On this machine a bare `python` is the
@@ -647,7 +647,7 @@ Microsoft Store shim, which is not this checkout's interpreter and reports a mis
 To see the three tools before an agent is involved:
 
 ```powershell
-python -m gramps_live_api_mcp
+python -m gramps_agent_data_entry_mcp
 ```
 
 and paste an `initialize` / `notifications/initialized` / `tools/list` exchange at it.

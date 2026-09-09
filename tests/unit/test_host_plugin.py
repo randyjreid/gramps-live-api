@@ -23,11 +23,11 @@ from typing import Any
 
 import pytest
 
-from gramps_live_api.host import accessor, paths
+from gramps_agent_data_entry.host import accessor, paths
 from tests.fixtures.host import MainLoop
 from tests.fixtures.host_sources import PLUGIN_DIRECTORY, plugin_sources
 
-PLUGIN_FILE = PLUGIN_DIRECTORY / "gramps_live_api_host.py"
+PLUGIN_FILE = PLUGIN_DIRECTORY / "AgentDataEntry.py"
 
 
 def load_the_plugin() -> ModuleType:
@@ -116,7 +116,7 @@ def test_the_last_resort_log_agrees_with_the_real_one(
 ) -> None:
     """The one duplicated path in this project, pinned so it cannot drift.
 
-    ``gramps_plugin/gramps_live_api_host.py`` computes the log location itself,
+    ``gramps_plugin/AgentDataEntry.py`` computes the log location itself,
     because the failure it exists to report is the one where the package cannot
     be imported and so cannot be asked. A copy that drifts writes the report into
     a directory nobody looks in, which is silence with extra steps.
@@ -142,11 +142,11 @@ def test_the_last_resort_note_writes_a_line_nothing_else_would_have(
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setitem(sys.modules, "gramps", ModuleType("gramps"))
 
-    plugin._last_resort_note("ModuleNotFoundError: no module named gramps_live_api")
+    plugin._last_resort_note("ModuleNotFoundError: no module named gramps_agent_data_entry")
 
     written = paths.log_path(paths.state_directory({"APPDATA": str(tmp_path)}, platform="win32"))
     assert "ERROR" in written.read_text(encoding="utf-8")
-    assert "gramps_live_api" in written.read_text(encoding="utf-8")
+    assert "gramps_agent_data_entry" in written.read_text(encoding="utf-8")
 
 
 def test_the_hook_never_raises_however_badly_it_goes(plugin: ModuleType) -> None:
@@ -174,11 +174,11 @@ def test_the_registration_declares_the_hook_gramps_looks_for() -> None:
     Without it the plugin registers, appears in the plugin list, and is never
     loaded -- which looks exactly like an installation that worked.
     """
-    registration = (PLUGIN_DIRECTORY / "gramps_live_api_host.gpr.py").read_text(encoding="utf-8")
+    registration = (PLUGIN_DIRECTORY / "AgentDataEntry.gpr.py").read_text(encoding="utf-8")
 
     assert "load_on_reg=True" in registration.replace(" ", "")
     assert "GENERAL" in registration
-    assert 'fname="gramps_live_api_host.py"' in registration
+    assert 'fname="AgentDataEntry.py"' in registration
 
 
 def test_both_plugin_files_are_inside_the_host_rules(plugin: ModuleType) -> None:
@@ -189,7 +189,7 @@ def test_both_plugin_files_are_inside_the_host_rules(plugin: ModuleType) -> None
     """
     covered = {path.name for path in plugin_sources()}
 
-    assert covered == {"gramps_live_api_host.py", "gramps_live_api_host.gpr.py"}
+    assert covered == {"AgentDataEntry.py", "AgentDataEntry.gpr.py"}
 
 
 def test_the_apply_plugin_is_not_swept_in() -> None:
@@ -261,7 +261,7 @@ def test_the_hook_still_reports_when_it_really_is_gramps(
 
 
 class _Writer:
-    """Stands in for ``gramps_live_api_writer``, recording what it was asked to do."""
+    """Stands in for ``AgentDataEntry_writer``, recording what it was asked to do."""
 
     def __init__(self, say_yes: bool = True) -> None:
         self.confirmed: list[str] = []
@@ -282,7 +282,7 @@ class _Writer:
 
 
 def _install_writer(monkeypatch: pytest.MonkeyPatch, writer: _Writer) -> None:
-    monkeypatch.setitem(sys.modules, "gramps_live_api_writer", writer)
+    monkeypatch.setitem(sys.modules, "AgentDataEntry_writer", writer)
 
 
 def test_a_failed_backup_shows_no_dialog_and_writes_nothing(
@@ -298,7 +298,7 @@ def test_a_failed_backup_shows_no_dialog_and_writes_nothing(
     failed, nothing was written"* has already spent the owner's attention on a
     decision that could not be honoured.
     """
-    from gramps_live_api.host import backup
+    from gramps_agent_data_entry.host import backup
 
     writer = _Writer()
     _install_writer(monkeypatch, writer)
@@ -327,7 +327,7 @@ def test_the_owner_is_told_where_the_backup_went(
     plugin: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """⭐ A backup nobody can find is not a recovery path."""
-    from gramps_live_api.host import backup, document
+    from gramps_agent_data_entry.host import backup, document
 
     writer = _Writer(say_yes=True)
     _install_writer(monkeypatch, writer)
@@ -384,7 +384,7 @@ def test_the_journal_records_which_backup_precedes_the_write() -> None:
     check the counts after replacing the file -- which he cannot do if nothing
     recorded them.
     """
-    from gramps_live_api.host import document
+    from gramps_agent_data_entry.host import document
 
     # ⚠️ Built from keyword arguments, not a dict literal: pii_guard's P2
     # signature scores JSON-shaped key/value pairs carrying identity, and it
@@ -429,7 +429,7 @@ def test_the_backup_must_be_of_the_tree_that_gets_written(
     the copy on disk is of A. **Recoverable-after is then false while every
     individual check reads green** -- the guarantee gone, and nothing saying so.
     """
-    from gramps_live_api.host import backup, document
+    from gramps_agent_data_entry.host import backup, document
 
     writer = _Writer(say_yes=True)
     _install_writer(monkeypatch, writer)
@@ -466,7 +466,7 @@ def test_the_tree_is_rechecked_after_the_owner_confirms(
     The tree can be closed or swapped while the owner reads the dialog, which is
     exactly the window the pre-dialog check cannot see.
     """
-    from gramps_live_api.host import backup, document
+    from gramps_agent_data_entry.host import backup, document
 
     tree_a = str(tmp_path / "A")
     seen = {"calls": 0}
@@ -508,7 +508,7 @@ def test_a_cancelled_preview_still_prunes(
     -- roughly 24 MB on the measured tree. With pruning only on the success path,
     repeated declines grow the directory past its documented bound.
     """
-    from gramps_live_api.host import backup, document
+    from gramps_agent_data_entry.host import backup, document
 
     directory = tmp_path / "backups" / "T"
     directory.mkdir(parents=True)
@@ -557,7 +557,7 @@ def test_the_backup_mapping_is_durable_BEFORE_the_write(
     entirely** -- *recoverable-after* reduced to filesystem archaeology at the
     exact moment it is needed.
     """
-    from gramps_live_api.host import backup, document
+    from gramps_agent_data_entry.host import backup, document
 
     writer = _Writer(say_yes=True)
     _install_writer(monkeypatch, writer)
@@ -604,7 +604,7 @@ def test_a_failure_to_record_the_backup_REFUSES_the_write(
     Writing anyway would produce exactly the state A4 exists to prevent, and it
     would do it knowingly.
     """
-    from gramps_live_api.host import backup, document
+    from gramps_agent_data_entry.host import backup, document
 
     writer = _Writer(say_yes=True)
     _install_writer(monkeypatch, writer)
@@ -650,7 +650,7 @@ def test_a_second_approval_is_REFUSED_while_one_is_on_screen(
     ⭐ **They are one defect seen four times.** This asserts the second approval
     is REFUSED rather than queued behind and silently executed.
     """
-    from gramps_live_api.host import backup, document
+    from gramps_agent_data_entry.host import backup, document
 
     reentered: list[object] = []
     backups_taken: list[str] = []
@@ -690,7 +690,7 @@ def test_a_second_approval_is_REFUSED_while_one_is_on_screen(
 
 
 def _ok_backup(tmp_path: Path):  # noqa: ANN202
-    from gramps_live_api.host import backup
+    from gramps_agent_data_entry.host import backup
 
     return backup.Outcome(
         ok=True, path=str(tmp_path / "b.sqlite"), message="ok", taken_utc="t", seconds=0.1
@@ -705,7 +705,7 @@ def test_the_in_flight_flag_is_cleared_on_every_exit(
     That is a worse failure than the one it prevents, so the clearing is in a
     ``finally`` and this asserts it for a path that RAISES.
     """
-    from gramps_live_api.host import document
+    from gramps_agent_data_entry.host import document
 
     writer = _Writer()
     _install_writer(monkeypatch, writer)
@@ -734,7 +734,7 @@ def test_the_intent_and_its_completion_share_one_file(
     database had committed.** The stem now carries a collision-free suffix and
     the completion reuses the intent's own.
     """
-    from gramps_live_api.host import backup, document
+    from gramps_agent_data_entry.host import backup, document
 
     writer = _Writer(say_yes=True)
     _install_writer(monkeypatch, writer)
@@ -783,7 +783,7 @@ def test_EVERY_pre_write_exit_discards_the_backup_not_just_cancellation(
     ⭐ So the bound is *committed or discarded*, and this test walks the exits one
     at a time rather than trusting the one that was already covered.
     """
-    from gramps_live_api.host import backup, document
+    from gramps_agent_data_entry.host import backup, document
 
     graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
 
@@ -854,7 +854,7 @@ def test_a_committed_write_KEEPS_its_backup(
     deleting the recovery point of a write that DID happen -- which is R4's
     guarantee destroyed by the machinery meant to maintain it.
     """
-    from gramps_live_api.host import backup, document
+    from gramps_agent_data_entry.host import backup, document
 
     directory = tmp_path / "kept"
     directory.mkdir(parents=True)
@@ -909,7 +909,7 @@ def test_a_raise_AFTER_the_commit_must_not_delete_the_backup(
     unknown: the worst case is one retention slot spent on a backup for a write
     that failed early.
     """
-    from gramps_live_api.host import backup, document
+    from gramps_agent_data_entry.host import backup, document
 
     directory = tmp_path / "post_commit"
     directory.mkdir(parents=True)
@@ -962,7 +962,7 @@ def test_a_backup_KEPT_after_a_raise_is_still_pruned(
     document could not be written, retries. ``RETAIN`` would bound nothing during
     the one situation in which these backups matter most.
     """
-    from gramps_live_api.host import backup, document
+    from gramps_agent_data_entry.host import backup, document
 
     directory = tmp_path / "kept_and_pruned"
     directory.mkdir(parents=True)

@@ -28,10 +28,20 @@ from dataclasses import dataclass
 from pathlib import Path
 
 DIRECTORY_NAME = "gramps-live-api"
+"""⛔ **Frozen by the rename to AgentDataEntry, deliberately.** The state
+directory under ``%APPDATA%`` already holds this machine's config, token, port,
+logs and tree backups. Measured with the same ``config.json`` bytes and one
+variable changed: with the directory as it is, an unknown key is refused by
+name; with the directory renamed, ``load`` returns an EMPTY ``copy_path`` and
+says nothing. That silent empty is exactly the state this module's own docstring
+exists to prevent, so renaming it would defeat a stated design property of the
+thing being renamed. It is an on-disk name, not an occurrence the rename
+missed."""
+
 CONFIG_FILE = "config.json"
 
-ENV_COPY = "GRAMPS_LIVE_API_COPY"
-ENV_RUNTIME = "GRAMPS_LIVE_API_RUNTIME"
+ENV_COPY = "GRAMPS_AGENT_DATA_ENTRY_COPY"
+ENV_RUNTIME = "GRAMPS_AGENT_DATA_ENTRY_RUNTIME"
 
 RUNTIME_NAME = "grampsd.exe"
 """The daemon launcher, and never ``gramps.exe``.

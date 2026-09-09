@@ -732,7 +732,7 @@ what died, and this document should not be read as saying it was.
 
 ⚠️ **But Phase 5's other job was an in-process channel onto a live tree — a process holding Gramps'
 own database handle — and nothing shipped does that job.** What ships is out-of-process at every
-step: the agent host launches `gramps_live_api_mcp` as a **standalone stdio process**;
+step: the agent host launches `gramps_agent_data_entry_mcp` as a **standalone stdio process**;
 `Tools.list_people` reads the **configured export** rather than a database; and `approve` spawns
 **another process again** — a console running `python -m gramps_live_api approve` — for the write.
 A snapshot read taken in a separate process is not the job the bridge was hosted inside Gramps to do.

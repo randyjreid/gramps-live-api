@@ -2,7 +2,7 @@
 
 > ⛔ **A RECORD OF WHAT PHASE 1 WAS SPECIFIED TO BE, NOT CURRENT INTENT.** It is
 > undated and written in the imperative, which reads as a live plan; it is not
-> one. What shipped is in `src/gramps_live_api/core/`, and the tests are the
+> one. What shipped is in `src/gramps_agent_data_entry/core/`, and the tests are the
 > current statement of behaviour.
 
 

@@ -30,11 +30,11 @@ from typing import Any
 
 import pytest
 
-from gramps_live_api.host import accessor, document
+from gramps_agent_data_entry.host import accessor, document
 from tests.fixtures.host_sources import PLUGIN_DIRECTORY
 
 NAME_FILE = "name.txt"
-PLUGIN_FILE = PLUGIN_DIRECTORY / "gramps_live_api_host.py"
+PLUGIN_FILE = PLUGIN_DIRECTORY / "AgentDataEntry.py"
 
 
 def load_the_plugin() -> ModuleType:
@@ -233,12 +233,12 @@ def test_the_HOST_refuses_an_unblessed_tree_with_the_REAL_check(
     """
     plugin: ModuleType = load_the_plugin()
     writer = _Writer()
-    monkeypatch.setitem(sys.modules, "gramps_live_api_writer", writer)
+    monkeypatch.setitem(sys.modules, "AgentDataEntry_writer", writer)
 
     unblessed = _a_gramps_tree(tmp_path / "live", blessed=False)
     accessor.bind(_FakeDbState(_FakeDatabase(str(unblessed))))
 
-    from gramps_live_api.host import backup
+    from gramps_agent_data_entry.host import backup
 
     graph = dict(people=[dict(id="p1", given="Ada", surname="Invented")])
     result = plugin._write_after_backup(
@@ -275,12 +275,12 @@ def test_the_HOST_proceeds_when_the_tree_IS_blessed(
     """
     plugin: ModuleType = load_the_plugin()
     writer = _Writer()
-    monkeypatch.setitem(sys.modules, "gramps_live_api_writer", writer)
+    monkeypatch.setitem(sys.modules, "AgentDataEntry_writer", writer)
 
     blessed = _a_gramps_tree(tmp_path / "copy", blessed=True)
     accessor.bind(_FakeDbState(_FakeDatabase(str(blessed))))
 
-    from gramps_live_api.host import backup
+    from gramps_agent_data_entry.host import backup
 
     copy = blessed / "a-backup.sqlite"
     copy.write_text("a backup", encoding="utf-8")

@@ -24,13 +24,20 @@ import os
 import traceback
 
 SENTINEL = ".gramps-live-api-copy"
+"""⛔ **Frozen by the rename to AgentDataEntry, deliberately.** It names a file
+already on the owner's blessed trees, and it is the THIRD spelling of one value:
+this module is ``exec``d by Gramps rather than imported, so it cannot share the
+package's constant. Drift between the three is what
+``tests/unit/test_sentinel_spellings.py`` refuses. It is an on-disk name, not an
+occurrence the rename missed."""
+
 NAME_FILE = "name.txt"
 
 
 def blessing(tree_dir):
     """(blessed, message) for a tree directory. The message names the tree.
 
-    Inlined rather than imported from ``gramps_live_api.core.apply`` for the
+    Inlined rather than imported from ``gramps_agent_data_entry.core.apply`` for the
     reason the spike inlined it: the plugin must not depend on the package
     resolving on Gramps' ``sys.path`` for a two-line check.
     """
@@ -59,7 +66,9 @@ def confirm(uistate, text):
     from gi.repository import Gtk
 
     parent = getattr(uistate, "window", None)
-    dialog = Gtk.Dialog(title="gramps-live-api -- confirm before writing", transient_for=parent)
+    dialog = Gtk.Dialog(
+        title="gramps-agent-data-entry -- confirm before writing", transient_for=parent
+    )
     dialog.set_modal(True)
     dialog.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Write it", Gtk.ResponseType.OK)
     dialog.set_default_size(780, 640)
@@ -265,7 +274,7 @@ def _note_types_or_refuse(graph, note_type_class):
     """⛔ Refuse the WHOLE document before anything is written, or say nothing.
 
     ⚠️ **The plugin registers against whichever Gramps is running**, deliberately:
-    ``gramps_live_api_host.gpr.py`` derives its ``MODULE_VERSION`` rather than
+    ``AgentDataEntry.gpr.py`` derives its ``MODULE_VERSION`` rather than
     pinning one, because a pinned literal stops matching the day Gramps updates
     and the plugin silently stops being registered. So there is no version wall,
     and the frozen table this writer's list copies was derived from one Gramps.

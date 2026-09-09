@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from gramps_live_api.core.pii_guard import Finding
+from gramps_agent_data_entry.core.pii_guard import Finding
 
 
 def rules(findings: Iterable[Finding]) -> list[str]:

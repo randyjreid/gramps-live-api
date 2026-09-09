@@ -5,7 +5,7 @@ Run this by hand, never in CI. It reads artifacts that were fetched
 
     python scripts/derive_specified_containers.py \
         <gramps dtd> <html element index> <svg element index> \
-        > src/gramps_live_api/core/_specified_containers.py
+        > src/gramps_agent_data_entry/core/_specified_containers.py
 
 ⚠️ **CI never fetches anything, and neither does this script.** The network
 step is a human one, recorded in the derivation note with each artifact's

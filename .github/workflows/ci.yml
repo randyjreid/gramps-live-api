@@ -81,7 +81,7 @@ jobs:
           # `extra ==`. Anything else -- bare, or conditioned on a platform, a
           # python version, anything at all -- is installed by `pip install .`
           # and so is a runtime dependency of the core.
-          declared = requires("gramps-live-api") or []
+          declared = requires("gramps-agent-data-entry") or []
           runtime = [r for r in declared if "extra ==" not in r]
           if runtime:
               sys.exit(f"::error::core declares runtime dependencies: {runtime}")
@@ -96,7 +96,7 @@ jobs:
         run: ruff format --check .
 
       # ⚠️ **The core package only, and NOT because the MCP server is exempt.**
-      # `mypy src` here reaches `gramps_live_api_mcp/server.py`, whose import of
+      # `mypy src` here reaches `gramps_agent_data_entry_mcp/server.py`, whose import of
       # `mcp` cannot be resolved on this leg. Measured, on an environment built
       # exactly like this one:
       #
@@ -120,7 +120,7 @@ jobs:
       # excluded from type checking; the module is checked once, in the only
       # place where the check means what its docstring says it means.
       - name: Types (core)
-        run: mypy src/gramps_live_api
+        run: mypy src/gramps_agent_data_entry
 
       # -rs names every skipped test and its reason in the report. A skip is
       # this suite's fail-closed answer to a platform it cannot observe, so a
@@ -407,14 +407,14 @@ jobs:
           # the same way that data did: through the environment, never through
           # the script text.
           RANGE: ${{ steps.pushed.outputs.range }}
-        run: python -m gramps_live_api.core.pii_guard --range "$RANGE" .
+        run: python -m gramps_agent_data_entry.core.pii_guard --range "$RANGE" .
 
       - name: Scan the pull request history for personal data
         if: github.event_name == 'pull_request'
         env:
           PYTHONPATH: src
           RANGE: ${{ steps.pull_request.outputs.range }}
-        run: python -m gramps_live_api.core.pii_guard --range "$RANGE" .
+        run: python -m gramps_agent_data_entry.core.pii_guard --range "$RANGE" .
 
       # Everything the two range scans do not cover: a tag push, and any event
       # that is neither a push nor a pull request. Written as the complement
@@ -453,4 +453,4 @@ jobs:
           # travels through env: and is quoted at the point of use, so the step
           # reads the same as the two above it.
           RANGE: HEAD
-        run: python -m gramps_live_api.core.pii_guard --range "$RANGE" .
+        run: python -m gramps_agent_data_entry.core.pii_guard --range "$RANGE" .

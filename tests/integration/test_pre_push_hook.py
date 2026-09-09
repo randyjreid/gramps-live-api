@@ -178,7 +178,7 @@ _NOTHING_IS_PLANTED = object()
 # FAILS the same ``-c ''`` probe the hook itself uses.
 _THE_SHADOW_MUST_DECIDE = """\
 set -u
-directory=$(cd "${GLAPI_SHADOW:-}" 2>/dev/null && pwd) || directory=''
+directory=$(cd "${GADE_SHADOW:-}" 2>/dev/null && pwd) || directory=''
 if [ -z "$directory" ]; then
     echo "the shell cannot reach the shadow directory at all"
     exit 3
@@ -267,7 +267,7 @@ def _the_shadow_must_decide(
         check=False,
         # Forward slashes: the shell reads this out of its own environment, and a
         # backslash inside double quotes is not a separator there.
-        env={**environment, "GLAPI_SHADOW": str(shadow).replace("\\", "/")},
+        env={**environment, "GADE_SHADOW": str(shadow).replace("\\", "/")},
     )
     assert probe.returncode == 0, (
         "the fixture did not build the case: the hook is about to look for an "
@@ -308,11 +308,11 @@ def _push(
     environment = dict(os.environ)
     environment["PATH"] = _the_hooks_own_path(shell)
     if interpreter is _THIS_RUNS_PYTHON:
-        environment["GRAMPS_LIVE_API_PYTHON"] = sys.executable
+        environment["GRAMPS_AGENT_DATA_ENTRY_PYTHON"] = sys.executable
     elif interpreter is _NOTHING_IS_PLANTED:
-        environment["GRAMPS_LIVE_API_PYTHON"] = str(repo / "no-such-python")
+        environment["GRAMPS_AGENT_DATA_ENTRY_PYTHON"] = str(repo / "no-such-python")
     elif interpreter is None:
-        environment["GRAMPS_LIVE_API_PYTHON"] = str(repo / "no-such-python")
+        environment["GRAMPS_AGENT_DATA_ENTRY_PYTHON"] = str(repo / "no-such-python")
         # ⛔ Hide PYTHON, not everything. Emptying PATH also hid **git**, so the
         # hook refused at its commit-ish check instead -- the test then asserted
         # a message it was not written for, and only surfaced when the
@@ -329,7 +329,7 @@ def _push(
         environment["PATH"] = _the_hooks_own_path(shell, ahead=shadow)
         _the_shadow_must_decide(shell, repo, environment, shadow)
     else:
-        environment["GRAMPS_LIVE_API_PYTHON"] = str(interpreter)
+        environment["GRAMPS_AGENT_DATA_ENTRY_PYTHON"] = str(interpreter)
 
     # ⛔ BYTES, and LF only. ``text=True`` translates the newline on Windows, so
     # the last field arrived with a trailing carriage return — **41 characters
@@ -652,7 +652,7 @@ def test_the_SHADOW_is_what_refuses_that_push_and_not_the_machine(tmp_path: Path
     _git(repo, "commit", "-q", "-m", "clean")
 
     # ⚠️ Only the two PATH candidates are probed. The two before them in the
-    # hook's list cannot resolve here -- GRAMPS_LIVE_API_PYTHON is about to point
+    # hook's list cannot resolve here -- GRAMPS_AGENT_DATA_ENTRY_PYTHON is about to point
     # at a file that does not exist, and the throwaway repository has no .venv,
     # asserted rather than assumed -- and an over-narrow probe here costs a skip
     # that could have run, never a pass that measured nothing.

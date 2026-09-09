@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from gramps_live_api import config
+from gramps_agent_data_entry import config
 
 
 def written(directory: Path, settings: dict[str, object]) -> Path:

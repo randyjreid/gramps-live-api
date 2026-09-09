@@ -34,28 +34,28 @@ import pytest
 
 # ⚠️ **`find_spec`, not `pytest.importorskip`, and the difference is which
 # failures are allowed to become a skip.** `importorskip` would swallow ANY
-# ImportError raised while importing `gramps_live_api_mcp.server` -- a typo in
+# ImportError raised while importing `gramps_agent_data_entry_mcp.server` -- a typo in
 # our own module included -- and report the whole file as skipped. This asks one
 # question, `is the optional extra installed?`, and skips only on that answer.
 # Every other import error below still fails collection, loudly.
 #
 # The message claims the seam-twin exemption in the words the hygiene test
 # requires, and the claim is the honest one: without the extra there is no
-# importable `gramps_live_api_mcp.server` at all, so the SUBJECT is absent
+# importable `gramps_agent_data_entry_mcp.server` at all, so the SUBJECT is absent
 # rather than the observation. A platform skip leaves a property uncovered and
 # owes a twin; this one leaves a module non-existent, and a twin would be a
 # test of nothing.
 if importlib.util.find_spec("mcp") is None:  # pragma: no cover - the extra is installed in dev
     pytest.skip(
         "the MCP server is an optional extra and it is not installed, so there is "
-        "nothing to cover here -- gramps_live_api_mcp.server cannot be imported at "
+        "nothing to cover here -- gramps_agent_data_entry_mcp.server cannot be imported at "
         "all. CI's mcp leg installs '.[mcp]' and asserts these tests actually ran.",
         allow_module_level=True,
     )
 
-from gramps_live_api import config  # noqa: E402
-from gramps_live_api.host import document  # noqa: E402
-from gramps_live_api_mcp import server as mcp_server  # noqa: E402
+from gramps_agent_data_entry import config  # noqa: E402
+from gramps_agent_data_entry.host import document  # noqa: E402
+from gramps_agent_data_entry_mcp import server as mcp_server  # noqa: E402
 from tests.fixtures.trees import blessed  # noqa: E402
 from tests.unit.test_cli import equipped  # noqa: E402
 
@@ -131,7 +131,7 @@ def test_the_description_says_the_chat_yes_is_not_the_approval() -> None:
 
 
 # ---------------------------------------------------------------------------
-# python -m gramps_live_api_mcp
+# python -m gramps_agent_data_entry_mcp
 # ---------------------------------------------------------------------------
 
 
@@ -151,13 +151,13 @@ def test_the_module_entry_point_runs_a_stdio_server_and_nothing_else() -> None:
 
 
 def test_the_entry_point_module_calls_serve() -> None:
-    """``python -m gramps_live_api_mcp`` is how the demo registers this server.
+    """``python -m gramps_agent_data_entry_mcp`` is how the demo registers this server.
 
     ⚠️ It is guarded on ``__name__``, which ``-m`` satisfies -- and without the
     guard merely importing it here started a server reading the real stdin,
     which is how this test found out.
     """
-    import gramps_live_api_mcp.__main__ as entry
+    import gramps_agent_data_entry_mcp.__main__ as entry
 
     assert entry.serve is mcp_server.serve
 
@@ -179,7 +179,7 @@ def test_every_attachable_kind_is_advertised_as_attachable() -> None:
     so a fifth attachable kind that nobody advertises fails here rather than
     silently becoming unreachable through its own documented interface.
     """
-    from gramps_live_api.host import document
+    from gramps_agent_data_entry.host import document
 
     description = mcp_server.PROPOSE_DOCUMENT_DESCRIPTION
     # ⚠️ Anchor updated when the description was reordered for #151: the rules

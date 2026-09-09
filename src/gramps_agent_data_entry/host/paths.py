@@ -19,7 +19,7 @@ import sys
 from collections.abc import Mapping
 from pathlib import Path
 
-from gramps_live_api import config
+from gramps_agent_data_entry import config
 
 TOKEN_FILE = "token"
 PORT_FILE = "port"

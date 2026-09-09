@@ -1,3 +1,4 @@
+⚠️ **Written before the project was renamed to `AgentDataEntry`.** Apart from this line the page is left as it was written; `README.md` records which names the rename changed and which it did not.
 # R9: retire the note flow
 
 **Ruled 2026-09-04.** This page records a decision. It is not a proposal and it is not argued again

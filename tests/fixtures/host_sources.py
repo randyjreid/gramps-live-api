@@ -9,7 +9,7 @@ would be two lists, and the second file somebody adds would go into neither.
 ``gramps_plugin/`` also holds the spawned-CLI write path, which is not host code
 and which R8 retires in a later slice; naming files by a spelling convention
 would either sweep that in or miss the next host file. A plugin module that
-reaches into ``gramps_live_api.host`` is host code by construction, whatever it
+reaches into ``gramps_agent_data_entry.host`` is host code by construction, whatever it
 is named.
 """
 
@@ -20,13 +20,13 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
-HOST_PACKAGE = REPOSITORY_ROOT / "src" / "gramps_live_api" / "host"
+HOST_PACKAGE = REPOSITORY_ROOT / "src" / "gramps_agent_data_entry" / "host"
 PLUGIN_DIRECTORY = REPOSITORY_ROOT / "gramps_plugin"
 
 ACCESSOR = HOST_PACKAGE / "accessor.py"
 """The one module permitted to touch the database. Everything else is bound."""
 
-HOST_IMPORT = "gramps_live_api.host"
+HOST_IMPORT = "gramps_agent_data_entry.host"
 
 
 def package_sources() -> list[Path]:
@@ -47,6 +47,32 @@ def registered_filename(path: Path) -> str | None:
             if keyword.arg == "fname" and isinstance(keyword.value, ast.Constant):
                 registered = keyword.value.value
                 return registered if isinstance(registered, str) else None
+    return None
+
+
+def assigned_constant(path: Path, name: str) -> str | None:
+    """The value a module-level ``name = "..."`` assigns, or ``None``.
+
+    Read from the assignment rather than matched as text, for the same reason
+    ``registered_filename`` above is: a value mentioned in the prose around a
+    constant must not be mistaken for the one being declared. Only module level
+    is looked at, so a local of the same name inside a function cannot answer
+    for the constant.
+    """
+    for node in ast.parse(path.read_text(encoding="utf-8"), filename=str(path)).body:
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        else:
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == name for t in targets):
+            continue
+        value = node.value
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            return value.value
+        return None
     return None
 
 

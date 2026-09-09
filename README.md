@@ -1,6 +1,6 @@
-# gramps-live-api
+# gramps-agent-data-entry
 
-[![CI](https://github.com/randyjreid/gramps-live-api/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/randyjreid/gramps-live-api/actions/workflows/ci.yml)
+[![CI](https://github.com/randyjreid/gramps-agent-data-entry/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/randyjreid/gramps-agent-data-entry/actions/workflows/ci.yml)
 
 **An MCP server that lets an agent propose structured changes to a live desktop application's
 database, with a human approving every write.**
@@ -139,7 +139,7 @@ things that go wrong; this is the shape of it.
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[mcp]"
-claude mcp add gramps -- "$PWD\.venv\Scripts\python.exe" -m gramps_live_api_mcp
+claude mcp add gramps -- "$PWD\.venv\Scripts\python.exe" -m gramps_agent_data_entry_mcp
 ```
 
 If the first line prints a Microsoft Store message instead of doing anything, that is the Store
@@ -155,7 +155,7 @@ project can do for you:
 3. **The tree carries a `.gramps-live-api-copy` sentinel**, placed by hand. Without it every write
    is refused, and that is the whole permission model.
 
-⚠️ **`.\.venv\Scripts\python.exe -m gramps_live_api check` does not report on the first of
+⚠️ **`.\.venv\Scripts\python.exe -m gramps_agent_data_entry check` does not report on the first of
 those, and cannot.** It reads the filesystem: the tree directory, the sentinel, the installed
 runtime, the plugin, and the push hook. It never contacts a running host, and it treats the tree's
 `lock` file as a **failure**, because a locked tree is one Gramps is holding, and it will not break
@@ -170,7 +170,7 @@ client is claimed here that nobody has run.**
 | client | status |
 | --- | --- |
 | **Claude Code** | ⭐ **used throughout development.** Every example in these docs is this client. |
-| **Codex CLI 0.146.0** | ⭐ **tested.** `codex mcp add <name> -- <python> -m gramps_live_api_mcp` registers it as a stdio server; the tool is discovered and invoked, and returns the server's own envelope. |
+| **Codex CLI 0.146.0** | ⭐ **tested.** `codex mcp add <name> -- <python> -m gramps_agent_data_entry_mcp` registers it as a stdio server; the tool is discovered and invoked, and returns the server's own envelope. |
 
 ⚠️ **Codex needs its sandbox opened, or the first call fails and reads like a
 broken server.** Under its defaults (`sandbox: read-only`, `approval: never`)
@@ -365,7 +365,7 @@ the package and never imported by it. Gramps loads them; we do not.
 ## Privacy
 
 This repository is public. The family tree it is built for is not, and no part of it will ever be
-committed here. A guard (`src/gramps_live_api/core/pii_guard.py`) fails the build on absolute
+committed here. A guard (`src/gramps_agent_data_entry/core/pii_guard.py`) fails the build on absolute
 filesystem paths that identify a person or a machine, and on genealogy data, refusing outright any
 file type it cannot prove safe. Three things about it are deliberate: it scans **what Git contains**
 rather than the working tree, because a push publishes every commit it holds; it **fails closed**,
@@ -390,6 +390,46 @@ export, so a person marked private *after* that export was taken was still liste
 accepted as a target — a fail-open the `check` command had to report as a doctor failure rather than
 a warning. R9 retired the tool, the export and the setting together, and every read now goes through
 the accessor against the tree Gramps has open.
+
+## The old name
+
+**This project was called `gramps-live-api` until it was renamed to `AgentDataEntry` on 2026-09-07.**
+The rename changed the addon name and id, the distribution and repository name, the two Python
+packages, the plugin filenames, and the environment variables, which now begin
+`GRAMPS_AGENT_DATA_ENTRY_`.
+
+⛔ **It deliberately changed no name inside a family tree or the state directory**, so no data you
+already have needs moving or re-creating. These keep the old spelling on purpose, and each says so
+in a line beside its own constant:
+
+| what | name, unchanged |
+| --- | --- |
+| the sentinel that blesses a tree for writing | `.gramps-live-api-copy` |
+| the undo journals inside a blessed copy | `.gramps-live-api-undo` |
+| pending proposals inside a blessed copy | `.gramps-live-api-proposals` |
+| the identifier written into every journal record | `gramps-live-api/document/1` |
+| the state directory holding config, logs and backups | `%APPDATA%\gramps-live-api` |
+
+An existing blessing, an existing journal, an existing proposal and an existing backup all keep
+working, and the install doctor keeps printing those names because they are what is on the disk.
+
+⚠️ **What the rename does break is anything you installed BY HAND that names a Python module**, and
+those are copies this repository cannot reach. Three of them, and the first is the one that bites:
+
+- **An installed `pre-push` hook.** Installation is a copy and git never refreshes it, so one taken
+  before the rename still runs the guard under a module name this checkout no longer has -- so
+  **it is no longer running the gate this checkout ships.** What it runs instead depends on what the
+  interpreter it finds can still import, which this repository cannot see. If what you have there is
+  a copy of ours, re-copy it: `cp scripts/hooks/pre-push` over the installed hook, whose path
+  `check` prints; [`CONTRIBUTING.md`](CONTRIBUTING.md) has the command for both shells. ⛔ **If it is
+  a hook of your own, it never was this gate and copying over it would destroy it** -- `check`
+  cannot tell the two apart, so it reports what it found and names no remedy.
+- **An MCP registration whose `args` name the old module.** It stops starting. Re-point it at
+  `gramps_agent_data_entry_mcp`, as under *Getting started* above.
+- **An old plugin junction.** [`docs/using.md`](docs/using.md) says where and how.
+
+Every document under `docs/plans/`, `docs/reviews/` and `docs/rulings/` describes work done under
+the old name and is left exactly as it was written, with one line added at the top of each saying so.
 
 ## Licence
 

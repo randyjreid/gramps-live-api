@@ -13,7 +13,7 @@ detectors now, each precise on its own:
 
 from __future__ import annotations
 
-from gramps_live_api.core.pii_guard import PORTABLE_PATHS, _as_joined, scan_text
+from gramps_agent_data_entry.core.pii_guard import PORTABLE_PATHS, _as_joined, scan_text
 from tests.fixtures.expectations import rules
 from tests.fixtures.synthetic import (
     LONG_SEPARATOR_RUN,
@@ -74,7 +74,7 @@ def test_finding_reports_source_and_line() -> None:
 
 
 def test_relative_paths_are_not_findings() -> None:
-    text = "see docs/example.md and src/gramps_live_api/core/pii_guard.py"
+    text = "see docs/example.md and src/gramps_agent_data_entry/core/pii_guard.py"
     assert scan_text(text) == [], "relative paths must not be P1 findings"
 
 

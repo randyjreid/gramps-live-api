@@ -4,7 +4,7 @@ Run this by hand, never in CI. It reads two files out of one **installation
 root** and prints ``_note_types.py`` on standard output:
 
     python scripts/derive_note_types.py <installation root> \
-        > src/gramps_live_api/core/_note_types.py
+        > src/gramps_agent_data_entry/core/_note_types.py
 
 ⚠️ **On Windows, redirect through ``cmd /c`` or a POSIX shell, never through
 PowerShell's ``>``.** Measured on this box: PowerShell prepends a UTF-8 BOM, so
@@ -45,7 +45,7 @@ derivation date is a fact about a run rather than about the runtime, and stampin
 one would make every re-derivation differ from the file it is checking.
 
 Verification is therefore: re-run over the same installation root, and diff
-against ``src/gramps_live_api/core/_note_types.py`` in the working tree. It was
+against ``src/gramps_agent_data_entry/core/_note_types.py`` in the working tree. It was
 run that way when the committed table was made and the diff was empty.
 
 ⛔ **It FAILS CLOSED.** Any element of either declared list that it cannot read

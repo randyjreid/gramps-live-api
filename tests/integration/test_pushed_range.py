@@ -31,7 +31,7 @@ from pathlib import Path
 
 import pytest
 
-from gramps_live_api.core.pii_guard import main
+from gramps_agent_data_entry.core.pii_guard import main
 from tests.fixtures.pushes import (
     ZERO_SHA,
     Push,

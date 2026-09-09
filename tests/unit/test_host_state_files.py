@@ -21,8 +21,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from gramps_live_api import config
-from gramps_live_api.host import log, paths, tokens
+from gramps_agent_data_entry import config
+from gramps_agent_data_entry.host import log, paths, tokens
 
 
 def test_the_state_directory_is_the_one_the_configuration_already_uses(tmp_path: Path) -> None:
